@@ -1,0 +1,11 @@
+--- a/ai_caddie/caddie/decision.py
++++ b/ai_caddie/caddie/decision.py
+@@ -834,7 +834,7 @@
+     supplied = _float(context.get("distanceToPin_m"), math.nan)
+     has_supplied = math.isfinite(supplied) and 0 < supplied <= MAX_PIN_DISTANCE_M
+     source = context.get("distanceToPinSource")
+-    if source in (None, "manual", "map_target") and has_supplied:
++    if source in ("manual", "map_target") and has_supplied:
+         return supplied
+     route_m = _route_distance(context)
+     if route_m is not None:

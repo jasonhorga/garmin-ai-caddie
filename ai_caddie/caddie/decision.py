@@ -820,16 +820,55 @@ def _club_profile_rows(profiles: Any) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: (-row["median_m"], -row["sampleSize"], row["clubName"]))
 
 
+def _route_distance(context: dict[str, Any]) -> float | None:
+    route = context.get("routeEvidence")
+    if isinstance(route, dict) and route.get("routeLocal"):
+        length = _float(route.get("routeLength_m"), math.nan)
+        if math.isfinite(length) and 0 < length <= MAX_PIN_DISTANCE_M:
+            return length
+    return None
+
+
+def _route_at_endpoint(context: dict[str, Any]) -> bool:
+    route = context.get("routeEvidence")
+    if not isinstance(route, dict) or not route.get("routeLocal"):
+        return False
+    length = _float(route.get("routeLength_m"), math.nan)
+    return math.isfinite(length) and length == 0.0
+
+
+def _planning_distance(context: dict[str, Any]) -> float | None:
+    """Trust legacy/manual numbers; declared automatic/fallback inputs use route geometry."""
+    supplied = _float(context.get("distanceToPin_m"), math.nan)
+    has_supplied = math.isfinite(supplied) and 0 < supplied <= MAX_PIN_DISTANCE_M
+    source = context.get("distanceToPinSource")
+    if source in (None, "manual", "map_target") and has_supplied:
+        return supplied
+    route_m = _route_distance(context)
+    if route_m is not None:
+        return route_m
+    # A GPS/fallback request at the projected route endpoint is a factual zero remaining
+    # distance. Keep the existing one-metre pin lower bound without reviving the stale phone value.
+    if source not in (None, "manual", "map_target") and _route_at_endpoint(context):
+        return 0.0
+    return supplied if has_supplied else None
+
+
 def _sequence_distance(context: dict[str, Any]) -> float:
-    # An installed CoursePrep route is the factual opening plan while the request is still a tee
-    # request.  GPS-derived ``holeRemaining_m`` can be tens of metres short because the fix is on
-    # the tee apron or the selected tee/centerline differs from the Garmin route; letting it replace
-    # the installed route drops the final scoring leg (for example ``1W -> 3H -> 58`` becomes only
-    # ``1W -> 3H``).  Once the player is in an approach/recovery context, the live distance wins.
     shot_type = str(context.get("shotType") or context.get("shot_type") or "tee").strip().lower()
     canonical = _float(context.get("canonicalPlanRouteLength_m"), 0.0)
     has_canonical_plan = isinstance(context.get("canonicalShotPlan") or context.get("canonicalPlan"), list)
-    if shot_type == "tee" and has_canonical_plan and math.isfinite(canonical) and 0.0 < canonical <= MAX_PIN_DISTANCE_M:
+    has_canonical = shot_type == "tee" and has_canonical_plan and math.isfinite(canonical) and 0.0 < canonical <= MAX_PIN_DISTANCE_M
+    # Legacy tee requests omit provenance. Preserve main's CoursePrep authority before the
+    # phone number and remaining-polyline fallbacks; explicit source values use _planning_distance.
+    if context.get("distanceToPinSource") is None and has_canonical:
+        return canonical
+    distance = _planning_distance(context)
+    if distance is not None:
+        return distance
+    # With neither a supplied distance nor a usable polyline, keep the installed opening
+    # plan before the older remaining-distance aliases and hole-yardage fallbacks.
+    if has_canonical:
         return canonical
     # A live/manual distance is more current than the package's tee-distance fallback.
     for key in ("distanceToPin_m", "remainingToPin_m", "holeRemaining_m"):
@@ -2879,6 +2918,9 @@ def _route_evidence_length(route_evidence: dict[str, Any]) -> float:
 
 
 def _route_target_for_carry(route_evidence: dict[str, Any], carry_m: float, route_length: float) -> list[float] | None:
+    if route_evidence.get("routeLocal"):
+        from ai_caddie.geometry.geometry_evidence import route_target_at_distance
+        return route_target_at_distance(route_evidence, carry_m)
     start = _local_point(route_evidence.get("routeStartLocal"))
     target = _local_point(route_evidence.get("routeTargetLocal"))
     if start is None or target is None or route_length <= 0:
@@ -3239,7 +3281,11 @@ def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[
         "label": OPTION_LABELS.get(option_id, str(route.get("label") or option_id)),
         "routeLabel": route.get("label"),
         "carry_m": carry_m,
-        "targetLocal": route.get("landingLocal") or route.get("targetLocal"),
+        "targetLocal": (
+            _target_local_from_route_evidence(analysis, carry_m)
+            if (analysis.get("routeEvidence") or {}).get("routeLocal")
+            else route.get("landingLocal") or route.get("targetLocal")
+        ),
         "targetWindow": target_window,
         "expectedSurface": route.get("expectedSurface"),
         "riskScore": risk_score,
@@ -4691,7 +4737,7 @@ def _apply_live_location(context: dict[str, Any]) -> dict[str, Any]:
     analysis = dict(context)
     current = _coordinate(analysis.get("currentLocation"))
     target = _coordinate(_target_location(analysis))
-    if current is None or target is None or _has_pin_distance(analysis):
+    if current is None or target is None or _has_pin_distance({"distanceToPin_m": analysis.get("distanceToPin_m")}):
         return analysis
 
     distance_m = round(_haversine_m(current, target), 1)
@@ -5206,13 +5252,17 @@ def _with_option_contract(
 
 
 def _pin_distance(context: dict[str, Any]) -> float:
-    return max(1.0, _float(context.get("distanceToPin_m"), 0.0))
+    distance = _planning_distance(context)
+    return max(1.0, distance) if distance is not None else 1.0
 
 
 def _has_pin_distance(context: dict[str, Any]) -> bool:
     """Only a finite distance within golf range supports pin-distance decisions and evidence."""
     distance_m = _float(context.get("distanceToPin_m"), math.nan)
-    return math.isfinite(distance_m) and 0.0 < distance_m <= MAX_PIN_DISTANCE_M
+    if math.isfinite(distance_m) and 0.0 < distance_m <= MAX_PIN_DISTANCE_M:
+        return True
+    route_m = _route_distance(context)
+    return route_m is not None and route_m > 0
 
 
 def _shot_option(
@@ -5467,7 +5517,13 @@ def _recovery_options(context: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _shot_context(analysis: dict[str, Any], shot_type: str) -> dict[str, Any]:
     source_ref = _source_ref(analysis, shot_type)
-    distance_to_pin_m = analysis.get("distanceToPin_m") if _has_pin_distance(analysis) else None
+    supplied_distance = analysis.get("distanceToPin_m")
+    if _has_pin_distance({"distanceToPin_m": supplied_distance}):
+        distance_to_pin_m = supplied_distance
+    elif _has_pin_distance(analysis):
+        distance_to_pin_m = _pin_distance(analysis)
+    else:
+        distance_to_pin_m = None
     context = {
         "roundId": analysis.get("roundId"),
         "source": analysis.get("source"),
@@ -5478,6 +5534,7 @@ def _shot_context(analysis: dict[str, Any], shot_type: str) -> dict[str, Any]:
         "localHole": analysis.get("localHole"),
         "shotType": shot_type,
         "distanceToPin_m": distance_to_pin_m,
+        **({"distanceToPinSource":analysis["distanceToPinSource"]} if "distanceToPinSource" in analysis else {}),
         "currentLocation": analysis.get("currentLocation"),
         "targetLocation": analysis.get("targetLocation"),
         "shotBearingDeg": analysis.get("shotBearingDeg"),
@@ -5503,9 +5560,9 @@ def _shot_evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) ->
             else "prodgeometry mesh data is missing"
         ),
     }]
-    distance_m = analysis.get("distanceToPin_m")
     if _has_pin_distance(analysis):
-        rows.append({"kind": "green", "text": f"distance to pin={round(_float(distance_m), 1)}m"})
+        distance_m = _pin_distance(analysis)
+        rows.append({"kind": "green", "text": f"distance to pin={round(distance_m, 1)}m"})
     live_distance = analysis.get("_liveDistanceEvidence")
     if isinstance(live_distance, dict):
         rows.append(

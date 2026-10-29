@@ -92,6 +92,23 @@ def _assert_json_schema_rejects(testcase: unittest.TestCase, schema: dict[str, o
 
 
 class MobileContractTests(unittest.TestCase):
+    def test_caddie_distance_source_is_optional_and_roundtrips_in_context(self):
+        """J5.11: old clients and future source strings keep the open decision context."""
+        from server_v2.models import CaddieDecisionRequest
+        schema = CaddieDecisionRequest.model_json_schema()
+        source_schema = schema["properties"]["context"]["properties"]["distanceToPinSource"]
+        self.assertEqual(source_schema["type"],["string","null"])
+        self.assertNotIn("distanceToPinSource",schema["properties"]["context"].get("required",[]))
+        self.assertTrue(schema["properties"]["context"]["additionalProperties"])
+        for source in [None,"manual","map_target","gps_auto","fallback","future_source"]:
+            with self.subTest(source=source):
+                context = {"distanceToPin_m":70,"sourceRef":"fixture-distance:1","futureFact":{"value":1}}
+                if source is not None:
+                    context["distanceToPinSource"] = source
+                payload = {"shotType":"approach","context":context,"includeExplanation":False}
+                Draft202012Validator(schema).validate(payload)
+                self.assertEqual(CaddieDecisionRequest.model_validate(payload).model_dump()["context"],context)
+
     def test_package_venue_loop_directory_includes_current_and_sibling_nines(self) -> None:
         # C96: package discovery must provide factual same-venue nines even when history/options
         # are empty.  The expected rows come from CourseView nearby records, not client synthesis.

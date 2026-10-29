@@ -7,6 +7,7 @@ from typing import Any, Iterable, Literal
 from ai_caddie.core.data import ROOT, hazard_path, local_to_wgs84, mesh_path, read_json, wgs84_to_local
 from ai_caddie.geometry.measure_prodgeometry_distances import (
     bind_selected_green_target,
+    mesh_components,
     mesh_point_to_local,
     point_in_triangle,
 )
@@ -641,6 +642,174 @@ def classify_shot_surface(
     }
 
 
+def route_with_stations(points: Iterable[Any]) -> list[list[float]]:
+    """Local route vertices with cumulative metres, retaining full measurement precision."""
+    route: list[list[float]] = []
+    station = 0.0
+    for point in points:
+        local = _position_to_local(point, None, None)
+        if local is None or not all(math.isfinite(value) for value in local):
+            return []
+        if route:
+            distance = math.dist(local, route[-1][:2])
+            if distance <= 1e-8:
+                continue
+            station += distance
+        route.append([*local, station])
+    return route
+
+
+def remaining_route(points: Iterable[Any], position: Any) -> tuple[list[list[float]], float]:
+    """Use the projection to choose the next vertex, then measure from the actual ball."""
+    route = route_with_stations(points)
+    point = _position_to_local(position, None, None)
+    if point is None or not all(math.isfinite(value) for value in point) or len(route) < 2:
+        return route, 0.0
+    candidates = []
+    for index, (start, end) in enumerate(zip(route, route[1:])):
+        dx, dy = end[0] - start[0], end[1] - start[1]
+        length_sq = dx * dx + dy * dy
+        fraction = max(0.0, min(1.0, ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / length_sq))
+        projected = [start[0] + fraction * dx, start[1] + fraction * dy]
+        station = start[2] + fraction * (end[2] - start[2])
+        candidates.append((math.dist(point, projected), -station, index, projected))
+    _gap, negative_station, index, projected = min(candidates)
+    return route_with_stations([point, *route[index + 1:]]), -negative_station
+
+
+def route_target_at_distance(evidence: dict[str, Any], distance_m: float) -> list[float] | None:
+    """Map a candidate carry/landing station onto the same route used for hazard measurement."""
+    route = evidence.get("routeLocal")
+    if isinstance(route, list) and route:
+        route = route_with_stations(route)
+        if len(route) == 1:
+            return _rounded_point(route[0][:2])
+        if len(route) >= 2:
+            station = max(0.0, min(float(distance_m), route[-1][2]))
+            for start, end in zip(route, route[1:]):
+                if station <= end[2]:
+                    fraction = (station - start[2]) / (end[2] - start[2])
+                    return [round(start[i] + fraction * (end[i] - start[i]), 1) for i in (0, 1)]
+    # Preserve legacy two-anchor requests (including their extrapolated carry) byte-for-byte.
+    start = _position_to_local(evidence.get("routeStartLocal"), None, None)
+    target = _position_to_local(evidence.get("routeTargetLocal"), None, None)
+    length = float(evidence.get("routeLength_m") or 0)
+    if start is None or target is None or length <= 0:
+        landing = evidence.get("landingWindowLocal") or {}
+        return _position_to_local(landing.get("center"), None, None) or target
+    return [round(start[i] + (target[i] - start[i]) * distance_m / length, 1) for i in (0, 1)]
+
+
+def _segment_mesh_spans(start, end, component):
+    """Clip against each triangle in linear time, independent of mesh tessellation.
+
+    Testing every cut against the whole mesh is quadratic on a densely triangulated lake.
+    Triangle half-planes give the same exact segment intervals, which the caller unions.
+    """
+    bbox = component.get("bbox")
+    if bbox and (max(start[0],end[0]) < bbox[0] or min(start[0],end[0]) > bbox[2]
+                 or max(start[1],end[1]) < bbox[1] or min(start[1],end[1]) > bbox[3]):
+        return
+    for a, b, c in component["triangles"]:
+        area = (b[0]-a[0])*(c[1]-a[1]) - (b[1]-a[1])*(c[0]-a[0])
+        if abs(area) < 1e-12:
+            continue
+        sign = 1 if area > 0 else -1
+        front, back = 0.0, 1.0
+        for p, q in ((a,b),(b,c),(c,a)):
+            dx, dy = q[0]-p[0], q[1]-p[1]
+            at_start = sign * (dx*(start[1]-p[1]) - dy*(start[0]-p[0]))
+            delta = sign * (dx*(end[1]-start[1]) - dy*(end[0]-start[0]))
+            if abs(delta) < 1e-12:
+                if at_start < -1e-9:
+                    back = -1.0
+                    break
+            elif delta > 0:
+                front = max(front, -at_start/delta)
+            else:
+                back = min(back, -at_start/delta)
+            if back < front:
+                break
+        if back > front:
+            yield front, back
+
+
+def _route_may_cross_bounds(route: list[list[float]], bounds: Any) -> bool:
+    """Conservative broad phase before expanding a compact hazard's source mesh.
+
+    Exported component bounds have two decimal places; pad by 2 cm so their rounding cannot
+    discard a grazing intersection. Missing/invalid bounds always take the exact mesh path.
+    """
+    if not isinstance(bounds, (list, tuple)) or len(bounds) != 4:
+        return True
+    try:
+        xmin, ymin, xmax, ymax = map(float, bounds)
+    except (ValueError, TypeError):
+        return True
+    if not all(math.isfinite(value) for value in (xmin, ymin, xmax, ymax)) or xmin > xmax or ymin > ymax:
+        return True
+    for start, end in zip(route, route[1:]):
+        front, back = 0.0, 1.0
+        for axis, low, high in ((0, xmin - 0.02, xmax + 0.02), (1, ymin - 0.02, ymax + 0.02)):
+            delta = end[axis] - start[axis]
+            if abs(delta) < 1e-12:
+                if not low <= start[axis] <= high:
+                    back = -1.0
+                    break
+            else:
+                first, last = sorted(((low - start[axis]) / delta, (high - start[axis]) / delta))
+                front, back = max(front, first), min(back, last)
+                if back < front:
+                    break
+        if back >= front:
+            return True
+    return False
+
+
+def _polyline_hazard_intersections(
+    route: list[list[float]], hazard: dict[str, Any], *, fallback_id: str,
+    component: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Union exact segment/polygon or segment/mesh intersections in cumulative route space."""
+    ring = hazard.get("polygon") or hazard.get("points") or hazard.get("path")
+    if component is None and (not isinstance(ring, list) or len(ring) < 3):
+        return []
+    intervals = []
+    for start, end in zip(route, route[1:]):
+        if component is not None:
+            spans = _segment_mesh_spans(start, end, component)
+        else:
+            edges = list(zip(ring, [*ring[1:], ring[0]]))
+            cuts = {0.0, 1.0}
+            for first, second in edges:
+                hit = _segment_intersection(tuple(start[:2]), tuple(end[:2]), tuple(first[:2]), tuple(second[:2]))
+                if hit is not None:
+                    cuts.add(max(0.0, min(1.0, hit[2])))
+            ordered = sorted(cuts)
+            spans = [(first, second) for first, second in zip(ordered, ordered[1:])
+                     if _point_in_ring([start[i] + (end[i] - start[i]) * (first + second) / 2 for i in (0, 1)], ring)]
+        for front, back in spans:
+            if back - front > 1e-9:
+                intervals.append((start[2] + front * (end[2] - start[2]), start[2] + back * (end[2] - start[2])))
+    merged: list[tuple[float, float]] = []
+    for front, back in sorted(intervals):
+        if merged and front <= merged[-1][1] + 1e-6:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], back))
+        else:
+            merged.append((front, back))
+    rows = []
+    for index, (front, back) in enumerate(merged):
+        for edge, station in (("front", front), ("back", back)):
+            rows.append({
+                "hazardId": str(hazard.get("id") or fallback_id), "kind": _surface_kind(hazard, "hazard"),
+                "edge": edge, "intervalIndex": index,
+                "local": route_target_at_distance({"routeLocal": route}, station),
+                "routeFraction": round(station / route[-1][2], 4),
+                "distanceFromStart_m": round(station, 1),
+            })
+    return rows
+
+
 def build_route_geometry_evidence(
     global_id: int,
     local_hole: int,
@@ -649,6 +818,8 @@ def build_route_geometry_evidence(
     target: Any | None = None,
     landing_radius_m: float = 18.0,
     _hazards_override: dict[str, Any] | None = None,
+    route: list[Any] | None = None,
+    _meshes_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     coverage = geometry_coverage_for_hole(
         int(global_id), int(local_hole), require_hazards=True
@@ -660,6 +831,7 @@ def build_route_geometry_evidence(
         # authority-bound hazard export, avoiding a second parse of the same geometry sources.
         # Public geometry APIs keep the normal loader path.
         hazards = _hazards_override
+        _meshes = _meshes_override or {}
     ref_lat = hazards.get("refLat")
     ref_lon = hazards.get("refLon")
     ref_lat_float = float(ref_lat) if ref_lat is not None else None
@@ -669,6 +841,10 @@ def build_route_geometry_evidence(
     if target_position is None and isinstance(hazards.get("target"), dict):
         target_position = hazards["target"].get("position")
     target_local = _position_to_local(target_position, ref_lat_float, ref_lon_float)
+    polyline = route_with_stations(route) if route is not None else []
+    origin_offset = 0.0
+    if polyline:
+        start_local, target_local = polyline[0][:2], polyline[-1][:2]
     missing_data = list(coverage["missingData"])
     if start_local is None:
         missing_data.append({"label": "route_start", "reason": "route start position is unavailable"})
@@ -682,11 +858,17 @@ def build_route_geometry_evidence(
     landing_window_risks: list[dict[str, Any]] = []
     avoid_zones: list[dict[str, Any]] = []
     route_length = _point_distance(start_local, target_local) if start_local and target_local else None
+    if polyline:
+        route_length = polyline[-1][2]
     authority_tee_index = _authority_tee_index_for_route(
         hazards,
         start_local=start_local,
         target_local=target_local,
     )
+    if polyline:
+        # The compact tee distances describe a straight chord, never a dogleg route.
+        authority_tee_index = None
+    components_by_mesh: dict[str, list[dict[str, Any]]] = {}
 
     if start_local and target_local:
         for index, hazard in enumerate(hazards.get("hazards") or []):
@@ -696,12 +878,24 @@ def build_route_geometry_evidence(
             kind = _surface_kind(hazard, "hazard")
             if kind not in ROUTE_RISK_KINDS:
                 continue
-            route_rows = _route_intersections_for_hazard(
-                start_local,
-                target_local,
-                hazard,
-                fallback_id=fallback_id,
-            )
+            if polyline and not _route_may_cross_bounds(polyline, hazard.get("bbox")):
+                route_rows = []
+            elif polyline:
+                component = None
+                source = str(hazard.get("source") or "")
+                if source and hazard.get("component") is not None:
+                    if source not in components_by_mesh:
+                        mesh = next((row for row in _meshes.get("meshes") or [] if row.get("name") == source), None)
+                        components_by_mesh[source] = mesh_components(mesh) if mesh else []
+                    component_index = int(hazard["component"]) - 1
+                    components = components_by_mesh[source]
+                    if 0 <= component_index < len(components):
+                        component = components[component_index]
+                route_rows = _polyline_hazard_intersections(polyline, hazard, fallback_id=fallback_id, component=component)
+                if component is None and not any(hazard.get(key) for key in ("polygon", "points", "path")):
+                    missing_data.append({"label": "route_hazard_geometry", "reason": f"{fallback_id}: polygon/mesh unavailable for polyline measurement"})
+            else:
+                route_rows = _route_intersections_for_hazard(start_local, target_local, hazard, fallback_id=fallback_id)
             used_authority_distances = False
             if not route_rows and authority_tee_index is not None and route_length is not None:
                 route_rows = _authority_tee_route_intersections(
@@ -811,6 +1005,8 @@ def build_route_geometry_evidence(
         "routeStartLocal": _rounded_point(start_local),
         "routeTargetLocal": _rounded_point(target_local),
         "routeLength_m": round(route_length, 1) if route_length is not None else None,
+        **({"routeLocal": [[round(x, 3), round(y, 3), round(station, 3)] for x, y, station in polyline]} if polyline else {}),
+        **({"routeOriginOffset_m": round(origin_offset, 3)} if polyline else {}),
         "landingWindowLocal": {
             "center": _rounded_point(target_local),
             "radius_m": round(float(landing_radius_m), 1),

@@ -1,0 +1,11 @@
+--- a/ai_caddie/caddie/decision.py
++++ b/ai_caddie/caddie/decision.py
+@@ -849,7 +849,7 @@
+     has_canonical = shot_type == "tee" and has_canonical_plan and math.isfinite(canonical) and 0.0 < canonical <= MAX_PIN_DISTANCE_M
+     # Legacy tee requests omit provenance. Preserve main's CoursePrep authority before the
+     # phone number and remaining-polyline fallbacks; explicit source values use _planning_distance.
+-    if context.get("distanceToPinSource") is None and has_canonical:
++    if context.get("distanceToPinSource") == "legacy_tee" and has_canonical:
+         return canonical
+     distance = _planning_distance(context)
+     if distance is not None:

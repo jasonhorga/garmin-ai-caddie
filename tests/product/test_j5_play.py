@@ -188,6 +188,344 @@ class PlayTests(HTTPFixture, unittest.TestCase):
         self.assertEqual({k:v for k,v in self.disk().items() if "/swing-candidates/" not in k}, before)
 
 
+
+class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
+    """J4.6/J5.11: online routes, hazards and landings share physical route stations."""
+
+    def install_route_geometry(self, *, straight=False):
+        # Hand geometry: two 200 m legs, a 60–100 m water crossing, and a lake that only
+        # the diagonal shortcut crosses. Driver 240 + 8I 160 reaches the green at station 400.
+        route = [[0, 0], [0, 400]] if straight else [[0, 0], [0, 200], [200, 200]]
+        target = route[-1]
+        hazards = {"globalId": 90101, "refLat": 0, "refLon": 0,
+                   "tees": [{"tee_index": 1, "sets": [2], "position": route[0], "target_distance_m": 400}],
+                   "target": {"position": target}, "hazards": [
+                       {"id": "water_1", "kind": "water", "polygon": [[-5,60],[5,60],[5,100],[-5,100]]}]}
+        if not straight:
+            hazards["hazards"].append({"id": "water_2", "kind": "water",
+                                       "polygon": [[40,40],[180,40],[180,180],[40,180]]})
+        md = {"hole": {"TeeLocations": [{"X": 0, "Y": 0, "Sets": [2]}],
+                       "Doglegs": [{"Line": [{"X": x, "Y": y} for x,y in route]}]}, "meshes": []}
+        from ai_caddie.geometry import hole_render
+        from ai_caddie.courses import course_reference
+        ready = {"coverage": "ready", "hasHazards": True, "hasMeshes": True, "missingData": [], "evidence": []}
+        self.stack.enter_context(patch.object(mobile_live, "_load_mobile_hazards", return_value=hazards))
+        self.stack.enter_context(patch.object(mobile_live, "geometry_coverage_for_hole", return_value=ready))
+        self.stack.enter_context(patch.object(geometry_evidence, "geometry_coverage_for_hole", return_value=ready))
+        self.stack.enter_context(patch.object(geometry_evidence, "_load_hole_sources", return_value=(hazards, md)))
+        gx, gy = target
+        green = {"name": "Green.drc", "positions": [[-x,0,y] for x,y in
+                 [(gx-10,gy-10),(gx+10,gy-10),(gx+10,gy+10),(gx-10,gy+10)]], "faces": [[0,1,2],[0,2,3]]}
+        md["meshes"] = [green]
+        self.stack.enter_context(patch.object(hole_render, "load_mesh", return_value=(md, {"Green.drc": green})))
+        self.stack.enter_context(patch.object(course_reference, "courseview_tees", return_value=[{"index": 2, "name": "Blue"}]))
+        self.route_hazards = hazards
+        self.route_context = {"source": "ios_live", "sourceRef": "fixture-polyline:1", "globalId": 90101,
+            "hole": 1, "localHole": 1, "teeBox": "blue", "par": 4, "yards": 437,
+            "distanceToPin_m": 400 if straight else 282.8,
+            "distanceToPinSource":"gps_auto",
+            "greenDistances": {"frontM": 390 if straight else 270, "middleM": 400 if straight else 282.8,
+                               "backM": 410 if straight else 300, "frontRouteM": 390, "backRouteM": 400},
+            "clubProfiles": {name: {"clubName": name, "median_m": carry, "p10_m": carry-5,
+                                     "p90_m": carry+5, "sampleSize": 20}
+                             for name, carry in [("Driver",240),("8I",160)]}}
+
+    def online_decision(self):
+        response = self.client.post("/api/v2/caddie/decision", json={"shotType": "tee", "context": self.route_context,
+                                                                         "includeExplanation": False})
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()
+
+    def test_j5_11_dogleg_uses_route_stations_for_hazards_and_two_shot_finish(self):
+        self.install_route_geometry()
+        seed = mobile_live.hydrate_live_caddie_geometry_context(self.route_context)
+        plan = self.online_decision()
+        self.assertTrue(plan["sequences"], "a diagonal lake must not make the playable dogleg infeasible")
+        self.assertEqual(seed["routeEvidence"]["routeLength_m"], 400)
+        zones = seed["routeEvidence"]["avoidZones"]
+        self.assertEqual([(z["id"],z["carryToFront_m"],z["carryToClear_m"]) for z in zones], [("water_1",60,100)])
+        self.assertTrue(any([step["clubName"] for step in seq["clubs"]] == ["Driver","8I"] for seq in plan["sequences"]), plan["sequences"])
+        driver = next(option for option in plan["options"] if option["club"] == "Driver")
+        self.assertEqual(driver["targetLocal"], [40,200], "240 route metres is after the bend, never on the diagonal")
+        # A route-evidence-only consumer must interpolate the same landing without prebuilt candidates.
+        geometry_plan = build_decision_plan({**seed, "shotType":"tee", "candidateRoutes":[]})
+        geometry_driver = next(option for option in geometry_plan["options"] if option["club"] == "Driver")
+        self.assertEqual(geometry_driver["targetLocal"], [40,200])
+        self.assertEqual(max(step["routeOffset_m"] for seq in plan["sequences"] for step in seq["clubs"]), 400)
+
+    def position_decision(self, local, distance=None, **extras):
+        from ai_caddie.geometry.shot_projection import local_to_world
+        from server_v2 import caddie
+        lat, lon = local_to_world(*local, ref_lat=0, ref_lon=0)
+        context = {**self.route_context, "currentLocation":{"latitude":lat,"longitude":lon}, **extras}
+        if "distanceToPinSource" not in extras:
+            context.pop("distanceToPinSource", None)
+        context.pop("distanceToPin_m", None)
+        if distance is not None:
+            context["distanceToPin_m"] = distance
+        captured = {}
+        hydrate = caddie.hydrate_live_caddie_geometry_context
+        def capture(*args, **kwargs):
+            value = hydrate(*args, **kwargs)
+            captured.update(value)
+            return value
+        with patch.object(caddie, "hydrate_live_caddie_geometry_context", side_effect=capture):
+            response = self.client.post("/api/v2/caddie/decision", json={"shotType":"approach",
+                "context":context, "includeExplanation":False})
+        self.assertEqual(response.status_code, 200, response.text)
+        return captured, response.json()
+
+    def test_j5_11_gps_remaining_starts_at_ball_beside_and_past_green(self):
+        self.install_route_geometry()
+        observations = []
+        # Independent distances to (200,200): 20, sqrt(10²+25²), 15.
+        for local, phone, remaining, carries in [
+            ((200,220),20,20,[10,20,28]),
+            ((190,225),27,26.9,[17,27,35]),
+            ((215,200),15,15,[5,15,23]),
+        ]:
+            seed, plan = self.position_decision(local, phone)
+            observations.append({"local":local, "holeRemaining":seed["holeRemaining_m"],
+                "carries":[o["carry_m"] for o in plan["options"]]})
+        print("GREEN_POSITION_PROBE=" + json.dumps(observations))
+        self.assertEqual([r["holeRemaining"] for r in observations], [20,26.9,15])
+
+    def test_j5_11_supplied_pin_distance_is_preserved_near_green(self):
+        self.install_route_geometry()
+        carries = []
+        for local, phone in [((200,220),20),((190,225),27),((215,200),15)]:
+            _seed, plan = self.position_decision(local,phone)
+            carries.append([o["carry_m"] for o in plan["options"]])
+        self.assertEqual(carries, [[10,20,28],[17,27,35],[5,15,23]])
+
+    def test_j5_11_distance_sources_choose_phone_or_remaining_polyline(self):
+        self.install_route_geometry()
+        from ai_caddie.caddie.decision import _sequence_distance
+        # Ball on the final leg, 100 m from (200,200); caller says 70 m.
+        for source, expected in [(None,70),("manual",70),("map_target",70),
+                                 ("gps_auto",100),("fallback",100),("future_source",100)]:
+            with self.subTest(source=source):
+                extra = {} if source is None else {"distanceToPinSource":source}
+                seed, plan = self.position_decision((100,200),70,**extra)
+                self.assertEqual(seed["holeRemaining_m"],100)
+                self.assertEqual(_sequence_distance(seed),expected)
+                self.assertEqual(plan["context"].get("distanceToPinSource"),source)
+                self.assertEqual([o["carry_m"] for o in plan["options"]],
+                                 [expected-10,expected,expected+8])
+
+    def test_j5_11_legacy_tee_route_precedes_phone_distance(self):
+        from ai_caddie.caddie.decision import _route_distance, _sequence_distance, _shot_context
+
+        canonical = [{"clubName": "1W", "routeOffset_m": 199.2},
+                     {"clubName": "3H", "routeOffset_m": 363.8},
+                     {"clubName": "58", "routeOffset_m": 396.0}]
+        legacy = {"shotType": "tee", "distanceToPin_m": 344.7,
+                  "canonicalShotPlan": canonical, "canonicalPlanRouteLength_m": 396.0}
+        # A legacy tee request has no provenance; the installed 396 m route is authoritative
+        # before its shorter phone reading. An explicit fallback uses the measured route instead.
+        self.assertEqual(_sequence_distance(legacy), 396.0)
+        fallback = {**legacy, "distanceToPinSource": "fallback",
+                    "routeEvidence": {"routeLocal": [[0, 0, 0], [0, 396, 396]], "routeLength_m": 396.0}}
+        self.assertEqual(_sequence_distance(fallback), 396.0)
+        # Invalid phone distance is not echoed when a usable route remains; a zero route is unusable.
+        invalid = {"distanceToPin_m": 0.0, "routeEvidence": fallback["routeEvidence"]}
+        self.assertEqual(_shot_context(invalid, "approach")["distanceToPin_m"], 396.0)
+        self.assertIsNone(_route_distance({"routeEvidence": {"routeLocal": [[0, 0, 0]], "routeLength_m": 0.0}}))
+
+    def test_j5_11_distance_sources_fall_back_when_route_is_missing(self):
+        from ai_caddie.caddie.decision import _sequence_distance, recommend_approach
+        # With no geometry, every source must retain the usable number; no invented route.
+        for source in [None,"manual","map_target","gps_auto","fallback","future_source"]:
+            with self.subTest(source=source):
+                context = {"source":"fixture","sourceRef":"fixture-distance:1","shotType":"approach",
+                           "distanceToPin_m":70,"lie":"fairway"}
+                if source is not None:
+                    context["distanceToPinSource"] = source
+                self.assertEqual(_sequence_distance(context),70)
+                self.assertEqual([o["carry_m"] for o in recommend_approach(context)["options"]],[60,70,78])
+
+    def test_j5_11_explicit_distance_wins_over_dogleg_route(self):
+        self.install_route_geometry()
+        # An explicit map target is 70 m away; the hole centerline still has 250 m.
+        seed, plan = self.position_decision((0,150),70,
+            targetLocation={"latitude":0.002,"longitude":0.0001,"source":"ios_target","kind":"target"})
+        self.assertEqual(seed["holeRemaining_m"],250)
+        self.assertEqual([o["carry_m"] for o in plan["options"]],[60,70,78])
+        from ai_caddie.caddie.decision import _sequence_distance
+        self.assertEqual(_sequence_distance(seed),70)
+
+    def test_j5_11_unspecified_public_route_keeps_callers_two_anchors(self):
+        self.install_route_geometry()
+        route = geometry_evidence.build_route_geometry_evidence(90101,1,start=[10,150],target=[200,200])
+        self.assertEqual(route["routeStartLocal"],[10,150])
+        self.assertEqual(route["routeLength_m"],196.5)  # sqrt(190²+50²)
+        self.assertNotIn("routeLocal",route)
+        from ai_caddie.caddie.caddie_context import _route_evidence_for_context
+        context_route = _route_evidence_for_context(global_id=90101,local_hole=1,
+            route_start={"x":10,"y":150},route_target={"x":200,"y":200},landing_radius_m=18)
+        self.assertEqual(context_route["routeStartLocal"],[10,150])
+        self.assertNotIn("routeLocal",context_route)
+
+    def test_j5_11_live_position_uses_only_the_route_after_its_projection(self):
+        self.install_route_geometry()
+        # Ten metres beside station 150: ball->corner is sqrt(10²+50²), then 200 m.
+        from ai_caddie.geometry.shot_projection import local_to_world
+        lat, lon = local_to_world(10,150,ref_lat=0,ref_lon=0)
+        self.route_context["currentLocation"] = {"latitude": lat, "longitude": lon}
+        seed = mobile_live.hydrate_live_caddie_geometry_context(self.route_context)
+        route = seed["routeEvidence"]
+        self.assertEqual(route["routeStartLocal"], [10,150])
+        self.assertEqual(route["routeLength_m"], 251)
+        self.assertEqual(seed["holeRemaining_m"], 251)
+        self.assertEqual((seed["greenDistances"]["frontRouteM"],seed["greenDistances"]["backRouteM"]), (241,251))
+        self.assertEqual(route["avoidZones"], [], "the 60–100 m crossing is behind the current station")
+
+    def test_j5_11_route_end_has_no_remaining_tee_distance(self):
+        self.install_route_geometry()
+        from ai_caddie.geometry.shot_projection import local_to_world
+        lat, lon = local_to_world(200,200,ref_lat=0,ref_lon=0)
+        self.route_context["currentLocation"] = {"latitude":lat,"longitude":lon}
+        seed = mobile_live.hydrate_live_caddie_geometry_context(self.route_context)
+        self.assertEqual(seed["routeEvidence"]["routeStartLocal"], [200,200])
+        self.assertEqual(seed["routeEvidence"]["routeLength_m"], 0)
+        self.assertEqual(seed["holeRemaining_m"], 0)
+        self.assertEqual(seed["candidateRoutes"], [])
+        from ai_caddie.caddie.decision import _sequence_distance
+        self.assertEqual(_sequence_distance(seed), 0)
+
+    def test_j5_11_straight_route_retains_the_hand_calculated_decision(self):
+        self.install_route_geometry(straight=True)
+        seed = mobile_live.hydrate_live_caddie_geometry_context(self.route_context)
+        plan = self.online_decision()
+        self.assertEqual(seed["routeEvidence"]["routeLength_m"], 400)
+        self.assertEqual([(z["carryToFront_m"],z["carryToClear_m"]) for z in seed["routeEvidence"]["avoidZones"]], [(60,100)])
+        self.assertTrue(any([step["clubName"] for step in seq["clubs"]] == ["Driver","8I"] for seq in plan["sequences"]), plan["sequences"])
+        self.assertEqual([step["routeOffset_m"] for seq in plan["sequences"] if seq["clubs"][0]["clubName"] == "Driver"
+                          for step in seq["clubs"]], [240,400])
+
+
+    def test_j5_11_water_after_the_bend_uses_cumulative_mesh_intersections(self):
+        # Compact exports contain straight-chord summaries, not polygons. Read the factual mesh.
+        # The first 100 m leg precedes a lake at x=20..40 on the second leg: 120..140 m.
+        mesh = {"name": "Lake.drc", "positions": [[-20,0,95],[-40,0,95],[-40,0,105],[-20,0,105]],
+                "faces": [[0,1,2],[0,2,3]]}
+        hazard = {"id": "water_1", "kind": "water", "source": "Lake.drc", "component": 1,
+                  "tee_distances": [{"tee_index": 1, "along_target_line_m": [{"start_m": 5, "end_m": 199}]}]}
+        for faces in ([[0,1,2],[0,2,3]], [[2,1,0],[3,2,0]]):
+            with self.subTest(faces=faces), patch.object(geometry_evidence, "geometry_coverage_for_hole", return_value={"coverage":"ready","missingData":[]}):
+                route = geometry_evidence.build_route_geometry_evidence(90101,1,start=[0,0],target=[100,100],
+                    route=[[0,0],[0,100],[100,100]], _hazards_override={"refLat":0,"refLon":0,"hazards":[hazard]},
+                    _meshes_override={"meshes":[{**mesh,"faces":faces}]})
+                self.assertEqual([(z["carryToFront_m"],z["carryToClear_m"]) for z in route["avoidZones"]], [(120,140)])
+                self.assertEqual([r["local"] for r in route["lineIntersections"]], [[20,100],[40,100]])
+
+        # A replacement decoded mesh (same source name) must not reuse the previous revision.
+        moved = {**mesh, "positions":[[x-100,z,y] for x,z,y in mesh["positions"]]}
+        with patch.object(geometry_evidence, "geometry_coverage_for_hole", return_value={"coverage":"ready","missingData":[]}):
+            route = geometry_evidence.build_route_geometry_evidence(90101,1,start=[0,0],target=[100,100],
+                route=[[0,0],[0,100],[100,100]], _hazards_override={"refLat":0,"refLon":0,"hazards":[hazard]},
+                _meshes_override={"meshes":[moved]})
+        self.assertEqual(route["avoidZones"], [])
+
+    def test_j5_11_rounded_compact_bounds_cannot_hide_a_real_crossing(self):
+        # Export bounds round to 2 decimals: this thin strip becomes y=[100.00,100.00].
+        # The route at y=100.004 still crosses the real mesh at stations 120.004–140.004.
+        mesh = {"name":"Lake.drc", "positions":[[-20,0,100.003],[-40,0,100.003],
+                [-40,0,100.0049],[-20,0,100.0049]], "faces":[[0,1,2],[0,2,3]]}
+        hazard = {"id":"water_1","kind":"water","source":"Lake.drc","component":1,
+                  "bbox":[20,100.0,40,100.0]}
+        with patch.object(geometry_evidence,"geometry_coverage_for_hole",return_value={"coverage":"ready","missingData":[]}):
+            route = geometry_evidence.build_route_geometry_evidence(90101,1,start=[0,0],target=[100,100.004],
+                route=[[0,0],[0,100.004],[100,100.004]], _hazards_override={"refLat":0,"refLon":0,"hazards":[hazard]},
+                _meshes_override={"meshes":[mesh]})
+        self.assertEqual([(z["carryToFront_m"],z["carryToClear_m"]) for z in route["avoidZones"]], [(120,140)])
+
+    def test_j5_11_polyline_merges_continuous_crossings_but_keeps_real_gaps(self):
+        cases = [
+            # A lake across the corner is one continuous interval, not two hazards.
+            ([[0,0],[0,100],[100,100]], [[-10,90],[20,90],[20,110],[-10,110]], [(90,120)]),
+            # Starting/ending inside water still has factual interval endpoints.
+            ([[0,0],[0,100],[100,100]], [[-1,-1],[101,-1],[101,101],[-1,101]], [(0,200)]),
+            # The same lake crossed on the outward and return legs retains the dry middle gap.
+            ([[0,0],[0,100],[100,100],[100,0]], [[-10,30],[110,30],[110,50],[-10,50]], [(30,50),(250,270)]),
+        ]
+        for points, polygon, expected in cases:
+            with self.subTest(expected=expected), patch.object(geometry_evidence,"geometry_coverage_for_hole",return_value={"coverage":"ready","missingData":[]}):
+                route = geometry_evidence.build_route_geometry_evidence(90101,1,start=points[0],target=points[-1],route=points,
+                    _hazards_override={"refLat":0,"refLon":0,"hazards":[{"id":"water_1","kind":"water","polygon":polygon}]})
+                self.assertEqual([(z["carryToFront_m"],z["carryToClear_m"]) for z in route["avoidZones"]], expected)
+
+
+class ReleaseGeometryDecisionTests(unittest.TestCase):
+    """J4.6/J5.11: a real release dogleg finishes on the selected physical green."""
+
+    def probe_position(self, position, distance, source=None):
+        root = Path(__file__).parent / "fixtures/geometry/31834-hole2"
+        process = subprocess.run([sys.executable,str(Path(__file__).with_name("_real_route_probe.py"))],
+            input=json.dumps({"root":str(root),"warm_requests":0,"position":position,"distance":distance,"distance_source":source}),
+            capture_output=True,text=True,timeout=60)
+        self.assertEqual(process.returncode,0,process.stderr)
+        return json.loads(process.stdout)
+
+    def test_j5_11_real_mid_hole_gps_includes_ball_offset(self):
+        # On the last leg: ball(90,100) -> real endpoint(33.25,35).
+        # sqrt(56.75²+65²)=86.288 m; no caller distance, use factual remaining route.
+        result = self.probe_position([90,100],None)
+        print("REAL_MID_PROBE=" + json.dumps(result))
+        self.assertEqual(result["holeRemaining_m"],86.3)
+        self.assertEqual(result["carries_m"],[76.3,86.3,94.3])
+
+    def test_j5_11_real_mid_hole_distinguishes_legacy_and_automatic_distance(self):
+        # Same factual ball/route; a distinct 70 m supplied value proves source priority.
+        for source, expected in [(None,70),("gps_auto",86.3)]:
+            with self.subTest(source=source):
+                result = self.probe_position([90,100],70,source)
+                print("REAL_SOURCE_PROBE=" + json.dumps({"source":source,**result}))
+                self.assertEqual(result["holeRemaining_m"],86.3)
+                self.assertEqual(result["planningDistance_m"],expected)
+                self.assertEqual(result["carries_m"],[expected-10,expected,expected+8])
+
+    def test_j5_11_real_green_side_gps_keeps_twenty_metre_shot(self):
+        for source in [None,"gps_auto"]:
+            with self.subTest(source=source):
+                result = self.probe_position([53.25,35],20,source)
+                print("REAL_SIDE_PROBE=" + json.dumps({"source":source,**result}))
+                self.assertEqual(result["holeRemaining_m"],20)
+                self.assertEqual(result["carries_m"],[10,20,28])
+
+    def test_j5_11_real_tee_legacy_number_retains_its_declared_distance(self):
+        # The source-less 284.3 m reading remains a legacy straight distance by contract.
+        result = self.probe_position(None,284.3)
+        print("REAL_LEGACY_TEE_PROBE=" + json.dumps(result))
+        self.assertEqual(result["planningDistance_m"],284.3)
+        self.assertEqual(result["routeLength_m"],320.9)
+        self.assertEqual([(z["carryToFront_m"],z["carryToClear_m"]) for z in result["water"]],[(50.5,84.2)])
+
+    def test_j5_11_real_dogleg_finishes_on_selected_green(self):
+        # 31834/2 investigation: 320.9 m route, water 50.5–84.2 m; synthetic bag
+        # Driver197 + 8I121 = station318, inside the factual 306.2–320.9 m green window.
+        root = Path(__file__).parent / "fixtures/geometry/31834-hole2"
+        process = subprocess.run([sys.executable, str(Path(__file__).with_name("_real_route_probe.py"))],
+            input=json.dumps({"root":str(root),"warm_requests":1,"distance_source":"gps_auto"}), capture_output=True, text=True, timeout=60)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        result = json.loads(process.stdout)
+        print("REAL_AUTO_TEE_PROBE=" + json.dumps(result))
+        self.assertTrue(result["chains"], "the real dogleg must not be rejected by its diagonal lake shortcut")
+        self.assertTrue(result["rootMatched"])
+        self.assertEqual(result["coverage"]["authorityObservation"], "current")
+        self.assertEqual(result["geometry"], "ready")
+        self.assertEqual(result["routeLength_m"], 320.9)
+        self.assertEqual([(z["carryToFront_m"],z["carryToClear_m"]) for z in result["water"]], [(50.5,84.2)])
+        finishes = [chain for chain in result["chains"] if chain["clubs"] == ["Driver","8I"]]
+        self.assertTrue(finishes, result["chains"])
+        finish = finishes[0]
+        self.assertEqual(finish["carries_m"], [197,121])
+        self.assertEqual(finish["offsets_m"], [197,318])
+        self.assertTrue(finish["lastLandingInsideGreen"], finish)
+        driver = next(option for option in result["options"] if option["club"] == "Driver")
+        self.assertEqual(driver["targetLocal"], [118.0,119.2])
+
+
 class DecisionGoldenTests(unittest.TestCase):
     def test_j5_11_decisions_equal_hand_routes(self):
         for row in vectors("caddie_golden.json")["cases"]:

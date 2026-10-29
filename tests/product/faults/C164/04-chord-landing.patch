@@ -1,0 +1,12 @@
+--- a/ai_caddie/caddie/decision.py
++++ b/ai_caddie/caddie/decision.py
+@@ -2884,9 +2884,6 @@
+ 
+ 
+ def _route_target_for_carry(route_evidence: dict[str, Any], carry_m: float, route_length: float) -> list[float] | None:
+-    if route_evidence.get("routeLocal"):
+-        from ai_caddie.geometry.geometry_evidence import route_target_at_distance
+-        return route_target_at_distance(route_evidence, carry_m)
+     start = _local_point(route_evidence.get("routeStartLocal"))
+     target = _local_point(route_evidence.get("routeTargetLocal"))
+     if start is None or target is None or route_length <= 0:
