@@ -20,7 +20,9 @@ import re
 import threading
 import time
 import uuid
+from functools import lru_cache
 from typing import Any, Callable, Iterator
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 
@@ -35,6 +37,7 @@ _SENSITIVE_QUERY_UNQUOTED = re.compile(
 _SHARE_PATH = re.compile(r"(/api/v2/share/)[^/?#]+")
 _MEMBER_PATH = re.compile(r"(/p/)[^/?#]+")
 _MOBILE_ROUND_PATH = re.compile(r"(/api/v2/mobile/rounds/)[^/?#]+")
+_ROUTE_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
 
 _BEIJING = ZoneInfo("Asia/Shanghai")
 _TIMING_FILE = re.compile(r"^(?P<kind>client-)?(?P<day>\d{4}-\d{2}-\d{2})\.jsonl$")
@@ -56,12 +59,58 @@ def redact_url(value: str | None) -> str:
     return _SENSITIVE_QUERY_UNQUOTED.sub(r"\1***", text)
 
 
+@lru_cache(maxsize=1024)
+def route_template(path: str, method: str | None = None) -> str | None:
+    """Resolve a request path against FastAPI's route table.
+
+    ``method`` is exact for access logs; ``None`` is used by client timing, whose older
+    payload does not carry the HTTP method. The bounded cache keeps this per-request hook
+    from repeatedly walking the application's route list.
+    """
+    from starlette.routing import Match
+
+    from server_v2.main import app
+
+    parsed = urlsplit(str(path or ""))
+    route_path = parsed.path or "/"
+    methods = (str(method or "").upper(),) if method else _ROUTE_METHODS
+    scope_base = {
+        "type": "http",
+        "path": route_path,
+        "root_path": "",
+        "scheme": "http",
+        "query_string": parsed.query.encode("ascii", "ignore"),
+        "headers": [],
+        "client": None,
+        "server": None,
+    }
+    for route_method in methods:
+        scope = {**scope_base, "method": route_method}
+        for route in app.routes:
+            match, _child_scope = route.matches(scope)
+            if match is Match.FULL:
+                template = getattr(route, "path", None)
+                if isinstance(template, str) and template:
+                    return template
+    return None
+
+
+def _safe_access_path(path: str, method: str) -> str:
+    try:
+        return route_template(path, method) or "<unmatched>"
+    except Exception:
+        return "<unmatched>"
+
+
 class URLRedactionFilter(logging.Filter):
-    """Redact URL-bearing arguments in uvicorn access records in place."""
+    """Replace uvicorn access paths with matched route templates in place."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         args = record.args
-        if isinstance(args, tuple):
+        if isinstance(args, (tuple, list)) and len(args) >= 5 and isinstance(args[1], str) and isinstance(args[2], str):
+            safe = [_safe_access_path(args[2], args[1]) if index == 2 else item for index, item in enumerate(args)]
+            record.args = tuple(safe) if isinstance(args, tuple) else safe
+        elif isinstance(args, tuple):
             record.args = tuple(redact_url(item) if isinstance(item, str) else item for item in args)
         elif isinstance(args, list):
             record.args = [redact_url(item) if isinstance(item, str) else item for item in args]
