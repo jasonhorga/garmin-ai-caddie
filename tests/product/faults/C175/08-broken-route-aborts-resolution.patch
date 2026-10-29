@@ -1,0 +1,13 @@
+--- a/ai_caddie/core/request_timing.py
++++ b/ai_caddie/core/request_timing.py
+@@ -104,8 +104,5 @@
+     partial: str | None = None
+     for route in app.routes:
+-        try:
+-            match, _child_scope = route.matches(scope)
+-        except Exception:
+-            continue  # one broken matcher must not hide the routes after it
++        match, _child_scope = route.matches(scope)
+         template = getattr(route, "path", None)
+         if not isinstance(template, str) or not template:
+             continue
