@@ -753,6 +753,38 @@ def _segment_mesh_spans(start, end, component):
             yield front, back
 
 
+def _route_may_cross_bounds(route: list[list[float]], bounds: Any) -> bool:
+    """Conservative broad phase before expanding a compact hazard's source mesh.
+
+    Exported component bounds have two decimal places; pad by 2 cm so their rounding cannot
+    discard a grazing intersection. Missing/invalid bounds always take the exact mesh path.
+    """
+    if not isinstance(bounds, (list, tuple)) or len(bounds) != 4:
+        return True
+    try:
+        xmin, ymin, xmax, ymax = map(float, bounds)
+    except (ValueError, TypeError):
+        return True
+    if not all(math.isfinite(value) for value in (xmin, ymin, xmax, ymax)) or xmin > xmax or ymin > ymax:
+        return True
+    for start, end in zip(route, route[1:]):
+        front, back = 0.0, 1.0
+        for axis, low, high in ((0, xmin - 0.02, xmax + 0.02), (1, ymin - 0.02, ymax + 0.02)):
+            delta = end[axis] - start[axis]
+            if abs(delta) < 1e-12:
+                if not low <= start[axis] <= high:
+                    back = -1.0
+                    break
+            else:
+                first, last = sorted(((low - start[axis]) / delta, (high - start[axis]) / delta))
+                front, back = max(front, first), min(back, last)
+                if back < front:
+                    break
+        if back >= front:
+            return True
+    return False
+
+
 def _polyline_hazard_intersections(
     route: list[list[float]], hazard: dict[str, Any], *, fallback_id: str,
     component: dict[str, Any] | None = None,
@@ -877,7 +909,9 @@ def build_route_geometry_evidence(
             kind = _surface_kind(hazard, "hazard")
             if kind not in ROUTE_RISK_KINDS:
                 continue
-            if polyline:
+            if polyline and not _route_may_cross_bounds(polyline, hazard.get("bbox")):
+                route_rows = []
+            elif polyline:
                 component = None
                 source = str(hazard.get("source") or "")
                 if source and hazard.get("component") is not None:

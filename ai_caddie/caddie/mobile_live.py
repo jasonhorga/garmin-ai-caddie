@@ -2616,7 +2616,12 @@ def hydrate_live_caddie_geometry_context(
         if latitude is not None and longitude is not None:
             try:
                 from ai_caddie.geometry.geometry_evidence import classify_shot_surface
+                from ai_caddie.geometry.hole_render import load_mesh
 
+                try:
+                    decoded_meshes = load_mesh(global_id, local_hole)[0]
+                except (OSError, KeyError, TypeError, ValueError):
+                    decoded_meshes = None
                 classification = classify_shot_surface(
                     global_id,
                     local_hole,
@@ -2624,6 +2629,7 @@ def hydrate_live_caddie_geometry_context(
                         "ref": f"live-gps:{source_ref}",
                         "position": {"lat": latitude, "lon": longitude},
                     },
+                    **({"meshes": decoded_meshes} if decoded_meshes is not None else {}),
                 )
             except (OSError, TypeError, ValueError, OverflowError):
                 classification = None

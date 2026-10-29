@@ -313,6 +313,19 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
                 _meshes_override={"meshes":[moved]})
         self.assertEqual(route["avoidZones"], [])
 
+    def test_j5_11_rounded_compact_bounds_cannot_hide_a_real_crossing(self):
+        # Export bounds round to 2 decimals: this thin strip becomes y=[100.00,100.00].
+        # The route at y=100.004 still crosses the real mesh at stations 120.004–140.004.
+        mesh = {"name":"Lake.drc", "positions":[[-20,0,100.003],[-40,0,100.003],
+                [-40,0,100.0049],[-20,0,100.0049]], "faces":[[0,1,2],[0,2,3]]}
+        hazard = {"id":"water_1","kind":"water","source":"Lake.drc","component":1,
+                  "bbox":[20,100.0,40,100.0]}
+        with patch.object(geometry_evidence,"geometry_coverage_for_hole",return_value={"coverage":"ready","missingData":[]}):
+            route = geometry_evidence.build_route_geometry_evidence(90101,1,start=[0,0],target=[100,100.004],
+                route=[[0,0],[0,100.004],[100,100.004]], _hazards_override={"refLat":0,"refLon":0,"hazards":[hazard]},
+                _meshes_override={"meshes":[mesh]})
+        self.assertEqual([(z["carryToFront_m"],z["carryToClear_m"]) for z in route["avoidZones"]], [(120,140)])
+
     def test_j5_11_polyline_merges_continuous_crossings_but_keeps_real_gaps(self):
         cases = [
             # A lake across the corner is one continuous interval, not two hazards.
@@ -346,7 +359,9 @@ class ReleaseGeometryDecisionTests(unittest.TestCase):
         self.assertEqual(result["geometry"], "ready")
         self.assertEqual(result["routeLength_m"], 320.9)
         self.assertEqual([(z["carryToFront_m"],z["carryToClear_m"]) for z in result["water"]], [(50.5,84.2)])
-        finish = next(chain for chain in result["chains"] if chain["clubs"] == ["Driver","8I"])
+        finishes = [chain for chain in result["chains"] if chain["clubs"] == ["Driver","8I"]]
+        self.assertTrue(finishes, result["chains"])
+        finish = finishes[0]
         self.assertEqual(finish["carries_m"], [197,121])
         self.assertEqual(finish["offsets_m"], [197,318])
         self.assertTrue(finish["lastLandingInsideGreen"], finish)

@@ -1246,6 +1246,13 @@
       "kind": "python",
       "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j5_11_live_position_uses_only_the_route_after_its_projection",
       "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164-07",
+      "patch": "tests/product/faults/C164/07-rounded-bounds-hide-water.patch",
+      "kind": "python",
+      "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j5_11_rounded_compact_bounds_cannot_hide_a_real_crossing",
+      "promise": "5.11"
     }
   ]
 }
