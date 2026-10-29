@@ -2954,6 +2954,18 @@ def mobile_course_package(
         )
     except RoundLoopError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    package_course = (
+        package.get("course") if isinstance(package, dict)
+        else getattr(package, "course", None)
+    ) or {}
+    package_tee_box = (
+        package_course.get("teeBox") if isinstance(package_course, dict)
+        else getattr(package_course, "teeBox", None)
+    )
+    package_global_id = (
+        package_course.get("globalId") if isinstance(package_course, dict)
+        else getattr(package_course, "globalId", None)
+    )
     # Home bootstrap can use suggestedLiveRoundId (live-<gid>), so the ID prefix alone is
     # insufficient. Its existing read-only request disables all three options; playing/download
     # paths request background geometry. A home read never starts or refreshes a playing lease.
@@ -2964,7 +2976,7 @@ def mobile_course_package(
             global_ids=[gid for gid, _half in round_loops],
             selection=(
                 round_loop_key(round_loops),
-                str(tee_box or package.course.get("teeBox") or "blue"),
+                str(tee_box or package_tee_box or "blue"),
             ),
         )
     mark_request_stage("package_route")
@@ -2977,9 +2989,10 @@ def mobile_course_package(
     refs: list[dict[str, Any]] = []
     requested: dict[int, list[int]] = {}
     ready: dict[int, list[int]] = {}
-    for hole in package.holes:
+    package_holes = package.get("holes", []) if isinstance(package, dict) else package.holes
+    for hole in package_holes:
         source_global_id = int(
-            hole.get("sourceGlobalId") or package.course.get("globalId") or global_id
+            hole.get("sourceGlobalId") or package_global_id or global_id
         )
         source_local_hole = int(hole.get("sourceLocalHole") or hole.get("number") or 0)
         display_hole = int(hole.get("number") or source_local_hole or 0)
@@ -3005,7 +3018,7 @@ def mobile_course_package(
         return package
     job = course_install.enqueue(
         global_id=int(global_id),
-        tee_box=str(tee_box or package.course.get("teeBox") or "blue"),
+        tee_box=str(tee_box or package_tee_box or "blue"),
         loop_key=round_loop_key(round_loops),
         player_id=player_id,
         refs=refs,
@@ -3017,7 +3030,7 @@ def mobile_course_package(
                 player_id,
                 global_id,
                 loop_key=round_loop_key(round_loops),
-                tee_box=str(tee_box or package.course.get("teeBox") or "blue"),
+                tee_box=str(tee_box or package_tee_box or "blue"),
             )
             else NEARBY
         ),
@@ -3033,12 +3046,14 @@ def mobile_course_package(
         {**hole, **_undrawable_hole_state(hole.get("sourceGlobalId"), hole.get("sourceLocalHole"))}
         if isinstance(hole, dict) and hole.get("geometryState") in {"pending", "unavailable"}
         else hole
-        for hole in package.holes
+        for hole in package_holes
     ]
     # Pydantic response models are mutable in the current contract, but use model_copy when
     # available so this remains safe if the model becomes frozen later.
     if hasattr(package, "model_copy"):
         return package.model_copy(update={"courseInstallJob": job, "holes": holes})
+    if isinstance(package, dict):
+        return {**package, "courseInstallJob": job, "holes": holes}
     package.courseInstallJob = job
     package.holes = holes
     return package
