@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -3036,7 +3036,7 @@
+     ) -> Double? {
+         _ = mapTargetM
+         return LiveCaddieDistance.resolve(
+-            manualM: manualM,
++            manualM: manualM ?? mapTargetM,
+             liveMiddleM: isTeeShotOffTheHole ? nil : (routeRemainingM ?? liveMiddleM),
+             staticMiddleM: staticMiddleM,
+             holeYards: holeYards

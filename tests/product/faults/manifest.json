@@ -1729,6 +1729,41 @@
       "kind": "python",
       "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_refused_no_during_deploy_leaves_no_second_on_failure_release",
       "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C164b-21-multi-route-append",
+      "patch": "tests/product/faults/C164/21-multi-route-append.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LivePlanPagingTests/testOnlineSelectedSequenceReplacesInstalledAndOfflineRoutes",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-22-straight-distance",
+      "patch": "tests/product/faults/C164/22-straight-distance.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/OfflineCaddieDecisionEvaluatorTests/testDoglegUsesCumulativeRouteLengthAndExcludesPutter",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-23-target-point-as-hole-distance",
+      "patch": "tests/product/faults/C164/23-target-point-as-hole-distance.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LivePlanPagingTests/testMapTargetDoesNotChangeWholeHolePlanningDistance",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-24-putter-in-local-chain",
+      "patch": "tests/product/faults/C164/24-putter-in-local-chain.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/OfflineCaddieDecisionEvaluatorTests/testLocalFallbackNeverUsesPutterAsAWholeHoleLeg",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-25-unscored-round-shows-E",
+      "patch": "tests/product/faults/C164/25-unscored-round-shows-E.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LivePlanPagingTests/testUnscoredRoundShowsDashInsteadOfEvenPar",
+      "promise": "5.10"
     }
   ]
 }

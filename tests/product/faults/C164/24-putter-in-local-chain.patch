@@ -1,0 +1,20 @@
+diff --git a/mobile/ios/AICaddie/Services/OfflineCaddieDecisionEvaluator.swift b/mobile/ios/AICaddie/Services/OfflineCaddieDecisionEvaluator.swift
+--- a/mobile/ios/AICaddie/Services/OfflineCaddieDecisionEvaluator.swift
++++ b/mobile/ios/AICaddie/Services/OfflineCaddieDecisionEvaluator.swift
+@@ -651,7 +651,6 @@
+                 p90M: number(row["p90_m"] ?? row["p90M"] ?? row["p90"]),
+                 sampleSize: integer(row["sampleSize"]) ?? 0
+             )
+-            guard !profile.isPutter else { continue }
+             let key = profile.key
+             if let existing = byKey[key], existing.sampleSize >= profile.sampleSize { continue }
+             byKey[key] = profile
+@@ -825,7 +824,7 @@
+         guard remainingM > Self.scoringWindowM else { return [] }
+         let playable = profiles
+             .filter { profile in
+-                !profile.isDriver && !profile.isPutter
++                !profile.isDriver
+                     && (maximumCarryM.map { cap in profile.carryM <= cap } ?? true)
+             }
+             .sorted { $0.carryM > $1.carryM }
