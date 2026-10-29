@@ -425,6 +425,31 @@ class ReworkContractTests(unittest.TestCase):
         self.assertIsNone(result['holes'][0].get('route'))  # C33 P1: map geometry may be reused, route facts may not.
         self.assertNotIn('greenDistances', result['holes'][0])
 
+    def test_selected_tee_cache_miss_borrows_any_cached_geometry_before_blank_map(self):
+        """J4.4: Blue is preferred, then another cached Tee, while its facts stay hidden."""
+        from ai_caddie.caddie import mobile_live as ml
+        route = {'globalId': 123, 'localHole': 1,
+                 'map': {'image': None, 'overlay': {'w': 678, 'h': 1060,
+                         'surfaces': [{'kind': 'Fairway', 'polygons': []}]}},
+                 'route': [[0.0, 0.0, 0.0], [0.0, 300.0, 300.0]],
+                 'greenDistances': {'middleM': 300.0}, 'teeSet': 5}
+        package = {'course': {'globalId': 123, 'teeBox': 'white'}, 'clubProfiles': [],
+                   'holes': [{'number': 1, 'sourceGlobalId': 123, 'sourceLocalHole': 1}]}
+        with (
+            patch('ai_caddie.core.data.mesh_path', return_value=Path(__file__)),
+            patch('ai_caddie.caddie.mobile_live._load_mobile_hazards', return_value={
+                'globalId': 123, 'tees': [{'sets': [4]}, {'sets': [5]}],
+            }),
+            patch('ai_caddie.caddie.analysis.tee_set_for_box', side_effect=lambda gid, box, **kw: 4 if box == 'white' else 2),
+            patch('ai_caddie.courses.vector_prep.cached_vector_hole',
+                  side_effect=lambda *a, **kw: route if kw.get('tee_set') == 5 else None),
+            patch.object(ml.course_prep, 'lightweight_prep_hole', return_value=None),
+        ):
+            result = ml.first_hole_lightweight_course_prep(package, map_only=True)
+        self.assertIsNotNone(result)
+        self.assertIsNone(result['holes'][0].get('route'))
+        self.assertNotIn('greenDistances', result['holes'][0])
+
     def test_follower_waits_one_second_and_marks_uncacheable(self):
         from server_v2 import mobile
         future = Future()

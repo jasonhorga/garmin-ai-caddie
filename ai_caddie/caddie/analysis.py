@@ -161,11 +161,11 @@ def resolve_selected_tee_set(
 ) -> int | None:
     """Resolve the effective Tee set shared by package and CoursePrep builders.
 
-    A named release Tee wins when this hole carries that set. If a colour is not published on
-    this hole (or the release list is unavailable), both callers use Blue when present, then the
-    first available Tee. An explicit ``unknown`` choice remains unresolved when the release list
-    is unavailable. This keeps the package anchor, CoursePrep route and F/M/B distances on one
-    factual origin without inventing a different Tee in either endpoint.
+    A named release Tee wins when this hole carries that set. If the release exists but does not
+    publish the requested name, all callers use its Blue row, then its first row; the canonical
+    colour table is consulted only when no release list exists. An explicit ``unknown`` choice
+    remains unresolved when the release list is unavailable. This keeps the package anchor,
+    CoursePrep route and F/M/B distances on one factual origin without inventing a different Tee.
     """
     rows = [row for row in (hazards or {}).get("tees") or [] if isinstance(row, dict)]
     available: list[int] = []
@@ -190,11 +190,32 @@ def resolve_selected_tee_set(
             colour_fallback=False,
         )
         return release_set if release_set in available else None
-    requested = tee_set_for_box(
-        global_id if global_id is not None else (hazards or {}).get("globalId"),
-        tee_box,
-        colour_fallback=True,
-    )
+    resolved_global_id = global_id if global_id is not None else (hazards or {}).get("globalId")
+    requested = tee_set_for_box(resolved_global_id, tee_box, colour_fallback=False)
+    release_tees: list[dict[str, Any]] = []
+    if resolved_global_id is not None:
+        try:
+            from ai_caddie.courses.course_reference import courseview_tees
+
+            release_tees = list(courseview_tees(int(resolved_global_id), allow_fetch=False) or [])
+        except Exception:
+            release_tees = []
+    if requested is None and release_tees:
+        used: set[str] = set()
+        release_rows = [
+            (_release_tee_box_key(row.get("name"), row.get("index"), used), row)
+            for row in release_tees
+            if isinstance(row, dict)
+        ]
+        default_row = next((row for key, row in release_rows if key == "blue"), None)
+        if default_row is None and release_rows:
+            default_row = release_rows[0][1]
+        try:
+            requested = int(default_row["index"]) if default_row is not None else None
+        except (KeyError, TypeError, ValueError, OverflowError):
+            requested = None
+    elif requested is None and str(tee_box or "").strip().lower() != "unknown":
+        requested = tee_set_for_box(resolved_global_id, tee_box, colour_fallback=True)
     if requested in available:
         return requested
     if TEE_SET_BY_BOX["blue"] in available:

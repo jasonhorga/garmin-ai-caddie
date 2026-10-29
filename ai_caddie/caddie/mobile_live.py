@@ -1402,6 +1402,53 @@ def _tee_independent_vector(vector: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _cached_map_vector_for_selected_tee(
+    global_id: int,
+    local_hole: int,
+    *,
+    selected_set: int | None,
+    hazards: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Borrow only Tee-independent geometry when the selected Tee vector is absent.
+
+    Production may have persisted a Blue vector while a later round selects another Tee. Probe
+    Blue first, then every Tee set present in the compact hazard export; the returned row is
+    stripped by the caller before it reaches the client, so borrowed route and distance facts can
+    never masquerade as the selected Tee's facts.
+    """
+    from ai_caddie.caddie.analysis import resolve_selected_tee_set, tee_set_for_box
+    from ai_caddie.courses.vector_prep import cached_vector_hole
+
+    candidates: list[int] = []
+    blue_set = resolve_selected_tee_set(hazards, "blue", global_id=global_id)
+    if blue_set is None:
+        # Older/fixture hazard exports may omit Tee rows even though a durable
+        # Blue vector is present. This lookup only chooses which cache entry to
+        # inspect; all displayed Tee facts still come from the selected resolver.
+        blue_set = tee_set_for_box(global_id, "blue", colour_fallback=True)
+    for value in (selected_set, blue_set):
+        if value is not None and value not in candidates:
+            candidates.append(value)
+    for row in (hazards or {}).get("tees") or []:
+        for raw in row.get("sets") or [] if isinstance(row, dict) else ():
+            try:
+                value = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if value not in candidates:
+                candidates.append(value)
+    for tee_set in candidates:
+        try:
+            vector = cached_vector_hole(
+                int(global_id), int(local_hole), tee_set=tee_set, build_if_missing=False
+            )
+        except Exception:
+            vector = None
+        if isinstance(vector, dict):
+            return vector
+    return None
+
+
 def first_hole_lightweight_course_prep(
     package: dict[str, Any],
     *,
@@ -1455,7 +1502,7 @@ def first_hole_lightweight_course_prep(
             if mesh_path(source_global_id, source_local_hole).exists():
                 try:
                     from ai_caddie.courses.vector_prep import cached_vector_hole
-                    from ai_caddie.caddie.analysis import resolve_selected_tee_set, tee_set_for_box
+                    from ai_caddie.caddie.analysis import resolve_selected_tee_set
 
                     if source_global_id not in tee_sets:
                         requested_box = str(course.get("teeBox") or "").strip()
@@ -1463,14 +1510,7 @@ def first_hole_lightweight_course_prep(
                         tee_sets[source_global_id] = resolve_selected_tee_set(
                             hazards, requested_box or "blue", global_id=source_global_id
                         )
-                        requested_set = tee_set_for_box(
-                            source_global_id, requested_box or "blue", colour_fallback=True
-                        )
-                        tee_facts_bound[source_global_id] = (
-                            requested_box in {"", "unknown"}
-                            or requested_set is None
-                            or requested_set == tee_sets[source_global_id]
-                        )
+                        tee_facts_bound[source_global_id] = tee_sets[source_global_id] is not None
                     selected_set = tee_sets.get(source_global_id)
                     vector = cached_vector_hole(
                         source_global_id, source_local_hole, tee_set=selected_set,
@@ -1482,13 +1522,11 @@ def first_hole_lightweight_course_prep(
                         # Reuse an existing vector only for Tee-independent geometry. Never
                         # expose that vector's route, F/M/B or nominal yardage as today's
                         # selected Tee facts.
-                        fallback_set = (
-                            selected_set
-                            if selected_set is not None
-                            else tee_set_for_box(source_global_id, "blue", colour_fallback=True)
-                        )
-                        fallback_vector = cached_vector_hole(
-                            source_global_id, source_local_hole, tee_set=fallback_set, build_if_missing=False,
+                        fallback_vector = _cached_map_vector_for_selected_tee(
+                            source_global_id,
+                            source_local_hole,
+                            selected_set=selected_set,
+                            hazards=hazards,
                         )
                         if isinstance(fallback_vector, dict):
                             vector = _tee_independent_vector(fallback_vector)
