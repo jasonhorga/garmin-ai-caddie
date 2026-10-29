@@ -124,11 +124,11 @@ def _course_data_sig(global_id: int) -> tuple[int, str]:
     return revisions.cached_signature(
         _COURSEVIEW_DIR,
         ("course-data", int(global_id)),
-        lambda: _scan_course_data_sig(global_id, semantic_release=True),
+        lambda: _scan_course_data_sig(global_id),
     )
 
 
-def _scan_course_data_sig(global_id: int, *, semantic_release: bool = False) -> tuple[int, str]:
+def _scan_course_data_sig(global_id: int) -> tuple[int, str]:
     """Complete scan used on a cold course-data signature."""
     gid = int(global_id)
     rows: list[tuple[str, object]] = []
@@ -141,7 +141,7 @@ def _scan_course_data_sig(global_id: int, *, semantic_release: bool = False) -> 
         ):
             continue
         path = _COURSEVIEW_DIR / name
-        if name == f"{gid}_releases.pb" and semantic_release:
+        if name == f"{gid}_releases.pb":
             signature = courseview_release_signature(
                 gid, release_path=path,
             )

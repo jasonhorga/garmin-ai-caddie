@@ -1,7 +1,11 @@
 """J4: course identity over HTTP and independent, small polygon arithmetic."""
 import copy
 import json
+import os
 from pathlib import Path
+import re
+import subprocess
+import sys
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -262,6 +266,46 @@ class GeometryTests(unittest.TestCase):
 
 
 class MobileRoundIndexTests(unittest.TestCase):
+    def test_j4_2_default_release_signature_ignores_signed_url_refresh(self):
+        """J4.2: a renewed download URL must not invalidate unchanged course preparation."""
+        from ai_caddie.courses import prep_cache
+
+        fixture = Path(__file__).parents[1] / "fixtures/courseview_release_31936.pb"
+        payload = fixture.read_bytes()
+        with TemporaryDirectory() as tmp, patch.object(prep_cache, "_COURSEVIEW_DIR", Path(tmp)):
+            release = Path(tmp) / "31936_releases.pb"
+            release.write_bytes(payload)
+            before = prep_cache._scan_course_data_sig(31936)
+            renewed = re.sub(rb"garmindlm=\d{10}_[0-9a-f]{32}",
+                             b"garmindlm=1790000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", payload)
+            self.assertNotEqual(renewed, payload)
+            release.write_bytes(renewed)
+            self.assertEqual(prep_cache._scan_course_data_sig(31936), before)
+            changed = re.sub(rb"(hole01_)(\d+)(\.zip)",
+                             lambda m: m[1] + str(int(m[2]) + 1).encode() + m[3], renewed, count=1)
+            self.assertNotEqual(changed, renewed)
+            release.write_bytes(changed)
+            self.assertNotEqual(prep_cache._scan_course_data_sig(31936), before)
+
+    def test_j4_2_empty_data_root_uses_installation_default_from_another_cwd(self):
+        """J4.2: an empty deployment setting must not redirect course data to the working directory."""
+        repo = Path(__file__).resolve().parents[2]
+        with TemporaryDirectory() as tmp:
+            env = {**os.environ, "PYTHONPATH": str(repo)}
+            env.pop("AI_CADDIE_ROOT", None)
+
+            def resolved():
+                return Path(subprocess.check_output(
+                    [sys.executable, "-c", "from ai_caddie.core.data import ROOT; print(ROOT)"],
+                    cwd=tmp, env=env, text=True, timeout=30,
+                ).strip())
+
+            self.assertEqual(resolved(), repo)
+            env["AI_CADDIE_ROOT"] = ""
+            self.assertEqual(resolved(), repo)
+            env["AI_CADDIE_ROOT"] = tmp
+            self.assertEqual(resolved(), Path(tmp))
+
     def _store_with_event(self, root: Path):
         from ai_caddie.caddie.mobile_event_store import FileEventStore
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Sequence
 from contextlib import contextmanager, nullcontext
 from copy import deepcopy
@@ -19,6 +20,7 @@ import threading
 from typing import Any, BinaryIO, Callable, Iterator
 
 from ai_caddie.llm.llm_providers import redact_secret_text
+from ai_caddie.core.request_timing import mark
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,7 @@ ACK_SCHEMA = "ai-caddie-mobile-event-acks-v1"
 RESERVATION_SCHEMA = "ai-caddie-mobile-event-request-reservations-v1"
 EVENT_COMMIT_SCHEMA = "ai-caddie-mobile-event-commit-v2"
 EVENT_PENDING_COMMIT_SCHEMA = "ai-caddie-mobile-event-pending-commit-v2"
-ROUND_INDEX_SCHEMA = "ai-caddie-mobile-round-event-index-v2"
+ROUND_INDEX_SCHEMA = "ai-caddie-mobile-round-event-index-v3"
 _IDENTITY_FIELDS = ("roundId", "clientId", "eventId")
 REDACTED_LOCAL_MEDIA_URL = "[REDACTED_LOCAL_MEDIA_URL]"
 REDACTED_MOBILE_PATH = "[REDACTED_PATH]"
@@ -82,6 +84,15 @@ class _StoredLog:
     high_water: int
 
 
+@dataclass
+class _RoundEventIndex:
+    rounds: dict[str, list[int]]
+    # Per dictionary row: byte offset, byte length, global position, physical line number.
+    offsets: dict[str, list[list[int]]]
+    high_water: int = 0
+    line_count: int = 0
+
+
 @dataclass(frozen=True)
 class _RoundSequenceSnapshot:
     positions: tuple[int, ...]
@@ -93,6 +104,14 @@ class _CommitMarker:
     committed_byte_length: int
     committed_prefix_sha256: str
     legacy_baseline_byte_length: int
+
+
+# SHA256 cannot be extended from a hex digest. Keep a bounded, process-local copy of the
+# verified hash state across the short-lived FileEventStore objects created by requests.
+# Never serialize this trust: cold processes and any file metadata change revalidate bytes.
+_PREFIX_CACHE: OrderedDict[str, tuple[_CommitMarker, tuple[int, ...] | None, Any]] = OrderedDict()
+_PREFIX_CACHE_LOCK = threading.Lock()
+_PREFIX_CACHE_LIMIT = 128
 
 
 @dataclass(frozen=True)
@@ -493,7 +512,7 @@ class FileEventStore:
 
     def _load_round_index_unlocked(
         self, committed_length: int, committed_prefix_sha256: str | None,
-    ) -> dict[str, list[int]] | None:
+    ) -> _RoundEventIndex | None:
         try:
             payload = json.loads(self.round_index.read_text(encoding="utf-8"))
         except (FileNotFoundError, OSError, UnicodeDecodeError, ValueError):
@@ -503,80 +522,103 @@ class FileEventStore:
             or payload.get("schema") != ROUND_INDEX_SCHEMA
             or payload.get("committedByteLength") != committed_length
             or payload.get("committedPrefixSha256") != committed_prefix_sha256
-            or not isinstance(payload.get("rounds"), dict)
         ):
             return None
-        rounds: dict[str, list[int]] = {}
-        for round_id, holes in payload["rounds"].items():
-            if not isinstance(round_id, str) or not isinstance(holes, list):
-                return None
-            if any(
-                not isinstance(hole, int) or isinstance(hole, bool) or hole <= 0
-                for hole in holes
+        data = {key: payload.get(key) for key in ("rounds", "offsets", "highWater", "lineCount")}
+        if payload.get("indexSha256") != _sha256(data):
+            return None
+        rounds, offsets = data["rounds"], data["offsets"]
+        high_water, line_count = data["highWater"], data["lineCount"]
+        if (
+            not isinstance(rounds, dict) or not isinstance(offsets, dict)
+            or type(high_water) is not int or type(line_count) is not int
+            or not 0 <= line_count <= high_water
+        ):
+            return None
+        for round_id, holes in rounds.items():
+            if (
+                not isinstance(round_id, str) or not isinstance(holes, list)
+                or any(type(hole) is not int or hole <= 0 for hole in holes)
             ):
                 return None
-            rounds[round_id] = [int(hole) for hole in holes]
-        return rounds
+        for round_id, entries in offsets.items():
+            if not isinstance(round_id, str) or not isinstance(entries, list):
+                return None
+            last_end = last_line = last_position = 0
+            for entry in entries:
+                if (
+                    not isinstance(entry, list) or len(entry) != 4
+                    or any(type(value) is not int for value in entry)
+                ):
+                    return None
+                start, length, position, line = entry
+                if (
+                    start < last_end or length <= 0 or start + length > committed_length
+                    or not last_position < position <= high_water
+                    or not last_line < line <= line_count
+                ):
+                    return None
+                last_end, last_position, last_line = start + length, position, line
+        return _RoundEventIndex(rounds, offsets, high_water, line_count)
 
     def _write_round_index_unlocked(
         self,
-        rounds: dict[str, list[int]],
+        index: _RoundEventIndex,
         committed_length: int,
         committed_prefix_sha256: str | None,
     ) -> None:
+        data = {"rounds": index.rounds, "offsets": index.offsets,
+                "highWater": index.high_water, "lineCount": index.line_count}
         self._atomic_write_json(
             self.round_index,
-            {
-                "schema": ROUND_INDEX_SCHEMA,
-                "committedByteLength": committed_length,
-                "committedPrefixSha256": committed_prefix_sha256,
-                "rounds": rounds,
-            },
+            {"schema": ROUND_INDEX_SCHEMA, "committedByteLength": committed_length,
+             "committedPrefixSha256": committed_prefix_sha256,
+             **data, "indexSha256": _sha256(data)},
         )
 
-    def _round_index_from_log_unlocked(self, committed_length: int) -> dict[str, list[int]]:
-        """Build the sidecar from committed JSON structure without sanitizing event payloads.
+    def _index_row(self, index: _RoundEventIndex, row: dict[str, Any], start: int, length: int) -> None:
+        position = max(self._explicit_position(row) or 0, index.high_water + 1, index.line_count)
+        index.high_water = position
+        round_id = str(row.get("roundId") or "")
+        index.offsets.setdefault(round_id, []).append([start, length, position, index.line_count])
+        event = row.get("event")
+        if self._is_legacy_compatible_event(event):
+            try:
+                hole = int(event.get("hole"))
+            except (TypeError, ValueError, OverflowError):
+                return
+            if hole > 0:
+                index.rounds.setdefault(round_id, []).append(hole)
 
-        ``read_rows`` accepts malformed/non-dict rows by skipping them and only considers a
-        legacy-compatible event's positive integer hole. The index needs exactly those structural
-        fields, so parsing the committed prefix avoids the deepcopy/redaction work in ``_stored_log``.
-        """
-        rounds: dict[str, list[int]] = {}
+    def _round_index_from_log_unlocked(
+        self, committed_length: int, *, handle: BinaryIO | None = None,
+    ) -> _RoundEventIndex:
+        """Light structural scan; retain offsets and sequences without sanitizing payloads."""
+        index = _RoundEventIndex({}, {})
         if committed_length <= 0:
-            return rounds
+            return index
         try:
-            handle = self.log.open("rb")
+            context = self.log.open("rb") if handle is None else nullcontext(handle)
         except FileNotFoundError as exc:
             raise ValueError("event_commit_store_corrupt") from exc
-        remaining = committed_length
-        try:
-            while remaining > 0:
-                raw_line = handle.readline(remaining)
+        with context as opened:
+            opened.seek(0)
+            offset = 0
+            while offset < committed_length:
+                raw_line = opened.readline(committed_length - offset)
                 if not raw_line:
                     raise ValueError("event_commit_store_corrupt")
-                remaining -= len(raw_line)
-                if not raw_line.strip():
-                    continue
+                index.line_count += 1
                 try:
                     row = json.loads(raw_line.decode("utf-8"))
                 except (UnicodeDecodeError, ValueError):
-                    continue
-                if not isinstance(row, dict):
-                    continue
-                event = row.get("event")
-                if not self._is_legacy_compatible_event(event):
-                    continue
-                try:
-                    hole = int(event.get("hole"))
-                except (TypeError, ValueError, OverflowError):
-                    continue
-                if hole <= 0:
-                    continue
-                round_id = str(row.get("roundId") or "")
-                rounds.setdefault(round_id, []).append(hole)
-        finally:
-            handle.close()
-        return rounds
+                    row = None
+                if isinstance(row, dict):
+                    self._index_row(index, row, offset, len(raw_line))
+                else:
+                    index.high_water = max(index.high_water, index.line_count)
+                offset += len(raw_line)
+        return index
 
     def _record_round_index_after_append(
         self,
@@ -586,34 +628,75 @@ class FileEventStore:
         committed_length: int,
         base_prefix_sha256: str,
         committed_prefix_sha256: str,
+        index: _RoundEventIndex | None = None,
     ) -> None:
-        rounds = self._load_round_index_unlocked(base_length, base_prefix_sha256)
-        if rounds is None:
-            rounds = self._round_index_from_log_unlocked(base_length)
+        index = index or self._load_round_index_unlocked(base_length, base_prefix_sha256)
+        if index is None:
+            index = self._round_index_from_log_unlocked(base_length)
+        offset = base_length
         for row in rows:
-            event = row.get("event")
-            if not isinstance(event, dict) or not self._is_legacy_compatible_event(event):
-                continue
+            length = len(json.dumps(row, ensure_ascii=False, sort_keys=True).encode("utf-8")) + 1
+            index.line_count += 1
+            self._index_row(index, row, offset, length)
+            offset += length
+        self._write_round_index_unlocked(index, committed_length, committed_prefix_sha256)
+
+    def _indexed_round_log_unlocked(
+        self, round_id: str, *, handle: BinaryIO | None, rebuild: bool = False,
+        index_sink: list[_RoundEventIndex] | None = None,
+    ) -> _StoredLog:
+        marker = self._load_commit_marker()
+        if marker is None:
+            raise ValueError("event_commit_store_corrupt")
+        index = None if rebuild else self._load_round_index_unlocked(
+            marker.committed_byte_length, marker.committed_prefix_sha256,
+        )
+        if index is None:
+            rebuild = True
+            index = self._round_index_from_log_unlocked(marker.committed_byte_length, handle=handle)
             try:
-                hole = int(event.get("hole"))
-            except (TypeError, ValueError, OverflowError):
-                continue
-            if hole > 0:
-                rounds.setdefault(str(row.get("roundId") or ""), []).append(hole)
-        self._write_round_index_unlocked(rounds, committed_length, committed_prefix_sha256)
+                self._write_round_index_unlocked(
+                    index, marker.committed_byte_length, marker.committed_prefix_sha256,
+                )
+            except OSError:
+                # An unavailable auxiliary sidecar cannot prevent an otherwise durable ACK.
+                logger.warning("mobile_event_round_index repair failed root=%s", self.root, exc_info=True)
+        rows = []
+        for start, length, position, line in index.offsets.get(round_id, ()):
+            try:
+                parsed = json.loads(self._read_log_range(start, start + length, handle=handle).decode("utf-8"))
+            except (UnicodeDecodeError, ValueError):
+                parsed = None
+            if not isinstance(parsed, dict) or str(parsed.get("roundId") or "") != round_id:
+                if rebuild:
+                    raise ValueError("event_commit_store_corrupt")
+                return self._indexed_round_log_unlocked(
+                    round_id, handle=handle, rebuild=True, index_sink=index_sink,
+                )
+            row = dict(parsed)
+            raw_event = deepcopy(row.get("event"))
+            if isinstance(raw_event, dict):
+                row["event"] = self._sanitize_event(raw_event)
+                if "eventHash" in row and self._is_legacy_compatible_event(row["event"]):
+                    row["eventHash"] = _sha256(_normalized_event_for_hash(row["event"]))
+            row["serverSequence"] = position
+            rows.append(_StoredRow(row, raw_event, position, line))
+        if index_sink is not None:
+            index_sink[:] = [index]
+        return _StoredLog(tuple(rows), index.high_water)
 
     def ensure_round_event_index(self) -> bool:
         """Build the sidecar once under the event lock; return whether a rebuild occurred."""
         with self._locked(self.event_lock):
-            actual_size = self._event_log_size()
             marker = self._load_commit_marker()
-            committed_length = marker.committed_byte_length if marker is not None else actual_size
             committed_prefix = marker.committed_prefix_sha256 if marker is not None else None
+            # Warm the process-local verified hash state during migration, even when a previous
+            # process already left a current sidecar. No trust is persisted across process starts.
+            committed_length = self._visible_committed_length_unlocked()
             if self._load_round_index_unlocked(committed_length, committed_prefix) is not None:
                 return False
             # The light scan skips payload sanitising, not integrity: verify the committed prefix
             # (sha256, v1 rows, pending intent) before labelling a rebuilt index as trusted.
-            committed_length = self._visible_committed_length_unlocked()
             rounds = self._round_index_from_log_unlocked(committed_length)
             self._write_round_index_unlocked(rounds, committed_length, committed_prefix)
             return True
@@ -638,7 +721,7 @@ class FileEventStore:
                 committed_length = self._visible_committed_length_unlocked()
                 rounds = self._round_index_from_log_unlocked(committed_length)
                 self._write_round_index_unlocked(rounds, committed_length, committed_prefix)
-            return list(rounds.get(str(round_id), ()))
+            return list(rounds.rounds.get(str(round_id), ()))
 
     @staticmethod
     def _is_sha256(value: Any) -> bool:
@@ -917,18 +1000,50 @@ class FileEventStore:
                 elif batch_context != context:
                     raise ValueError("event_commit_store_corrupt")
 
+    def _log_signature(self, handle: BinaryIO | None = None) -> tuple[int, ...] | None:
+        try:
+            stat = self.log.stat()
+        except FileNotFoundError:
+            if handle is not None:
+                raise ValueError("event_commit_store_corrupt")
+            return None
+        if handle is not None:
+            opened = os.fstat(handle.fileno())
+            if (opened.st_dev, opened.st_ino) != (stat.st_dev, stat.st_ino):
+                raise ValueError("event_commit_store_corrupt")
+        return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+
+    def _remember_prefix(self, marker: _CommitMarker, signature: tuple[int, ...] | None, digest: Any) -> None:
+        key = str(self.log.resolve())
+        with _PREFIX_CACHE_LOCK:
+            _PREFIX_CACHE[key] = (marker, signature, digest.copy())
+            _PREFIX_CACHE.move_to_end(key)
+            while len(_PREFIX_CACHE) > _PREFIX_CACHE_LIMIT:
+                _PREFIX_CACHE.popitem(last=False)
+
     def _validate_commit_marker(
         self,
         marker: _CommitMarker,
         actual_size: int,
         *,
         handle: BinaryIO | None = None,
-    ) -> None:
+    ) -> Any:
+        """Return an extendable SHA256 state after verifying the marker and file identity.
+
+        Only an unchanged device/inode/size/mtime/ctime tuple can reuse a prior byte validation.
+        Same-size edits (including restored mtime), replacements and external appends all miss.
+        Pending intents and suffix recovery still establish their own durability barriers.
+        """
         if (
             marker.committed_byte_length > actual_size
             or marker.legacy_baseline_byte_length > marker.committed_byte_length
         ):
             raise ValueError("event_commit_store_corrupt")
+        signature = self._log_signature(handle)
+        with _PREFIX_CACHE_LOCK:
+            cached = _PREFIX_CACHE.get(str(self.log.resolve()))
+            if cached is not None and cached[0] == marker and cached[1] == signature:
+                return cached[2].copy()
         prefix = self._read_log_range(0, marker.committed_byte_length, handle=handle)
         if marker.committed_byte_length and not prefix.endswith(b"\n"):
             raise ValueError("event_commit_store_corrupt")
@@ -938,12 +1053,17 @@ class FileEventStore:
             != b"\n"
         ):
             raise ValueError("event_commit_store_corrupt")
-        if hashlib.sha256(prefix).hexdigest() != marker.committed_prefix_sha256:
+        digest = hashlib.sha256(prefix)
+        if digest.hexdigest() != marker.committed_prefix_sha256:
             raise ValueError("event_commit_store_corrupt")
         self._validate_storage_rows(
             prefix[marker.legacy_baseline_byte_length :],
             expected_event_count=None,
         )
+        if signature != self._log_signature(handle):
+            raise ValueError("event_commit_store_corrupt")
+        self._remember_prefix(marker, signature, digest)
+        return digest
 
     @staticmethod
     def _pending_base_marker(pending: _PendingCommit) -> _CommitMarker:
@@ -1507,13 +1627,17 @@ class FileEventStore:
                         raise ValueError("event_commit_store_corrupt") from exc
                 self._fsync_directory()
                 actual_size += 1
+        signature = self._log_signature(handle)
         prefix = self._read_log_range(0, actual_size, handle=handle)
+        if signature != self._log_signature(handle):
+            raise ValueError("event_commit_store_corrupt")
         marker = _CommitMarker(
             committed_byte_length=actual_size,
             committed_prefix_sha256=hashlib.sha256(prefix).hexdigest(),
             legacy_baseline_byte_length=actual_size,
         )
         self._write_committed_length(marker)
+        self._remember_prefix(marker, signature, hashlib.sha256(prefix))
         return marker
 
     def _recover_event_log_unlocked(self, *, handle: BinaryIO | None = None) -> int:
@@ -1567,97 +1691,110 @@ class FileEventStore:
         round_key = str(round_id)
         idempotency_key = str(request_key)
         with self._locked(self.event_lock):
+            mark("event_lock_wait")
             event_log_context = (
                 self.log.open("r+b") if self.log.exists() else nullcontext(None)
             )
             with event_log_context as event_log_handle:
-                prepared = self._prepare_events(round_key, events)
-                raw_request_hash = _sha256(
-                    {
-                        "roundId": round_key,
-                        "events": [_normalized_event_for_hash(event) for event in events],
-                    }
-                )
-                request_hash = _sha256(
-                    {
-                        "roundId": round_key,
-                        "events": [_normalized_event_for_hash(item.event) for item in prepared],
-                    }
-                )
-                if validate_append is not None and self._is_pristine():
-                    # Nothing is stored yet: check before recovery seals the empty baseline, so a
-                    # refused first request leaves no store file behind.
-                    validate_append([], self._new_events_without_store(prepared))
-                self._recover_event_log_unlocked(handle=event_log_handle)
-                stored_log = self._stored_log(handle=event_log_handle)
+                try:
+                    prepared = self._prepare_events(round_key, events)
+                    raw_request_hash = _sha256(
+                        {
+                            "roundId": round_key,
+                            "events": [_normalized_event_for_hash(event) for event in events],
+                        }
+                    )
+                    request_hash = _sha256(
+                        {
+                            "roundId": round_key,
+                            "events": [_normalized_event_for_hash(item.event) for item in prepared],
+                        }
+                    )
+                    if validate_append is not None and self._is_pristine():
+                        # Nothing is stored yet: check before recovery seals the empty baseline, so a
+                        # refused first request leaves no store file behind.
+                        validate_append([], self._new_events_without_store(prepared))
+                    self._recover_event_log_unlocked(handle=event_log_handle)
+                finally:
+                    mark("event_validate")
+                try:
+                    index_sink: list[_RoundEventIndex] = []
+                    stored_log = self._indexed_round_log_unlocked(
+                        round_key, handle=event_log_handle, index_sink=index_sink,
+                    )
+                finally:
+                    mark("event_parse")
                 stored_rows = list(stored_log.rows)
-                reservations = self._load_reservations()
-                request_preexisting = self._preflight_request(
-                    round_id=round_key,
-                    request_key=idempotency_key,
-                    request_hash=request_hash,
-                    raw_request_hash=raw_request_hash,
-                    prepared=prepared,
-                    stored_rows=stored_rows,
-                    reservations=reservations,
-                )
+                try:
+                    reservations = self._load_reservations()
+                    request_preexisting = self._preflight_request(
+                        round_id=round_key,
+                        request_key=idempotency_key,
+                        request_hash=request_hash,
+                        raw_request_hash=raw_request_hash,
+                        prepared=prepared,
+                        stored_rows=stored_rows,
+                        reservations=reservations,
+                    )
 
-                positions: dict[tuple[str, str, str], tuple[str, int]] = {}
-                for stored in stored_rows:
-                    identity = self._event_identity(stored.row)
-                    event_hash = self._event_hash(stored.row)
-                    if identity is None or event_hash is None:
-                        continue
-                    existing = positions.get(identity)
-                    if existing is None or stored.position < existing[1]:
-                        positions[identity] = (event_hash, stored.position)
+                    positions: dict[tuple[str, str, str], tuple[str, int]] = {}
+                    for stored in stored_rows:
+                        identity = self._event_identity(stored.row)
+                        event_hash = self._event_hash(stored.row)
+                        if identity is None or event_hash is None:
+                            continue
+                        existing = positions.get(identity)
+                        if existing is None or stored.position < existing[1]:
+                            positions[identity] = (event_hash, stored.position)
 
-                high_water = stored_log.high_water
-                receipts: list[EventReceipt] = []
-                rows_to_append: list[dict[str, Any]] = []
-                for item in prepared:
-                    existing = positions.get(item.identity) if item.identity[2] else None
-                    if existing is not None:
+                    high_water = stored_log.high_water
+                    receipts: list[EventReceipt] = []
+                    rows_to_append: list[dict[str, Any]] = []
+                    for item in prepared:
+                        existing = positions.get(item.identity) if item.identity[2] else None
+                        if existing is not None:
+                            receipts.append(
+                                EventReceipt(
+                                    event_id=item.identity[2],
+                                    status="duplicate_hash_match",
+                                    position=existing[1],
+                                    request_preexisting=request_preexisting,
+                                )
+                            )
+                            continue
+                        high_water += 1
+                        row = {
+                            "roundId": round_key,
+                            "idempotencyKey": idempotency_key,
+                            "serverSequence": high_water,
+                            "eventHash": item.event_hash,
+                            "requestHash": request_hash,
+                            "event": item.event,
+                        }
+                        rows_to_append.append(row)
+                        if item.identity[2]:
+                            positions[item.identity] = (item.event_hash, high_water)
                         receipts.append(
                             EventReceipt(
                                 event_id=item.identity[2],
-                                status="duplicate_hash_match",
-                                position=existing[1],
+                                status="accepted",
+                                position=high_water,
                                 request_preexisting=request_preexisting,
                             )
                         )
-                        continue
-                    high_water += 1
-                    row = {
-                        "roundId": round_key,
-                        "idempotencyKey": idempotency_key,
-                        "serverSequence": high_water,
-                        "eventHash": item.event_hash,
-                        "requestHash": request_hash,
-                        "event": item.event,
-                    }
-                    rows_to_append.append(row)
-                    if item.identity[2]:
-                        positions[item.identity] = (item.event_hash, high_water)
-                    receipts.append(
-                        EventReceipt(
-                            event_id=item.identity[2],
-                            status="accepted",
-                            position=high_water,
-                            request_preexisting=request_preexisting,
+                    if validate_append is not None and rows_to_append:
+                        round_rows = sorted(
+                            (stored.row for stored in stored_rows if str(stored.row.get("roundId") or "") == round_key),
+                            key=lambda row: row.get("serverSequence") if isinstance(row.get("serverSequence"), int) else 0,
                         )
-                    )
-                if validate_append is not None and rows_to_append:
-                    round_rows = sorted(
-                        (stored.row for stored in stored_rows if str(stored.row.get("roundId") or "") == round_key),
-                        key=lambda row: row.get("serverSequence") if isinstance(row.get("serverSequence"), int) else 0,
-                    )
-                    validate_append(
-                        [row["event"] for row in round_rows if isinstance(row.get("event"), dict)],
-                        [row["event"] for row in rows_to_append],
-                    )
+                        validate_append(
+                            [row["event"] for row in round_rows if isinstance(row.get("event"), dict)],
+                            [row["event"] for row in rows_to_append],
+                        )
 
-                reservation_key = self._reservation_key(round_key, idempotency_key)
+                    reservation_key = self._reservation_key(round_key, idempotency_key)
+                finally:
+                    mark("event_validate")
                 if reservation_key not in reservations:
                     reservations[reservation_key] = {
                         "roundId": round_key,
@@ -1666,10 +1803,14 @@ class FileEventStore:
                     }
                     self._write_reservations(reservations)
 
-                if event_log_handle is None:
-                    self._append_rows(rows_to_append)
-                else:
-                    self._append_rows(rows_to_append, handle=event_log_handle)
+                self._append_index = index_sink[0] if index_sink else None
+                try:
+                    if event_log_handle is None:
+                        self._append_rows(rows_to_append)
+                    else:
+                        self._append_rows(rows_to_append, handle=event_log_handle)
+                finally:
+                    self._append_index = None
                 return AppendBatchResult(tuple(receipts), high_water)
 
     def _is_pristine(self) -> bool:
@@ -1709,20 +1850,9 @@ class FileEventStore:
         actual_size = self._event_log_size()
         if actual_size != base_marker.committed_byte_length:
             raise ValueError("event_commit_store_corrupt")
-        self._validate_commit_marker(base_marker, actual_size, handle=handle)
+        prefix_digest = self._validate_commit_marker(base_marker, actual_size, handle=handle)
         event_log_context = self.log.open("a+b") if handle is None else nullcontext(handle)
         with event_log_context as event_log_handle:
-            event_log_handle.seek(0)
-            prefix_digest = hashlib.sha256()
-            remaining = base_marker.committed_byte_length
-            while remaining:
-                chunk = event_log_handle.read(min(1024 * 1024, remaining))
-                if not chunk:
-                    raise ValueError("event_commit_store_corrupt")
-                prefix_digest.update(chunk)
-                remaining -= len(chunk)
-            if prefix_digest.hexdigest() != base_marker.committed_prefix_sha256:
-                raise ValueError("event_commit_store_corrupt")
             target_digest = prefix_digest.copy()
             target_digest.update(tail)
             target_marker = _CommitMarker(
@@ -1747,12 +1877,17 @@ class FileEventStore:
             event_log_handle.write(tail)
             event_log_handle.flush()
             os.fsync(event_log_handle.fileno())
+            written_signature = self._log_signature(event_log_handle)
         self._fsync_directory()
         self._advance_committed_length(
             base_marker=base_marker,
             target_marker=target_marker,
         )
         self._clear_pending_commit()
+        if written_signature != self._log_signature(handle):
+            raise ValueError("event_commit_store_corrupt")
+        self._remember_prefix(target_marker, written_signature, target_digest)
+        mark("event_write")
         try:
             self._record_round_index_after_append(
                 rows,
@@ -1760,6 +1895,7 @@ class FileEventStore:
                 committed_length=target_marker.committed_byte_length,
                 base_prefix_sha256=base_marker.committed_prefix_sha256,
                 committed_prefix_sha256=target_marker.committed_prefix_sha256,
+                index=getattr(self, "_append_index", None),
             )
         except Exception:
             # The event log is authoritative. A failed auxiliary index is rebuilt lazily by the
@@ -1770,6 +1906,8 @@ class FileEventStore:
                 self.root,
                 exc_info=True,
             )
+        finally:
+            mark("event_index")
 
     def _load_acks(self, *, strict: bool) -> tuple[dict[str, dict[str, Any]], bytes | None]:
         if not self.acks.exists():

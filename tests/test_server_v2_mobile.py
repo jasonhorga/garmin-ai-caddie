@@ -20,6 +20,7 @@ from ai_caddie.caddie.mobile_live import _hole_issue_label_zh
 from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
 from server_v2.main import app
 from tests.round_loop_authority import fixture_course_authority
+from tests.event_log_io import count_log_reads
 
 
 class ServerV2MobileTests(unittest.TestCase):
@@ -127,7 +128,9 @@ class ServerV2MobileTests(unittest.TestCase):
                 patch.object(mobile_service, "_refresh_course_release_authority", return_value=[]),
                 patch("ai_caddie.caddie.mobile_live._courseview_segment_resolver", return_value=("Fixture Course", 18)),
                 patch("ai_caddie.courses.course_reference.courseview_par", return_value=[4] * 18),
-                patch.object(FileEventStore, "_stored_log", side_effect=AssertionError("full scan")),
+                patch.object(FileEventStore, "_round_index_from_log_unlocked", autospec=True,
+                             side_effect=FileEventStore._round_index_from_log_unlocked) as scans,
+                count_log_reads(event_log) as reads,
                 patch.object(mobile_round_identity.tempfile, "mkstemp", wraps=mobile_round_identity.tempfile.mkstemp) as make_identity_temp,
             ):
                 with ThreadPoolExecutor(max_workers=2) as executor:
@@ -142,6 +145,8 @@ class ServerV2MobileTests(unittest.TestCase):
                 self.assertEqual(len(list(root.rglob("round_identity/*.json"))), 1)
                 restarted = FileEventStore(root / "data" / "mobile_events")
                 self.assertEqual(restarted.round_event_holes("new-round"), [])
+                self.assertEqual(scans.call_count, 0)
+                self.assertEqual(reads["bytes"], 0)
 
             self.assertEqual(load_mobile_round_identity("new-round", root=root)["roundId"], "new-round")
 

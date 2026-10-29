@@ -371,12 +371,14 @@ In priority order:
 
 ---
 
-## Mobile round event index migration
+## 9.1. Mobile round event index migration
 
 On API startup, a daemon worker prebuilds the durable `round_event_index.json` sidecar for existing
 mobile event partitions. The worker never blocks startup; a request that reaches an unmigrated
 partition first waits on that partition's event lock while the one-time scan completes, then uses
 the O(1) index path.
+
+---
 
 ## 10. Big files in the repo
 

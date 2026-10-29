@@ -34,6 +34,7 @@ _SENSITIVE_QUERY_UNQUOTED = re.compile(
 )
 _SHARE_PATH = re.compile(r"(/api/v2/share/)[^/?#]+")
 _MEMBER_PATH = re.compile(r"(/p/)[^/?#]+")
+_MOBILE_ROUND_PATH = re.compile(r"(/api/v2/mobile/rounds/)[^/?#]+")
 
 _BEIJING = ZoneInfo("Asia/Shanghai")
 _TIMING_FILE = re.compile(r"^(?P<kind>client-)?(?P<day>\d{4}-\d{2}-\d{2})\.jsonl$")
@@ -99,8 +100,9 @@ def timing_path(day: date, *, client: bool = False, root: Path | str | None = No
 
 
 def template_path(path: str) -> str:
-    """Strip query data and replace numeric URL path segments with ``{id}``."""
+    """Strip query data and replace resource identifiers with ``{id}``."""
     clean = redact_url(path).split("?", 1)[0].split("#", 1)[0] or "/"
+    clean = _MOBILE_ROUND_PATH.sub(r"\1{id}", clean)
     segments = clean.split("/")
     return "/".join("{id}" if re.fullmatch(r"\d+", segment or "") else segment for segment in segments)
 

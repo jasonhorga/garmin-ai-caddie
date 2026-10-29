@@ -16,7 +16,7 @@ import time
 from ai_caddie.core import revisions
 
 ROOT = Path(
-    os.environ.get("AI_CADDIE_ROOT", str(Path(__file__).resolve().parents[2]))
+    os.environ.get("AI_CADDIE_ROOT") or str(Path(__file__).resolve().parents[2])
 ).expanduser().resolve(strict=False)
 DATA_DIR = ROOT / "data"
 SCORECARD_DIR = DATA_DIR / "scorecards"

@@ -54,6 +54,7 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.root = Path(self._tmp.name)
 
     def test_round_index_light_scan_matches_read_rows_with_bad_and_interleaved_logs(self) -> None:
+        """J4.2/J5.9: migration preserves legacy hole coercion and committed v1 events."""
         rows = [
             {"roundId": ROUND_A, "event": {"hole": 1, "kind": "score"}},
             {"roundId": ROUND_B, "event": {"hole": 3, "kind": "score"}},
@@ -62,28 +63,41 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
             {"roundId": ROUND_A, "event": {"hole": "bad", "kind": "invalid"}},
             {"roundId": ROUND_A, "event": {"hole": 2, "kind": "score"}},
             ["non-dict-row"],
-        ]
-        log = self.root / "events.jsonl"
-        log.write_bytes(
-            b"\n".join(json.dumps(row, sort_keys=True).encode("utf-8") for row in rows)
-            + b"\n{broken\n\xff\n"
-        )
-        store = FileEventStore(self.root)
-        expected: dict[str, list[int]] = {}
-        for row in store.read_rows():
-            event = row.get("event")
-            try:
-                hole = int(event.get("hole")) if isinstance(event, dict) else 0
-            except (TypeError, ValueError, OverflowError):
-                continue
-            if hole > 0:
-                expected.setdefault(str(row.get("roundId") or ""), []).append(hole)
-
-        self.assertTrue(store.ensure_round_event_index())
-        payload = json.loads(store.round_index.read_text(encoding="utf-8"))
-        self.assertEqual(payload["rounds"], expected)
-        self.assertEqual(store.round_event_holes(ROUND_A), expected[ROUND_A])
-        self.assertEqual(store.round_event_holes(ROUND_B), expected[ROUND_B])
+        ] + [{"roundId": ROUND_A, "event": {"hole": hole, "kind": "score"}}
+             for hole in ("4", True, 3.7)]
+        raw = b"\n".join(json.dumps(row, sort_keys=True).encode("utf-8") for row in rows)
+        # The authoritative UTF-8 text reader rejects a BOM; bytes-based JSON autodetection
+        # must not make migration silently accept an extra row.
+        raw += b"\n\xef\xbb\xbf" + json.dumps({"roundId": ROUND_A, "event": {"hole": 99}}).encode()
+        raw += b"\n{broken\n\xff\n" + json.dumps({"roundId": ROUND_B, "event": {"hole": 8}}).encode()
+        for with_marker, final_lf in ((False, False), (False, True), (True, True)):
+            with self.subTest(marker=with_marker, final_lf=final_lf):
+                root = self.root / f"case-{with_marker}-{final_lf}"
+                root.mkdir()
+                (root / "events.jsonl").write_bytes(raw + (b"\n" if final_lf else b""))
+                store = FileEventStore(root)
+                if with_marker:
+                    # Real v1 storage rows after the legacy baseline, with a durable commit marker.
+                    store.append_batch(ROUND_A, [
+                        {**_event(f"typed-{i}"), "hole": hole}
+                        for i, hole in enumerate(("4", True, 3.7))
+                    ], request_key="typed-holes")
+                    store.round_index.unlink()
+                expected: dict[str, list[int]] = {}
+                for row in store.read_rows():
+                    event = row.get("event")
+                    try:
+                        hole = int(event.get("hole")) if isinstance(event, dict) else 0
+                    except (TypeError, ValueError, OverflowError):
+                        continue
+                    if hole > 0:
+                        expected.setdefault(str(row.get("roundId") or ""), []).append(hole)
+                self.assertEqual(expected[ROUND_A], [1, 2, 4, 1, 3] + ([4, 1, 3] if with_marker else []))
+                self.assertTrue(store.ensure_round_event_index())
+                payload = json.loads(store.round_index.read_text(encoding="utf-8"))
+                self.assertEqual(payload["rounds"], expected)
+                self.assertEqual(store.round_event_holes(ROUND_A), expected[ROUND_A])
+                self.assertEqual(store.round_event_holes(ROUND_B), expected[ROUND_B])
 
     def test_round_index_light_scan_rebuilds_six_mb_log_under_one_second(self) -> None:
         row = {
@@ -110,6 +124,31 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
             request_key="indexed-hole-request",
         )
         self.assertEqual(store.round_event_holes(ROUND_A), [7])
+
+    def test_round_index_offset_for_another_round_rebuilds_before_append(self) -> None:
+        """J5.9: a self-consistent but misdirected index must not duplicate an ACKed event."""
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [_event("a1")], request_key="a1")
+        store.append_batch(ROUND_B, [_event("b1", round_id=ROUND_B)], request_key="b1")
+
+        payload = json.loads(store.round_index.read_text(encoding="utf-8"))
+        payload["offsets"][ROUND_A] = payload["offsets"][ROUND_B]
+        data = {key: payload[key] for key in ("rounds", "offsets", "highWater", "lineCount")}
+        payload["indexSha256"] = _canonical_hash(data)
+        store.round_index.write_text(json.dumps(payload), encoding="utf-8")
+
+        result = FileEventStore(self.root).append_batch(
+            ROUND_A, [_event("a1")], request_key="a1-retry",
+        )
+        event_ids = [receipt.event_id for receipt in FileEventStore(self.root).read_events(ROUND_A)]
+        self.assertEqual(result[0].status, "duplicate_hash_match", f"stored_events={event_ids}")
+        self.assertEqual(event_ids, ["a1"])
+        repaired = json.loads(store.round_index.read_text(encoding="utf-8"))
+        # The first serialized v1 fixture row is 403 bytes at offset 0, sequence/line 1.
+        self.assertEqual(repaired["offsets"][ROUND_A], [[0, 403, 1, 1]])
+        start, length, _, _ = repaired["offsets"][ROUND_A][0]
+        row = json.loads(store.log.read_bytes()[start:start + length])
+        self.assertEqual((row["roundId"], row["event"]["eventId"]), (ROUND_A, "a1"))
 
     def test_round_index_rebuild_refuses_a_tampered_committed_prefix(self) -> None:
         # The light scan must still verify the committed prefix before labelling a rebuilt
