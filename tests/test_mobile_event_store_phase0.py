@@ -160,6 +160,14 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
 
     def test_indexed_round_reads_do_not_scan_unrelated_six_mb_history(self) -> None:
         """J5.9: per-round reads materialize only the indexed target rows."""
+        # The legacy log below is written outside the store. Inside the C152 prefix-cache safety
+        # window neither recovery nor indexing may cache the prefix, so every read would re-verify
+        # all 6 MB; run on a clock already past the window instead of racing the wall clock.
+        window = max(2 * mobile_event_store._PREFIX_CACHE_TICK_NS,
+                     mobile_event_store._PREFIX_CACHE_MIN_SAFETY_WINDOW_NS)
+        self.enterContext(mock.patch.object(
+            mobile_event_store, "_PREFIX_CACHE_CLOCK", lambda: time.time_ns() + window + 1
+        ))
         big_round = "big-history"
         small_round = "small-history"
         store = FileEventStore(self.root)
