@@ -956,6 +956,8 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Set by `stopRoundBackgroundWorkForTesting`: the personal package and the raster pass never
     /// start again on this model.
     private var roundBackgroundWorkStoppedForTesting = false
+    /// Tests advance the real retry loop without wall-clock backoffs; nil uses Task.sleep.
+    var pendingGeometrySleepForTesting: ((TimeInterval) async throws -> Void)?
     #endif
     /// A cold course's geometry lands hole by hole over a few minutes. Probe every 15 s at most so
     /// each finished hole is picked up promptly (the old 45–60 s slots left ready holes waiting),
@@ -7312,24 +7314,41 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func schedulePendingGeometryRefresh(for snapshot: LiveRoundPackage, mapOnly: Bool = false) {
+        Self.tracePendingGeometry(
+            "call mapOnly=\(mapOnly) executing=\(pendingGeometryRefreshExecuting) attempt=\(pendingGeometryRetryAttempt) queued=\(pendingGeometryMapOnlyRequested) hole=\(liveRoundState?.activeHole ?? -1)"
+        )
         #if DEBUG
-        guard !roundBackgroundWorkStoppedForTesting else { return }
+        guard !roundBackgroundWorkStoppedForTesting else {
+            Self.tracePendingGeometry("return stopped-before-schedule")
+            return
+        }
         #endif
         if pendingGeometryRefreshExecuting {
             if mapOnly { pendingGeometryMapOnlyRequested = true }
+            Self.tracePendingGeometry("return executing queued=\(pendingGeometryMapOnlyRequested)")
             return
         }
         if !pendingGeometryRefreshExecuting {
+            Self.tracePendingGeometry("cancel sleeping-task present=\(pendingGeometryRefreshTask != nil)")
             pendingGeometryRefreshTask?.cancel()
             pendingGeometryRefreshTask = nil
         }
         let requestedMapOnly = mapOnly || pendingGeometryMapOnlyRequested
         pendingGeometryMapOnlyRequested = false
-        guard let syncClient,
-              liveRoundState?.roundId == snapshot.roundId,
-              !snapshot.holes.filter({
-                  $0.geometryState?.caseInsensitiveCompare("pending") == .orderedSame
-              }).isEmpty else { return }
+        guard let syncClient else {
+            Self.tracePendingGeometry("return no-sync-client requestedMapOnly=\(requestedMapOnly)")
+            return
+        }
+        guard liveRoundState?.roundId == snapshot.roundId else {
+            Self.tracePendingGeometry("return round-mismatch requestedMapOnly=\(requestedMapOnly)")
+            return
+        }
+        guard snapshot.holes.contains(where: {
+            $0.geometryState?.caseInsensitiveCompare("pending") == .orderedSame
+        }) else {
+            Self.tracePendingGeometry("return no-pending requestedMapOnly=\(requestedMapOnly)")
+            return
+        }
         let retryAfter = snapshot.holes
             .filter({ $0.geometryState?.caseInsensitiveCompare("pending") == .orderedSame })
             .compactMap(\.retryAfterEpoch)
@@ -7339,6 +7358,9 @@ public final class LiveRoundAppModel: ObservableObject {
             retryAfterEpoch: retryAfter,
             attempt: pendingGeometryRetryAttempt
         )
+        Self.tracePendingGeometry(
+            "schedule requestedMapOnly=\(requestedMapOnly) attempt=\(pendingGeometryRetryAttempt) delay=\(delay) serverWait=\(max(0, retryAfter - Date().timeIntervalSince1970))"
+        )
         let roundId = snapshot.roundId
         let globalId = snapshot.course.globalId
         let teeBox = snapshot.course.teeBox
@@ -7346,21 +7368,47 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingGeometryRefreshTask = Task { [weak self] in
             do {
                 if delay > 0 {
+                    #if DEBUG
+                    if let sleep = self?.pendingGeometrySleepForTesting {
+                        try await sleep(delay)
+                    } else {
+                        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    }
+                    #else
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    #endif
                 }
-            } catch { return }
-            guard !Task.isCancelled else { return }
-            guard let self,
-                  self.package?.roundId == roundId,
+            } catch {
+                Self.tracePendingGeometry("return sleep-cancelled requestedMapOnly=\(requestedMapOnly)")
+                return
+            }
+            guard !Task.isCancelled else {
+                Self.tracePendingGeometry("return cancelled-before-send")
+                return
+            }
+            guard let self else {
+                Self.tracePendingGeometry("return model-released")
+                return
+            }
+            guard self.package?.roundId == roundId,
                   self.liveRoundState?.roundId == roundId,
-                  self.package?.course.globalId == globalId else { return }
+                  self.package?.course.globalId == globalId else {
+                Self.tracePendingGeometry("return identity-before-send")
+                return
+            }
             #if DEBUG
-            guard !self.roundBackgroundWorkStoppedForTesting else { return }
+            guard !self.roundBackgroundWorkStoppedForTesting else {
+                Self.tracePendingGeometry("return stopped-before-send")
+                return
+            }
             #endif
             self.pendingGeometryLastAttemptEpoch = retryAfter
             self.pendingGeometryRefreshExecuting = true
             defer { self.pendingGeometryRefreshExecuting = false }
             do {
+                Self.tracePendingGeometry(
+                    "send requestedMapOnly=\(requestedMapOnly) attempt=\(self.pendingGeometryRetryAttempt) hole=\(self.liveRoundState?.activeHole ?? -1)"
+                )
                 let refreshed: LiveRoundPackage
                 if requestedMapOnly {
                     // A hole change only needs map facts and must never replace the active
@@ -7390,11 +7438,18 @@ public final class LiveRoundAppModel: ObservableObject {
                       self.package?.roundId == roundId,
                       self.liveRoundState?.roundId == roundId,
                       refreshed.roundId == roundId,
-                      refreshed.course.globalId == globalId else { return }
+                      refreshed.course.globalId == globalId else {
+                    Self.tracePendingGeometry("return cancelled-or-identity-after-fetch")
+                    return
+                }
                 #if DEBUG
-                guard !self.roundBackgroundWorkStoppedForTesting else { return }
+                guard !self.roundBackgroundWorkStoppedForTesting else {
+                    Self.tracePendingGeometry("return stopped-after-fetch")
+                    return
+                }
                 #endif
                 guard self.package?.mapFactsCompatible(with: refreshed) ?? true else {
+                    Self.tracePendingGeometry("return incompatible-map-facts")
                     self.pendingGeometryRefreshTask = nil
                     self.pendingGeometryRefreshExecuting = false
                     self.pendingGeometryRetryAttempt = 0
@@ -7407,25 +7462,38 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
                 self.pendingGeometryRetryAttempt = remainsPending
                     ? self.pendingGeometryRetryAttempt + 1 : 0
+                Self.tracePendingGeometry("merged remainsPending=\(remainsPending) attempt=\(self.pendingGeometryRetryAttempt)")
                 try self.activatePackage(persisted, status: "几何地图已更新")
                 if remainsPending {
-                    guard !Task.isCancelled else { return }
+                    guard !Task.isCancelled else {
+                        Self.tracePendingGeometry("return cancelled-before-install-status")
+                        return
+                    }
                     #if DEBUG
-                    guard !self.roundBackgroundWorkStoppedForTesting else { return }
+                    guard !self.roundBackgroundWorkStoppedForTesting else {
+                        Self.tracePendingGeometry("return stopped-before-install-status")
+                        return
+                    }
                     #endif
+                    Self.tracePendingGeometry("send install-status")
                     _ = try await syncClient.fetchCourseInstallStatus(
                         globalId: globalId, teeBox: teeBox, loops: loops
                     )
                 }
                 guard !Task.isCancelled,
                       self.package?.roundId == roundId,
-                      self.liveRoundState?.roundId == roundId else { return }
+                      self.liveRoundState?.roundId == roundId else {
+                    Self.tracePendingGeometry("return cancelled-or-identity-after-install-status")
+                    return
+                }
                 self.pendingGeometryRefreshTask = nil
+                Self.tracePendingGeometry("finish remainsPending=\(remainsPending)")
                 if remainsPending {
                     self.pendingGeometryRefreshExecuting = false
                     self.schedulePendingGeometryRefresh(for: persisted, mapOnly: requestedMapOnly)
                 }
             } catch {
+                Self.tracePendingGeometry("fetch-failed requestedMapOnly=\(requestedMapOnly) cancelled=\(Task.isCancelled)")
                 self.pendingGeometryRetryAttempt += 1
                 self.pendingGeometryRefreshTask = nil
                 AICaddieLog.network.info(
@@ -7433,13 +7501,22 @@ public final class LiveRoundAppModel: ObservableObject {
                 )
                 guard self.package?.roundId == roundId,
                       self.liveRoundState?.roundId == roundId,
-                      self.package?.course.globalId == globalId else { return }
+                      self.package?.course.globalId == globalId else {
+                    Self.tracePendingGeometry("return identity-after-error")
+                    return
+                }
                 self.pendingGeometryRefreshExecuting = false
                 self.schedulePendingGeometryRefresh(
                     for: self.package ?? snapshot, mapOnly: requestedMapOnly
                 )
             }
         }
+    }
+
+    private static func tracePendingGeometry(_ message: @autoclosure () -> String) {
+        #if DEBUG
+        UITestPagerTrace.shared.record("geometry-refresh " + message())
+        #endif
     }
 
     /// Convert a successfully activated Garmin package into the small, account-scoped recovery

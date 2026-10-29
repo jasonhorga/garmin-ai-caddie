@@ -57,6 +57,7 @@ final class ProductMapAndPackageTests: XCTestCase {
     private func c136Package(
         garmin: Bool = false,
         pendingHole: Int? = nil,
+        retryAfterEpoch: Double = 0,
         includePrep: Bool = true
     ) throws -> LiveRoundPackage {
         var root = try XCTUnwrap(
@@ -76,7 +77,7 @@ final class ProductMapAndPackageTests: XCTestCase {
             if number == pendingHole {
                 holes[index]["geometryCoverage"] = "partial"
                 holes[index]["geometryState"] = "pending"
-                holes[index]["retryAfterEpoch"] = 0.0
+                holes[index]["retryAfterEpoch"] = retryAfterEpoch
             }
         }
         root["holes"] = holes
@@ -233,6 +234,10 @@ final class ProductMapAndPackageTests: XCTestCase {
     /// C136/J4: geometry refresh after moving to a pending hole is map-only. The initial full
     /// package is counted separately, then switching holes must add only `map_only=true` traffic.
     func test_j4_2_switching_holes_uses_map_only_without_full_package() async throws {
+        let trace = UITestPagerTrace.shared
+        let wasRecording = trace.recordingForTesting
+        trace.recordingForTesting = true
+        defer { trace.recordingForTesting = wasRecording }
         let pending = try c136Package(pendingHole: 2)
         let ready = try c136Package()
         let host = "c136-map-only.example.test"
@@ -260,7 +265,10 @@ final class ProductMapAndPackageTests: XCTestCase {
             }
             if c33Query(proto.request, "map_only") == "true" {
                 mapOnlyRequests.increment()
-                proto.reply(200, (try? JSONEncoder().encode(ready)) ?? Data())
+                // A new round also starts map-only. Only the selected-hole refresh is ready;
+                // entry must retain pending hole 2 or there is nothing for the switch to refresh.
+                let response = c33Query(proto.request, "priority_hole") == "2" ? ready : pending
+                proto.reply(200, (try? JSONEncoder().encode(response)) ?? Data())
             } else {
                 fullRequests.increment()
                 proto.reply(200, (try? JSONEncoder().encode(pending)) ?? Data())
@@ -275,6 +283,8 @@ final class ProductMapAndPackageTests: XCTestCase {
         await model.prepareCourseRound(
             roundId: pending.roundId, teeBox: pending.course.teeBox, loops: pending.loopEntries
         )
+        XCTAssertEqual(model.package?.holes.first(where: { $0.number == 2 })?.geometryState, "pending",
+                       "J4.2 fixture must enter with pending hole 2; trace: \(trace.renderedLabel())")
         let fullBaseline = fullRequests.value
         let roundBaseline = roundPackageRequests.value
         let mapBaseline = mapOnlyRequests.value
@@ -285,8 +295,142 @@ final class ProductMapAndPackageTests: XCTestCase {
         }
         XCTAssertEqual(fullRequests.value - fullBaseline, 0, "J4.2 hole change adds no full personal package")
         XCTAssertEqual(roundPackageRequests.value - roundBaseline, 0, "J4.2 hole change adds no round package")
-        XCTAssertGreaterThanOrEqual(mapOnlyRequests.value - mapBaseline, 1)
+        XCTAssertGreaterThanOrEqual(mapOnlyRequests.value - mapBaseline, 1,
+                                   "trace: \(trace.renderedLabel())")
         XCTAssertEqual(model.liveRoundState?.activeHole, 2, "local map and cursor are immediate")
+        await model.stopRoundBackgroundWorkForTesting()
+    }
+
+    /// J4.2: four real ordinary-refresh failures must not delay a newly selected hole.
+    /// Virtual sleep holds the 16 s retry; all requests still traverse SyncClient/URLProtocol.
+    func test_j4_2_hole_switch_preempts_old_backoff_but_map_failures_back_off() async throws {
+        let trace = UITestPagerTrace.shared
+        let wasRecording = trace.recordingForTesting
+        trace.recordingForTesting = true
+        defer { trace.recordingForTesting = wasRecording }
+        let pending = try c136Package(pendingHole: 2)
+        let ready = try c136Package()
+        let host = "c136-priority-backoff.example.test"
+        let context = c136Model(host: host, package: pending)
+        let model = context.model
+        let ordinaryRequests = C136Counter(), selectedRequests = C136Counter()
+        let inheritedWaits = C136Counter(), switchStarted = C136Counter()
+        let oldBackoff = C136Gate(), mapBackoff = C136Gate()
+        let oldRetryScheduled = expectation(description: "four failures reach 16 second backoff")
+        let mapRetryScheduled = expectation(description: "map-only failure schedules its own backoff")
+        let readyReturned = expectation(description: "map-only retry returns ready")
+        let oldOnce = C33FirstMatch(), retryOnce = C33FirstMatch(), readyOnce = C33FirstMatch()
+        model.pendingGeometrySleepForTesting = { delay in
+            if ordinaryRequests.value >= 4, selectedRequests.value == 0 {
+                // Old code takes this branch again after the switch, and cannot send map-only.
+                if switchStarted.value == 0 {
+                    XCTAssertEqual(delay, 16)
+                } else {
+                    inheritedWaits.increment()
+                }
+                if oldOnce.claim() { oldRetryScheduled.fulfill() }
+                await oldBackoff.wait()
+            } else if selectedRequests.value == 1 {
+                // First selected-hole attempt failed: attempt 1 must wait exactly 2 s.
+                XCTAssertEqual(delay, 2, "map-only retries retain exponential backoff")
+                if retryOnce.claim() { mapRetryScheduled.fulfill() }
+                await mapBackoff.wait()
+            }
+        }
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            if proto.request.url?.path.contains("/mobile/rounds/") == true {
+                ordinaryRequests.increment()
+                proto.reply(404)
+            } else if proto.request.url?.path.hasSuffix("/package") == true {
+                guard c33Query(proto.request, "map_only") == "true" else {
+                    XCTFail("J4.2 switched hole must not fetch personal package")
+                    proto.reply(404); return
+                }
+                if c33Query(proto.request, "priority_hole") == "2" {
+                    selectedRequests.increment()
+                    if selectedRequests.value == 1 {
+                        proto.reply(500)
+                    } else {
+                        proto.reply(200, (try? JSONEncoder().encode(ready)) ?? Data())
+                        if readyOnce.claim() { readyReturned.fulfill() }
+                    }
+                } else {
+                    proto.reply(200, (try? JSONEncoder().encode(pending)) ?? Data())
+                }
+            } else {
+                proto.reply(404)
+            }
+        })
+        defer {
+            context.client.invalidateForTesting()
+            context.session.invalidateAndCancel()
+            try? FileManager.default.removeItem(at: context.directory)
+        }
+        await model.prepareCourseRound(
+            roundId: pending.roundId, teeBox: pending.course.teeBox, loops: pending.loopEntries
+        )
+        await fulfillment(of: [oldRetryScheduled], timeout: productEventWait)
+        XCTAssertEqual(ordinaryRequests.value, 4, "four actual 404 responses before switching")
+        switchStarted.increment()
+        model.setActiveHole(2)
+        XCTAssertEqual(model.liveRoundState?.activeHole, 2)
+        await fulfillment(of: [mapRetryScheduled], timeout: productEventWait)
+        XCTAssertEqual(selectedRequests.value, 1, "trace: \(trace.renderedLabel())")
+        XCTAssertEqual(inheritedWaits.value, 0, "new hole sends without client backoff")
+        XCTAssertEqual(ordinaryRequests.value, 4, "old sleeping retry is cancelled")
+        await mapBackoff.release()
+        await fulfillment(of: [readyReturned], timeout: productEventWait)
+        XCTAssertEqual(selectedRequests.value, 2, "trace: \(trace.renderedLabel())")
+        // Release the cancelled sleeper before stopping so no test continuation is stranded.
+        await oldBackoff.release()
+        await model.stopRoundBackgroundWorkForTesting()
+    }
+
+    /// J4.2: new hole priority bypasses client backoff, never the server's retry deadline.
+    func test_j4_2_hole_switch_respects_server_geometry_deadline() async throws {
+        let pending = try c136Package(pendingHole: 2, retryAfterEpoch: Date().timeIntervalSince1970 + 30)
+        let ready = try c136Package()
+        let host = "c136-priority-deadline.example.test"
+        let context = c136Model(host: host, package: pending)
+        let model = context.model
+        let gate = C136Gate()
+        let switched = C136Counter(), selectedRequests = C136Counter()
+        let deadlineScheduled = expectation(description: "selected hole waits for server deadline")
+        let mapSent = expectation(description: "selected hole sends after server wait")
+        let scheduledOnce = C33FirstMatch(), sentOnce = C33FirstMatch()
+        model.pendingGeometrySleepForTesting = { delay in
+            XCTAssertGreaterThan(delay, 0)
+            XCTAssertLessThanOrEqual(delay, 30)
+            if switched.value == 1, scheduledOnce.claim() { deadlineScheduled.fulfill() }
+            await gate.wait()
+        }
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host,
+                  proto.request.url?.path.hasSuffix("/package") == true,
+                  c33Query(proto.request, "map_only") == "true" else { proto.reply(404); return }
+            let selected = c33Query(proto.request, "priority_hole") == "2"
+            proto.reply(200, (try? JSONEncoder().encode(selected ? ready : pending)) ?? Data())
+            if selected {
+                selectedRequests.increment()
+                if sentOnce.claim() { mapSent.fulfill() }
+            }
+        })
+        defer {
+            context.client.invalidateForTesting()
+            context.session.invalidateAndCancel()
+            try? FileManager.default.removeItem(at: context.directory)
+        }
+        await model.prepareCourseRound(
+            roundId: pending.roundId, teeBox: pending.course.teeBox, loops: pending.loopEntries
+        )
+        switched.increment()
+        model.setActiveHole(2)
+        await fulfillment(of: [deadlineScheduled], timeout: productEventWait)
+        XCTAssertEqual(selectedRequests.value, 0, "server deadline gates the request")
+        await gate.release()
+        await fulfillment(of: [mapSent], timeout: productEventWait)
+        XCTAssertEqual(selectedRequests.value, 1)
         await model.stopRoundBackgroundWorkForTesting()
     }
 

@@ -19,7 +19,10 @@ final class UITestPagerTrace {
     }
 
     static let shared = UITestPagerTrace()
-    let enabled = ProcessInfo.processInfo.environment["UITEST_PAGER_TRACE"] == "1"
+    var recordingForTesting = false
+    var enabled: Bool {
+        recordingForTesting || ProcessInfo.processInfo.environment["UITEST_PAGER_TRACE"] == "1"
+    }
 
     private var events: [String] = []
     private var counts: [String: Int] = [:]
@@ -102,7 +105,7 @@ final class UITestPagerTrace {
         for box in views { box.view?.accessibilityLabel = value }
     }
 
-    private func renderedLabel() -> String {
+    func renderedLabel() -> String {
         let metricText = counts.keys.sorted().map { "\($0)=\(counts[$0] ?? 0)" }.joined(separator: " ")
         let totalText = totals.keys.sorted().map {
             let value = String(format: "%.1f", totals[$0] ?? 0)
