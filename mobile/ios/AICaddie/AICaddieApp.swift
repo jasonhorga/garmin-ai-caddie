@@ -7313,9 +7313,11 @@ public final class LiveRoundAppModel: ObservableObject {
         watchTopoSender?.sync()
     }
 
-    private func schedulePendingGeometryRefresh(for snapshot: LiveRoundPackage, mapOnly: Bool = false) {
+    private func schedulePendingGeometryRefresh(
+        for snapshot: LiveRoundPackage, mapOnly: Bool = false, isRetry: Bool = false
+    ) {
         Self.tracePendingGeometry(
-            "call mapOnly=\(mapOnly) executing=\(pendingGeometryRefreshExecuting) attempt=\(pendingGeometryRetryAttempt) queued=\(pendingGeometryMapOnlyRequested) hole=\(liveRoundState?.activeHole ?? -1)"
+            "call mapOnly=\(mapOnly) isRetry=\(isRetry) executing=\(pendingGeometryRefreshExecuting) attempt=\(pendingGeometryRetryAttempt) queued=\(pendingGeometryMapOnlyRequested) hole=\(liveRoundState?.activeHole ?? -1)"
         )
         #if DEBUG
         guard !roundBackgroundWorkStoppedForTesting else {
@@ -7333,6 +7335,9 @@ public final class LiveRoundAppModel: ObservableObject {
             pendingGeometryRefreshTask?.cancel()
             pendingGeometryRefreshTask = nil
         }
+        // A player selecting a hole starts a new priority, including one queued while a request
+        // was in flight. Recursive retries keep their own exponential backoff instead.
+        let startsNewPriority = (mapOnly && !isRetry) || pendingGeometryMapOnlyRequested
         let requestedMapOnly = mapOnly || pendingGeometryMapOnlyRequested
         pendingGeometryMapOnlyRequested = false
         guard let syncClient else {
@@ -7349,17 +7354,19 @@ public final class LiveRoundAppModel: ObservableObject {
             Self.tracePendingGeometry("return no-pending requestedMapOnly=\(requestedMapOnly)")
             return
         }
+        if startsNewPriority { pendingGeometryRetryAttempt = 0 }
         let retryAfter = snapshot.holes
             .filter({ $0.geometryState?.caseInsensitiveCompare("pending") == .orderedSame })
             .compactMap(\.retryAfterEpoch)
             .min() ?? Date().timeIntervalSince1970
-        let delay = PackageGeometryRetryPolicy.delaySeconds(
-            nowEpoch: Date().timeIntervalSince1970,
-            retryAfterEpoch: retryAfter,
-            attempt: pendingGeometryRetryAttempt
-        )
+        let now = Date().timeIntervalSince1970
+        let delay = startsNewPriority
+            ? max(0, retryAfter - now)
+            : PackageGeometryRetryPolicy.delaySeconds(
+                nowEpoch: now, retryAfterEpoch: retryAfter, attempt: pendingGeometryRetryAttempt
+            )
         Self.tracePendingGeometry(
-            "schedule requestedMapOnly=\(requestedMapOnly) attempt=\(pendingGeometryRetryAttempt) delay=\(delay) serverWait=\(max(0, retryAfter - Date().timeIntervalSince1970))"
+            "schedule requestedMapOnly=\(requestedMapOnly) newPriority=\(startsNewPriority) attempt=\(pendingGeometryRetryAttempt) delay=\(delay) serverWait=\(max(0, retryAfter - Date().timeIntervalSince1970))"
         )
         let roundId = snapshot.roundId
         let globalId = snapshot.course.globalId
@@ -7490,7 +7497,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 Self.tracePendingGeometry("finish remainsPending=\(remainsPending)")
                 if remainsPending {
                     self.pendingGeometryRefreshExecuting = false
-                    self.schedulePendingGeometryRefresh(for: persisted, mapOnly: requestedMapOnly)
+                    self.schedulePendingGeometryRefresh(for: persisted, mapOnly: requestedMapOnly, isRetry: true)
                 }
             } catch {
                 Self.tracePendingGeometry("fetch-failed requestedMapOnly=\(requestedMapOnly) cancelled=\(Task.isCancelled)")
@@ -7507,7 +7514,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
                 self.pendingGeometryRefreshExecuting = false
                 self.schedulePendingGeometryRefresh(
-                    for: self.package ?? snapshot, mapOnly: requestedMapOnly
+                    for: self.package ?? snapshot, mapOnly: requestedMapOnly, isRetry: true
                 )
             }
         }

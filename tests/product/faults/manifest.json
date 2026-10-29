@@ -1855,6 +1855,27 @@
       "kind": "native-unit",
       "target": "AICaddieTests/ProductMapAndPackageTests/test_j5_4_selected_tee_static_golden_and_atomic_live_fallback",
       "promise": "J5.4"
+    },
+    {
+      "id": "tests-product-faults-C136-15",
+      "patch": "tests/product/faults/C136/15-hole-switch-inherits-backoff.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_2_hole_switch_preempts_old_backoff_but_map_failures_back_off",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C136-16",
+      "patch": "tests/product/faults/C136/16-map-retry-resets-backoff.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_2_hole_switch_preempts_old_backoff_but_map_failures_back_off",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C136-17",
+      "patch": "tests/product/faults/C136/17-hole-switch-ignores-server-deadline.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_2_hole_switch_respects_server_geometry_deadline",
+      "promise": "J4.2"
     }
   ]
 }
