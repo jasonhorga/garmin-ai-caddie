@@ -193,6 +193,7 @@ def main(argv):
                 with open(record_path, "w") as handle:
                     json.dump({"revision": scenario["race_record"]}, handle)
             save(state)
+        save(state)
         return 0
     if command == "inspect":
         opts, refs = take_options(args, set(), {"--format"})
@@ -1275,6 +1276,7 @@ class AgenthubDeployScriptTest(unittest.TestCase):
             # NEW, still named by the record, is the only on-failure release.
             self.assert_release_policies({OLD_NAME: "no", NEW_NAME: ON_FAILURE})
             self.assert_deploy_logged_policy_failure(result.stdout, NEW_NAME)
+            self.assertIn(f"{NEW_NAME} kept restart policy {ON_FAILURE}", result.stdout)
         with self.subTest("up: recorded release unhealthy, its `no` is refused"):
             self.write_state(production_fixture(), unhealthy=[NEW], fail_updates=[[NEW_NAME, "no"]])
             self.recorded_release_stopped_while_old_serves()
@@ -1284,7 +1286,6 @@ class AgenthubDeployScriptTest(unittest.TestCase):
             self.assertEqual(self.running_names(), [OLD_NAME])
             self.assert_release_policies({OLD_NAME: "no", NEW_NAME: ON_FAILURE})
             self.assert_up_logged(result.stdout, NEW_NAME, "restart_policy_failed")
-            self.assertIn(f"{NEW_NAME} kept restart policy {ON_FAILURE}", result.stdout)
 
     def test_G6_up_recovers_when_an_old_release_refuses_restart_policy_no(self) -> None:
         stuck = self.stopped_release()["Name"][1:]
@@ -1367,10 +1368,15 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.restart_policies()[NEW_NAME], ON_FAILURE)
         self.assertEqual(self.restart_policies()[dead_name], ON_FAILURE)
+        (self.tmp / "release-state.json").write_text(json.dumps({"revision": NEW}))
+        result = self.invoke("up")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.restart_policies()[NEW_NAME], ON_FAILURE)
 
     def test_G6_running_release_refusing_update_is_still_withheld(self) -> None:
-        self.add_container(self.stopped_release(serial=8, revision="d" * 40), ON_FAILURE)
-        stuck = PREFIX + "33333333-production-20261007"
+        stuck_entry = self.stopped_release(serial=8, revision="d" * 40)
+        stuck = stuck_entry["Name"][1:]
+        self.add_container(stuck_entry, ON_FAILURE)
         self.set_scenario(fail_updates=[[stuck, "no"]])
         result = self.invoke("up")
         self.assertEqual(result.returncode, 0, result.stdout)

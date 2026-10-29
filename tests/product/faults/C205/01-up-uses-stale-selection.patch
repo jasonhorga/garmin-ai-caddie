@@ -1,0 +1,11 @@
+--- a/ops/agenthub_deploy.py
++++ b/ops/agenthub_deploy.py
+@@ -1496,7 +1496,7 @@
+                 if selected is None:
+                     raise UpFailed("api", "none", "no valid release candidate",
+                                    reason="no_release_candidate")
+-                api = selected
++                api = api
+                 container = api.name
+                 if api.running:
+                     kept = normalize_restart_policy(cfg, containers, api, check=False)
