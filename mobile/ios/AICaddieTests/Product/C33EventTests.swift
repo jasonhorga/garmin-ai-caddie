@@ -98,10 +98,8 @@ final class C33EventTests: XCTestCase {
                 proto.reply(200, try JSONEncoder().encode(SyncResult(accepted: 1, duplicate: false, acceptedEventIds: ["e1"])))
             } catch { XCTFail("\(error)"); proto.reply(500) }
         }
-        URLProtocol.registerClass(C33URLProtocol.self)
         defer {
             client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.onStart = nil
-            URLProtocol.unregisterClass(C33URLProtocol.self)
         }
         for mode in ["stock", "attack"] {
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -524,10 +522,8 @@ final class C33EventTests: XCTestCase {
                 proto.reply(200, try JSONEncoder().encode(SyncResult(accepted: ids.count, duplicate: false, acceptedEventIds: ids)))
             } catch { XCTFail("\(error)"); proto.reply(500) }
         }
-        URLProtocol.registerClass(C33URLProtocol.self)
         defer {
             client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.onStart = nil
-            URLProtocol.unregisterClass(C33URLProtocol.self)
             try? FileManager.default.removeItem(at: directory)
         }
         await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])

@@ -10,9 +10,8 @@ final class C33URLProtocol: URLProtocol {
     private static let callbackLock = NSLock()
     override class func canInit(with request: URLRequest) -> Bool {
         ensureC156TopoBundleStub()
-        // A later global registration must not steal the shared downloader's topo from its scope.
+        // This protocol is installed only on injected sessions: their handler owns topo too.
         return request.url?.host?.hasSuffix(".example.test") == true
-            && request.url?.path.hasSuffix("/topo.png") != true
     }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {

@@ -94,8 +94,8 @@ private let c156TopoBundleObserver: C156TopoBundleObserver = {
     return observer
 }()
 
-/// Some XCTest runtimes lazily initialize file globals. The protocol/session helpers call this
-/// before starting their own traffic, while the global initializer covers the ordinary bundle path.
+/// Swift file globals are lazy. Protocol/session helpers must explicitly touch the observer
+/// before starting traffic; declaring the global alone does not bootstrap the bundle.
 func ensureC156TopoBundleStub() {
     _ = c156TopoBundleObserver
 }

@@ -6,6 +6,7 @@ import XCTest
 
 // Every test owns a distinct host. C33URLProtocol is process-wide, so requests that earlier tests'
 // models are still draining are answered 404 here and never drive this test's expectations.
+// Only injected sessions install C33URLProtocol; shared topo uses the bundle stub.
 //
 // The CI simulator stalls at random for 1.5–14 s. Waits here are therefore generous and never the
 // assertion: a held request is never answered, so a regression shows up as an event that does not
@@ -19,15 +20,36 @@ final class C33StartTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        URLProtocol.registerClass(C33URLProtocol.self)
         topoPrefetchScope = C33TopoPrefetchScope()
     }
     override func tearDown() async throws {
         await topoPrefetchScope?.stop()
         topoPrefetchScope = nil
         C33URLProtocol.setHandlers(onStart: nil)
-        URLProtocol.unregisterClass(C33URLProtocol.self)
         try await super.tearDown()
+    }
+
+    /// J4.2 test transport: injected topo must reach its handler while shared prefetch gets a PNG.
+    func testProductSpec42InjectedTopoKeepsItsHandlerAlongsideSharedPrefetch() async throws {
+        let url = try XCTUnwrap(URL(string:
+            "https://session-routing.example.test/topo.png?v=\(UUID().uuidString)"
+        ))
+        let ownBody = Data("injected handler".utf8)
+        C33URLProtocol.setHandlers(onStart: { proto in
+            XCTAssertEqual(proto.request.url, url)
+            proto.reply(202, ownBody)
+        })
+        let session = C33URLProtocol.session()
+        defer { session.invalidateAndCancel() }
+
+        let (injectedData, injectedResponse) = try await session.data(from: url)
+        let sharedLoaded = await TopoHoleImageStore.ensureLoaded(url)
+
+        XCTAssertEqual((injectedResponse as? HTTPURLResponse)?.statusCode, 202)
+        XCTAssertEqual(injectedData, ownBody)
+        XCTAssertTrue(sharedLoaded, "shared prefetch must receive a decoder-valid PNG")
+        XCTAssertTrue(TopoHoleImageStore.isMemoryCached(url))
+        XCTAssertTrue(SharedTopoURLProtocol.records().urls.contains(url))
     }
 
     func testStartCancelsPreviousCourseAndSendsWithoutWaitingForIt() async throws {

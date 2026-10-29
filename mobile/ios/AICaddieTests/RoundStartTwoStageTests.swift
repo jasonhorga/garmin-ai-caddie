@@ -782,6 +782,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertTrue(result)
         XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
         let responses = C90ResponseLog()
+        let topoResponses = C85Counter()
         let diagnostics = {
             "ownership=\(String(describing: fixture.model.offlineCourseDownloadRoundIdForTesting)) "
                 + "interrupted=\(String(describing: fixture.model.interruptedOfflineCourseDownloadRoundIdForTesting)) "
@@ -799,6 +800,7 @@ final class RoundStartTwoStageTests: XCTestCase {
                 response = (200, prepData)
                 usedDefault = false
             case let path where path?.hasSuffix("/topo.png") == true:
+                topoResponses.increment()
                 response = (200, validOnePixelPNGData())
                 usedDefault = false
             default:
@@ -815,6 +817,7 @@ final class RoundStartTwoStageTests: XCTestCase {
             throw error
         }
         XCTAssertNil(fixture.model.offlineCourseDownloadRoundIdForTesting)
+        XCTAssertGreaterThan(topoResponses.value, 0, "injected topo must reach this test’s handler")
         guard let template = try fixture.store.loadCourseTemplate(globalId: c85CourseId, teeBox: "blue") else {
             XCTFail("missing whole-course template (globalId=\(c85CourseId), teeBox=blue); \(diagnostics())")
             return
