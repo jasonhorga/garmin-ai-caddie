@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from datetime import datetime
+import io
 import json
 import logging
 from pathlib import Path
@@ -11,10 +13,54 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from starlette.responses import PlainTextResponse
+from starlette.routing import Match, Route
 
 from ai_caddie.core import request_timing
+from server_v2 import main as server_main
 from server_v2.main import app
 from server_v2.timing_api import sanitize_client_record
+
+
+@contextmanager
+def _routes_prepended(*routes):
+    """Put extra routes in front of the real route table for one test."""
+    app.router.routes[0:0] = routes
+    try:
+        yield
+    finally:
+        for route in routes:
+            app.router.routes.remove(route)
+
+
+class _RecordingRoute:
+    """Matches nothing; records each route-table walk that reaches it."""
+
+    path = "/recording-route"
+
+    def __init__(self) -> None:
+        self.walked: list[str] = []
+
+    def matches(self, scope):
+        self.walked.append(scope["path"])
+        return Match.NONE, {}
+
+
+class _BrokenRoute:
+    path = "/broken-route/{value}"
+
+    def matches(self, scope):
+        raise RuntimeError("broken convertor")
+
+
+def _access_record(method: str, path: str, status: int) -> logging.LogRecord:
+    # uvicorn 0.48 h11/httptools: access_logger.info('%s - "%s %s HTTP/%s" %d', client, method,
+    # get_path_with_query_string(scope), http_version, status).
+    return logging.LogRecord(
+        "uvicorn.access", logging.INFO, __file__, 0,
+        '%s - "%s %s HTTP/%s" %d',
+        ("testclient:50000", method, path, "1.1", status), None,
+    )
 
 
 class C90TimingPersistenceTests(unittest.TestCase):
@@ -289,6 +335,126 @@ class C90TimingEndpointTests(unittest.TestCase):
     def test_malformed_path_request_stays_a_404(self) -> None:
         response = TestClient(app).request("GET", "http://testserver//[x")
         self.assertEqual(response.status_code, 404)
+
+
+class UvicornLogExitTests(unittest.TestCase):
+    def _log_after_startup(self, logger_name: str, formatter: logging.Formatter, msg: str, args: tuple) -> str:
+        """Log one line the way uvicorn does, through the loggers the app configures at startup."""
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(formatter)
+        target = logging.getLogger(logger_name)
+        loggers = [target, *(logging.getLogger(name) for name in server_main.SERVICE_INFO_LOGGERS)]
+        saved = [(lg, lg.level, lg.propagate, list(lg.handlers), list(lg.filters), lg.disabled) for lg in loggers]
+
+        def restore() -> None:
+            for lg, level, propagate, handlers, filters, disabled in saved:
+                lg.setLevel(level)
+                lg.propagate = propagate
+                lg.handlers[:] = handlers
+                lg.filters[:] = filters
+                lg.disabled = disabled
+
+        self.addCleanup(restore)
+        # uvicorn's dictConfig leaves its loggers at INFO with their own handler and no filters;
+        # the lifespan then runs configure_request_timing_logging().
+        target.setLevel(logging.INFO)
+        target.propagate = False
+        target.disabled = False
+        target.handlers[:] = [handler]
+        target.filters[:] = []
+        server_main.configure_request_timing_logging()
+        target.info(msg, *args)
+        return stream.getvalue()
+
+    def test_startup_access_logger_writes_route_template_without_ids_or_query(self) -> None:
+        """J7.3: the uvicorn.access exit configured at startup carries no opaque id or token."""
+        from uvicorn.logging import AccessFormatter
+
+        output = self._log_after_startup(
+            "uvicorn.access",
+            AccessFormatter('%(client_addr)s - "%(request_line)s" %(status_code)s', use_colors=False),
+            '%s - "%s %s HTTP/%s" %d',
+            ("testclient:50000", "GET", "/api/v2/players/p_ACCESSSECRET/clubs/bag?token=ACCESSTOKEN", "1.1", 200),
+        )
+        # Expected: the bag route template from server_v2/main.py in uvicorn's request-line shape.
+        self.assertIn('testclient:50000 - "GET /api/v2/players/{player_id}/clubs/bag HTTP/1.1" 200', output)
+        self.assertNotIn("ACCESSSECRET", output)
+        self.assertNotIn("ACCESSTOKEN", output)
+        self.assertNotIn("?", output)
+
+    def test_startup_error_logger_drops_websocket_handshake_target(self) -> None:
+        """J7.3: a hand-crafted WebSocket upgrade cannot write ids or tokens to uvicorn.error."""
+        target = "/api/v2/players/p_WSSECRET/clubs/bag?token=WSTOKEN"
+        # The handshake lines uvicorn 0.48's websockets/wsproto protocols log on uvicorn.error; the
+        # API serves no WebSocket route, so every handshake target is unmatched.
+        cases = (
+            ('%s - "WebSocket %s" 403', ("testclient:50000", target), 'testclient:50000 - "WebSocket <unmatched>" 403'),
+            ('%s - "WebSocket %s" [accepted]', ("testclient:50000", target), 'testclient:50000 - "WebSocket <unmatched>" [accepted]'),
+            ('%s - "WebSocket %s" %d', ("testclient:50000", target, 404), 'testclient:50000 - "WebSocket <unmatched>" 404'),
+        )
+        for msg, args, expected in cases:
+            with self.subTest(msg=msg):
+                output = self._log_after_startup("uvicorn.error", logging.Formatter("%(message)s"), msg, args)
+                self.assertEqual(output.strip(), expected)
+
+    def test_route_cache_ignores_query_and_keeps_no_raw_path(self) -> None:
+        """J7.3: route resolution caches one entry per path and retains no token or opaque id."""
+        recorder = _RecordingRoute()
+        with _routes_prepended(recorder):
+            for token in ("CACHETOKEN1", "CACHETOKEN2", "CACHETOKEN3"):
+                self.assertEqual(
+                    request_timing.route_template(f"/api/v2/players/p_CACHESECRET/clubs/bag?token={token}", "GET"),
+                    "/api/v2/players/{player_id}/clubs/bag",
+                )
+        # One route-table walk (one cache entry); routing never reads the query, so the rest are hits.
+        self.assertEqual(recorder.walked, ["/api/v2/players/p_CACHESECRET/clubs/bag"])
+        cached = repr(list(request_timing._ROUTE_TEMPLATE_CACHE.items()))
+        self.assertNotIn("CACHETOKEN", cached)
+        self.assertNotIn("CACHESECRET", cached)
+
+    def test_access_template_follows_starlette_method_dispatch(self) -> None:
+        """J7.3: access diagnostics name the route Starlette dispatches to, including its 405."""
+        item = Route("/dispatch-route/{item}", lambda request: PlainTextResponse("item"), methods=["GET"])
+        fixed = Route("/dispatch-route/fixed", lambda request: PlainTextResponse("fixed"), methods=["POST"])
+        # Starlette's Router: the first route matching path and method handles the request; with
+        # none, the first route matching the path answers 405 with its Allow header.
+        cases = (
+            ("GET", 200, "item", "/dispatch-route/{item}"),
+            ("POST", 200, "fixed", "/dispatch-route/fixed"),
+            ("DELETE", 405, {"GET", "HEAD"}, "/dispatch-route/{item}"),
+        )
+        with _routes_prepended(item, fixed):
+            client = TestClient(app.router)
+            for method, status, answer, template in cases:
+                with self.subTest(method=method):
+                    response = client.request(method, "/dispatch-route/fixed")
+                    self.assertEqual(response.status_code, status)
+                    if status == 200:
+                        self.assertEqual(response.text, answer)
+                    else:
+                        self.assertEqual(set(response.headers["allow"].split(", ")), answer)
+                    record = _access_record(method, "/dispatch-route/fixed", status)
+                    request_timing.URLRedactionFilter().filter(record)
+                    self.assertEqual(record.getMessage(), f'testclient:50000 - "{method} {template} HTTP/1.1" {status}')
+        record = _access_record("DELETE", "/api/v2/history/rounds/r_DISPATCHSECRET", 405)
+        request_timing.URLRedactionFilter().filter(record)
+        self.assertEqual(record.getMessage(), 'testclient:50000 - "DELETE /api/v2/history/rounds/{round_ref} HTTP/1.1" 405')
+
+    def test_broken_route_matcher_skips_only_that_route(self) -> None:
+        """J7.3: one route whose matcher raises does not hide the routes after it."""
+        with _routes_prepended(_BrokenRoute()):
+            record = _access_record("GET", "/api/v2/players/p_BROKENSECRET/clubs/bag", 200)
+            request_timing.URLRedactionFilter().filter(record)
+            client = sanitize_client_record({
+                "request_id": "broken-route",
+                "path": "/api/v2/history/rounds/r_BROKENSECRET",
+                "client_total_ms": 12,
+                "status": 200,
+                "started_at": "2026-10-27T08:00:00Z",
+            })
+        self.assertEqual(record.getMessage(), 'testclient:50000 - "GET /api/v2/players/{player_id}/clubs/bag HTTP/1.1" 200')
+        self.assertEqual(client["path"], "/api/v2/history/rounds/{round_ref}")
 
 
 if __name__ == "__main__":
