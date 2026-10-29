@@ -260,7 +260,8 @@ class HotPathRevisionTests(unittest.TestCase):
 
         row = type("Loop", (), {"model_dump": lambda self: {"number": 1}})()
         package = type("Package", (), {
-            "roundLoops": [row], "roundId": "round", "loopKey": "loop", "holes": []
+            "roundLoops": [row], "roundId": "round", "loopKey": "loop", "holes": [],
+            "course": {},
         })()
 
         def fake_save(*args, event_lock, **kwargs):

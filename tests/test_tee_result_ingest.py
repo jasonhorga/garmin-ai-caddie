@@ -26,6 +26,9 @@ from ai_caddie.core import data as core_data
 from ai_caddie.courses import course_prep
 from ai_caddie.history import history, stats_cache
 from ai_caddie.rounds import round_ingest
+from ai_caddie.caddie.mobile_round_identity import load_mobile_round_identity
+from server_v2 import mobile
+from server_v2.models import LiveRoundPackageResponse, MobileRoundFinishRequest, RoundLoop
 
 GID = 990042
 REF = {"RefLat": 40.0, "RefLon": 116.0}
@@ -106,6 +109,47 @@ class TeeResultIngestTest(unittest.TestCase):
         holes = json.loads(path.read_text())["scorecardDetails"][0]["scorecard"]["holes"]
         return [hole.get("fairway") for hole in holes]
 
+    def finish_mobile(self, round_id: str, events: list[dict], *, meta: dict | None = None) -> dict:
+        with patch.object(mobile, "MOBILE_ROOT", self.root), \
+                patch.object(mobile, "round_events", return_value=events), \
+                patch.object(mobile, "warm_stats_cache_in_background"):
+            result = mobile.finish_mobile_round_response(
+                round_id,
+                MobileRoundFinishRequest(
+                    meta={"courseGlobalId": GID, "courseName": "C45", "holePars": [4], **(meta or {})}
+                ),
+                player_id="p_c45",
+            )
+        scorecard = self.root / "data" / "players" / "p_c45" / "scorecards" / f"{result.id}.json"
+        return json.loads(scorecard.read_text())["scorecardDetails"][0]["scorecard"]
+
+    def persist_round_package(self, round_id: str, tee_box: str) -> None:
+        loops = [{
+            "globalId": GID,
+            "half": "all",
+            "roundStartHole": 1,
+            "sourceStartHole": 1,
+            "holeCount": 9,
+        }]
+        holes = [
+            {
+                "number": hole,
+                "sourceGlobalId": GID,
+                "sourceLocalHole": hole,
+                "courseHoleNumber": hole,
+            }
+            for hole in range(1, 10)
+        ]
+        package = LiveRoundPackageResponse.model_construct(
+            roundId=round_id,
+            roundLoops=[RoundLoop(**loops[0])],
+            loopKey=f"{GID}:all",
+            holes=holes,
+            course={"teeBox": tee_box},
+        )
+        with patch.object(mobile, "MOBILE_ROOT", self.root):
+            mobile._persist_mobile_package_identity(package, player_id="p_c45")
+
     def test_second_position_against_installed_fairway(self) -> None:
         self.install(STRAIGHT)
         # Inside the rectangle -> hit. Outside, the route runs due north, so west of it is the
@@ -133,6 +177,84 @@ class TeeResultIngestTest(unittest.TestCase):
         with patch("ai_caddie.courses.course_reference.courseview_tees", return_value=RELEASE_TEES):
             self.assertEqual(self.fairways(_hole_events(1, DOGLEG_BALL), "blue"), ["right"])
             self.assertEqual(self.fairways(_hole_events(1, DOGLEG_BALL), "red", teeBox="red"), ["left"])
+
+    def test_mobile_finish_uses_persisted_start_tee_for_manual_ingest(self) -> None:
+        """Product spec 5.8 / I: a Red package start must keep Red's route at finish."""
+        self.install(DOGLEG)
+        self.persist_round_package("mobile-red", "Red")
+        with patch("ai_caddie.courses.course_reference.courseview_tees", return_value=RELEASE_TEES):
+            scorecard = self.finish_mobile("mobile-red", _hole_events(1, DOGLEG_BALL))
+        self.assertEqual(scorecard["teeBox"], "red")
+        self.assertEqual(scorecard["holes"][0]["fairway"], "left")
+
+    def test_mobile_finish_explicit_tee_overrides_persisted_start(self) -> None:
+        """Product spec 5.8 / I: explicit finish metadata remains authoritative."""
+        self.install(DOGLEG)
+        self.persist_round_package("mobile-explicit", "Red")
+        with patch("ai_caddie.courses.course_reference.courseview_tees", return_value=RELEASE_TEES):
+            scorecard = self.finish_mobile(
+                "mobile-explicit", _hole_events(1, DOGLEG_BALL), meta={"teeBox": "blue"}
+            )
+        self.assertEqual(scorecard["teeBox"], "blue")
+        self.assertEqual(scorecard["holes"][0]["fairway"], "right")
+
+    def test_mobile_finish_legacy_tee_key_overrides_persisted_start(self) -> None:
+        """Product spec 5.8 / I: the legacy explicit Tee key remains authoritative."""
+        self.install(DOGLEG)
+        self.persist_round_package("mobile-explicit-legacy", "Red")
+        with patch("ai_caddie.courses.course_reference.courseview_tees", return_value=RELEASE_TEES):
+            scorecard = self.finish_mobile(
+                "mobile-explicit-legacy", _hole_events(1, DOGLEG_BALL), meta={"tee": "blue"}
+            )
+        self.assertEqual(scorecard["teeBox"], "blue")
+        self.assertEqual(scorecard["holes"][0]["fairway"], "right")
+
+    def test_mobile_package_start_tee_binds_once(self) -> None:
+        """Product spec 5.8 / I: the first package Tee remains bound for a round."""
+        self.persist_round_package("mobile-first-tee", "Red")
+        self.persist_round_package("mobile-first-tee", "Blue")
+        identity = load_mobile_round_identity(
+            "mobile-first-tee", root=self.root, player_id="p_c45"
+        )
+        self.assertEqual(identity["teeBox"], "red")
+
+    def test_mobile_package_unknown_or_blank_tee_keeps_legacy_finish(self) -> None:
+        """Product spec 5.8 / I: unknown package Tees do not bind a route."""
+        self.install(DOGLEG)
+        for suffix, tee_box in (("unknown", "unknown"), ("empty", ""), ("blank", "  ")):
+            with self.subTest(tee_box=repr(tee_box)):
+                round_id = f"mobile-no-tee-{suffix}"
+                self.persist_round_package(round_id, tee_box)
+                with patch("ai_caddie.courses.course_reference.courseview_tees", return_value=RELEASE_TEES):
+                    scorecard = self.finish_mobile(round_id, _hole_events(1, DOGLEG_BALL))
+                self.assertIsNone(scorecard.get("teeBox"))
+                self.assertEqual(scorecard["holes"][0]["fairway"], "right")
+
+    def test_mobile_package_fills_tee_on_old_identity(self) -> None:
+        """Product spec 5.8 / I: an old C163 identity gains Tee from a later package."""
+        self.install(DOGLEG)
+        self.persist_round_package("mobile-old-identity", "unknown")
+        old_identity = load_mobile_round_identity(
+            "mobile-old-identity", root=self.root, player_id="p_c45"
+        )
+        self.assertNotIn("teeBox", old_identity)
+        self.persist_round_package("mobile-old-identity", "Red")
+        identity = load_mobile_round_identity(
+            "mobile-old-identity", root=self.root, player_id="p_c45"
+        )
+        self.assertEqual(identity["teeBox"], "red")
+        with patch("ai_caddie.courses.course_reference.courseview_tees", return_value=RELEASE_TEES):
+            scorecard = self.finish_mobile("mobile-old-identity", _hole_events(1, DOGLEG_BALL))
+        self.assertEqual(scorecard["teeBox"], "red")
+        self.assertEqual(scorecard["holes"][0]["fairway"], "left")
+
+    def test_legacy_mobile_finish_without_start_tee_keeps_blue_fallback(self) -> None:
+        """Product spec 8.3 / I: old rounds without the optional fact keep legacy behavior."""
+        self.install(DOGLEG)
+        with patch("ai_caddie.courses.course_reference.courseview_tees", return_value=RELEASE_TEES):
+            scorecard = self.finish_mobile("mobile-legacy", _hole_events(1, DOGLEG_BALL))
+        self.assertIsNone(scorecard.get("teeBox"))
+        self.assertEqual(scorecard["holes"][0]["fairway"], "right")
 
     def test_each_hole_mesh_is_decoded_once_per_ingest(self) -> None:
         # An A+A composite round plays local hole 1 as holes 1 and 10. Its GIR surface and its tee
