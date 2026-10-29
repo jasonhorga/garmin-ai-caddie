@@ -1,6 +1,6 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -1734,7 +1734,7 @@
+@@ -1734,4 +1734,4 @@
          // failed, release the prep-library queue instead of leaving durable jobs paused.
          if deferredOfflineCourseDownloadRevalidation == nil,
             offlineCourseDownloadTask == nil {
