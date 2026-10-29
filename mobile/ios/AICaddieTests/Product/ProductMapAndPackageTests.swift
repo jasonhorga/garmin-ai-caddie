@@ -273,7 +273,14 @@ final class ProductMapAndPackageTests: XCTestCase {
         let host = "c136-hole-loader.example.test"
         let started = expectation(description: "hole prep started")
         let gate = C136Gate()
-        let prepData = try JSONEncoder().encode(try XCTUnwrap(package.coursePrep))
+        let prepPackage = try XCTUnwrap(package.coursePrep)
+        let prepHoles = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(prepPackage.holes)) as? [[String: Any]]
+        )
+        let prepData = try JSONSerialization.data(withJSONObject: [
+            "schema": prepPackage.schema, "globalId": prepPackage.globalId,
+            "holeCount": prepHoles.count, "clubs": [], "holes": prepHoles
+        ])
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host else { proto.reply(404); return }
             if proto.request.url?.path.hasSuffix("/prep") == true {
