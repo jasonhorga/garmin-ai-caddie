@@ -308,6 +308,19 @@ def matte_sky_webp(data: bytes) -> bytes | None:
     return buffer.getvalue()
 
 
+_MATTE_SKY_WEBP = matte_sky_webp
+
+
+def _matte_cold(source: bytes) -> bytes | None:
+    # Keep provider IO and the per-version cache lock in the caller. Only JPEG decoding,
+    # sky-component masking and WebP encoding cross into topo's cgroup-bounded CPU pool.
+    from ai_caddie.geometry.topo_render import _run_render_cpu
+
+    if matte_sky_webp is not _MATTE_SKY_WEBP:  # non-picklable test double, as in topo
+        return matte_sky_webp(source)
+    return _run_render_cpu(matte_sky_webp, source)
+
+
 def _matte_path(global_id: int, hole: object, version: str) -> Path:
     return Path(RASTER_CACHE_DIR) / (
         f"gid{int(global_id)}_h{_hole_number(hole):02d}_{_safe_part(version)}.{RASTER_MATTE_VERSION}.webp"
@@ -339,7 +352,7 @@ def fetch_matted_raster(global_id: int, hole: object, version: str | None = None
         if not source:
             return None
         try:
-            data = matte_sky_webp(source)
+            data = _matte_cold(source)
         except Exception as exc:
             logger.warning("garmin raster matte failed: %s", type(exc).__name__)
             return None
