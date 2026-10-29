@@ -598,6 +598,9 @@ class RenderBackfill:
                                                  "unit": unit, "error": task.get("errors", {}).get(unit) or task.get("error")}
 
     def _garmin_release_blocked(self, task: dict) -> bool:
+        # Expired remote signatures must not stop matting a JPEG already repaired locally.
+        if garmin_raster._raster_path(task["globalId"], task["localHole"], task.get("assetVersion")).is_file():
+            return False
         entry = self._state["garminForbiddenReleases"].get(f"{task['globalId']}:{task.get('garminRelease')}")
         return bool(entry and (entry["attempts"] >= GARMIN_403_MAX_ATTEMPTS
                               or entry["retryAfter"] > time.time()))
@@ -628,6 +631,7 @@ class RenderBackfill:
                         task.pop(field, None)
                 backoff = old["garminForbiddenReleases"].get(f"{gid}:{task['garminRelease']}")
                 blocked = self._garmin_release_blocked(task)
+                network_source = not garmin_raster._raster_path(gid, hole, source).is_file()
                 errors = dict(previous.get("errors") or {})
                 interrupts = dict(previous.get("interrupts") or {})
                 submitted = dict(previous.get("submitted") or {})
@@ -644,7 +648,7 @@ class RenderBackfill:
                     elif task.get(unit) == "pending" and ready():
                         task[unit] = "done"
                         errors.pop(unit, None)
-                    if unit == "garmin" and backoff and task.get(unit) != "done":
+                    if unit == "garmin" and backoff and network_source and task.get(unit) != "done":
                         # A manual force scan also honours the release circuit breaker. New
                         # release authority resets the lane; stale signed URLs are never spun.
                         task[unit] = "failed" if backoff["attempts"] >= GARMIN_403_MAX_ATTEMPTS else "pending"

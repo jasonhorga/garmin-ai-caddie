@@ -2,8 +2,10 @@
 """Offline contention evidence using real package/vector, history loader and HTTP /tees.
 
 Run this same script with --repo pointing at each revision. Inputs are generated, explicitly
-synthetic scorecards/shots and mesh polygons. No compute function is replaced; the only hook
-holds the queued prepare until the two request workers are ready. Times are informational.
+synthetic scorecards/shots and mesh polygons. No compute function is replaced. A scheduling hook
+holds the queued prepare until the two request workers are ready; journal enqueue is stubbed to
+isolate this vector from unrelated whole-course installs. Already-installed supplements prevent
+an independent derivative cache writer from stealing the measured seed. Times are informational.
 """
 from __future__ import annotations
 
@@ -11,6 +13,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 import json
+import importlib.util
 import math
 import os
 from pathlib import Path
@@ -23,9 +26,15 @@ import time
 from unittest.mock import patch
 
 
-def prepare_inputs(root, gid, rounds):
-    from tests.perf.c135_concurrency import _prepare_fixture
-    _prepare_fixture(root, gid)
+def prepare_inputs(root, gid, rounds, repo):
+    # Load the shared standalone fixture generator without importing tests/__init__.py,
+    # whose unit-suite cache redirection intentionally differs from production child roots.
+    spec = importlib.util.spec_from_file_location("contention_fixture", repo / "tests/perf/c135_concurrency.py")
+    fixture = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = fixture
+    spec.loader.exec_module(fixture)
+    sys.path.insert(0, str(root))
+    fixture._prepare_fixture(root, gid)
     # More vertices exercise production's outline/projection/hazard code, rather than a spin loop.
     for mesh in (root / "output/prodgeometry").glob("gid*_meshes.json"):
         value = json.loads(mesh.read_text())
@@ -35,6 +44,9 @@ def prepare_inputs(root, gid, rounds):
                        180 + 190 * math.sin(i * math.tau / 800)] for i in range(800)]
             surface.update(positions=points, faces=[[0, i, i + 1] for i in range(1, 799)])
         mesh.write_text(json.dumps(value))
+        # Supplements are already installed: this probe isolates vector contention rather
+        # than racing the unrelated derivative worker's own vector cache writer.
+        mesh.with_name(mesh.name.replace("_meshes.json", "_tee_distances.json")).write_text("{}")
     cards, shots = root / "data/scorecards", root / "data/shots"
     cards.mkdir(parents=True, exist_ok=True)
     shots.mkdir(parents=True, exist_ok=True)
@@ -79,7 +91,8 @@ def run_once(root, gid):
         submitted.append(future)
         return future
     client = TestClient(main.app)  # no lifespan: no unrelated boot warm or Garmin requests
-    with patch.object(lane, "submit", side_effect=submit_held):
+    with patch.object(lane, "submit", side_effect=submit_held), \
+         patch.object(main.course_install, "enqueue", return_value={"jobId": "fixture-probe"}):
         response = client.get(f"/api/v2/mobile/courses/{gid}/package?round_id=prep-library-{gid}&loops={gid}:front&tee_box=blue&background_geometry=true&map_only=true&include_event_cursor=false")
     if response.status_code != 200 or not queued.wait(3):
         go.set()
@@ -107,7 +120,9 @@ def run_once(root, gid):
             history_ms, rounds, shots = history_future.result(timeout=60)
             tees_ms = tees_future.result(timeout=60)
         if not vector.get("drawable"):
-            raise RuntimeError(f"actual vector did not build: {vector}")
+            from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
+            from ai_caddie.geometry.geometry_sync import ensure_prodgeometry
+            raise RuntimeError(f"actual vector did not build: {vector}; ensure={ensure_prodgeometry(gid, 1)}; coverage={geometry_coverage_for_hole(gid, 1)}")
         pool = topo_render._render_pool
         executor = getattr(pool, "_executor", pool)
         children = list(getattr(executor, "_processes", {}) or {})
@@ -129,13 +144,19 @@ def main():
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--rounds", type=int, default=475)
     args = parser.parse_args()
-    sys.path.insert(0, str(args.repo.resolve()))
     with tempfile.TemporaryDirectory(prefix="history-vector-probe-") as directory:
         root = Path(directory)
+        # The existing geometry exporter anchors some paths at __file__. Like c135's standalone
+        # probe, place the selected revision in the isolated data tree so parent and spawned
+        # CPU children use exactly the same files, without changing any production function.
+        for name in ("ai_caddie", "server_v2", "contracts"):
+            shutil.copytree(args.repo / name, root / name,
+                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        sys.path.insert(0, str(root))
         os.environ.update(AI_CADDIE_ROOT=str(root), AI_CADDIE_PRIVATE_ROOT=str(root),
             AI_CADDIE_DATA_MODE="fixture", AI_CADDIE_LLM_PROVIDER="static",
             AI_CADDIE_BOOT_BACKGROUND_WORK="0", AI_CADDIE_TOPO_RENDER_PROCESSES="1")
-        prepare_inputs(root, 777001, args.rounds)
+        prepare_inputs(root, 777001, args.rounds, args.repo.resolve())
         rows = [run_once(root, 777001) for _ in range(args.runs)]
         print(json.dumps({"label": args.label, "runs": rows,
             "p50": {key: round(statistics.median(row[key] for row in rows), 1)
