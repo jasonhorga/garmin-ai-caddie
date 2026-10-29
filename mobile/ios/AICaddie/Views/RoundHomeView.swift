@@ -2,6 +2,171 @@ import CoreLocation
 import Foundation
 import SwiftUI
 
+/// J5.10: the page's own restored inputs plus the facts used by its round chip/card/summary.
+/// Other holes' club/GPS/target updates are deliberately absent; their score edits are not.
+struct LiveHolePageRoundInput: Equatable {
+    struct Score: Equatable {
+        let hole: Int
+        let par: Int
+        let score: Int
+        let putts: Int
+        let penalties: Int
+        let fairway: String?
+        let source: String?
+    }
+
+    let roundId: String
+    let activeHole: Int
+    let startHole: Int?
+    let ownHole: LiveHoleStateSnapshot?
+    let scores: [Score]
+    let scoredHoles: [Int]
+
+    init(_ state: LiveRoundStateSnapshot, hole: Int) {
+        roundId = state.roundId
+        activeHole = state.activeHole
+        startHole = state.startHole
+        ownHole = state.holeState(for: hole)
+        scores = state.holes.map {
+            Score(hole: $0.hole, par: $0.par, score: $0.score, putts: $0.putts,
+                  penalties: $0.penaltyCount, fairway: $0.fairwayResult, source: $0.scoreSource)
+        }
+        scoredHoles = state.scoredHoles
+    }
+}
+
+struct LiveHolePageInput: Equatable {
+    let isSelected: Bool
+    // pendingEventCount is stored but never read by CurrentHoleView. It still reaches the
+    // selected page; a queue ACK alone is not a reason to rebuild every adjacent page.
+    // Compare the complete value package, not just generatedAt: retained prep can change in
+    // place under the same round/revision. This also covers loops, seeds, weather and profiles.
+    let package: LiveRoundPackage
+    let hole: Hole
+    let round: LiveHolePageRoundInput?
+    let courseOptions: [MobileCourseOption]
+    let isPreparingRound: Bool
+    let isFinishingRound: Bool
+    let finishErrorMessage: String?
+    let isPrepMode: Bool
+    let prepTeeOptions: [String]
+    let apiBaseURL: URL?
+    let adminToken: String?
+    let offlineStore: ObjectIdentifier?
+    let watchBridge: ObjectIdentifier?
+    // Prefetch decoding does not publish image readiness to an unselected page. A drag begins
+    // one fresh cache read before that page slides into view; ordinary events keep this stable.
+    let interactionRevision: Int
+}
+
+/// The closure is intentionally outside equality. Selected pages always consume the new inputs.
+/// Kept generic so a hosted, counted body can exercise the same SwiftUI boundary as the pager.
+struct LiveHolePage<Content: View>: View, Equatable {
+    let input: LiveHolePageInput
+    let content: () -> Content
+
+    init(input: LiveHolePageInput, @ViewBuilder content: @escaping () -> Content) {
+        self.input = input
+        self.content = content
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        !lhs.input.isSelected && !rhs.input.isSelected && lhs.input == rhs.input
+    }
+
+    var body: some View { content() }
+}
+
+/// No ObservableObject: publishing fresh callbacks must not invalidate frozen adjacent pages.
+/// Values contain only incoming model callbacks/data, never RoundHomeView or its State storage.
+final class LiveHolePageCallbacks {
+    struct Value {
+        var package: LiveRoundPackage? = nil
+        var isPrepMode = false
+        var hasLiveRound = false
+        var currentLiveRoundId: () throws -> String? = { nil }
+        var onEvent: (LiveRoundEvent) -> Void = { _ in }
+        var onSetActiveHole: (Int) -> Void = { _ in }
+        var onPrepHoleChanged: (Int) -> Void = { _ in }
+        var onSetSecondLoop: (RoundLoopEntry?, String) -> Void = { _, _ in }
+        var onContinueIntoSecondLoop: (RoundLoopEntry, String) -> Void = { _, _ in }
+        var onFinishRound: () async -> Bool = { false }
+        var onDiscardRound: () -> Void = {}
+        var onLiveHoleInitialLoadDidFinish: () -> Void = {}
+        var onRetainReadyHolePrep: (String, Int, CoursePrepHole) -> Void = { _, _, _ in }
+        var onStartRoundFromFirstStroke: (Int) -> Bool = { _ in false }
+        var onUndoRoundStart: () -> Void = {}
+        var onChangePrepTee: (String, Int?) -> Void = { _, _ in }
+    }
+
+    var value = Value()
+
+    func onEvent(_ event: LiveRoundEvent) { value.onEvent(event) }
+
+    func firstStrokeClubPromptDismissed(hole: Int, roundId: String, path: Binding<[HubRoute]>) {
+        // Starting a round persists progress before returning. The rendered Value may still be
+        // prep while the club sheet closes; query that authority at action time, not body time.
+        guard (try? value.currentLiveRoundId()) == roundId,
+              path.wrappedValue.first.map({ LiveHoleRoutePath.isPrepBase($0) }) == true else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { path.wrappedValue = [.hole(hole)] }
+    }
+
+    func prepPackage(displayed: LiveRoundPackage, wasPrep: Bool) -> LiveRoundPackage? {
+        guard currentMode(displayed: displayed, wasPrep: wasPrep) == .prep else { return nil }
+        // Geometry belongs to the displayed, equatable page input. A package change already
+        // invalidates that page; never substitute another round/tee from the callback cache.
+        return displayed
+    }
+
+    func persistActiveHole(_ hole: Int, displayed: LiveRoundPackage, wasPrep: Bool) {
+        switch currentMode(displayed: displayed, wasPrep: wasPrep) {
+        case .some(.prep):
+            value.onPrepHoleChanged(hole)
+        case .some(.live):
+            value.onSetActiveHole(hole)
+        case .none:
+            break
+        }
+    }
+
+    private enum Mode: Equatable { case prep, live }
+
+    private func currentMode(displayed: LiveRoundPackage, wasPrep: Bool) -> Mode? {
+        do {
+            if let roundId = try value.currentLiveRoundId() {
+                return roundId == displayed.roundId ? .live : nil
+            }
+            // A removed/finished live destination may still have a queued callback. Only an
+            // actually displayed prep page can issue prep navigation when no live round exists.
+            return wasPrep ? .prep : nil
+        } catch {
+            return nil
+        }
+    }
+
+    func advance(from hole: Int, to next: Int, navigationLock: Binding<LiveHoleNavigationLock?>,
+                 perform: (Value, Int) -> Void) {
+        guard var lock = navigationLock.wrappedValue, lock.begin(from: hole, to: next) else { return }
+        navigationLock.wrappedValue = lock
+        perform(value, next)
+    }
+}
+
+#if DEBUG
+/// Unit tests retain the exact actions handed to CurrentHoleView, plus the mounted owner's path.
+final class LiveHolePageNavigationProbe {
+    var path: Binding<[HubRoute]>?
+    var callbacks: LiveHolePageCallbacks?
+    var starts: [Int: (Int) -> Bool] = [:]
+    var dismissals: [Int: () -> Void] = [:]
+    var backs: [Int: () -> Void] = [:]
+    var selected: [Int: Bool] = [:]
+    var openPrepCourse: ((MobileCourseOption) -> Bool)?
+}
+#endif
+
 /// C99 球局主页：单一「打一场球」入口、快捷球场、天气一行、上一场与最近走势。
 /// 进行中的球局只保留「继续」主卡；结束和球局调整在洞屏内完成。
 /// Hub navigation routes driven by a path, so a selected course can open its prep hole directly
@@ -549,10 +714,24 @@ public struct RoundHomeView: View {
     @State private var pagerPresentationRequested = false
     @GestureState private var pagerTouchIsActive = false
     @State private var pagerGestureStarted = false
+    @State private var holePageInteractionRevision = 0
     private var holePagerSelection: Int? { holePager.selection }
     @State private var holePagerNavigationLock: LiveHoleNavigationLock?
     @State private var holePagerScrollDisabled = false
     @State private var liveHoleSessions = LiveHoleSessionCache()
+    @State private var liveHolePageCallbacks = LiveHolePageCallbacks()
+    #if DEBUG
+    private var holePageNavigationProbe: LiveHolePageNavigationProbe?
+
+    func observingHolePageNavigationForTesting(
+        _ probe: LiveHolePageNavigationProbe, initialPath: [HubRoute]
+    ) -> Self {
+        var view = self
+        view._path = State(initialValue: initialPath)
+        view.holePageNavigationProbe = probe
+        return view
+    }
+    #endif
     /// The last GPS-resolved prep hole lives above `CurrentHoleView`, so recreating a destination
     /// after a manual hole preview does not mistake the same fix for a new location.
     @State private var prepHoleFollowing = PrepHoleFollowingState()
@@ -760,6 +939,10 @@ public struct RoundHomeView: View {
     }
 
     public var body: some View {
+        let _ = refreshHolePageCallbacks()
+        #if DEBUG
+        let _ = recordHolePageNavigationForTesting()
+        #endif
         #if DEBUG
         let _ = UITestPagerTrace.shared.metric(.roundHomeBody)
         #endif
@@ -895,6 +1078,7 @@ public struct RoundHomeView: View {
             reconcileLiveHoleRouteWithPackage()
         }
         .onChange(of: path) { previousRoutes, routes in
+            tracePager("path change old=\(previousRoutes) new=\(routes)")
             if let screenPackage = holeScreenPackage {
                 let ordered = RoundPlayOrder.holes(
                     screenPackage.holes.map(\.number),
@@ -1005,78 +1189,137 @@ public struct RoundHomeView: View {
         liveRoundState == nil && prepPackage != nil
     }
 
+    private func refreshHolePageCallbacks() {
+        // These closures are incoming model callbacks, not closures capturing this view. Updating
+        // the plain reference during body evaluation neither publishes state nor forms a cycle.
+        let store = offlineStore
+        let renderedRoundId = liveRoundState?.roundId
+        liveHolePageCallbacks.value = LiveHolePageCallbacks.Value(
+            package: holeScreenPackage, isPrepMode: isPrepHoleScreen, hasLiveRound: liveRoundState != nil,
+            currentLiveRoundId: {
+                if let store { return try store.inProgressRoundId() }
+                return renderedRoundId
+            },
+            onEvent: onEvent, onSetActiveHole: onSetActiveHole, onPrepHoleChanged: onPrepHoleChanged,
+            onSetSecondLoop: onSetSecondLoop, onContinueIntoSecondLoop: onContinueIntoSecondLoop,
+            onFinishRound: onFinishRound, onDiscardRound: onDiscardRound,
+            onLiveHoleInitialLoadDidFinish: onLiveHoleInitialLoadDidFinish,
+            onRetainReadyHolePrep: onRetainReadyHolePrep,
+            onStartRoundFromFirstStroke: onStartRoundFromFirstStroke,
+            onUndoRoundStart: onUndoRoundStart, onChangePrepTee: onChangePrepTee
+        )
+    }
+
+    #if DEBUG
+    private func recordHolePageNavigationForTesting() {
+        holePageNavigationProbe?.path = $path
+        holePageNavigationProbe?.callbacks = liveHolePageCallbacks
+    }
+    #endif
+
     @ViewBuilder private func currentHoleView(_ number: Int) -> some View {
         if let package = holeScreenPackage, let hole = package.holes.first(where: { $0.number == number }) {
-            // round-11: forward the round-management closures so 球局调整(加打/减九洞/结束本场)lives
-            // inside the in-progress screen instead of the Hub.
-            CurrentHoleView(
-                package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken,
-                offlineStore: offlineStore, watchBridge: isPrepHoleScreen ? nil : watchBridge,
-                liveRoundState: liveRoundState,
-                // Network catalogue + installed templates: the turn's loops must resolve offline too.
-                courseOptions: NineLoopTurn.loopCatalogue(network: courseOptions, downloaded: downloadedCourseOptions),
-                isPreparingRound: isPreparingRound,
-                pendingEventCount: pendingEventCount, isFinishingRound: isFinishingRound,
-                finishErrorMessage: finishErrorMessage,
-                onSetSecondLoop: onSetSecondLoop,
-                onContinueIntoSecondLoop: onContinueIntoSecondLoop, onFinishRound: onFinishRound,
-                onDiscardRound: onDiscardRound,
-                sessionCache: liveHoleSessions,
-                usesExternalHolePager: true,
-                // On a cold restore the pager selection is seeded after its first TabView pass.
-                // The persisted model cursor is the safe initial selection so the visible page
-                // starts location updates before the delayed native binding acknowledgement.
-                isSelected: holePagerSelection == number
-                    || (holePagerSelection == nil && liveRoundState?.activeHole == number),
-                onAdvanceHole: { next in
-                    guard var lock = holePagerNavigationLock,
-                          lock.begin(from: number, to: next) else { return }
-                    holePagerNavigationLock = lock
-                    withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.92)) {
-                        sendPager(.advance(next), source: "onAdvanceHole")
-                    }
-                    // A cancelled TabView animation may never deliver a selection change. Release
-                    // the one-shot guard after the same short window as the interactive spring so
-                    // scorecard/GPS/rapid-swipe recovery remains possible.
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 900_000_000)
-                        guard var current = holePagerNavigationLock,
-                              current.currentHole == next,
-                              current.isTransitioning else { return }
-                        current.finish(at: next)
-                        holePagerNavigationLock = current
-                    }
-                },
-                onPrepLocationChanged: { locatedHole, displayedHole, fix in
-                    guard isPrepHoleScreen else { return nil }
-                    return prepHoleFollowing.navigationTarget(
-                        currentLocatedHole: locatedHole,
-                        displayedHole: displayedHole,
-                        fix: fix,
-                        holes: HoleLocatorGeometry.rows(for: package)
-                    )
-                },
-                onLiveHoleInitialLoadDidFinish: onLiveHoleInitialLoadDidFinish,
-                onRetainReadyHolePrep: onRetainReadyHolePrep,
-                isPrepMode: isPrepHoleScreen,
-                prepTeeOptions: prepTeeOptions,
-                onStartRoundFromFirstStroke: onStartRoundFromFirstStroke,
-                onFirstStrokeClubPromptDismissed: {
-                    // Keep the prep base route while the first-stroke sheet is presented. Once
-                    // the player has chosen or skipped a club, the live hole becomes the sole
-                    // destination and Back can no longer return to the picker.
-                    guard liveRoundState != nil,
-                          path.first.map({ LiveHoleRoutePath.isPrepBase($0) }) == true else { return }
-                    var transaction = Transaction()
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) {
-                        path = [.hole(number)]
-                    }
-                },
-                onUndoRoundStart: onUndoRoundStart,
-                onChangePrepTee: onChangePrepTee,
-                onEvent: onEvent
+            let selected = holePagerSelection == number
+                || (holePagerSelection == nil && liveRoundState?.activeHole == number)
+            let catalogue = NineLoopTurn.loopCatalogue(network: courseOptions, downloaded: downloadedCourseOptions)
+            let callbacks = liveHolePageCallbacks
+            let input = LiveHolePageInput(
+                isSelected: selected, package: package, hole: hole,
+                round: liveRoundState.map { LiveHolePageRoundInput($0, hole: number) },
+                courseOptions: catalogue, isPreparingRound: isPreparingRound,
+                isFinishingRound: isFinishingRound, finishErrorMessage: finishErrorMessage,
+                isPrepMode: isPrepHoleScreen, prepTeeOptions: prepTeeOptions,
+                apiBaseURL: apiBaseURL, adminToken: adminToken,
+                offlineStore: offlineStore.map { ObjectIdentifier($0) },
+                watchBridge: watchBridge.map { ObjectIdentifier($0) },
+                interactionRevision: holePageInteractionRevision
             )
+            LiveHolePage(input: input) {
+                let startFirstStroke: (Int) -> Bool = { callbacks.value.onStartRoundFromFirstStroke($0) }
+                let dismissFirstStrokePrompt: () -> Void = {
+                    callbacks.firstStrokeClubPromptDismissed(hole: number, roundId: package.roundId, path: $path)
+                }
+                // round-11: forward the round-management closures so 球局调整(加打/减九洞/结束本场)lives
+                // inside the in-progress screen instead of the Hub.
+                CurrentHoleView(
+                    package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken,
+                    offlineStore: offlineStore, watchBridge: isPrepHoleScreen ? nil : watchBridge,
+                    liveRoundState: liveRoundState,
+                    // Network catalogue + installed templates: the turn's loops must resolve offline too.
+                    courseOptions: catalogue,
+                    isPreparingRound: isPreparingRound,
+                    pendingEventCount: pendingEventCount, isFinishingRound: isFinishingRound,
+                    finishErrorMessage: finishErrorMessage,
+                    onSetSecondLoop: { callbacks.value.onSetSecondLoop($0, $1) },
+                    onContinueIntoSecondLoop: { callbacks.value.onContinueIntoSecondLoop($0, $1) },
+                    onFinishRound: { await callbacks.value.onFinishRound() },
+                    onDiscardRound: { callbacks.value.onDiscardRound() },
+                    sessionCache: liveHoleSessions,
+                    usesExternalHolePager: true,
+                    // On a cold restore the pager selection is seeded after its first TabView pass.
+                    // The persisted model cursor is the safe initial selection so the visible page
+                    // starts location updates before the delayed native binding acknowledgement.
+                    isSelected: selected,
+                    // This owner holds NavigationStack's binding. Inside the equatable LiveHolePage
+                    // wrapper the page's environment dismiss() was observed to be a no-op (J5.2
+                    // trace: dismiss before/after, no path change); clearing the real path does not
+                    // depend on which presentation dismiss() resolves to.
+                    onBackToHome: {
+                        tracePager("back home path before=\(path)")
+                        path = []
+                        tracePager("back home path after=\(path)")
+                    },
+                    onAdvanceHole: { next in
+                        // The retained page reads the live State binding, not its creation-time lock.
+                        callbacks.advance(from: number, to: next, navigationLock: $holePagerNavigationLock) { _, next in
+                            withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.92)) {
+                                sendPager(.advance(next), source: "onAdvanceHole")
+                            }
+                            // A cancelled TabView animation may never deliver a selection change. Release
+                            // the one-shot guard after the same short window as the interactive spring so
+                            // scorecard/GPS/rapid-swipe recovery remains possible.
+                            Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: 900_000_000)
+                                guard var current = holePagerNavigationLock,
+                                      current.currentHole == next,
+                                      current.isTransitioning else { return }
+                                current.finish(at: next)
+                                holePagerNavigationLock = current
+                            }
+                        }
+                    },
+                    onPrepLocationChanged: { locatedHole, displayedHole, fix in
+                        guard let latestPackage = callbacks.prepPackage(
+                            displayed: package, wasPrep: input.isPrepMode
+                        ) else { return nil }
+                        return prepHoleFollowing.navigationTarget(
+                            currentLocatedHole: locatedHole,
+                            displayedHole: displayedHole,
+                            fix: fix,
+                            holes: HoleLocatorGeometry.rows(for: latestPackage)
+                        )
+                    },
+                    onLiveHoleInitialLoadDidFinish: { callbacks.value.onLiveHoleInitialLoadDidFinish() },
+                    onRetainReadyHolePrep: { callbacks.value.onRetainReadyHolePrep($0, $1, $2) },
+                    isPrepMode: isPrepHoleScreen,
+                    prepTeeOptions: prepTeeOptions,
+                    onStartRoundFromFirstStroke: startFirstStroke,
+                    onFirstStrokeClubPromptDismissed: dismissFirstStrokePrompt,
+                    onUndoRoundStart: { callbacks.value.onUndoRoundStart() },
+                    onChangePrepTee: { callbacks.value.onChangePrepTee($0, $1) },
+                    onEvent: callbacks.onEvent
+                )
+                #if DEBUG
+                .observingNavigationForTesting(holePageNavigationProbe)
+                .onAppear {
+                    holePageNavigationProbe?.starts[number] = startFirstStroke
+                    holePageNavigationProbe?.dismissals[number] = dismissFirstStrokePrompt
+                }
+                #endif
+            }.equatable()
+            // Adjacent pages keep their preview chrome but expose no duplicate Back/shot actions
+            // to VoiceOver or XCUITest. This modifier does not invalidate the frozen page body.
+            .accessibilityHidden(!selected)
             // A hole owns its score/club/map/GPS presentation state and scroll position. NavigationStack
             // otherwise reuses the same destination view when `.hole(1)` becomes `.hole(2)`, carrying
             // the prior hole's @State and scroll offset into the next hole. Explicit round+hole identity
@@ -1249,6 +1492,9 @@ public struct RoundHomeView: View {
     }
 
     private func sendPager(_ event: LiveHolePagerState.Event, source: String) {
+        if event == .touchBegan {
+            holePageInteractionRevision &+= 1
+        }
         let oldSelection = holePager.selection
         let oldPending = holePager.pendingTarget
         let oldActive = holePager.activeHole
@@ -1274,15 +1520,13 @@ public struct RoundHomeView: View {
         }
         if let selected = effect.activeHoleToPersist {
             // Explicit gesture/save intent only. Never called from a selection observer or binding.
+            let displayedPackage = holeScreenPackage
+            let wasPrep = isPrepHoleScreen
             Task { @MainActor in
                 await Task.yield()
                 guard holePager.activeHole == selected else { return }
-                if isPrepHoleScreen {
-                    onPrepHoleChanged(selected)
-                } else {
-                    tracePager("onSetActiveHole=\(selected) source=\(source)")
-                    onSetActiveHole(selected)
-                }
+                guard let displayedPackage else { return }
+                liveHolePageCallbacks.persistActiveHole(selected, displayed: displayedPackage, wasPrep: wasPrep)
             }
         }
     }
@@ -1461,6 +1705,9 @@ public struct RoundHomeView: View {
             onValidateReadyPrepCourse: onValidateReadyPrepCourse,
             isOpeningPrepCourse: isOpeningPrepCourse
         )
+        #if DEBUG
+        .onAppear { holePageNavigationProbe?.openPrepCourse = onOpenPrepCourse }
+        #endif
     }
 
     // MARK: - 主卡(README §8:进行中 / 上次的球场 / 搜索)

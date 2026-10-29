@@ -558,6 +558,17 @@ struct LiveScoreDismissalCoordinator: Equatable {
 
 public struct CurrentHoleView: View {
     @Environment(\.dismiss) private var dismiss
+    // The pager's owner can navigate home directly; standalone destinations use dismiss.
+    private let onBackToHome: (() -> Void)?
+    #if DEBUG
+    private var navigationProbe: LiveHolePageNavigationProbe?
+
+    func observingNavigationForTesting(_ probe: LiveHolePageNavigationProbe?) -> Self {
+        var view = self
+        view.navigationProbe = probe
+        return view
+    }
+    #endif
 
     public let package: LiveRoundPackage
     public let hole: Hole
@@ -777,6 +788,7 @@ public struct CurrentHoleView: View {
         sessionCache: LiveHoleSessionCache? = nil,
         usesExternalHolePager: Bool = false,
         isSelected: Bool = true,
+        onBackToHome: (() -> Void)? = nil,
         onAdvanceHole: @escaping (Int) -> Void = { _ in },
         onPrepLocationChanged: @escaping (Int?, Int, LocationFix) -> Int? = { _, _, _ in nil },
         onLiveHoleInitialLoadDidFinish: @escaping () -> Void = {},
@@ -832,6 +844,7 @@ public struct CurrentHoleView: View {
         self.sessionCache = sharedSessionCache
         self.usesExternalHolePager = usesExternalHolePager
         self.isSelected = isSelected
+        self.onBackToHome = onBackToHome
         self.onAdvanceHole = onAdvanceHole
         self.onPrepLocationChanged = onPrepLocationChanged
         self.onLiveHoleInitialLoadDidFinish = onLiveHoleInitialLoadDidFinish
@@ -1316,6 +1329,7 @@ public struct CurrentHoleView: View {
     public var body: some View {
         #if DEBUG
         let _ = UITestPagerTrace.shared.metric(.currentHoleBody)
+        let _ = UITestPagerTrace.shared.pageBody(hole: hole.number, selected: isSelected)
         #endif
         liveHoleLifecycleContent
         .onChange(of: liveRoundState) { _, newState in
@@ -1508,6 +1522,36 @@ public struct CurrentHoleView: View {
         }
     }
 
+    private func backToHome() {
+        #if DEBUG
+        UITestPagerTrace.shared.record("back tap hole=\(hole.courseHoleNumber) selected=\(isSelected) page=\(hole.number)")
+        #endif
+        if let onBackToHome {
+            #if DEBUG
+            UITestPagerTrace.shared.record("back owner before page=\(hole.number)")
+            #endif
+            onBackToHome()
+            #if DEBUG
+            UITestPagerTrace.shared.record("back owner after page=\(hole.number)")
+            #endif
+        } else {
+            #if DEBUG
+            UITestPagerTrace.shared.record("back dismiss before page=\(hole.number)")
+            #endif
+            dismiss()
+            #if DEBUG
+            UITestPagerTrace.shared.record("back dismiss after page=\(hole.number)")
+            #endif
+        }
+    }
+
+    #if DEBUG
+    private func recordBackActionForTesting(_ action: @escaping () -> Void) {
+        navigationProbe?.backs[hole.number] = action
+        navigationProbe?.selected[hole.number] = isSelected
+    }
+    #endif
+
     private var liveMapChrome: some View {
         ZStack {
             VStack(spacing: 0) {
@@ -1515,12 +1559,16 @@ public struct CurrentHoleView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         // 返回 goes straight home and keeps the round (device review, build 77);
                         // the hole facts open the 计分卡, and 结束本场 opens the finish page.
+                        let back = backToHome
+                        #if DEBUG
+                        let _ = recordBackActionForTesting(back)
+                        #endif
                         LivePlayTopInfo(
                             holeNumber: hole.courseHoleNumber,
                             par: hole.par,
                             yards: hole.yards,
                             roundLine: isPrepMode ? nil : liveRoundLine,
-                            onBack: { dismiss() }
+                            onBack: back
                         )
                         .reportsLiveChrome()
                         prepRoundBanner

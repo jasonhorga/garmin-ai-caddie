@@ -1,0 +1,9 @@
+--- a/mobile/ios/AICaddie/Views/RoundHomeView.swift
++++ b/mobile/ios/AICaddie/Views/RoundHomeView.swift
+@@ -116,5 +116,5 @@
+     func prepPackage(displayed: LiveRoundPackage, wasPrep: Bool) -> LiveRoundPackage? {
+-        guard currentMode(displayed: displayed, wasPrep: wasPrep) == .prep else { return nil }
++        guard value.isPrepMode else { return nil }
+         // Geometry belongs to the displayed, equatable page input. A package change already
+         // invalidates that page; never substitute another round/tee from the callback cache.
+         return displayed

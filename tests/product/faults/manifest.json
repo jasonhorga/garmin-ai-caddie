@@ -616,6 +616,41 @@
       "kind": "python",
       "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_round_index_offset_for_another_round_rebuilds_before_append",
       "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C112c-01-dismiss-uses-rendered-live-flag",
+      "patch": "tests/product/faults/C112c/01-dismiss-uses-rendered-live-flag.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_2_first_stroke_sheet_dismissal_replaces_prep_base_before_callback_refresh",
+      "promise": "5.2"
+    },
+    {
+      "id": "tests-product-faults-C112c-02-prep-uses-rendered-mode",
+      "patch": "tests/product/faults/C112c/02-prep-uses-rendered-mode.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_10_started_round_stops_prep_following_and_persists_live_cursor_before_refresh",
+      "promise": "5.10"
+    },
+    {
+      "id": "tests-product-faults-C112c-03-cursor-uses-rendered-mode",
+      "patch": "tests/product/faults/C112c/03-cursor-uses-rendered-mode.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_10_started_round_stops_prep_following_and_persists_live_cursor_before_refresh",
+      "promise": "5.10"
+    },
+    {
+      "id": "tests-product-faults-C112c-04-prep-uses-cached-package",
+      "patch": "tests/product/faults/C112c/04-prep-uses-cached-package.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_10_prep_geometry_belongs_to_the_displayed_page_not_cached_package",
+      "promise": "5.10"
+    },
+    {
+      "id": "tests-product-faults-C112c-05-back-keeps-owner-path",
+      "patch": "tests/product/faults/C112c/05-back-keeps-owner-path.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_2_new_round_route_back_action_reaches_home_after_first_stroke",
+      "promise": "5.2"
     }
   ]
 }

@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/Views/RoundHomeView.swift
++++ b/mobile/ios/AICaddie/Views/RoundHomeView.swift
+@@ -106,7 +106,7 @@
+     func firstStrokeClubPromptDismissed(hole: Int, roundId: String, path: Binding<[HubRoute]>) {
+         // Starting a round persists progress before returning. The rendered Value may still be
+         // prep while the club sheet closes; query that authority at action time, not body time.
+-        guard (try? value.currentLiveRoundId()) == roundId,
++        guard value.hasLiveRound,
+               path.wrappedValue.first.map({ LiveHoleRoutePath.isPrepBase($0) }) == true else { return }
+         var transaction = Transaction()
+         transaction.disablesAnimations = true
