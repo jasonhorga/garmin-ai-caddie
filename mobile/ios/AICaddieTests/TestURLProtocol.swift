@@ -126,6 +126,27 @@ final class SharedTopoURLProtocol: URLProtocol {
     }
 }
 
+/// `URLProtocol.registerClass` affects URLSession.shared, but iOS does not copy that registry
+/// into a new session made from `URLSession.shared.configuration`. Configuration factories return
+/// independent objects, so test code that deliberately copies a configuration must add the bundle
+/// protocols to that copy. Existing protocol classes stay first, preserving a test handler's
+/// priority over the shared fallbacks.
+func c156ConfigurationWithBundleProtocols(
+    _ source: URLSessionConfiguration
+) -> URLSessionConfiguration {
+    let existing = source.protocolClasses ?? []
+    var classes = existing
+    let existingIDs = Set(classes.map { ObjectIdentifier($0) })
+    if !existingIDs.contains(ObjectIdentifier(SharedTopoURLProtocol.self)) {
+        classes.append(SharedTopoURLProtocol.self)
+    }
+    if !existingIDs.contains(ObjectIdentifier(SharedOfflineTestURLProtocol.self)) {
+        classes.append(SharedOfflineTestURLProtocol.self)
+    }
+    source.protocolClasses = classes
+    return source
+}
+
 /// Session helpers register before traffic and keep the shared topo and offline stubs alive
 /// through process exit. Explicit sessions retain their own protocol order and handlers.
 private final class C156TopoBundleObserver: NSObject, XCTestObservation {
@@ -453,7 +474,8 @@ final class CapturingURLProtocolTests: XCTestCase {
     /// Copying the default/shared configuration must retain the bundle's offline interception.
     func testProductSpec42CopiedSharedConfigurationKeepsFixtureOffline() async throws {
         ensureC156TopoBundleStub()
-        let session = URLSession(configuration: URLSession.shared.configuration)
+        let configuration = c156ConfigurationWithBundleProtocols(URLSession.shared.configuration)
+        let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
         let url = try XCTUnwrap(URL(string: "https://copied-session.example.test/package"))
         do {
