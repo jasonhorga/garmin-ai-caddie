@@ -323,6 +323,8 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
     def test_timestamp_n2b_expired_lease_old_upload_cannot_promote_older_round(self):
         """J4.2 active-round admission: an expired lease still uses client event time."""
         self.package(123, "watch-live")
+        self._background_job(456)
+        self._identity("watch-live", 123)
         self._identity("saved-old", 456)
         base = time.monotonic()
         with patch.object(self.main.time, "monotonic", return_value=base + 31 * 60):
@@ -331,6 +333,28 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self.assertEqual(self.main._current_course_ids("fixture"), (123,))
         self.assertEqual(self.priority(123), 10)
         self.assertEqual(self.priority(456), 20)
+
+    def test_timestamp_order_beats_round_registration_order(self):
+        """J4.2 active-round admission: current play is newest event time, not dict order."""
+        older = ("fixture", "older-round")
+        newer = ("fixture", "newer-round")
+        now = time.monotonic() + 60
+        self.main._ACTIVE_ROUNDS.update({newer: now, older: now})
+        self.main._ACTIVE_COURSES.update({newer: (123,), older: (456,)})
+        self.main._ACTIVE_EVENT_TIMES.update({
+            newer: self.main.datetime.fromisoformat("2026-10-29T10:00:00+00:00"),
+            older: self.main.datetime.fromisoformat("2026-10-29T09:00:00+00:00"),
+        })
+        self.main._publish_current_courses()
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
+    def test_missing_event_timestamp_falls_back_to_arrival_order(self):
+        """J4.2 legacy event envelopes remain active when timestamp parsing is unavailable."""
+        self.main._record_round_activity(
+            "fixture", "legacy-round", global_ids=[123], new_events=True,
+            event_timestamp_valid=False,
+        )
+        self.assertIn(("fixture", "legacy-round"), self.main._ACTIVE_ROUNDS)
 
     def test_old_event_payload_container_type_error_does_not_turn_event_receipt_into_500(self):
         """J4.2 active-round recovery skips malformed legacy identity fields after append."""
