@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -3124,3 +3124,3 @@
+     ) -> LiveCaddieRouteAuthority.RouteSource {
+-        routeId == LiveCaddieRouteAuthority.installedRouteId ? .installed : (isOnline ? .online : .offline)
++        routeId == LiveCaddieRouteAuthority.installedRouteId ? .installed : .online
+     }

@@ -1,13 +1,8 @@
 diff --git a/mobile/ios/AICaddie/Services/OfflineCaddieDecisionEvaluator.swift b/mobile/ios/AICaddie/Services/OfflineCaddieDecisionEvaluator.swift
-index 6784451..0904c81 100644
 --- a/mobile/ios/AICaddie/Services/OfflineCaddieDecisionEvaluator.swift
 +++ b/mobile/ios/AICaddie/Services/OfflineCaddieDecisionEvaluator.swift
-@@ -498,7 +498,7 @@ public final class OfflineCaddieDecisionEvaluator {
- 
-     private func targetDistanceMetres(from context: [String: JSONValue], shotType: String? = nil) -> Double? {
+@@ -500,3 +500,3 @@
          let routeKeys = shotType?.caseInsensitiveCompare("tee") == .orderedSame
 -            ? ["canonicalPlanRouteLength_m"]
 +            ? []
              : []
-         for key in routeKeys + ["distanceToPin_m", "remainingToPin_m", "holeRemaining_m", "canonicalPlanRouteLength_m"] {
-             if let value = number(context[key]), value.isFinite, value > 0, value <= 1000 {

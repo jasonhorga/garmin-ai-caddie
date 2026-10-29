@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -6450,3 +6450,3 @@
+         LiveCaddieDistance.resolve(
+-            manualM: distanceToPinMetres ?? greenPinDistanceMetres,
++            manualM: distanceToPinMetres ?? mapTargetDistanceMetres ?? greenPinDistanceMetres,
+             liveMiddleM: liveGreenMetres?.middle,
