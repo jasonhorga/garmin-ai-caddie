@@ -1,0 +1,9 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -302,5 +302,5 @@
+                 method=request.method,
+                 path=request.url.path,
+                 status=500,
+-                route_path=route_path,
++                route_path=None,
+             )

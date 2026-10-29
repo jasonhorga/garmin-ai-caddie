@@ -1,7 +1,10 @@
 --- a/ai_caddie/caddie/mobile_event_store.py
 +++ b/ai_caddie/caddie/mobile_event_store.py
-@@ -1297,5 +1297,3 @@
--        if not self._prefix_cache_signature_is_stable(signature):
+@@ -1324,8 +1324,6 @@
+         *,
+         allow_racy: bool = False,
+     ) -> None:
+-        if not allow_racy and not self._prefix_cache_signature_is_stable(signature):
 -            return
          key = str(self.log.resolve())
          with _PREFIX_CACHE_LOCK:

@@ -1,11 +1,8 @@
 --- a/ai_caddie/caddie/mobile_event_store.py
 +++ b/ai_caddie/caddie/mobile_event_store.py
-@@ -1597,7 +1597,7 @@
-                 try:
+@@ -1608,4 +1608,4 @@
                      with self.log.open("rb") as handle:
                          stored_log = self._indexed_round_log_unlocked(
--                            round_key, handle=handle, verify_prefix=False
-+                            round_key, handle=handle, verify_prefix=True
+-                            round_key, handle=handle, verify_prefix=True
++                            round_key, handle=handle, verify_prefix=False
                          )
-                 except FileNotFoundError:
-                     return []

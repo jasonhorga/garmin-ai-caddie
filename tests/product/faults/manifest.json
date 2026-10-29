@@ -1176,6 +1176,34 @@
       "kind": "python",
       "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_indexed_round_read_after_append_stays_bounded_inside_prefix_safety_window",
       "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C148-04-client-timing-raw-route",
+      "patch": "tests/product/faults/C148/04-client-timing-raw-route.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.C90TimingEndpointTests.test_client_timing_templates_non_numeric_route_ids",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C148-05-error-timing-unmatched",
+      "patch": "tests/product/faults/C148/05-error-timing-unmatched.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.C90TimingEndpointTests.test_exception_timing_keeps_matched_route_template",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C152-03-append-does-not-cache",
+      "patch": "tests/product/faults/C152/03-append-does-not-cache.patch",
+      "kind": "python",
+      "target": "tests.product.test_j5_play.EventAppendTests.test_j59_append_reads_only_target_round_on_seven_mb_history",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C152-04-indexed-read-skips-prefix-validation",
+      "patch": "tests/product/faults/C152/04-indexed-read-skips-prefix-validation.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_j59_indexed_round_read_rejects_same_size_committed_row_tamper",
+      "promise": "5.9"
     }
   ]
 }

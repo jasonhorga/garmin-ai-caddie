@@ -304,7 +304,14 @@ async def request_timing_middleware(request: Request, call_next):
             response = await call_next(request)
         except Exception:
             timing.mark("error")
-            timing.finish(method=request.method, path=request.url.path, status=500)
+            route = request.scope.get("route")
+            route_path = getattr(route, "path", None) or "<unmatched>"
+            timing.finish(
+                method=request.method,
+                path=request.url.path,
+                status=500,
+                route_path=route_path,
+            )
             raise
         finally:
             if map_request:
