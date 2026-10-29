@@ -140,11 +140,9 @@ class TeeResultIngestTest(unittest.TestCase):
             }
             for hole in range(1, 10)
         ]
-        save_mobile_round_identity(round_id, loops, f"{GID}:all", holes, root=self.root, player_id="p_c45")
-        path = next(self.root.rglob("round_identity/*.json"))
-        document = json.loads(path.read_text())
-        document["teeBox"] = tee_box
-        path.write_text(json.dumps(document))
+        save_mobile_round_identity(
+            round_id, loops, f"{GID}:all", holes, root=self.root, player_id="p_c45", tee_box=tee_box
+        )
 
     def test_second_position_against_installed_fairway(self) -> None:
         self.install(STRAIGHT)

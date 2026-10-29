@@ -24,6 +24,11 @@ class MobileRoundIdentityError(ValueError):
     """Stored physical identity is unavailable or contradicts already accepted events."""
 
 
+def _normalise_tee_box(value: Any) -> str | None:
+    text = str(value or "").strip().lower()
+    return text if text and text not in {"unknown", "none", "null"} else None
+
+
 def _identity_path(round_id: str, root: Path | str | None, player_id: str) -> Path:
     # Use the same partition as events. Hash arbitrary round ids instead of treating them as paths.
     key = hashlib.sha256(str(round_id).encode()).hexdigest()
@@ -53,6 +58,7 @@ def load_mobile_round_identity(
 def save_mobile_round_identity(
     round_id: str, round_loops: list[dict[str, Any]], loop_key: str,
     holes: list[dict[str, Any]], *, root: Path | str | None = None, player_id: str = OWNER_ID,
+    tee_box: Any = None,
     event_lock: Callable[[], ContextManager[Any]] | None = None,
 ) -> None:
     """Save proven package facts, allowing unplayed second-nine additions/reselections.
@@ -66,6 +72,15 @@ def save_mobile_round_identity(
         "roundId": str(round_id), "roundLoops": round_loops, "loopKey": loop_key,
         "holes": [{key: hole[key] for key in columns} for hole in holes],
     }
+    requested_tee = _normalise_tee_box(tee_box)
+    previous = load_mobile_round_identity(round_id, root=root, player_id=player_id)
+    # The first package observation binds the round. A retry can refresh loop facts, but it must
+    # not silently move a live round to another route. Legacy identity files simply lack this key.
+    bound_tee = _normalise_tee_box(previous.get("teeBox")) if isinstance(previous, dict) else None
+    if bound_tee is not None:
+        document["teeBox"] = bound_tee
+    elif requested_tee is not None:
+        document["teeBox"] = requested_tee
     validate_round_identity(round_loops, loop_key, document["holes"])
     # Immutable, atomically replaced records need no player/event lock when nothing changed.
     if load_mobile_round_identity(round_id, root=root, player_id=player_id) == document:
