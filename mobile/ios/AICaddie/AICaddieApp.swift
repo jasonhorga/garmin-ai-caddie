@@ -5337,6 +5337,10 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     #if DEBUG
+    func deferredRoundFinishTaskForTesting() -> Task<Void, Never>? {
+        deferredRoundFinishTask
+    }
+
     func waitForDeferredRoundFinishesForTesting() async {
         await deferredRoundFinishTask?.value
     }
