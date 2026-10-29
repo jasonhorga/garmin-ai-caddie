@@ -3189,6 +3189,7 @@ public struct CurrentHoleView: View {
         let incomingSource: LiveCaddieRouteAuthority.RouteSource = {
             if sessionEntry().caddieDecisionIsOnline { return .online }
             if caddieDecision?.isOfflineFallback == true { return .offline }
+            if caddieDecision == nil, caddieRouteSourceByHole[hole.number] == .online { return .offline }
             if incoming.first?.id == LiveCaddieRouteAuthority.installedRouteId { return .installed }
             return .offline
         }()
