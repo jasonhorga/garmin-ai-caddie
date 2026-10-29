@@ -1,0 +1,11 @@
+--- a/ai_caddie/caddie/mobile_live.py
++++ b/ai_caddie/caddie/mobile_live.py
+@@ -2665,8 +2665,6 @@
+         target_distance_m = float(route_evidence.get("routeLength_m") or 0.0)
+         if target_distance_m >= 0:
+             refreshed["holeRemaining_m"] = round(target_distance_m, 1)
+-        if isinstance(route_evidence.get("greenDistances"), dict):
+-            refreshed["greenDistances"] = dict(route_evidence["greenDistances"])
+         candidate_routes = _tee_candidate_routes(
+             {"yards": refreshed.get("yards")},
+             club_profiles,

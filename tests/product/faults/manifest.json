@@ -1204,6 +1204,48 @@
       "kind": "python",
       "target": "tests.product.test_j5_play.EventAppendTests.test_j59_append_reads_only_target_round_on_seven_mb_history",
       "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C164-01",
+      "patch": "tests/product/faults/C164/01-straight-live-route.patch",
+      "kind": "python",
+      "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j5_11_dogleg_uses_route_stations_for_hazards_and_two_shot_finish",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164-02",
+      "patch": "tests/product/faults/C164/02-radial-hazard-distances.patch",
+      "kind": "python",
+      "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j5_11_water_after_the_bend_uses_cumulative_mesh_intersections",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164-03",
+      "patch": "tests/product/faults/C164/03-ignore-current-position.patch",
+      "kind": "python",
+      "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j5_11_live_position_uses_only_the_route_after_its_projection",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164-04",
+      "patch": "tests/product/faults/C164/04-chord-landing.patch",
+      "kind": "python",
+      "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j5_11_dogleg_uses_route_stations_for_hazards_and_two_shot_finish",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164-05",
+      "patch": "tests/product/faults/C164/05-straight-decision-target.patch",
+      "kind": "python",
+      "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j5_11_dogleg_uses_route_stations_for_hazards_and_two_shot_finish",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164-06",
+      "patch": "tests/product/faults/C164/06-stale-green-window.patch",
+      "kind": "python",
+      "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j5_11_live_position_uses_only_the_route_after_its_projection",
+      "promise": "5.11"
     }
   ]
 }

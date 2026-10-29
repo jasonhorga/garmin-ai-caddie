@@ -1,0 +1,13 @@
+--- a/ai_caddie/caddie/decision.py
++++ b/ai_caddie/caddie/decision.py
+@@ -822,10 +822,6 @@
+ 
+ def _sequence_distance(context: dict[str, Any]) -> float:
+     route = context.get("routeEvidence")
+-    if isinstance(route, dict) and route.get("routeLocal"):
+-        length = _float(route.get("routeLength_m"))
+-        if math.isfinite(length) and 0 <= length <= MAX_PIN_DISTANCE_M:
+-            return length
+     # An installed CoursePrep route is the factual opening plan while the request is still a tee
+     # request.  GPS-derived ``holeRemaining_m`` can be tens of metres short because the fix is on
+     # the tee apron or the selected tee/centerline differs from the Garmin route; letting it replace

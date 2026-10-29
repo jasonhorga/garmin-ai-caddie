@@ -1,0 +1,11 @@
+--- a/ai_caddie/geometry/geometry_evidence.py
++++ b/ai_caddie/geometry/geometry_evidence.py
+@@ -743,7 +743,7 @@
+                 "edge": edge, "intervalIndex": index,
+                 "local": route_target_at_distance({"routeLocal": route}, station),
+                 "routeFraction": round(station / route[-1][2], 4),
+-                "distanceFromStart_m": round(station, 1),
++                "distanceFromStart_m": round(math.dist(route[0][:2], route_target_at_distance({"routeLocal": route}, station)), 1),
+             })
+     return rows
+ 
