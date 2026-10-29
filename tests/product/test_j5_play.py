@@ -246,6 +246,10 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
         self.assertTrue(any([step["clubName"] for step in seq["clubs"]] == ["Driver","8I"] for seq in plan["sequences"]), plan["sequences"])
         driver = next(option for option in plan["options"] if option["club"] == "Driver")
         self.assertEqual(driver["targetLocal"], [40,200], "240 route metres is after the bend, never on the diagonal")
+        # A route-evidence-only consumer must interpolate the same landing without prebuilt candidates.
+        geometry_plan = build_decision_plan({**seed, "shotType":"tee", "candidateRoutes":[]})
+        geometry_driver = next(option for option in geometry_plan["options"] if option["club"] == "Driver")
+        self.assertEqual(geometry_driver["targetLocal"], [40,200])
         self.assertEqual(max(step["routeOffset_m"] for seq in plan["sequences"] for step in seq["clubs"]), 400)
 
     def test_j5_11_live_position_uses_only_the_route_after_its_projection(self):
@@ -293,12 +297,21 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
                 "faces": [[0,1,2],[0,2,3]]}
         hazard = {"id": "water_1", "kind": "water", "source": "Lake.drc", "component": 1,
                   "tee_distances": [{"tee_index": 1, "along_target_line_m": [{"start_m": 5, "end_m": 199}]}]}
+        for faces in ([[0,1,2],[0,2,3]], [[2,1,0],[3,2,0]]):
+            with self.subTest(faces=faces), patch.object(geometry_evidence, "geometry_coverage_for_hole", return_value={"coverage":"ready","missingData":[]}):
+                route = geometry_evidence.build_route_geometry_evidence(90101,1,start=[0,0],target=[100,100],
+                    route=[[0,0],[0,100],[100,100]], _hazards_override={"refLat":0,"refLon":0,"hazards":[hazard]},
+                    _meshes_override={"meshes":[{**mesh,"faces":faces}]})
+                self.assertEqual([(z["carryToFront_m"],z["carryToClear_m"]) for z in route["avoidZones"]], [(120,140)])
+                self.assertEqual([r["local"] for r in route["lineIntersections"]], [[20,100],[40,100]])
+
+        # A replacement decoded mesh (same source name) must not reuse the previous revision.
+        moved = {**mesh, "positions":[[x-100,z,y] for x,z,y in mesh["positions"]]}
         with patch.object(geometry_evidence, "geometry_coverage_for_hole", return_value={"coverage":"ready","missingData":[]}):
             route = geometry_evidence.build_route_geometry_evidence(90101,1,start=[0,0],target=[100,100],
                 route=[[0,0],[0,100],[100,100]], _hazards_override={"refLat":0,"refLon":0,"hazards":[hazard]},
-                _meshes_override={"meshes":[mesh]})
-        self.assertEqual([(z["carryToFront_m"],z["carryToClear_m"]) for z in route["avoidZones"]], [(120,140)])
-        self.assertEqual([r["local"] for r in route["lineIntersections"]], [[20,100],[40,100]])
+                _meshes_override={"meshes":[moved]})
+        self.assertEqual(route["avoidZones"], [])
 
     def test_j5_11_polyline_merges_continuous_crossings_but_keeps_real_gaps(self):
         cases = [

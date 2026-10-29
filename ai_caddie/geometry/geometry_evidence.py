@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from functools import lru_cache
 import math
 from typing import Any, Iterable, Literal
 
@@ -672,10 +673,7 @@ def remaining_route(points: Iterable[Any], position: Any) -> tuple[list[list[flo
         projected = [start[0] + fraction * dx, start[1] + fraction * dy]
         station = start[2] + fraction * (end[2] - start[2])
         candidates.append((math.dist(point, projected), -station, index, projected))
-    gap, negative_station, index, projected = min(candidates)
-    # An unrelated/off-course GPS fix cannot collapse a valid hole to its last vertex.
-    if gap > 100.0:
-        return route, 0.0
+    _gap, negative_station, index, projected = min(candidates)
     return route_with_stations([projected, *route[index + 1:]]), -negative_station
 
 
@@ -702,20 +700,71 @@ def route_target_at_distance(evidence: dict[str, Any], distance_m: float) -> lis
     return [round(start[i] + (target[i] - start[i]) * distance_m / length, 1) for i in (0, 1)]
 
 
+class _ReadOnlyMeshKey:
+    """Identity of a decoded mesh; load_mesh replaces the object when its file revision changes."""
+
+    def __init__(self, mesh: dict[str, Any]):
+        self.mesh = mesh
+
+    def __hash__(self):
+        return id(self.mesh)
+
+    def __eq__(self, other):
+        return isinstance(other, _ReadOnlyMeshKey) and self.mesh is other.mesh
+
+
+@lru_cache(maxsize=16)
+def _route_mesh_components(key: _ReadOnlyMeshKey):
+    from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components
+    return mesh_components(key.mesh)
+
+
+def _segment_mesh_spans(start, end, component):
+    """Clip against each triangle in linear time, independent of mesh tessellation.
+
+    Testing every cut against the whole mesh is quadratic on a densely triangulated lake.
+    Triangle half-planes give the same exact segment intervals, which the caller unions.
+    """
+    bbox = component.get("bbox")
+    if bbox and (max(start[0],end[0]) < bbox[0] or min(start[0],end[0]) > bbox[2]
+                 or max(start[1],end[1]) < bbox[1] or min(start[1],end[1]) > bbox[3]):
+        return
+    for a, b, c in component["triangles"]:
+        area = (b[0]-a[0])*(c[1]-a[1]) - (b[1]-a[1])*(c[0]-a[0])
+        if abs(area) < 1e-12:
+            continue
+        sign = 1 if area > 0 else -1
+        front, back = 0.0, 1.0
+        for p, q in ((a,b),(b,c),(c,a)):
+            dx, dy = q[0]-p[0], q[1]-p[1]
+            at_start = sign * (dx*(start[1]-p[1]) - dy*(start[0]-p[0]))
+            delta = sign * (dx*(end[1]-start[1]) - dy*(end[0]-start[0]))
+            if abs(delta) < 1e-12:
+                if at_start < -1e-9:
+                    back = -1.0
+                    break
+            elif delta > 0:
+                front = max(front, -at_start/delta)
+            else:
+                back = min(back, -at_start/delta)
+            if back < front:
+                break
+        if back > front:
+            yield front, back
+
+
 def _polyline_hazard_intersections(
     route: list[list[float]], hazard: dict[str, Any], *, fallback_id: str,
     component: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Union exact segment/polygon or segment/mesh intersections in cumulative route space."""
-    from ai_caddie.geometry.measure_prodgeometry_distances import line_intervals_for_component
-
     ring = hazard.get("polygon") or hazard.get("points") or hazard.get("path")
     if component is None and (not isinstance(ring, list) or len(ring) < 3):
         return []
     intervals = []
     for start, end in zip(route, route[1:]):
         if component is not None:
-            spans = line_intervals_for_component(tuple(start[:2]), tuple(end[:2]), component)
+            spans = _segment_mesh_spans(start, end, component)
         else:
             edges = list(zip(ring, [*ring[1:], ring[0]]))
             cuts = {0.0, 1.0}
@@ -832,11 +881,9 @@ def build_route_geometry_evidence(
                 component = None
                 source = str(hazard.get("source") or "")
                 if source and hazard.get("component") is not None:
-                    from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components
-
                     if source not in components_by_mesh:
                         mesh = next((row for row in _meshes.get("meshes") or [] if row.get("name") == source), None)
-                        components_by_mesh[source] = mesh_components(mesh) if mesh else []
+                        components_by_mesh[source] = _route_mesh_components(_ReadOnlyMeshKey(mesh)) if mesh else []
                     component_index = int(hazard["component"]) - 1
                     components = components_by_mesh[source]
                     if 0 <= component_index < len(components):

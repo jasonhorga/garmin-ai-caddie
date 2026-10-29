@@ -3247,7 +3247,11 @@ def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[
         "label": OPTION_LABELS.get(option_id, str(route.get("label") or option_id)),
         "routeLabel": route.get("label"),
         "carry_m": carry_m,
-        "targetLocal": route.get("landingLocal") or route.get("targetLocal"),
+        "targetLocal": (
+            _target_local_from_route_evidence(analysis, carry_m)
+            if (analysis.get("routeEvidence") or {}).get("routeLocal")
+            else route.get("landingLocal") or route.get("targetLocal")
+        ),
         "targetWindow": target_window,
         "expectedSurface": route.get("expectedSurface"),
         "riskScore": risk_score,
