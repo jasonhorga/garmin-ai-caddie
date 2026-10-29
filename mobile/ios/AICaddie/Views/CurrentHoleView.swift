@@ -3060,6 +3060,10 @@ public struct CurrentHoleView: View {
         )
     }
 
+    static func caddieRouteScope(isPrepMode: Bool) -> LiveCaddieRouteAuthority.RouteScope {
+        isPrepMode ? .prep : .liveHole
+    }
+
     /// Tee colour label (蓝T/白T/…) from the round's teeBox; nil when unknown.
     private var teeLabelZh: String? {
         let map = [
@@ -3115,7 +3119,7 @@ public struct CurrentHoleView: View {
             offline: caddieDecision?.isOfflineFallback == true ? caddieDecision : makeOfflineCaddieDecision(),
             par: hole.par,
             shotType: selectedShotType,
-            scope: isPrepMode ? .prep : .liveHole
+            scope: Self.caddieRouteScope(isPrepMode: isPrepMode)
         )
         if !resolved.isEmpty || hole.par != 3 || selectedShotType.caseInsensitiveCompare("tee") != .orderedSame {
             return resolved

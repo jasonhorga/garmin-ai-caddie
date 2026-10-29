@@ -87,6 +87,8 @@ final class LivePlanPagingTests: XCTestCase {
     /// J5.11: the live hole publishes one selected route while 备战 keeps the same decision's
     /// materially different complete alternatives for pre-round comparison.
     func testLiveHoleUsesOneRouteWhilePrepRetainsAlternatives() {
+        XCTAssertEqual(CurrentHoleView.caddieRouteScope(isPrepMode: false), .liveHole)
+        XCTAssertEqual(CurrentHoleView.caddieRouteScope(isPrepMode: true), .prep)
         let online = decision(selected: safe)
         let offline = decision(selected: layup)
         let liveRoutes = LiveCaddieRouteAuthority.resolve(
