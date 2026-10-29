@@ -247,6 +247,23 @@ class SkyMatteTests(unittest.TestCase):
                 pool.shutdown(wait=True, cancel_futures=True)
                 topo_render._render_pool = None
 
+    def test_invalid_matte_stays_404_and_does_not_publish_a_cache_file(self) -> None:
+        """J4/4.2: offloading a corrupt provider image keeps the existing client fallback."""
+        with (TemporaryDirectory() as directory,
+              patch.object(garmin_raster, "RASTER_CACHE_DIR", Path(directory)),
+              patch.object(raster_api, "_asset_version", return_value="777"),
+              patch.object(garmin_raster, "fetch_raster", return_value=b"not a JPEG"),
+              patch.dict(os.environ, {topo_render._RENDER_PROCESSES_ENV: "1"})):
+            try:
+                with self.assertRaises(HTTPException) as unavailable:
+                    raster_api.course_hole_garmin_raster_webp(_request(), 31795, 1, v="777-sky1")
+                self.assertEqual(unavailable.exception.status_code, 404)
+                self.assertEqual(unavailable.exception.detail, "garmin raster unavailable")
+                self.assertFalse(garmin_raster._matte_path(31795, 1, "777").exists())
+            finally:
+                topo_render._shutdown_render_pool()
+                topo_render._render_pool = None
+
 
 class WebpEncodingTests(unittest.TestCase):
     """Rework 1: the runtime's Pillow encodes WebP, and the WebP is a fraction of the PNG."""

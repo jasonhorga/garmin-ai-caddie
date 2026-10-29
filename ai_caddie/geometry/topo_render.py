@@ -47,9 +47,11 @@ import os
 import random
 import sys
 import threading
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
+from typing import TypeVar
 from uuid import uuid4
 
 import numpy as np
@@ -1139,6 +1141,49 @@ def _render_cold(gid: int, hole: int) -> bytes:
         return _render_in_process(gid, hole)
 
 
+_RenderResult = TypeVar("_RenderResult")
+
+
+def _compute_in_render_worker(compute: Callable[..., _RenderResult], *args, **kwargs) -> _RenderResult:
+    """Pure CPU entry point shared by focused greens and raster mattes; no cache writes or IO requests."""
+    try:
+        return compute(*args, **kwargs)
+    finally:
+        _release_cold_render_working_set()
+
+
+def _run_render_cpu(compute: Callable[..., _RenderResult], *args, **kwargs) -> _RenderResult:
+    """Share topo's bounded CPU budget and its broken/shutdown-pool fallback semantics.
+
+    A separate green/raster pool would multiply the cgroup-derived worker budget. Sharing can
+    queue an asset behind topo, but leaves the API process free to build the foreground package.
+    Computation errors propagate unchanged; only pool failure falls back, as for ``_render_cold``.
+    """
+    processes = _render_process_count()
+    if processes == 0:
+        return _compute_in_render_worker(compute, *args, **kwargs)
+    pool = _get_render_pool(processes)
+    try:
+        future = pool.submit(_compute_in_render_worker, compute, *args, **kwargs)
+    except BrokenProcessPool:
+        _discard_render_pool(pool)
+        return _compute_in_render_worker(compute, *args, **kwargs)
+    except RuntimeError:  # another request shut down this pool before submit
+        return _compute_in_render_worker(compute, *args, **kwargs)
+    try:
+        return future.result()
+    except BrokenProcessPool:
+        _discard_render_pool(pool)
+        return _compute_in_render_worker(compute, *args, **kwargs)
+
+
+def _render_green_cold(gid: int, hole: int, crop: tuple[float, float, float, float], *, size: int) -> bytes:
+    # As with topo, a replaced renderer is a test double and cannot be pickled into a worker.
+    if render_hole_green_detail is not _RENDER_HOLE_GREEN_DETAIL:
+        return _compute_in_render_worker(render_hole_green_detail, gid, hole, crop, size=size)
+    return _run_render_cpu(render_hole_green_detail, gid, hole, crop, size=size)
+
+
 _cache_lock = threading.Lock()
 _cache_inflight: dict[Path, threading.Event] = {}
 # A cold supersampled render owns several large NumPy rasters at once.  Different holes used to
@@ -1314,10 +1359,7 @@ def render_hole_green_detail_cached(
 
     try:
         with _cold_render_slot:
-            try:
-                png = render_hole_green_detail(gid, hole, canonical, size=size)
-            finally:
-                _release_cold_render_working_set()
+            png = _render_green_cold(gid, hole, canonical, size=size)
         try:
             _write_cached_topo(path, png)
         except OSError:
@@ -1331,3 +1373,4 @@ def render_hole_green_detail_cached(
 
 # The real renderer, for `_render_cold` to tell it from a test double.
 _RENDER_HOLE_TOPO = render_hole_topo
+_RENDER_HOLE_GREEN_DETAIL = render_hole_green_detail

@@ -931,6 +931,20 @@
       "kind": "python",
       "target": "tests.test_course_install",
       "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C154a-01",
+      "patch": "tests/product/faults/C154a/01-green-back-in-api.patch",
+      "kind": "python",
+      "target": "tests.test_topo_render.TopoRenderProcessPoolTests.test_green_cold_render_uses_a_process_and_preserves_exact_png_bytes",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C154a-02",
+      "patch": "tests/product/faults/C154a/02-matte-back-in-api.patch",
+      "kind": "python",
+      "target": "tests.test_garmin_raster_delivery.SkyMatteTests.test_cold_matte_uses_a_process_with_identical_bytes_and_parent_download",
+      "promise": "4.2"
     }
   ]
 }

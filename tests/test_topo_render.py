@@ -804,6 +804,59 @@ class TopoRenderProcessPoolTests(unittest.TestCase):
             self.assertEqual(topo_render.green_detail_cache_path(gid, hole, crop, size=320).read_bytes(), direct)
             self.assertEqual(submit.call_count, 1, "one child render; the second request is a parent cache hit")
 
+    def test_green_worker_preserves_geometry_errors_without_caching_them(self) -> None:
+        """J4/4.2: a missing course asset retains the existing error/fallback contract."""
+        crop = (100.0, 40.0, 200.0, 200.0)
+        with (TemporaryDirectory() as tmp,
+              patch.dict(os.environ, {"AI_CADDIE_TOPO_CACHE_DIR": tmp,
+                                     topo_render._RENDER_PROCESSES_ENV: "1"})):
+            with self.assertRaises(topo_render.TopoGeometryUnavailable):
+                topo_render.render_hole_green_detail_cached(987654, 1, crop, size=320)
+            self.assertFalse(topo_render.green_detail_cache_path(987654, 1, crop, size=320).exists())
+
+    def test_shared_asset_pool_recovers_from_dead_workers_and_shutdown(self) -> None:
+        """J4/4.2: a dead render worker cannot poison subsequent course asset requests."""
+        from concurrent.futures import Future
+        from concurrent.futures.process import BrokenProcessPool
+        from unittest.mock import Mock
+
+        for failure in ("submit", "result", "shutdown"):
+            with self.subTest(failure=failure):
+                pool = Mock()
+                if failure == "result":
+                    future = Future()
+                    future.set_exception(BrokenProcessPool("worker died"))
+                    pool.submit.return_value = future
+                else:
+                    pool.submit.side_effect = (RuntimeError("cannot schedule after shutdown")
+                                               if failure == "shutdown" else BrokenProcessPool("worker died"))
+                topo_render._render_pool = pool
+                with patch.dict(os.environ, {topo_render._RENDER_PROCESSES_ENV: "1"}):
+                    self.assertEqual(topo_render._run_render_cpu(pow, 2, 5), 32)
+                if failure != "shutdown":
+                    pool.shutdown.assert_called_once_with(wait=False, cancel_futures=True)
+                    self.assertIsNone(topo_render._render_pool)
+                    replacement = topo_render._get_render_pool(1)
+                    self.assertIsNot(replacement, pool)
+                    replacement.shutdown(wait=True)
+                topo_render._render_pool = None
+
+    def test_shared_asset_pool_does_not_retry_computation_errors_in_the_api(self) -> None:
+        """J4/4.2: malformed inputs keep their error, rather than repeating CPU work in the API."""
+        from concurrent.futures import Future
+        from unittest.mock import Mock
+
+        future = Future()
+        future.set_exception(ValueError("invalid asset"))
+        pool, compute = Mock(), Mock()
+        pool.submit.return_value = future
+        with (patch.object(topo_render, "_get_render_pool", return_value=pool),
+              patch.dict(os.environ, {topo_render._RENDER_PROCESSES_ENV: "1"})):
+            with self.assertRaisesRegex(ValueError, "invalid asset"):
+                topo_render._run_render_cpu(compute)
+        compute.assert_not_called()
+        pool.shutdown.assert_not_called()
+
 
 class TopoEndpointTests(unittest.TestCase):
     def setUp(self) -> None:
