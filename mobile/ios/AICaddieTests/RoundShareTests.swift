@@ -22,7 +22,7 @@ final class RoundShareTests: XCTestCase {
             return (response, Data(payload.utf8))
         }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let client = SyncClient(
             baseURL: baseURL, adminToken: "admin-secret", session: URLSession(configuration: configuration)
         )
@@ -48,7 +48,7 @@ final class RoundShareTests: XCTestCase {
             return (response, Data(#"{"revoked":1}"#.utf8))
         }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let client = SyncClient(
             baseURL: baseURL, adminToken: "admin-secret", session: URLSession(configuration: configuration)
         )
@@ -86,7 +86,7 @@ final class RoundShareTests: XCTestCase {
             return (response, Data(payload.utf8))
         }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let client = SyncClient(
             baseURL: baseURL, adminToken: "admin-secret", session: URLSession(configuration: configuration)
         )
@@ -120,7 +120,7 @@ final class RoundShareTests: XCTestCase {
             return (response, Data(payload.utf8))
         }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let fallback = "本场复盘"
         func makeFlow(adminToken: String) -> RoundShareFlow {
@@ -162,7 +162,7 @@ final class RoundShareTests: XCTestCase {
             return (response, Data(#"{"detail":"offline"}"#.utf8))
         }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let client = SyncClient(
             baseURL: baseURL, adminToken: "admin-secret", session: URLSession(configuration: configuration)
         )
@@ -209,7 +209,7 @@ final class RoundShareTests: XCTestCase {
             return (response, Data(payload.utf8))
         }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let client = SyncClient(
             baseURL: baseURL, adminToken: "admin-secret", session: URLSession(configuration: configuration)
         )

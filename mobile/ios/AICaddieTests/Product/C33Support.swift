@@ -37,7 +37,7 @@ final class C33URLProtocol: URLProtocol {
     }
     static func session() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [C33URLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(C33URLProtocol.self)
         configuration.httpMaximumConnectionsPerHost = 1
         return URLSession(configuration: configuration)
     }

@@ -41,7 +41,7 @@ final class RoundStartTwoStageTests: XCTestCase {
 
     func testMapOnlyPackageRequestCarriesTheWatchContract() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let responseData = try JSONEncoder().encode(try package(roundId: "c85-map-query", mapOnly: true))
         let log = C85RequestLog()
@@ -892,7 +892,7 @@ final class RoundStartTwoStageTests: XCTestCase {
             proto.reply(404)
         })
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [C33URLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(C33URLProtocol.self)
         let session = URLSession(configuration: configuration)
         let client = SyncClient(
             baseURL: try XCTUnwrap(URL(string: "https://\(host)")),
@@ -1050,7 +1050,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         let store = OfflineStore(directoryURL: directory)
         // No per-host connection cap: a held request must not serialize the next one.
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [C33URLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(C33URLProtocol.self)
         let session = URLSession(configuration: configuration)
         let client = SyncClient(
             baseURL: URL(string: "https://\(host)")!,

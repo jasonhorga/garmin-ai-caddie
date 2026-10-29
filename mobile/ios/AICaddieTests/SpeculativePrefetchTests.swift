@@ -505,7 +505,7 @@ final class SpeculativePrefetchTests: XCTestCase {
             return #"{"schema":"ai-caddie-course-tees-v1","globalId":\#(id),"tees":\#(tees)}"#
         }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [NewAreaURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(NewAreaURLProtocol.self)
         let baseURL = try XCTUnwrap(URL(string: "https://example.test"))
         let model = LiveRoundAppModel(
             offlineStore: store,
