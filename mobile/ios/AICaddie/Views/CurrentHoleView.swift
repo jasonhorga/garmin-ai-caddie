@@ -6376,7 +6376,6 @@ public struct CurrentHoleView: View {
     private var caddiePlanningDistanceMetres: Double? {
         Self.caddiePlanningDistanceMetres(
             manualM: distanceToPinMetres,
-            mapTargetM: mapTargetDistanceMetres,
             isTeeShotOffTheHole: isTeeShotOffTheHole,
             routeRemainingM: currentRemainingRouteMetres,
             liveMiddleM: isTeeShotOffTheHole ? nil : liveGreenMetres?.middle,

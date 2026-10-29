@@ -4114,7 +4114,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("coordinate: isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole", current_hole)
         self.assertIn("distanceToPinM: caddiePlanningDistanceMetres", current_hole)
         self.assertNotIn("guard isTeeShotOffTheHole else { return effectiveDistanceToPinMetres }", current_hole)
-        self.assertIn("scope: isPrepMode ? .prep : .liveHole", current_hole)
+        self.assertIn("scope: Self.caddieRouteScope(isPrepMode: isPrepMode)", current_hole)
         self.assertIn("pinM: greenPinDistanceMetres", current_hole)
         self.assertIn("static let offHoleMetres = 75.0", current_hole)
         self.assertIn("requestedOptionId: caddieOptionId(forStrategyMode: requestStrategyMode)", current_hole)
