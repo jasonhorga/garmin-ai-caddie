@@ -1,9 +1,10 @@
 --- a/ai_caddie/caddie/decision.py
 +++ b/ai_caddie/caddie/decision.py
-@@ -822,10 +822,6 @@
- 
- def _sequence_distance(context: dict[str, Any]) -> float:
-     route = context.get("routeEvidence")
+@@ -836,11 +836,6 @@
+         supplied = _float(context.get("distanceToPin_m"), math.nan)
+         if math.isfinite(supplied) and 0 < supplied <= MAX_PIN_DISTANCE_M:
+             return supplied
+-    route = context.get("routeEvidence")
 -    if isinstance(route, dict) and route.get("routeLocal"):
 -        length = _float(route.get("routeLength_m"))
 -        if math.isfinite(length) and 0 <= length <= MAX_PIN_DISTANCE_M:
