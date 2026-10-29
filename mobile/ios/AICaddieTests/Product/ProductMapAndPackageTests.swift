@@ -167,6 +167,7 @@ final class ProductMapAndPackageTests: XCTestCase {
         let hole = try XCTUnwrap(package.holes.first)
         let host = "c136-garmin-hole-off.example.test"
         let requests = C136Counter()
+        let session = C33URLProtocol.session()
         C33URLProtocol.setHandlers(onStart: { proto in
             if proto.request.url?.path.contains("garmin-raster") == true { requests.increment() }
             proto.reply(200)
@@ -177,10 +178,12 @@ final class ProductMapAndPackageTests: XCTestCase {
         defer {
             if let previous { defaults.set(previous, forKey: LiveGarminRasterPolicy.preferenceKey) }
             else { defaults.removeObject(forKey: LiveGarminRasterPolicy.preferenceKey) }
+            session.invalidateAndCancel()
         }
         let view = CurrentHoleView(
             package: package, hole: hole,
-            caddieBaseURL: URL(string: "https://\(host)")!
+            caddieBaseURL: URL(string: "https://\(host)")!,
+            networkSession: session
         )
         await view.loadGarminRasterForTesting()
         await view.recoverGarminDescriptorForTesting()
