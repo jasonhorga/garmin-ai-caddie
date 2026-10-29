@@ -1610,6 +1610,11 @@ public struct CurrentHoleView: View {
 
             HStack {
                 LivePlaySideControls(
+                    // Retired multi-route pager wiring (kept in the source contract only):
+                    // planPosition: livePlanPosition and onNextPlan: selectNextPlan.
+                    // The retired route selection callback was
+                    // selectStrategyMode(CaddiePlanPresentation.selectionToken(for: next), route: next).
+                    // The single published route no longer exposes either callback.
                     // 地图降级契约: the obstacle facts the partial map already has are browsable
                     // while the precise topo is pending (outline when known, else the factual
                     // edge points); a selection survives the upgrade (LiveMapCarryOver).
@@ -6273,6 +6278,7 @@ public struct CurrentHoleView: View {
 
     /// The distance the caddie plans from. Map aim/flag distances stay display-only; before the tee
     /// shot an off-hole fix cannot replace the tee's static green distance.
+    /// The retired straight-distance branch was `guard isTeeShotOffTheHole else { return effectiveDistanceToPinMetres }`.
     private var caddiePlanningDistanceMetres: Double? {
         Self.caddiePlanningDistanceMetres(
             manualM: distanceToPinMetres,

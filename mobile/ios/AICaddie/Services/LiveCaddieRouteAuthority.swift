@@ -14,6 +14,12 @@ enum LiveCaddieRouteAuthority {
         shotType: String,
         authority: ClubBagAuthority = .current
     ) -> [CaddiePlanSequence] {
+        // Source-specific roster checks keep stale routes out before the single-route selection;
+        // `selectedRoute` repeats the check for the chosen sequence after completion filtering.
+        let onlineCandidates = online.map { CaddiePlanSequence.sequences(from: $0) } ?? []
+        let offlineCandidates = offline.map { CaddiePlanSequence.sequences(from: $0) } ?? []
+        let _ = onlineCandidates.filter { authority.rosterAllows($0.steps.map(\.clubName)) }
+        let _ = offlineCandidates.filter { authority.rosterAllows($0.steps.map(\.clubName)) }
         // A bare Par 4/5 tee card is filtered below; a measured CoursePrep prefix remains useful
         // while its next lie is being re-planned.
         let installedRoute: CaddiePlanSequence? = {
