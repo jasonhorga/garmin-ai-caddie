@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4150,6 +4150,7 @@
+     private func schedulePendingReplacementSync(roundId: String) {
+         guard (try? offlineStore.loadPendingEvents(roundId: roundId).isEmpty) == false else { return }
+         let status = networkState.isSatisfied ? "正在同步" : "等待联网"
++        syncStatus = status
+         localEventUploadStatus = status
+         let task = Task { @MainActor [weak self] in
+             await Task.yield()

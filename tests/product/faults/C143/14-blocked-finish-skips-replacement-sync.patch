@@ -1,8 +1,10 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -3811,5 +3811,4 @@
+@@ -3882,7 +3882,6 @@
                  let suffix = try quarantineFinishSuffix(for: blocked, roundId: package.roundId)
                  finishErrorMessage = "\(prompt)\(suffix)"
                  syncStatus = "结束已暂停 · \(prompt)\(suffix)"
 -                schedulePendingReplacementSync(roundId: package.roundId)
                  return false
+             }
+             let events = try offlineStore.loadEvents().filter { $0.roundId == package.roundId }

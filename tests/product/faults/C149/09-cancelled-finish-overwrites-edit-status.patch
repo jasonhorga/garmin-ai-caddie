@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4025,7 +4025,6 @@
+                 }
+                 syncStatus = "已同步结束的球局"
+             } catch {
+-                guard !Task.isCancelled, boundPlayerId == playerScope else { return }
+                 AICaddieLog.network.info(
+                     "Deferred round finish retained for retry \(record.roundId, privacy: .public): \(String(describing: error), privacy: .public)"
+                 )

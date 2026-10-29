@@ -641,6 +641,7 @@ public struct RoundHomeView: View {
     public let isFinishingRound: Bool
     public let finishErrorMessage: String?
     public let deferredFinishRecovery: DeferredFinishRecovery?
+    public let liveFinishRecovery: DeferredFinishRecovery?
     public let onEvent: (LiveRoundEvent) -> Void
     public let onPrepareRound: (String) -> Void
     /// Start a round: (roundId, teeBox, ordered loops) — B4b-2 `loops=`.
@@ -653,7 +654,7 @@ public struct RoundHomeView: View {
     public let onContinueIntoSecondLoop: (RoundLoopEntry, String) -> Void
     public let onFinishRound: () async -> Bool
     public let onResumeDeferredFinish: () -> Bool
-    public let onDiscardRemovedDeferredFinish: () -> Bool
+    public let onDiscardRemovedDeferredFinish: (String, Int) -> Bool
     public let onDiscardRound: () -> Void
     public let onSetActiveHole: (Int) -> Void
     public let onRetainReadyHolePrep: (String, Int, CoursePrepHole) -> Void
@@ -786,6 +787,7 @@ public struct RoundHomeView: View {
         isFinishingRound: Bool = false,
         finishErrorMessage: String? = nil,
         deferredFinishRecovery: DeferredFinishRecovery? = nil,
+        liveFinishRecovery: DeferredFinishRecovery? = nil,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (String, String, [RoundLoopEntry]) -> Void = { _, _, _ in },
@@ -795,7 +797,7 @@ public struct RoundHomeView: View {
         onContinueIntoSecondLoop: @escaping (RoundLoopEntry, String) -> Void = { _, _ in },
         onFinishRound: @escaping () async -> Bool = { false },
         onResumeDeferredFinish: @escaping () -> Bool = { false },
-        onDiscardRemovedDeferredFinish: @escaping () -> Bool = { false },
+        onDiscardRemovedDeferredFinish: @escaping (String, Int) -> Bool = { _, _ in false },
         onDiscardRound: @escaping () -> Void = {},
         onSetActiveHole: @escaping (Int) -> Void = { _ in },
         onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
@@ -870,6 +872,7 @@ public struct RoundHomeView: View {
         self.isFinishingRound = isFinishingRound
         self.finishErrorMessage = finishErrorMessage
         self.deferredFinishRecovery = deferredFinishRecovery
+        self.liveFinishRecovery = liveFinishRecovery
         self.onEvent = onEvent
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
@@ -1041,6 +1044,7 @@ public struct RoundHomeView: View {
         }
         // The NavigationStack owns the system status bar, so the immersive hole destination cannot
         // hide it reliably from inside CurrentHoleView. Keep normal chrome on every non-live route.
+        .environment(\.removedFinishRejectionAction, removedFinishRejectionAction)
         .statusBarHidden(Self.isLiveHoleRoute(path.last))
         .onChange(of: pendingLiveHole) { _, hole in
             #if DEBUG
@@ -1824,12 +1828,45 @@ public struct RoundHomeView: View {
 
     /// An active or Watch-created round owns this card. Starting a second round would orphan the
     /// durable score/shot state, so the new-round entry only exists when neither state does.
+    var removedFinishRejectionAction: RemovedFinishRejectionAction? {
+        guard let recovery = liveFinishRecovery, !recovery.holeAvailable,
+              liveRoundState?.roundId == recovery.roundId else { return nil }
+        return RemovedFinishRejectionAction(recovery: recovery, discard: onDiscardRemovedDeferredFinish)
+    }
+
+    /// Recovery adds information; the current live round always retains its navigation entry.
+    var showsInProgressPlayCard: Bool { liveRoundState != nil }
+
+    var showsNewRoundPlayCard: Bool {
+        liveRoundState == nil && pendingWatchRoundStart == nil
+            && deferredFinishRecovery == nil && liveFinishRecovery == nil
+    }
+
     @ViewBuilder private var playSection: some View {
-        if let deferredFinishRecovery {
-            VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
+            if showsInProgressPlayCard {
+                inProgressPlayCard
+            } else if let pendingWatchRoundStart {
+                HubPendingWatchCard(
+                    courseName: pendingWatchRoundStart.courseName,
+                    activeHole: pendingWatchRoundStart.activeHole
+                )
+            } else if showsNewRoundPlayCard {
+                NavigationLink(value: HubRoute.start) { HubStartPlayCard() }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("home-new-round")
+            }
+            if let liveFinishRecovery {
+                HubDeferredFinishRecoveryCard(
+                    recovery: liveFinishRecovery, canResume: false,
+                    onResume: { false }, onDiscardRemoved: onDiscardRemovedDeferredFinish
+                )
+            }
+            if let deferredFinishRecovery {
                 HubDeferredFinishRecoveryCard(
                     recovery: deferredFinishRecovery,
-                    canResume: liveRoundState == nil || liveRoundState?.roundId == deferredFinishRecovery.roundId,
+                    canResume: (liveRoundState == nil || liveRoundState?.roundId == deferredFinishRecovery.roundId)
+                        && (pendingWatchRoundStart == nil || pendingWatchRoundStart?.roundId == deferredFinishRecovery.roundId),
                     onResume: onResumeDeferredFinish,
                     onDiscardRemoved: onDiscardRemovedDeferredFinish
                 )
@@ -1837,24 +1874,7 @@ public struct RoundHomeView: View {
                     Text("当前还有另一场进行中的球局，请先结束后再重录第 \(deferredFinishRecovery.hole) 洞")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    inProgressPlayCard
                 }
-            }
-        } else {
-            switch heroState {
-        case .inProgress:
-            inProgressPlayCard
-        case .pendingWatch:
-            if let pendingWatchRoundStart {
-                HubPendingWatchCard(
-                    courseName: pendingWatchRoundStart.courseName,
-                    activeHole: pendingWatchRoundStart.activeHole
-                )
-            }
-        case .nearby, .search:
-            NavigationLink(value: HubRoute.start) { HubStartPlayCard() }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("home-new-round")
             }
         }
     }

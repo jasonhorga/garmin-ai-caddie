@@ -1,0 +1,18 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -555,11 +555,10 @@
+     /// Confirm exactly the card the player saw. Recheck durable membership as well as identity:
+     /// restoring a loop while a confirmation is open must never discard a now-playable score.
+     @discardableResult
+-    public func discardRemovedDeferredFinishRejection(roundId: String, hole: Int) -> Bool {
+-        let recovery = [liveFinishRecovery, sealedFinishRecovery].compactMap { $0 }.first {
+-            $0.roundId == roundId && $0.hole == hole
+-        }
+-        guard let recovery, !recovery.holeAvailable else { return false }
++    public func discardRemovedDeferredFinishRejection(roundId _: String, hole _: Int) -> Bool {
++        guard let recovery = deferredFinishRecovery, !recovery.holeAvailable else { return false }
++        let roundId = recovery.roundId
++        let hole = recovery.hole
+         do {
+             let isDeferred = try offlineStore.isRoundPendingFinish(roundId)
+             guard isDeferred || liveRoundState?.roundId == roundId,

@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -513,7 +513,6 @@
+             // between the preflight and the durable cursor restoration. Cancel only after all
+             // throwing recovery work succeeds, so a false result leaves other finishes running.
+             deferredRoundFinishRetryRequested = false
+-            deferredRoundFinishTask?.cancel()
+             deferredRoundFinishTask = nil
+             deferredRoundFinishGeneration = UUID()
+             sealedFinishRecovery = nil

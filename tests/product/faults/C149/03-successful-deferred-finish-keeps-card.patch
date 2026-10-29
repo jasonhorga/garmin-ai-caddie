@@ -1,0 +1,12 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4016,9 +4016,6 @@
+                 }
+                 try offlineStore.discardRound(roundId: record.roundId)
+                 try? offlineStore.removeQuarantinedEvents(roundId: record.roundId)
+-                if sealedFinishRecovery?.roundId == record.roundId {
+-                    sealedFinishRecovery = nil
+-                }
+                 if let refreshedHome {
+                     if liveRoundState == nil { try activateHomePackage(refreshedHome, status: "本场已同步") }
+                     else { try offlineStore.saveHomePackage(refreshedHome) }
