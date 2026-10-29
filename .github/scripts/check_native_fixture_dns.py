@@ -31,21 +31,54 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
 
     findings: list[tuple[str, int, str, str]] = []
     seen_urls: set[str] = set()
+    pending_without_url: list[tuple[int, str]] = []
     for line_number, line in enumerate(log_text.splitlines(), start=1):
-        if not any(marker in line for marker in _DNS_MARKERS):
-            continue
         if "route=" in line:
             continue
         match = _URL_RE.search(line)
-        if match is None:
-            # The adjacent NSError URL line is the actionable record and avoids
-            # reporting one request twice when xcodebuild wraps the error.
+        has_dns_marker = any(marker in line for marker in _DNS_MARKERS)
+        if not has_dns_marker and match is None:
             continue
-        url = match.group(1).rstrip(")]" )
+        if not has_dns_marker:
+            # A URL-only continuation is actionable only when it follows a
+            # marker we kept pending above; ordinary log lines contain URLs too.
+            recent = [number for number, _ in pending_without_url if line_number - number <= 4]
+            if not recent:
+                continue
+            url = match.group(1).rstrip(")]")
+            if url not in seen_urls:
+                seen_urls.add(url)
+                findings.append(("<log>", line_number, url, line.rstrip()))
+            pending_without_url = [
+                (number, pending)
+                for number, pending in pending_without_url
+                if line_number - number > 4
+            ]
+            continue
+        if match is None:
+            # xcodebuild can put the URL on the following NSError user-info line.
+            # Keep the marker as a pending event and merge it when that line arrives.
+            pending_without_url.append((line_number, line.rstrip()))
+            continue
+        url = match.group(1).rstrip(")]")
         if url in seen_urls:
+            pending_without_url = [
+                (number, pending)
+                for number, pending in pending_without_url
+                if line_number - number > 4
+            ]
             continue
         seen_urls.add(url)
         findings.append(("<log>", line_number, url, line.rstrip()))
+        # A URL-only continuation belongs to the immediately preceding error;
+        # suppress that marker's URL-less fallback below.
+        pending_without_url = [
+            (number, pending)
+            for number, pending in pending_without_url
+            if line_number - number > 4
+        ]
+    for line_number, line in pending_without_url:
+        findings.append(("<log>", line_number, "<unknown URL>", line))
     return findings
 
 

@@ -33,3 +33,9 @@ class NativeFixtureDNSGateTests(unittest.TestCase):
         findings = _GATE.find_unhandled_fixture_dns(log)
         self.assertEqual(1, len(findings))
         self.assertEqual("https://copied-session.example.test/package", findings[0][2])
+
+    def test_unmarked_dns_marker_without_url_still_fails_closed(self) -> None:
+        log = 'Error Domain=NSURLErrorDomain Code=-1003 "DNS failed"\n'
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("<unknown URL>", findings[0][2])
