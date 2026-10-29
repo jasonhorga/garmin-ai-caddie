@@ -24,5 +24,3 @@
 -            policy_warning(live.name, "restart_policy_failed",
 -                           f"{live.name} keeps its restart policy; the next deploy, rollback or up corrects it")
      return kept
-
-
