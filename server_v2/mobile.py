@@ -732,7 +732,8 @@ def _persist_mobile_package_identity(package: LiveRoundPackageResponse, *, playe
         save_mobile_round_identity(
             str(package.roundId), [row.model_dump() for row in package.roundLoops],
             package.loopKey, package.holes, root=MOBILE_ROOT, player_id=player_id,
-            tee_box=(package.course.get("teeBox") if isinstance(package.course, dict) else None),
+            tee_box=(getattr(package, "course", {}).get("teeBox")
+                     if isinstance(getattr(package, "course", {}), dict) else None),
             event_lock=_timed_lock,
         )
     except MobileRoundIdentityError as exc:
