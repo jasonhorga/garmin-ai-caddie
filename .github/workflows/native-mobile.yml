@@ -282,6 +282,9 @@ jobs:
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddie \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 120 \
+            -maximum-test-execution-time-allowance 300 \
             -destination "$IOS_DESTINATION"
       - name: Verify SwiftJCS consumer boundaries
         if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit') && steps.test_ios_app.outcome == 'success' }}
@@ -633,6 +636,9 @@ jobs:
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 120 \
+            -maximum-test-execution-time-allowance 300 \
             -destination "platform=watchOS Simulator,id=$NATIVE_WATCH_UDID"
       - name: Collect Watch design snapshots
         if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
