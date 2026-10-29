@@ -1729,6 +1729,34 @@
       "kind": "python",
       "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_refused_no_during_deploy_leaves_no_second_on_failure_release",
       "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C161-01",
+      "patch": "tests/product/faults/C161/01-arrival-order-wins.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_timestamp_order_beats_round_registration_order",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C161-02",
+      "patch": "tests/product/faults/C161/02-finish-clears-all-rounds.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_timestamp_n2_restart_old_upload_cannot_promote_older_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C161-03",
+      "patch": "tests/product/faults/C161/03-missing-timestamp-crashes.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_missing_event_timestamp_falls_back_to_arrival_order",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C161-04",
+      "patch": "tests/product/faults/C161/04-package-fields-type-unsafe.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_old_event_payload_container_type_error_does_not_turn_event_receipt_into_500",
+      "promise": "4.2"
     }
   ]
 }

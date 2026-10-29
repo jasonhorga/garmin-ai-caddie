@@ -319,6 +319,10 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self.assertEqual(self.main._current_course_ids("fixture"), (123,))
         self.assertEqual(self.priority(123), 10)
         self.assertEqual(self.priority(456), 20)
+        with patch.object(self.main, "finish_mobile_round_response", return_value=SimpleNamespace()):
+            self.main.mobile_round_finish("saved-old", SimpleNamespace(), acting_player_id="fixture")
+        self.assertIn(("fixture", "watch-live"), self.main._ACTIVE_ROUNDS)
+        self.assertTrue(self.main.nearby_work_blocked())
 
     def test_timestamp_n2b_expired_lease_old_upload_cannot_promote_older_round(self):
         """J4.2 active-round admission: an expired lease still uses client event time."""
