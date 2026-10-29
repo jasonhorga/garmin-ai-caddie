@@ -537,7 +537,7 @@ final class ProductMapAndPackageTests: XCTestCase {
             "globalId": current.course.globalId,
             "holes": [try JSONSerialization.jsonObject(with: JSONEncoder().encode(ProductInputs.prep()))]
         ]
-        let mapOnly = try ProductSharedVectors.decode(input)
+        let mapOnly = try ProductSharedVectors.decode(input, as: LiveRoundPackage.self)
         let merged = current.mergingMapFacts(from: mapOnly)
         XCTAssertEqual(merged.clubProfiles, current.clubProfiles, "map-only cannot replace the bag")
         XCTAssertEqual(merged.caddieContextSeeds, current.caddieContextSeeds, "map-only cannot replace caddie seeds")
