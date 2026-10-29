@@ -1,7 +1,10 @@
 diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
 --- a/ai_caddie/core/priority_work.py
 +++ b/ai_caddie/core/priority_work.py
-@@ -95,10 +95,10 @@
+@@ -96,10 +96,10 @@
+                 self._warned.discard(ticket)
+                 self._condition.notify_all()
+ 
 -    def _foreground_deadline_locked(self, now: float, timeout: float) -> float | None:
 +    def _foreground_deadline_locked(self, now: float, timeout: float, origin: float | None = None) -> float | None:
          """When the youngest-to-expire live package stops blocking; None when none blocks."""
@@ -11,6 +14,12 @@ diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
              age = now - started
              if age < timeout:
                  live.append(started + timeout)
-@@ -145,7 +145,7 @@
--                foreground_deadline = self._foreground_deadline_locked(now, timeout)
-+                foreground_deadline = self._foreground_deadline_locked(now, timeout, wait_started)
+@@ -148,7 +148,7 @@
+             try:
+                 while True:
+                     now = self._clock()
+-                    foreground_deadline = self._foreground_deadline_locked(now, timeout)
++                    foreground_deadline = self._foreground_deadline_locked(now, timeout, wait_started)
+                     slot_deadline = self._slot_deadline_locked(now)
+                     is_head = self._background_waiters[0] is ticket
+                     if is_head and foreground_deadline is None and slot_deadline is None:

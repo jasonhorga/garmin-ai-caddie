@@ -1,6 +1,12 @@
 diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
 --- a/ai_caddie/core/priority_work.py
 +++ b/ai_caddie/core/priority_work.py
-@@ -145,7 +145,7 @@
--                foreground_deadline = self._foreground_deadline_locked(now, timeout)
-+                foreground_deadline = None
+@@ -148,7 +148,7 @@
+             try:
+                 while True:
+                     now = self._clock()
+-                    foreground_deadline = self._foreground_deadline_locked(now, timeout)
++                    foreground_deadline = None
+                     slot_deadline = self._slot_deadline_locked(now)
+                     is_head = self._background_waiters[0] is ticket
+                     if is_head and foreground_deadline is None and slot_deadline is None:
