@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/Views/RoundHomeView.swift
++++ b/mobile/ios/AICaddie/Views/RoundHomeView.swift
+@@ -1856,6 +1856,6 @@
+     /// The Hub's live discard ends the round, so it appears only after the player tried to finish
+     /// this round. The finish sheet uses `removedFinishRejectionAction`, which does not wait.
+     var hubLiveFinishRecovery: DeferredFinishRecovery? {
+-        guard let liveFinishRecovery, finishAttemptRoundId == liveFinishRecovery.roundId else { return nil }
++        guard let liveFinishRecovery else { return nil }
+         return liveFinishRecovery
+     }

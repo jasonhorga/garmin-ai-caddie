@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -505,7 +505,6 @@
+     private func refreshSealedFinishRecovery() {
+         guard let sealed = sealedFinishRecovery else { return }
+         guard let blocked = try? preferredQuarantineRecord(roundId: sealed.roundId) else {
+-            sealedFinishRecovery = nil
+             return
+         }
+         guard blocked.event.hole != sealed.hole else { return }

@@ -1533,6 +1533,55 @@
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59SealedAndLiveRecoveriesRemainIndependent",
       "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C192-01",
+      "patch": "tests/product/faults/C192/01-hub-live-card-ignores-finish-attempt.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59HubLiveRecoveryWaitsForThisRoundsFinishAttempt",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C192-02",
+      "patch": "tests/product/faults/C192/02-round-change-keeps-finish-error.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59NextRoundDoesNotInheritPausedFinish",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C192-03",
+      "patch": "tests/product/faults/C192/03-loop-change-keeps-stale-finish-error.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59RestoredLoopRecomputesPausedFinishMessage",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C192-04",
+      "patch": "tests/product/faults/C192/04-refused-resume-writes-finish-error.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59DeferredRecoveryDoesNotOverwriteAnotherLiveRound",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C192-05",
+      "patch": "tests/product/faults/C192/05-pending-watch-duplicates-sealed-card.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59PendingWatchStartForSealedRoundShowsOneCard",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C192-06",
+      "patch": "tests/product/faults/C192/06-quarantine-write-does-not-republish.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59QuarantineWriteAloneRepublishesLiveRecovery",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C192-07",
+      "patch": "tests/product/faults/C192/07-sealed-card-outlives-resolved-quarantine.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59SealedRecoveryClearsWhenReentryAcceptedButFinishFails",
+      "promise": "5.9"
     }
   ]
 }

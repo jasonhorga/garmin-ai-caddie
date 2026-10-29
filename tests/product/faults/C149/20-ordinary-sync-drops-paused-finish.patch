@@ -1,11 +1,11 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -5320,8 +5320,7 @@
+@@ -5411,8 +5411,7 @@
          // rejected-hole status until that quarantine is actually resolved.
-         // A different sealed round's transport failure can temporarily replace syncStatus before
-         // this live follow-up starts. Its unresolved finish error still owns the instruction.
+         // Only this round's own finish attempt pauses it: another round's error or status line
+         // (a sealed round's transport failure, a refused resume) never labels it「结束已暂停」.
 -        let preservesRejection = preservingFinishRejection
--            ?? (finishErrorMessage != nil || syncStatus.hasPrefix("结束已暂停 · "))
+-            ?? (finishAttemptRoundId != nil && finishAttemptRoundId == package?.roundId)
 +        let preservesRejection = preservingFinishRejection ?? false
          func finishStatus(or fallback: String) -> String {
              guard preservesRejection, let roundId = package?.roundId,

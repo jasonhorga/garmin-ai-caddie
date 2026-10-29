@@ -1,6 +1,6 @@
 --- a/mobile/ios/AICaddie/Views/RoundHomeView.swift
 +++ b/mobile/ios/AICaddie/Views/RoundHomeView.swift
-@@ -1835,7 +1835,10 @@
+@@ -1839,7 +1839,10 @@
      }
 
      /// Recovery adds information; the current live round always retains its navigation entry.
@@ -10,5 +10,5 @@
 +            && liveRoundState?.roundId != (liveFinishRecovery ?? deferredFinishRecovery)?.roundId
 +    }
 
-     var showsNewRoundPlayCard: Bool {
-         liveRoundState == nil && pendingWatchRoundStart == nil
+     /// A delayed Watch start for the sealed round itself is already represented by that round's
+     /// recovery card; showing both would list one round twice.
