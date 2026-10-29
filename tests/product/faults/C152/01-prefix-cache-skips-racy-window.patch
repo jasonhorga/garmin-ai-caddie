@@ -1,9 +1,6 @@
 --- a/ai_caddie/caddie/mobile_event_store.py
 +++ b/ai_caddie/caddie/mobile_event_store.py
-@@ -1294,8 +1294,6 @@
-         return all(timestamp < cutoff for timestamp in signature[-2:])
- 
-     def _remember_prefix(self, marker: _CommitMarker, signature: tuple[int, ...] | None, digest: Any) -> None:
+@@ -1297,5 +1297,3 @@
 -        if not self._prefix_cache_signature_is_stable(signature):
 -            return
          key = str(self.log.resolve())
