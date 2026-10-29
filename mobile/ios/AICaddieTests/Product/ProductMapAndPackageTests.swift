@@ -231,8 +231,8 @@ final class ProductMapAndPackageTests: XCTestCase {
         await fixture.model.stopRoundBackgroundWorkForTesting()
     }
 
-    /// C136/J4: geometry refresh after moving to a pending hole is map-only. The initial full
-    /// package is counted separately, then switching holes must add only `map_only=true` traffic.
+    /// J4.2: entry is already map-only and leaves hole 2 pending. After the entry baseline,
+    /// switching holes must add only `map_only=true` traffic with the selected-hole priority.
     func test_j4_2_switching_holes_uses_map_only_without_full_package() async throws {
         let trace = UITestPagerTrace.shared
         let wasRecording = trace.recordingForTesting
@@ -321,6 +321,7 @@ final class ProductMapAndPackageTests: XCTestCase {
         let readyReturned = expectation(description: "map-only retry returns ready")
         let oldOnce = C33FirstMatch(), retryOnce = C33FirstMatch(), readyOnce = C33FirstMatch()
         model.pendingGeometrySleepForTesting = { delay in
+            try Task.checkCancellation()
             if ordinaryRequests.value >= 4, selectedRequests.value == 0 {
                 // Old code takes this branch again after the switch, and cannot send map-only.
                 if switchStarted.value == 0 {
@@ -397,13 +398,19 @@ final class ProductMapAndPackageTests: XCTestCase {
         let model = context.model
         let gate = C136Gate()
         let switched = C136Counter(), selectedRequests = C136Counter()
+        let initialWait = expectation(description: "entry retry is sleeping before switching")
         let deadlineScheduled = expectation(description: "selected hole waits for server deadline")
         let mapSent = expectation(description: "selected hole sends after server wait")
-        let scheduledOnce = C33FirstMatch(), sentOnce = C33FirstMatch()
+        let initialOnce = C33FirstMatch(), scheduledOnce = C33FirstMatch(), sentOnce = C33FirstMatch()
         model.pendingGeometrySleepForTesting = { delay in
+            try Task.checkCancellation()
             XCTAssertGreaterThan(delay, 0)
             XCTAssertLessThanOrEqual(delay, 30)
-            if switched.value == 1, scheduledOnce.claim() { deadlineScheduled.fulfill() }
+            if switched.value == 0 {
+                if initialOnce.claim() { initialWait.fulfill() }
+            } else if scheduledOnce.claim() {
+                deadlineScheduled.fulfill()
+            }
             await gate.wait()
         }
         C33URLProtocol.setHandlers(onStart: { proto in
@@ -425,6 +432,8 @@ final class ProductMapAndPackageTests: XCTestCase {
         await model.prepareCourseRound(
             roundId: pending.roundId, teeBox: pending.course.teeBox, loops: pending.loopEntries
         )
+        // Observe entry's sleeper first: a cancelled entry task cannot satisfy the switch wait.
+        await fulfillment(of: [initialWait], timeout: productEventWait)
         switched.increment()
         model.setActiveHole(2)
         await fulfillment(of: [deadlineScheduled], timeout: productEventWait)
