@@ -1260,6 +1260,13 @@
       "kind": "python",
       "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j5_11_gps_remaining_starts_at_ball_beside_and_past_green",
       "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164-09",
+      "patch": "tests/product/faults/C164/09-route-overrides-user-target.patch",
+      "kind": "python",
+      "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j5_11_explicit_distance_wins_over_dogleg_route",
+      "promise": "5.11"
     }
   ]
 }

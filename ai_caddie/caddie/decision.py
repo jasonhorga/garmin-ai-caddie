@@ -830,6 +830,12 @@ def _route_distance(context: dict[str, Any]) -> float | None:
 
 
 def _sequence_distance(context: dict[str, Any]) -> float:
+    # iOS sends a separate coordinate only for a user-selected flag/map target.
+    # Its supplied distance is about that target, not the hole centerline.
+    if _coordinate(context.get("targetLocation")) is not None:
+        supplied = _float(context.get("distanceToPin_m"), math.nan)
+        if math.isfinite(supplied) and 0 < supplied <= MAX_PIN_DISTANCE_M:
+            return supplied
     route = context.get("routeEvidence")
     if isinstance(route, dict) and route.get("routeLocal"):
         length = _float(route.get("routeLength_m"))
