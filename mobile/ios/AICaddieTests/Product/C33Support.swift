@@ -43,54 +43,18 @@ final class C33URLProtocol: URLProtocol {
     }
 }
 
-// URLProtocol calls off the main actor. Only this locked, Sendable log crosses that boundary;
-// TopoHoleImageStore probes and scope lifecycle remain on the main actor.
-private final class C33TopoPrefetchRequests: @unchecked Sendable {
-    private let lock = NSLock()
-    private var urls = Set<URL>()
-    private var count = 0
-
-    func record(_ url: URL) {
-        lock.withLock { urls.insert(url); count += 1 }
-    }
-
-    func snapshot() -> (urls: Set<URL>, count: Int) {
-        lock.withLock { (urls, count) }
-    }
-}
-
 /// Scope the shared topo downloader used by fresh-entry tests. The production store intentionally
-/// uses URLSession.shared, so a test-local client session cannot intercept its prefetch. A valid
-/// one-pixel response completes that task and prevents the five/15-second retry chain. The global
-/// handler is only for URLSession.shared; explicit client sessions retain their own protocol/token.
+/// uses URLSession.shared, so the bundle-level SharedTopoURLProtocol intercepts its prefetch. A
+/// valid one-pixel response completes that task and prevents the five/15-second retry chain. The
+/// scope only drains the store before clearing it; the bundle stub remains installed for late
+/// outer tasks and therefore cannot leak a retry to DNS.
 @MainActor
 final class C33TopoPrefetchScope {
-    private let requests = C33TopoPrefetchRequests()
     private var stopped = false
 
     init() {
         TopoHoleImageStore.resetForUITesting()
-        let requests = self.requests
-        CapturingURLProtocol.requestHandler = { [requests] request in
-            let url = try XCTUnwrap(request.url)
-            if url.path.contains("/topo.png") {
-                requests.record(url)
-                return (
-                    HTTPURLResponse(
-                        url: url,
-                        statusCode: 200,
-                        httpVersion: nil,
-                        headerFields: ["Content-Type": "image/png"]
-                    )!,
-                    validOnePixelPNGData()
-                )
-            }
-            return (
-                HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)!,
-                Data()
-            )
-        }
-        URLProtocol.registerClass(CapturingURLProtocol.self)
+        SharedTopoURLProtocol.resetRecords()
     }
 
     func stop() async {
@@ -99,13 +63,13 @@ final class C33TopoPrefetchScope {
         // every served image reach the cache first, while still intercepting any late first load.
         // Require a quiet polling round too, including when no prefetch had started at teardown.
         let deadline = Date().addingTimeInterval(10)
-        var lastCount = requests.snapshot().count
+        var lastCount = SharedTopoURLProtocol.records().count
         var lastChange = Date()
         var drained = false
         while Date() < deadline {
             // Poll cadence, not a success delay: completion requires both cache and quiescence.
             do { try await Task.sleep(nanoseconds: 10_000_000) } catch { break }
-            let snapshot = requests.snapshot()
+            let snapshot = SharedTopoURLProtocol.records()
             if snapshot.count != lastCount {
                 lastCount = snapshot.count
                 lastChange = Date()
@@ -117,13 +81,12 @@ final class C33TopoPrefetchScope {
             }
         }
         guard drained else {
-            // Do not turn an explicit test failure into real DNS retries by removing the stub.
+            // Leave the bundle stub installed. A delayed outer task can still finish safely after
+            // this bounded drain rather than being turned into a real DNS retry.
             XCTFail("Shared topo prefetch did not reach cached, quiescent completion before teardown")
             return
         }
         TopoHoleImageStore.resetForUITesting()
-        CapturingURLProtocol.requestHandler = nil
-        URLProtocol.unregisterClass(CapturingURLProtocol.self)
         stopped = true
     }
 }

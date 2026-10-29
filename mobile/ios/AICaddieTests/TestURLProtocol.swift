@@ -13,6 +13,77 @@ func validOnePixelPNGData() -> Data {
     )!
 }
 
+/// Bundle-wide interceptor for the production topo prefetch, which intentionally uses
+/// URLSession.shared. Explicit test sessions keep their protocol classes and therefore retain
+/// their own request handlers and assertions.
+final class SharedTopoURLProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private static var urls = Set<URL>()
+    private static var requestCount = 0
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host?.hasSuffix(".example.test") == true
+            && request.url?.path.hasSuffix("/topo.png") == true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        Self.lock.withLock {
+            Self.urls.insert(url)
+            Self.requestCount += 1
+        }
+        let response = HTTPURLResponse(
+            url: url, statusCode: 200, httpVersion: nil,
+            headerFields: ["Content-Type": "image/png"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: validOnePixelPNGData())
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+
+    static func resetRecords() {
+        lock.withLock {
+            urls.removeAll()
+            requestCount = 0
+        }
+    }
+
+    static func records() -> (urls: Set<URL>, count: Int) {
+        lock.withLock { (urls, requestCount) }
+    }
+}
+
+/// Register before any XCTest case starts and keep the shared-session topo stub alive until the
+/// bundle finishes. A late outer prefetch task therefore still gets a valid PNG instead of DNS,
+/// while a test's explicit URLSession or later protocol registration remains authoritative.
+private final class C156TopoBundleObserver: NSObject, XCTestObservation {
+    override init() {
+        URLProtocol.registerClass(SharedTopoURLProtocol.self)
+        super.init()
+    }
+
+    func testBundleWillStart(_ testBundle: Bundle) {
+        URLProtocol.registerClass(SharedTopoURLProtocol.self)
+    }
+
+    func testBundleDidFinish(_ testBundle: Bundle) {
+        URLProtocol.unregisterClass(SharedTopoURLProtocol.self)
+    }
+}
+
+private let c156TopoBundleObserver: C156TopoBundleObserver = {
+    let observer = C156TopoBundleObserver()
+    XCTestObservationCenter.shared.addTestObserver(observer)
+    return observer
+}()
+
 /// Contract-valid lightweight prep used by tests that exercise the whole-course installer.
 /// Keep this in the shared test support so every fixture uses the same decoder-shaped payload.
 func offlinePrepResponseData(
