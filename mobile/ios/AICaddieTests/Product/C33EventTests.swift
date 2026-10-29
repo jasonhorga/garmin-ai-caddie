@@ -1044,6 +1044,9 @@ final class C33EventTests: XCTestCase {
         let lock = NSLock()
         var uploadedIDs: [String] = []
         var finishRequests = 0
+        var holdLiveReplay = false
+        let liveReplayStarted = expectation(description: "B follow-up replay held during A recovery")
+        let liveReplayGate = FinishRequestGate()
         C33URLProtocol.setHandlers(onStart: { proto in
             let path = proto.request.url?.path ?? ""
             if path.hasSuffix("/package") {
@@ -1063,6 +1066,13 @@ final class C33EventTests: XCTestCase {
                     )))
                 }
                 return
+            }
+            if path.hasSuffix("/events/replay"), path.contains("/\(other.roundId)/") {
+                lock.lock(); let shouldHold = holdLiveReplay; holdLiveReplay = false; lock.unlock()
+                if shouldHold {
+                    if liveReplayGate.hold(proto) { liveReplayStarted.fulfill() }
+                    return
+                }
             }
             if path.hasSuffix("/finish") {
                 lock.lock(); finishRequests += 1; lock.unlock()
@@ -1095,8 +1105,12 @@ final class C33EventTests: XCTestCase {
         var retryStatuses: [String] = []
         let statusSubscription = model.$syncStatus.sink { retryStatuses.append($0) }
         defer { statusSubscription.cancel() }
+        lock.lock(); holdLiveReplay = true; lock.unlock()
         model.syncOnForeground()
-        await model.waitForDeferredRoundFinishesForTesting()
+        await fulfillment(of: [liveReplayStarted], timeout: 10)
+        // The owner must remain visible while it awaits B's follow-up. Otherwise discard below
+        // can see a nil handle, and the test's await can return before A's retry has even started.
+        XCTAssertNotNil(model.deferredRoundFinishTaskForTesting())
         XCTAssertEqual(model.deferredFinishRecovery?.holeAvailable, false)
         let rejectionStatus = try XCTUnwrap(retryStatuses.last(where: { $0.contains("结束已暂停") }))
         XCTAssertTrue(rejectionStatus.contains("该洞成绩不会上传"))
@@ -1106,6 +1120,7 @@ final class C33EventTests: XCTestCase {
             timestamp: "2026-01-01T00:01:00Z", hole: 1, kind: .club,
             payload: ["clubName": .string("7I")]))
         XCTAssertTrue(model.discardRemovedDeferredFinishRejection())
+        liveReplayGate.reply(404, Data())
         await model.waitForDeferredRoundFinishesForTesting()
         lock.lock(); let uploaded = uploadedIDs; let finishes = finishRequests; lock.unlock()
         XCTAssertTrue(uploaded.contains("late-watch-tail"))
