@@ -504,22 +504,31 @@ public final class LiveRoundAppModel: ObservableObject {
     /// discard), the snapshot follows at once instead of waiting for the next successful pass.
     private func refreshSealedFinishRecovery() {
         guard let sealed = sealedFinishRecovery else { return }
-        guard let blocked = try? preferredQuarantineRecord(roundId: sealed.roundId) else {
-            sealedFinishRecovery = nil
-            return
+        do {
+            guard let blocked = try preferredQuarantineRecord(roundId: sealed.roundId) else {
+                sealedFinishRecovery = nil
+                return
+            }
+            guard blocked.event.hole != sealed.hole else { return }
+            let holes = try offlineStore.loadRoundPackage(roundId: sealed.roundId)?.holes ?? []
+            sealedFinishRecovery = DeferredFinishRecovery(
+                roundId: sealed.roundId, hole: blocked.event.hole,
+                prompt: Self.scoringRejectionPrompt(for: blocked),
+                holeAvailable: holes.contains(where: { $0.number == blocked.event.hole })
+            )
+        } catch {
+            // An unreadable quarantine is not a resolved rejection. Keep the last known card;
+            // a later successful refresh can update it or prove that it is safe to clear.
+            AICaddieLog.storage.error("Finish recovery refresh failed: \(String(describing: error), privacy: .public)")
         }
-        guard blocked.event.hole != sealed.hole else { return }
-        let holes = (try? offlineStore.loadRoundPackage(roundId: sealed.roundId))?.holes ?? []
-        sealedFinishRecovery = DeferredFinishRecovery(
-            roundId: sealed.roundId, hole: blocked.event.hole,
-            prompt: Self.scoringRejectionPrompt(for: blocked),
-            holeAvailable: holes.contains(where: { $0.number == blocked.event.hole })
-        )
     }
 
     private func refreshFinishRecoveries() {
         refreshLiveFinishRecovery()
         refreshSealedFinishRecovery()
+        if let roundId = liveRoundState?.roundId, finishAttemptRoundId == roundId {
+            recomputeFinishErrorForCurrentHoles()
+        }
     }
 
     /// A hole-table change (dropping or restoring a loop) rewrites the paused finish text from the
@@ -4304,6 +4313,17 @@ public final class LiveRoundAppModel: ObservableObject {
         let roundId = start.roundId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !roundId.isEmpty, !start.holes.isEmpty else { return }
 
+        do {
+            if try acknowledgePendingFinishWatchStart(roundId: roundId) { return }
+        } catch {
+            // Without a readable ledger, activation could reopen a sealed round. Retain the
+            // delivery for the same bounded retry used by a failed package fetch.
+            pendingWatchRoundStart = start
+            syncStatus = "手表已开始，iPhone 正在重试同步"
+            scheduleWatchRoundStartRetry(start)
+            return
+        }
+
         if package?.roundId == roundId, liveRoundState?.roundId == roundId {
             pendingWatchRoundStart = nil
             // The Watch added, changed or dropped the second nine at its turn (#424): the same round
@@ -4385,6 +4405,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 scheduleWatchRoundStartRetry(start)
                 return
             }
+            // The package fetch suspends: Save & End may have sealed this round meanwhile.
+            if try acknowledgePendingFinishWatchStart(roundId: roundId) { return }
             let persisted = try offlineStore.saveRoundPackage(nextPackage)
             if let revision = start.tableRevision, persisted.loopKey == start.loopKey {
                 // Opened straight onto a table the Watch already changed: the first seed acknowledges it.
@@ -4410,6 +4432,16 @@ public final class LiveRoundAppModel: ObservableObject {
             syncStatus = "手表已开始，iPhone 正在重试同步"
             scheduleWatchRoundStartRetry(start)
         }
+    }
+
+    /// A queued Watch start never owns a sealed round. Acknowledge its completed local finish
+    /// without activating it, changing its table, or removing its durable outbox entry.
+    private func acknowledgePendingFinishWatchStart(roundId: String) throws -> Bool {
+        guard try offlineStore.isRoundPendingFinish(roundId) else { return false }
+        if pendingWatchRoundStart?.roundId == roundId { pendingWatchRoundStart = nil }
+        watchRoundStartRetryTasks.removeValue(forKey: roundId)?.cancel()
+        watchBridge?.sendRoundClosureToWatch(roundId: roundId, disposition: .finished)
+        return true
     }
 
     private func scheduleWatchRoundStartRetry(_ start: WatchRoundStartPayload) {
