@@ -257,7 +257,6 @@ final class ProductPhoneUITests: XCTestCase {
 
         var failing = ProductFixtureServer.State()
         failing.statsFailure = true
-        failing.statsResponseDelay = 2.5
         server.configure(failing)
         range.buttons.element(boundBy: 0).tap()
         let notice = element("time-range-notice")
@@ -265,6 +264,9 @@ final class ProductPhoneUITests: XCTestCase {
         let before = server.requestedPaths().filter { $0.contains("/api/v2/history/stats/mobile") }.count
         XCTAssertGreaterThanOrEqual(before, 1)
 
+        // Keep the retry in flight until slow CI accessibility queries observe the cleared notice.
+        server.holdStatsResponses()
+        defer { server.releaseStatsResponses() }
         let retry = notice.buttons.firstMatch
         XCTAssertTrue(retry.exists)
         XCTAssertTrue(UITapHelpers.tapWhenHittable(
@@ -276,13 +278,14 @@ final class ProductPhoneUITests: XCTestCase {
         let noticeCleared = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             return !notice.exists
         }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [noticeCleared], timeout: 5), .completed,
+        XCTAssertEqual(XCTWaiter.wait(for: [noticeCleared], timeout: 10), .completed,
                        "retry must clear the old notice while the request is in flight")
         let oneMore = XCTNSPredicateExpectation(predicate: NSPredicate { [server] _, _ in
             server?.requestedPaths().filter { $0.contains("/api/v2/history/stats/mobile") }.count == before + 1
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [oneMore], timeout: 10), .completed,
                        "retry must produce exactly one stats request")
+        server.releaseStatsResponses()
         let noticeReturned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             return notice.exists
         }, object: nil)
@@ -299,7 +302,6 @@ final class ProductPhoneUITests: XCTestCase {
         launch(); scores()
         var failing = ProductFixtureServer.State()
         failing.statsFailure = true
-        failing.statsResponseDelay = 2.5
         server.configure(failing)
         tap("results-entry-time")
         let notice = element("time-range-notice")
@@ -307,14 +309,23 @@ final class ProductPhoneUITests: XCTestCase {
         let before = server.requestedPaths().filter { $0.contains("/api/v2/history/stats/mobile") }.count
         XCTAssertGreaterThanOrEqual(before, 1)
 
+        // Keep the retry in flight until slow CI accessibility queries observe the cleared notice.
+        server.holdStatsResponses()
+        defer { server.releaseStatsResponses() }
         let retry = notice.buttons.firstMatch
         XCTAssertTrue(retry.exists)
         retry.tap()
         let noticeCleared = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             return !notice.exists
         }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [noticeCleared], timeout: 5), .completed,
+        XCTAssertEqual(XCTWaiter.wait(for: [noticeCleared], timeout: 10), .completed,
                        "retry must clear the old notice while the request is in flight")
+        let oneMore = XCTNSPredicateExpectation(predicate: NSPredicate { [server] _, _ in
+            server?.requestedPaths().filter { $0.contains("/api/v2/history/stats/mobile") }.count == before + 1
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [oneMore], timeout: 10), .completed,
+                       "retry must produce exactly one stats request")
+        server.releaseStatsResponses()
         let noticeReturned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             return notice.exists
         }, object: nil)
