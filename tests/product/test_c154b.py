@@ -181,6 +181,24 @@ class GateAgeTests(unittest.TestCase):
         self.assertIn("background_gate_enter", timing.marks)
         self.assertIn("background_gate_wait", timing.marks)
 
+    def test_J42_background_thread_wait_is_persisted_without_http_context(self):
+        from ai_caddie.core import request_timing
+        now = [0.0]
+        gate = ForegroundGate(timeout_s=30, clock=lambda: now[0])
+        def advance(timeout):
+            self.assertGreater(timeout, 0)
+            now[0] += timeout
+        with patch.object(request_timing, "current", return_value=None), \
+             patch.object(request_timing.RequestTiming, "finish", autospec=True) as finish, \
+             patch.object(gate._condition, "wait", side_effect=advance), gate.foreground():
+            with gate.background():
+                pass
+        span = finish.call_args.args[0]
+        self.assertIn("background_gate_wait", span.marks)
+        self.assertEqual(finish.call_args.kwargs, {
+            "method": "BACKGROUND", "path": "/internal/package-admission", "status": 200,
+        })
+
 
 class RouteAdmissionTests(unittest.IsolatedAsyncioTestCase):
     """J4.2: exercise the production app/router/cache/executor wiring, not gate substitutes."""
@@ -218,6 +236,10 @@ class RouteAdmissionTests(unittest.IsolatedAsyncioTestCase):
     async def test_J42_real_package_routes_hold_shared_gate_and_delay_cold_prep(self):
         import asyncio
         from starlette.responses import JSONResponse
+        active = (self.player, "live-current")
+        self.main._ACTIVE_ROUNDS[active] = time.monotonic() + 60
+        self.main._ACTIVE_COURSES[active] = (123,)
+        self.main._ACTIVE_SELECTIONS[active] = ("123:front", "white")
         for path, builder in (("/api/v2/mobile/courses/123/package?loops=123:front&include_event_cursor=false",
                                "build_mobile_course_package_response"),
                               ("/api/v2/mobile/rounds/home-test/package", "build_mobile_round_package_response")):
@@ -273,6 +295,37 @@ class RouteAdmissionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.main._playing_prep_matches(self.player, 123, [10], "blue"))
         self.main._ACTIVE_ROUNDS[active] = 0
         self.assertFalse(self.main._playing_prep_matches(self.player, 123, [10], "white"))
+
+    async def test_J42_singleflight_follower_uses_existing_leader_without_gate(self):
+        import asyncio
+        from ai_caddie.courses import prep_cache
+        entered, follower, release = threading.Event(), threading.Event(), threading.Event()
+        calls = []
+        def build():
+            entered.set()
+            self.assertTrue(release.wait(3))
+            calls.append("built")
+            return {"fixture": True}
+        def route(*args):
+            if entered.is_set():
+                follower.set()
+            return prep_cache.cached_course_prep(global_id=123, requested=[2], render=False,
+                include_shots=False, player_id=self.player, build=build)
+        with patch.object(self.main, "_build_course_prep_nine", side_effect=route), \
+             patch.object(self.gate._condition, "wait", side_effect=AssertionError("follower entered gate")):
+            url = "/api/v2/courses/123/prep?holes=2&render=false"
+            first = asyncio.create_task(self.client.get(url))
+            await self.event(entered)
+            try:
+                with self.gate.foreground():
+                    second = asyncio.create_task(self.client.get(url))
+                    await self.event(follower)
+                    release.set()
+                    responses = await asyncio.gather(first, second)
+                self.assertEqual([r.status_code for r in responses], [200, 200])
+                self.assertEqual(calls, ["built"])
+            finally:
+                release.set()
 
     async def test_J42_package_can_build_same_key_as_prep_waiting_at_gate(self):
         import asyncio

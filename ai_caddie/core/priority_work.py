@@ -77,8 +77,10 @@ class ForegroundGate:
     @contextmanager
     def background(self, *, timeout_s: float | None = None):
         timeout = self.timeout_s if timeout_s is None else max(0.0, float(timeout_s))
-        from ai_caddie.core.request_timing import mark
+        from ai_caddie.core.request_timing import RequestTiming, current, request_id
 
+        timing = current()
+        standalone = timing is None
         with self._condition:
             marked = False
             wait_started = self._clock()
@@ -95,14 +97,20 @@ class ForegroundGate:
                 if not live:
                     break
                 if not marked:
-                    mark("background_gate_enter")
+                    if timing is None:
+                        timing = RequestTiming(request_id())
+                    timing.mark("background_gate_enter")
                     marked = True
                 self._condition.wait(timeout=max(0.0, min(live) - now))
             if marked:
-                mark("background_gate_wait")
+                timing.mark("background_gate_wait")
                 logger.info("background_gate_wait wait_ms=%.1f", (self._clock() - wait_started) * 1000)
             self._background += 1
         try:
+            if marked and standalone:
+                # Process-owned warmers have no HTTP context. Persist their admission-only span
+                # through the same private timing writer; no player, URL query or payload data.
+                timing.finish(method="BACKGROUND", path="/internal/package-admission", status=200)
             yield
         finally:
             with self._condition:
