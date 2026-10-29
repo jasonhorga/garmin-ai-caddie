@@ -326,7 +326,7 @@ final class RoundTenUITests: XCTestCase {
     }
 
     /// Device feedback: a Par-3 tee showed 三号木 175 and 三号木 184 as two of three 打法.
-    func testSameClubsLandingAFewYardsApartAreOnePlan() {
+    func testSameClubsLandingAFewYardsApartAreOnePlan() throws {
         func route(_ id: String, role: String, endM: Double, gir: Bool) -> CaddiePlanSequence {
             let step = CaddiePlanSequenceStep(
                 id: "\(id)-0", role: role, clubName: "3W", targetCarryM: endM,
