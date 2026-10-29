@@ -4,6 +4,6 @@
      try:
          templated_path = request_timing.template_path(
              path,
--            route_path=_client_route_template(path),
+-            route_path=_client_route_template(path) or "<unmatched>",
 +            route_path=None,
          )
