@@ -1819,14 +1819,14 @@
       "patch": "tests/product/faults/C134/r11-topo-status-retries.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/LiveRoundAppModelTests/testPrepDownloadWaitsForServerTopoReadyBeforeFetchingTopoBytes",
-      "promise": "C134-r11"
+      "promise": "C134-r12"
     },
     {
       "id": "tests-product-faults-C134-r11-prep-queue-handoff",
       "patch": "tests/product/faults/C134/r11-prep-queue-handoff.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/TemplateAcquisitionTests/testStartPrepIntentContinuesAsWholeCourseOfflineDownload",
-      "promise": "C134-r11"
+      "promise": "C134-r12"
     },
     {
       "id": "tests-product-faults-C134-r11-tee-identity",
