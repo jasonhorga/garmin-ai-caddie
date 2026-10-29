@@ -119,7 +119,17 @@ class _CommitMarker:
 _PREFIX_CACHE: OrderedDict[str, tuple[_CommitMarker, tuple[int, ...] | None, Any]] = OrderedDict()
 _PREFIX_CACHE_LOCK = threading.Lock()
 _PREFIX_CACHE_LIMIT = 128
-_PREFIX_CACHE_TICK_NS = 1_000_000
+
+
+def _filesystem_clock_tick_ns() -> int:
+    try:
+        ticks_per_second = int(os.sysconf("SC_CLK_TCK"))
+    except (AttributeError, OSError, ValueError):
+        ticks_per_second = 1000
+    return max(1, 1_000_000_000 // max(1, ticks_per_second))
+
+
+_PREFIX_CACHE_TICK_NS = _filesystem_clock_tick_ns()
 _PREFIX_CACHE_MIN_SAFETY_WINDOW_NS = 20_000_000
 _PREFIX_CACHE_CLOCK: Callable[[], int] | None = None
 
