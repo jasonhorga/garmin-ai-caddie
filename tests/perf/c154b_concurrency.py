@@ -55,13 +55,16 @@ def run_once(mobile, gid: int, gated: bool) -> dict[str, float]:
 
     started = time.perf_counter()
     if gated:
-        with foreground_work():
-            with ThreadPoolExecutor(max_workers=7) as pool:
+        pool = ThreadPoolExecutor(max_workers=7)
+        try:
+            with foreground_work():
                 package_future = pool.submit(package)
                 background_futures = [pool.submit(background) for _ in range(6)]
                 package_ms = package_future.result()
-                for future in background_futures:
-                    future.result()
+            for future in background_futures:
+                future.result()
+        finally:
+            pool.shutdown()
     else:
         with ThreadPoolExecutor(max_workers=7) as pool:
             package_future = pool.submit(package)

@@ -1,8 +1,8 @@
-diff --git a/server_v2/course_install.py b/server_v2/course_install.py
---- a/server_v2/course_install.py
-+++ b/server_v2/course_install.py
-@@ -547,3 +547,3 @@ def _launch(identifier: str) -> None:
-     # stable submit method also keeps lightweight test/embedding executors source-compatible.
--    run_keyed.__priority_work_key__ = identifier
-+    run_keyed.__priority_work_key__ = None
-     _WORKER.submit(run_keyed, identifier, priority=launch_priority)
+diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
+--- a/ai_caddie/core/priority_work.py
++++ b/ai_caddie/core/priority_work.py
+@@ -172,3 +172,3 @@ class PriorityExecutor:
+         # test/embedding doubles compatible and routes keyed work through the same heap path.
+-        key = getattr(fn, "__priority_work_key__", None)
++        key = None
+         return self._submit(fn, args, kwargs, priority=int(priority), key=key)
