@@ -519,7 +519,7 @@ class BackgroundMapContractTests(unittest.TestCase):
               patch.object(topo_render, "_render_process_count", return_value=1)):
             worker.enqueue_all(downloaded=set())
             worker.run_once()
-            error = worker.status(detail=True)["tasks"]["1:1"]["errors"]["garmin"]
+            error = worker.status()["failures"][0]["error"]
             self.assertIn("download", error)
             self.assertIn("403", error)
             self.assertNotIn("synthetic-secret", worker.state_path.read_text() + error)
