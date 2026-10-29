@@ -12,6 +12,7 @@ import argparse
 from collections import defaultdict
 from datetime import UTC, datetime
 import hashlib
+import os
 import json
 from pathlib import Path
 import tempfile
@@ -121,6 +122,7 @@ def migrate(root: Path | str, *, apply: bool = False, timestamp: str | None = No
             temp_path = Path(handle.name)
             handle.write(b"".join(output))
             handle.flush()
+            os.fsync(handle.fileno())
         temp_path.replace(log)
         with store._locked(store.event_lock):
             with log.open("r+b") as handle:
@@ -130,6 +132,9 @@ def migrate(root: Path | str, *, apply: bool = False, timestamp: str | None = No
         for round_id in before_rounds:
             rows = store.read_rows(round_id)
             if len(rows) != before_rounds[round_id]["rows"]:
+                raise ValueError("migration_identity_or_row_count_changed")
+            events = [row["event"] for row in rows if isinstance(row.get("event"), dict)]
+            if _round_report(events).get(round_id) != before_rounds[round_id]:
                 raise ValueError("migration_identity_or_row_count_changed")
     finally:
         if 'temp_path' in locals() and temp_path.exists():
