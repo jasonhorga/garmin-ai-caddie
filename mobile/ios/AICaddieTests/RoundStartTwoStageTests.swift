@@ -1019,7 +1019,7 @@ private final class C85HeldRequests {
     }
 
     func releaseAllAndReplyFuture(
-        _ responder: (URLRequest) -> (status: Int, data: Data)
+        _ responder: @escaping (URLRequest) -> (status: Int, data: Data)
     ) {
         lock.lock()
         replyFuture = true
