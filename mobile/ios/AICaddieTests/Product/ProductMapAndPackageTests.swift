@@ -619,7 +619,7 @@ final class ProductMapAndPackageTests: XCTestCase {
         XCTAssertEqual(firstFrame.distanceToPinM, prep.greenDistances?.middleM)
         XCTAssertEqual(
             CurrentHoleView.planningDistanceForCaddie(
-                recordedShotCount: 0, isTeeShotOffTheHole: true, manualM: nil,
+                recordedShotCount: 0, hasLeftSelectedTee: true, manualM: nil,
                 liveMiddleM: 999, staticMiddleM: prep.greenDistances?.middleM, holeYards: hole.yards
             ),
             prep.greenDistances?.middleM,
@@ -627,7 +627,7 @@ final class ProductMapAndPackageTests: XCTestCase {
         )
         XCTAssertEqual(
             CurrentHoleView.planningDistanceForCaddie(
-                recordedShotCount: 1, isTeeShotOffTheHole: false, manualM: 214,
+                recordedShotCount: 1, hasLeftSelectedTee: false, manualM: 214,
                 liveMiddleM: 999, staticMiddleM: prep.greenDistances?.middleM, holeYards: hole.yards
             ),
             214,
@@ -635,7 +635,7 @@ final class ProductMapAndPackageTests: XCTestCase {
         )
         XCTAssertEqual(
             CurrentHoleView.planningDistanceForCaddie(
-                recordedShotCount: 1, isTeeShotOffTheHole: false, manualM: 188,
+                recordedShotCount: 1, hasLeftSelectedTee: false, manualM: 188,
                 liveMiddleM: 999, staticMiddleM: prep.greenDistances?.middleM, holeYards: hole.yards
             ),
             188,
@@ -643,7 +643,7 @@ final class ProductMapAndPackageTests: XCTestCase {
         )
         XCTAssertEqual(
             CurrentHoleView.planningDistanceForCaddie(
-                recordedShotCount: 0, isTeeShotOffTheHole: false, manualM: nil,
+                recordedShotCount: 0, hasLeftSelectedTee: false, manualM: nil,
                 liveMiddleM: 205, staticMiddleM: prep.greenDistances?.middleM, holeYards: hole.yards
             ),
             205,
@@ -659,6 +659,9 @@ final class ProductMapAndPackageTests: XCTestCase {
                        "J5.4 the rendered opening ladder uses the selected tee")
         XCTAssertEqual(openingView.caddiePlanningDistanceForTesting(), liveMiddle,
                        "J5.4 the caddie request uses the same opening tee middle")
+        let tee = CLLocationCoordinate2D(
+            latitude: try XCTUnwrap(liveHole.teeLatitude), longitude: try XCTUnwrap(liveHole.teeLongitude)
+        )
         let moved = CLLocationCoordinate2D(latitude: try XCTUnwrap(liveHole.teeLatitude) + 0.001,
                                            longitude: try XCTUnwrap(liveHole.teeLongitude))
         openingView.setPlanningCoordinateForTesting(moved)
@@ -668,12 +671,60 @@ final class ProductMapAndPackageTests: XCTestCase {
                                                    try XCTUnwrap(livePrep.greenDistances?.middleLon)), accuracy: 0.01,
                        "J5.4 GPS beyond the tee threshold drives the opening plan")
 
+        // J5.4/r7 drives the same view state through the three physical positions that share the
+        // opening-shot UI: an off-hole clubhouse fix stays static and sends no coordinate, the
+        // selected tee stays static but sends its on-hole fix, and a fairway fix beyond the tee
+        // threshold switches planning to live GPS while still sending the coordinate.
+        let clubhouse = CLLocationCoordinate2D(
+            latitude: tee.latitude + 0.001,
+            longitude: tee.longitude + 0.002
+        )
+        let fairway = CLLocationCoordinate2D(
+            // The second projected route point in c33-32850-hole1 is about 130 m from the tee.
+            latitude: 39.16544454946022,
+            longitude: 116.99388744815977
+        )
+        let clubhouseView = CurrentHoleView(package: livePackage, hole: liveHole)
+        clubhouseView.setPlanningCoordinateForTesting(clubhouse)
+        XCTAssertEqual(
+            clubhouseView.caddiePlanningDistanceForTesting(), liveMiddle,
+            "clubhouse/off-hole opening state keeps the selected-Tee static middle"
+        )
+        XCTAssertNil(
+            clubhouseView.caddieCoordinateForTesting(),
+            "clubhouse/off-hole opening state must omit the request coordinate"
+        )
+
+        let teeView = CurrentHoleView(package: livePackage, hole: liveHole)
+        teeView.setPlanningCoordinateForTesting(tee)
+        XCTAssertEqual(
+            teeView.caddiePlanningDistanceForTesting(), liveMiddle,
+            "standing on the selected Tee keeps the static middle"
+        )
+        XCTAssertNotNil(
+            teeView.caddieCoordinateForTesting(),
+            "standing on the selected Tee still sends the on-hole coordinate"
+        )
+
+        let fairwayView = CurrentHoleView(package: livePackage, hole: liveHole)
+        fairwayView.setPlanningCoordinateForTesting(fairway)
+        XCTAssertEqual(
+            try XCTUnwrap(fairwayView.caddiePlanningDistanceForTesting()),
+            GeoDistance.haversineMetres(
+                fairway.latitude, fairway.longitude,
+                try XCTUnwrap(livePrep.greenDistances?.middleLat),
+                try XCTUnwrap(livePrep.greenDistances?.middleLon)
+            ), accuracy: 0.01,
+            "on-hole fairway GPS beyond the Tee threshold drives live planning"
+        )
+        XCTAssertNotNil(
+            fairwayView.caddieCoordinateForTesting(),
+            "on-hole fairway opening state must send the request coordinate"
+        )
+
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = OfflineStore(directoryURL: directory)
-        let tee = CLLocationCoordinate2D(
-            latitude: try XCTUnwrap(liveHole.teeLatitude), longitude: try XCTUnwrap(liveHole.teeLongitude)
-        )
         try store.appendEvent(LiveRoundEventBuilder(roundId: livePackage.roundId).makeLocationEvent(
             hole: liveHole.number, coordinate: moved, horizontalAccuracyM: 5
         ))

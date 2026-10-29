@@ -1828,10 +1828,17 @@
       "promise": "J4.5"
     },
     {
-      "id": "tests-product-faults-C136-11",
-      "patch": "tests/product/faults/C136/10-tee-distance-inverted.patch",
+      "id": "tests-product-faults-C136-11a",
+      "patch": "tests/product/faults/C136/10-clubhouse-tee-gate.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/LivePlanPagingTests/testTheTeeShotIsPlannedFromTheTeeWhileThePlayerIsOffTheHole",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j5_4_selected_tee_static_golden_and_atomic_live_fallback",
+      "promise": "J5.4"
+    },
+    {
+      "id": "tests-product-faults-C136-11b",
+      "patch": "tests/product/faults/C136/11-fairway-coordinate-gate.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j5_4_selected_tee_static_golden_and_atomic_live_fallback",
       "promise": "J5.4"
     }
   ]

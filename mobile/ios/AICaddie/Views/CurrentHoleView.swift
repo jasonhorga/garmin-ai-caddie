@@ -3804,31 +3804,35 @@ public struct CurrentHoleView: View {
             shotsRecorded: recordedNonPuttShotCount,
             shotType: selectedShotType,
             fix: currentCoordinate,
-            route: route,
-            tee: teeAnchorCoordinate
+            route: route
         )
     }
 
-    /// Before the first recorded shot, a GPS fix more than 30 m from the selected Tee counts as
-    /// the opening shot for distance planning. The route-based fallback remains for old callers
-    /// that do not carry a Tee anchor.
+    /// A fix beyond the selected Tee is an opening-shot planning signal only while the player is
+    /// still on this hole's routed corridor. A clubhouse/parking-lot fix remains off-hole and must
+    /// keep both the static planning distance and the no-coordinate request behavior.
+    private var hasLeftSelectedTee: Bool {
+        guard recordedNonPuttShotCount == 0,
+              !isTeeShotOffTheHole,
+              let fix = currentCoordinate,
+              let tee = teeAnchorCoordinate else { return false }
+        let distance = GeoDistance.haversineMetres(
+            fix.latitude, fix.longitude, tee.latitude, tee.longitude
+        )
+        return distance.isFinite && distance > 30
+    }
+
+    /// No shot recorded yet, still the tee shot, and the fix more than `offHoleMetres` from every
+    /// leg of the routed line. Unknown fix or route: false, so the live position keeps its role.
     static func isTeeShotOffTheHole(
         shotsRecorded: Int,
         shotType: String,
         fix: CLLocationCoordinate2D?,
-        route: [CLLocationCoordinate2D],
-        tee: CLLocationCoordinate2D? = nil
+        route: [CLLocationCoordinate2D]
     ) -> Bool {
         guard shotsRecorded == 0,
               shotType.caseInsensitiveCompare("tee") == .orderedSame,
-              let fix else { return false }
-        if let tee {
-            let distance = GeoDistance.haversineMetres(
-                fix.latitude, fix.longitude, tee.latitude, tee.longitude
-            )
-            return distance.isFinite && distance > 30
-        }
-        guard route.count >= 2 else { return false }
+              let fix, route.count >= 2 else { return false }
         // Local metres around the fix (equirectangular; holes are a few hundred metres long).
         let metresPerDegreeLat = 111_320.0
         let metresPerDegreeLon = metresPerDegreeLat * cos(fix.latitude * .pi / 180)
@@ -4414,11 +4418,27 @@ public struct CurrentHoleView: View {
     func setPlanningCoordinateForTesting(_ coordinate: CLLocationCoordinate2D?) {
         currentCoordinate = coordinate
         currentHorizontalAccuracyM = coordinate == nil ? nil : 5
+        let capturedAt = ISO8601DateFormatter().string(from: Date())
+        locationProvider.setFixForTesting(
+            coordinate.map {
+                LocationFix(
+                    coordinate: $0,
+                    horizontalAccuracyM: 5,
+                    altitudeM: nil,
+                    capturedAt: capturedAt
+                )
+            }
+        )
     }
 
     @MainActor
     func setTargetForTesting(_ coordinate: CLLocationCoordinate2D?, kind: String = "target") {
         handleMapTargetChanged(coordinate, kind: kind)
+    }
+
+    @MainActor
+    func caddieCoordinateForTesting() -> CLLocationCoordinate2D? {
+        isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole
     }
 
     @MainActor
@@ -5031,8 +5051,8 @@ public struct CurrentHoleView: View {
         // A GPS fix that has left the selected tee is already the opening-shot planning source,
         // even before the golfer records that stroke. Keep the tee origin for the displayed
         // pre-shot ladder, but use the live fix for the caddie request.
-        guard recordedNonPuttShotCount > 0 || isTeeShotOffTheHole else { return nil }
-        let here = isTeeShotOffTheHole
+        guard recordedNonPuttShotCount > 0 || hasLeftSelectedTee else { return nil }
+        let here = hasLeftSelectedTee
             ? (locationProvider.latestFix?.coordinate ?? currentCoordinate)
             : greenRangeCoordinate
         guard let here, let gd = liveGreenDistances else { return nil }
@@ -6449,7 +6469,7 @@ public struct CurrentHoleView: View {
     private var caddiePlanningDistanceMetres: Double? {
         Self.planningDistanceForCaddie(
             recordedShotCount: recordedNonPuttShotCount,
-            isTeeShotOffTheHole: isTeeShotOffTheHole,
+            hasLeftSelectedTee: hasLeftSelectedTee,
             manualM: distanceToPinMetres ?? mapTargetDistanceMetres ?? greenPinDistanceMetres,
             liveMiddleM: liveGreenMetres?.middle,
             staticMiddleM: liveGreenDistances?.middleM,
@@ -6459,7 +6479,7 @@ public struct CurrentHoleView: View {
 
     static func planningDistanceForCaddie(
         recordedShotCount: Int,
-        isTeeShotOffTheHole: Bool,
+        hasLeftSelectedTee: Bool,
         manualM: Double?,
         liveMiddleM: Double?,
         staticMiddleM: Double?,
@@ -6467,7 +6487,7 @@ public struct CurrentHoleView: View {
     ) -> Double? {
         LiveCaddieDistance.planningDistance(
             recordedShotCount: recordedShotCount,
-            isTeeShotOffTheHole: isTeeShotOffTheHole,
+            hasLeftSelectedTee: hasLeftSelectedTee,
             manualM: manualM,
             liveMiddleM: liveMiddleM,
             staticMiddleM: staticMiddleM,
