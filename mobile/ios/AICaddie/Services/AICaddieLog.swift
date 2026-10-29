@@ -10,6 +10,7 @@ enum AICaddieLog {
     private static let subsystem = "com.ai-caddie.mobile"
 
     static let network = Logger(subsystem: subsystem, category: "network")
+    static let net = Logger(subsystem: subsystem, category: "net")
     static let storage = Logger(subsystem: subsystem, category: "storage")
     static let location = Logger(subsystem: subsystem, category: "location")
     static let caddie = Logger(subsystem: subsystem, category: "caddie")

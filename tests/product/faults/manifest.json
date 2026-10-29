@@ -576,6 +576,69 @@
       "promise": "C33i-30"
     },
     {
+      "id": "tests-product-faults-C90ios-01-finish-cancels-before-seal",
+      "patch": "tests/product/faults/C90ios/01-finish-cancels-before-seal.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testSealFailureKeepsRoundBackgroundWorkAlive",
+      "promise": "C90ios-B1"
+    },
+    {
+      "id": "tests-product-faults-C90ios-09-finish-cancels-before-quarantine-check",
+      "patch": "tests/product/faults/C90ios/09-finish-cancels-before-quarantine-check.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testQuarantineBlockedFinishKeepsRoundBackgroundWorkAlive",
+      "promise": "C90ios-B1"
+    },
+    {
+      "id": "tests-product-faults-C90ios-02-clear-cancels-before-check",
+      "patch": "tests/product/faults/C90ios/02-clear-cancels-before-check.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testQuarantineBlockedWatchFinishKeepsRoundBackgroundWorkAlive",
+      "promise": "C90ios-B1"
+    },
+    {
+      "id": "tests-product-faults-C90ios-03-discard-cancels-before-discard",
+      "patch": "tests/product/faults/C90ios/03-discard-cancels-before-discard.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testDiscardFailureKeepsRoundBackgroundWorkAlive",
+      "promise": "C90ios-B1"
+    },
+    {
+      "id": "tests-product-faults-C90ios-04-discard-pauses-shared-prep",
+      "patch": "tests/product/faults/C90ios/04-discard-pauses-shared-prep.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testDiscardLeavesAnotherPrepCourseDownloadRunning",
+      "promise": "C90ios-B2"
+    },
+    {
+      "id": "tests-product-faults-C90ios-05-finish-cancels-offline-download",
+      "patch": "tests/product/faults/C90ios/05-finish-cancels-offline-download.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testFinishKeepsWholeCourseDownloadRunning",
+      "promise": "C90ios-B5"
+    },
+    {
+      "id": "tests-product-faults-C90ios-06-stop-allows-late-install-status",
+      "patch": "tests/product/faults/C90ios/06-stop-allows-late-install-status.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testAStoppedModelSendsNoFurtherRequest",
+      "promise": "C90ios-B4"
+    },
+    {
+      "id": "tests-product-faults-C90ios-07-timing-check-before-sample",
+      "patch": "tests/product/faults/C90ios/07-timing-check-before-sample.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/SyncClientTests/testCancelledRequestSamplesTimingBeforeTransportCheck",
+      "promise": "C90ios-B3"
+    },
+    {
+      "id": "tests-product-faults-C90ios-08-timing-persistence-sync",
+      "patch": "tests/product/faults/C90ios/08-timing-persistence-sync.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/SyncClientTests/testClientTimingStorePersistsOffCallerQueue",
+      "promise": "C90ios-B3"
+    },
+    {
       "id": "tests-product-faults-c16c-muta",
       "patch": "tests/product/faults/c16c_mutants.py",
       "kind": "python-script",

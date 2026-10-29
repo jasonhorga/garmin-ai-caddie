@@ -1,0 +1,17 @@
+--- a/mobile/ios/AICaddie/Services/ClientTimingStore.swift
++++ b/mobile/ios/AICaddie/Services/ClientTimingStore.swift
+@@ -330,13 +330,7 @@
+     }
+ 
+     private func enqueuePersistence(_ snapshot: [ClientTimingRecord]) {
+-        guard let persistenceQueue else {
+-            persist(snapshot)
+-            return
+-        }
+-        persistenceQueue.async { [weak self] in
+-            self?.persist(snapshot)
+-        }
++        persist(snapshot)
+     }
+ 
+     private func persist(_ snapshot: [ClientTimingRecord]) {

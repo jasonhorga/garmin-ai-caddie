@@ -392,25 +392,35 @@ final class RoundStartTwoStageTests: XCTestCase {
     /// Teardown guard (fixture run 40308301959): once the test hook has returned, nothing the round
     /// started in the background sends another request — the session is invalidated right after.
     func testAStoppedModelSendsNoFurtherRequest() async throws {
+        // C85: pin cancellation between request construction and URLSession transport. This makes
+        // the stop boundary deterministic instead of relying on the scheduler to expose it.
         let host = "c85-stop.example.test"
         let roundId = "c85-stop"
         let mapPackage = try package(roundId: roundId, mapOnly: true, garminRasterVersion: "c85-stop")
         let mapData = try JSONEncoder().encode(mapPackage)
         let held = C85HeldRequests()
         let requests = C85Counter()
+        let installStatusRequests = C85Counter()
         let stopped = C85Counter()
         let latePaths = C85RequestLog()
         let fullSent = expectation(description: "full package requested")
         let lateRequest = expectation(description: "a request after the stop")
         lateRequest.isInverted = true
+        let installStatusGateEntered = expectation(description: "install status gate entered")
+        let installStatusGate = C90RequestGate()
+        let installStatusGateOnce = C33FirstMatch()
         let fullSentOnce = C33FirstMatch(), lateRequestOnce = C33FirstMatch()
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host else { proto.reply(404); return }
             // The client's requests. The hole screen's image stores (first-hole topo warm-up) go
             // through the shared session, which is never invalidated, and ask for `Accept: image/*`.
+            let isInstallStatus = proto.request.url?.path == "/api/v2/courses/\(c85CourseId)/install/status"
+            if isInstallStatus {
+                installStatusRequests.increment()
+            }
             if proto.request.value(forHTTPHeaderField: "Accept")?.hasPrefix("image/") != true {
                 requests.increment()
-                if stopped.value > 0 {
+                if isInstallStatus, stopped.value > 0 {
                     latePaths.append(proto.request)
                     if lateRequestOnce.claim() { lateRequest.fulfill() }
                 }
@@ -430,6 +440,12 @@ final class RoundStartTwoStageTests: XCTestCase {
         })
         let fixture = makeModel(host: host, held: held)
         let model = fixture.model
+        fixture.client.requestDataGateForTesting = { request in
+            guard request.url?.path == "/api/v2/courses/\(c85CourseId)/install/status",
+                  installStatusGateOnce.claim() else { return }
+            installStatusGateEntered.fulfill()
+            await installStatusGate.wait()
+        }
         // A personal package still alive after the stop would retry a failure at once.
         model.roundEnrichmentRetryDelaysNanoseconds = [0, 0, 0, 0]
         let rasterStarted = expectation(description: "raster pass running")
@@ -452,11 +468,16 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertEqual(model.pendingLiveHole, 1)
         model.liveHoleInitialLoadDidFinish()
         await fulfillment(of: [fullSent], timeout: eventWait)
+        await fulfillment(of: [installStatusGateEntered], timeout: eventWait)
 
-        await model.stopRoundBackgroundWorkForTesting()
+        let stopping = Task { await model.stopRoundBackgroundWorkForTesting() }
+        stopped.set(1)
+        await Task.yield()
+        await installStatusGate.release()
+        await stopping.value
         await waitForNoRunningTasks(fixture.session)
         let requestsAtStop = requests.value
-        stopped.set(1)
+        let installStatusAtStop = installStatusRequests.value
         // Push everything that could start work again: the held personal package fails now (a live
         // retry loop would ask again at once) and the live view repeats its initial-load callback
         // (it must not restart personal enrichment or either asset pass after the stop).
@@ -469,8 +490,205 @@ final class RoundStartTwoStageTests: XCTestCase {
             return url.path + (url.query.map { "?\($0)" } ?? "")
         }
         XCTAssertEqual(requests.value, requestsAtStop, "no request after the stop; paths=\(paths)")
+        XCTAssertEqual(installStatusRequests.value, installStatusAtStop, "no install/status start after the stop")
         XCTAssertEqual(rasterCalls.value, 1, "the raster pass ended at the stop")
         XCTAssertEqual(model.package?.clubProfiles, [], "the personal package was never merged")
+    }
+
+    /// J5.2/J4.2: a quarantine-blocked Save & End keeps the live round's background ownership.
+    func testQuarantineBlockedFinishKeepsRoundBackgroundWorkAlive() async throws {
+        let (fixture, package, _) = try await startRoundWithHeldBackgroundWork(
+            host: "c90-quarantine-finish.example.test", roundId: "c90-quarantine-finish"
+        )
+        try fixture.store.quarantineEvent(
+            LiveRoundEvent(
+                eventId: "c90-quarantine-score", roundId: package.roundId,
+                timestamp: "2026-10-28T00:00:00Z", hole: 1, kind: .score,
+                payload: ["strokes": .number(5)]
+            ),
+            status: 422,
+            reason: "score rejected"
+        )
+        let result = await fixture.model.finishActiveRound()
+        XCTAssertFalse(result)
+        XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
+    }
+
+    /// J5.2/J4.2: a Watch-finished round blocked by quarantine remains resumable on the phone.
+    func testQuarantineBlockedWatchFinishKeepsRoundBackgroundWorkAlive() async throws {
+        let (fixture, package, _) = try await startRoundWithHeldBackgroundWork(
+            host: "c90-quarantine-watch.example.test", roundId: "c90-quarantine-watch"
+        )
+        try fixture.store.quarantineEvent(
+            LiveRoundEvent(
+                eventId: "c90-watch-quarantine-score", roundId: package.roundId,
+                timestamp: "2026-10-28T00:00:00Z", hole: 1, kind: .score,
+                payload: ["strokes": .number(5)]
+            ),
+            status: 422,
+            reason: "score rejected"
+        )
+        fixture.model.handleWatchRoundClosure(
+            WatchRoundClosurePayload(roundId: package.roundId, disposition: .finished)
+        )
+        await fixture.model.waitForWatchRoundClosureReconciliationForTesting()
+        XCTAssertEqual(fixture.model.liveRoundState?.roundId, package.roundId)
+        XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
+    }
+
+    /// J5.2/J4.2: an event-log failure in explicit discard leaves the active round and downloads intact.
+    func testDiscardFailureKeepsRoundBackgroundWorkAlive() async throws {
+        let (fixture, package, _) = try await startRoundWithHeldBackgroundWork(
+            host: "c90-discard-failure.example.test", roundId: "c90-discard-failure"
+        )
+        try Data("{broken}\n".utf8).write(
+            to: fixture.directory.appendingPathComponent("events.jsonl"), options: [.atomic]
+        )
+        fixture.model.discardActiveRound()
+        XCTAssertEqual(fixture.model.liveRoundState?.roundId, package.roundId)
+        XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
+    }
+
+    /// J4.2: ending a round must leave another player-requested prep download running in place.
+    func testDiscardLeavesAnotherPrepCourseDownloadRunning() async throws {
+        let host = "c90-prep-survives-discard.example.test"
+        let roundId = "c90-prep-survives-discard"
+        let roundPackage = try package(roundId: roundId, mapOnly: false)
+        let roundData = try JSONEncoder().encode(roundPackage)
+        let targetHeld = C85HeldRequests()
+        let targetStarted = expectation(description: "another prep course request started")
+        let targetRetried = expectation(description: "another prep course request retried after release")
+        let targetOnce = C33FirstMatch()
+        let targetRequests = C85Counter()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            let path = proto.request.url?.path ?? ""
+            if path == "/api/v2/mobile/courses/\(c85CourseId)/package" {
+                proto.reply(200, roundData)
+            } else if path == "/api/v2/mobile/courses/31800/package" {
+                targetHeld.hold(proto)
+                let count = targetRequests.increment()
+                if targetOnce.claim() { targetStarted.fulfill() }
+                if count == 2 { targetRetried.fulfill() }
+            } else {
+                proto.reply(503)
+            }
+        }, onStop: { request in
+            guard request.url?.host == host else { return }
+            targetHeld.forget(request)
+        })
+        let fixture = makeModel(host: host, held: targetHeld)
+        let model = fixture.model
+        await model.prepareCourseRound(
+            roundId: roundId, teeBox: "blue", loops: roundPackage.loopEntries
+        )
+        model.liveHoleInitialLoadDidFinish()
+        model.downloadPrepCourse(
+            MobileCourseOption(globalId: 31800, name: "Second course", holes: 18, teeBox: "blue")
+        )
+        await fulfillment(of: [targetStarted], timeout: eventWait)
+        model.discardActiveRound()
+        let target = try XCTUnwrap(model.prepCourseDownloads.first { $0.course.globalId == 31800 })
+        XCTAssertNotEqual(target.phase, .queued, "discard must not requeue the shared prep job")
+        XCTAssertEqual(model.activePrepCourseDownloadIDForTesting, target.id)
+        targetHeld.releaseAll(503)
+        await fulfillment(of: [targetRetried], timeout: eventWait)
+    }
+
+    /// J4.2: Save & End keeps the current course's whole-course download alive until its request ends.
+    func testFinishKeepsWholeCourseDownloadRunning() async throws {
+        // OfflineStore intentionally skips fixture-mode packages and partial physical courses.
+        // Model a complete nine-hole course so this test can observe the installer's durable write.
+        let roundPackage = try package(
+            roundId: "c90-finish-offline", mapOnly: false,
+            garminRasterVersion: "c90-r6", standalone: true
+        )
+        let prepData = try offlinePrepResponseData(for: roundPackage)
+        let installData = installStatusResponseData(for: roundPackage)
+        do {
+            // These are the same DTOs/JSONDecoder calls used by SyncClient's response readers.
+            let prep = try JSONDecoder().decode(CoursePrepResponse.self, from: prepData)
+            let install = try JSONDecoder().decode(CourseInstallStatus.self, from: installData)
+            XCTAssertEqual(prep.holes.count, roundPackage.holes.count)
+            XCTAssertEqual(install.holes.count, roundPackage.holes.count)
+        } catch {
+            XCTFail("whole-course fixture failed product response decoding: \(error)")
+            throw error
+        }
+        let (fixture, package, held) = try await startRoundWithHeldBackgroundWork(
+            host: "c90-finish-offline.example.test", roundId: "c90-finish-offline",
+            roundPackage: roundPackage
+        )
+        XCTAssertNil(package.coursePrep, "ready prep must come from the released download")
+        XCTAssertNil(try fixture.store.loadCourseTemplate(globalId: c85CourseId, teeBox: "blue")?.coursePrep)
+        let result = await fixture.model.finishActiveRound()
+        XCTAssertTrue(result)
+        XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
+        let responses = C90ResponseLog()
+        let diagnostics = {
+            "ownership=\(String(describing: fixture.model.offlineCourseDownloadRoundIdForTesting)) "
+                + "interrupted=\(String(describing: fixture.model.interruptedOfflineCourseDownloadRoundIdForTesting)) "
+                + "dataMode=\(package.dataMode) loopKey=\(package.loopKey) "
+                + "syncStatus=\(fixture.model.syncStatus) requests=\(responses.all)"
+        }
+        held.releaseAllAndReplyFuture { request in
+            let response: (status: Int, data: Data)
+            let usedDefault: Bool
+            switch request.url?.path {
+            case "/api/v2/courses/\(c85CourseId)/install/status":
+                response = (200, installData)
+                usedDefault = false
+            case "/api/v2/courses/\(c85CourseId)/prep":
+                response = (200, prepData)
+                usedDefault = false
+            case let path where path?.hasSuffix("/topo.png") == true:
+                response = (200, validOnePixelPNGData())
+                usedDefault = false
+            default:
+                response = (404, Data())
+                usedDefault = true
+            }
+            responses.append(request, status: response.status, usedDefault: usedDefault)
+            return response
+        }
+        do {
+            try await waitForOfflineCourseDownloadWithin(fixture.model)
+        } catch {
+            XCTFail("whole-course download exceeded its 3-second wait: \(error); \(diagnostics())")
+            throw error
+        }
+        XCTAssertNil(fixture.model.offlineCourseDownloadRoundIdForTesting)
+        guard let template = try fixture.store.loadCourseTemplate(globalId: c85CourseId, teeBox: "blue") else {
+            XCTFail("missing whole-course template (globalId=\(c85CourseId), teeBox=blue); \(diagnostics())")
+            return
+        }
+        XCTAssertEqual(template.coursePrep?.holes.count, package.holes.count)
+        XCTAssertTrue(template.coursePrep?.holes.allSatisfy {
+            $0.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
+        } ?? false)
+    }
+
+    /// J4.2: a seal failure keeps the live round and its background downloads resumable.
+    func testSealFailureKeepsRoundBackgroundWorkAlive() async throws {
+        let rasterGate = C90RequestGate()
+        let (fixture, package, _) = try await startRoundWithHeldBackgroundWork(
+            host: "c90-seal-failure.example.test", roundId: "c90-seal-failure", rasterGate: rasterGate
+        )
+        // sealRoundForDeferredFinish writes packages/<round>.json before the current pointer,
+        // home package, or either pending-finish ledger. Replacing that first destination with a
+        // directory makes the first write fail deterministically, before seal changes any state.
+        let roundPackageURL = fixture.directory
+            .appendingPathComponent("packages", isDirectory: true)
+            .appendingPathComponent("c90-seal-failure.json")
+        try FileManager.default.removeItem(at: roundPackageURL)
+        try FileManager.default.createDirectory(at: roundPackageURL, withIntermediateDirectories: true)
+        let result = await fixture.model.finishActiveRound()
+        XCTAssertFalse(result)
+        XCTAssertEqual(fixture.model.liveRoundState?.roundId, package.roundId)
+        XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
+        XCTAssertEqual(try fixture.store.loadCurrentRoundPackage()?.roundId, package.roundId)
+        XCTAssertTrue(fixture.model.garminRasterDownloadTaskRunningForTesting)
+        await rasterGate.release()
     }
 
     /// A first stroke starts a deferred map-only round even when the hole screen has not called
@@ -550,8 +768,93 @@ final class RoundStartTwoStageTests: XCTestCase {
             let tasks: [URLSessionTask] = await withCheckedContinuation { continuation in
                 session.getAllTasks { continuation.resume(returning: $0) }
             }
-            if tasks.allSatisfy({ $0.state != .running }) { return }
+            if tasks.allSatisfy({ $0.state != .running && $0.state != .canceling }) { return }
             try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
+    private func startRoundWithHeldBackgroundWork(
+        host: String,
+        roundId: String,
+        rasterGate: C90RequestGate? = nil,
+        roundPackage: LiveRoundPackage? = nil
+    ) async throws -> (fixture: ModelFixture, package: LiveRoundPackage, held: C85HeldRequests) {
+        let package = try roundPackage ?? package(roundId: roundId, mapOnly: false, garminRasterVersion: "c90-r6")
+        let data = try JSONEncoder().encode(package)
+        let held = C85HeldRequests()
+        let prepPath = "/api/v2/courses/\(c85CourseId)/prep"
+        let prepData = try offlinePrepResponseData(for: package)
+        let requestStarted = expectation(description: "round background request started")
+        let requestOnce = C33FirstMatch()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            if proto.request.url?.path == "/api/v2/mobile/courses/\(c85CourseId)/package" {
+                proto.reply(200, data)
+            } else {
+                if proto.request.url?.path == prepPath {
+                    held.holdOrReplyAfterRelease(proto, status: 200, data: prepData)
+                } else if proto.request.value(forHTTPHeaderField: "Accept")?.hasPrefix("image/") == true {
+                    held.holdOrReplyAfterRelease(proto, status: 404)
+                } else {
+                    held.holdOrReplyAfterRelease(proto, status: 404)
+                }
+                if requestOnce.claim() { requestStarted.fulfill() }
+            }
+        }, onStop: { request in
+            guard request.url?.host == host else { return }
+            held.forget(request)
+        })
+        let fixture = makeModel(host: host, held: held)
+        let rasterStarted = rasterGate.map { _ in expectation(description: "raster task held") }
+        let rasterStartedOnce = C33FirstMatch()
+        if let rasterGate {
+            fixture.model.garminRasterDownloader = { _ in
+                if rasterStartedOnce.claim() { rasterStarted?.fulfill() }
+                await rasterGate.wait()
+                return false
+            }
+        }
+        await fixture.model.prepareCourseRound(
+            roundId: roundId, teeBox: "blue", loops: package.loopEntries
+        )
+        fixture.model.liveHoleInitialLoadDidFinish()
+        await fulfillment(of: [requestStarted], timeout: eventWait)
+        if let rasterStarted {
+            // The task handle must be live before finishActiveRound is called; otherwise a
+            // cancellation mutant can hide behind URLProtocol's asynchronous stop callback.
+            await fulfillment(of: [rasterStarted], timeout: eventWait)
+        }
+        return (fixture, package, held)
+    }
+
+    private func installStatusResponseData(for package: LiveRoundPackage) -> Data {
+        let rows = package.holes.map { hole in
+            """
+            {"globalId":\(hole.sourceGlobalId),"localHole":\(hole.sourceLocalHole),"displayHole":\(hole.number),
+             "geometry":"ready","geometryRevision":"c90-r9","topo":"ready",
+             "topoRevision":"c90-r9","error":null}
+            """
+        }.joined(separator: ",")
+        return Data("""
+        {"schema":"ai-caddie-course-install-v1","jobId":"c90-r9",
+         "globalId":\(package.course.globalId),"teeBox":"\(package.course.teeBox)","loopKey":"\(package.loopKey)",
+         "phase":"ready","stage":"ready","totalHoles":\(package.holes.count),
+         "geometryReady":\(package.holes.count),"topoReady":\(package.holes.count),
+         "updatedAt":null,"error":null,"holes":[\(rows)]}
+        """.utf8)
+    }
+
+    private func waitForOfflineCourseDownloadWithin(
+        _ model: LiveRoundAppModel,
+        timeout: TimeInterval = 3
+    ) async throws {
+        enum Timeout: Error { case exceeded }
+        // A task-group race still joins its losing child: awaiting an unstructured model task's
+        // value ignores that child's cancellation. Poll the completion marker with a real deadline.
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while model.offlineCourseDownloadRoundIdForTesting != nil {
+            guard ProcessInfo.processInfo.systemUptime < deadline else { throw Timeout.exceeded }
+            try await Task.sleep(nanoseconds: 10_000_000)
         }
     }
 
@@ -669,6 +972,24 @@ private final class C85RequestLog {
     }
 }
 
+/// Responder evidence survives URLProtocol callbacks on different queues, including fallback 404s.
+private final class C90ResponseLog {
+    private let lock = NSLock()
+    private var entries: [String] = []
+
+    func append(_ request: URLRequest, status: Int, usedDefault: Bool) {
+        let url = request.url
+        let pathAndQuery = (url?.path ?? "<missing URL>") + (url?.query.map { "?\($0)" } ?? "")
+        let entry = "\(request.httpMethod ?? "GET") \(pathAndQuery) -> \(status)\(usedDefault ? " (default)" : "")"
+        lock.lock(); entries.append(entry); lock.unlock()
+    }
+
+    var all: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return entries
+    }
+}
+
 private final class C85Counter {
     private let lock = NSLock()
     private var count = 0
@@ -694,14 +1015,34 @@ private final class C85Counter {
 private final class C85HeldRequests {
     private let lock = NSLock()
     private var held: [C33URLProtocol] = []
+    private var replyFuture = false
+    private var futureResponder: ((URLRequest) -> (status: Int, data: Data))?
 
     func hold(_ proto: C33URLProtocol) {
         lock.lock(); held.append(proto); lock.unlock()
     }
 
+    func holdOrReplyAfterRelease(
+        _ proto: C33URLProtocol,
+        status: Int,
+        data: Data = Data()
+    ) {
+        lock.lock()
+        let released = replyFuture
+        let responder = futureResponder
+        if !released { held.append(proto) }
+        lock.unlock()
+        if released {
+            let response = responder?(proto.request) ?? (status: status, data: data)
+            proto.reply(response.status, response.data)
+        }
+    }
+
     /// A request URLSession stopped (cancelled) is never answered afterwards.
     func forget(_ request: URLRequest) {
-        lock.lock(); held.removeAll { $0.request.url == request.url }; lock.unlock()
+        lock.lock()
+        held.removeAll { $0.request.url == request.url }
+        lock.unlock()
     }
 
     func releaseAll(_ status: Int, _ data: Data = Data()) {
@@ -710,6 +1051,41 @@ private final class C85HeldRequests {
         held.removeAll()
         lock.unlock()
         released.forEach { $0.reply(status, data) }
+    }
+
+    func releaseAllAndReplyFuture(
+        _ status: Int,
+        _ data: Data = Data(),
+        onlyPath: String? = nil
+    ) {
+        lock.lock()
+        replyFuture = true
+        futureResponder = nil
+        let released = held
+        held.removeAll()
+        lock.unlock()
+        released.forEach { proto in
+            if onlyPath == nil || proto.request.url?.path == onlyPath {
+                proto.reply(status, data)
+            } else {
+                proto.reply(404)
+            }
+        }
+    }
+
+    func releaseAllAndReplyFuture(
+        _ responder: @escaping (URLRequest) -> (status: Int, data: Data)
+    ) {
+        lock.lock()
+        replyFuture = true
+        futureResponder = responder
+        let released = held
+        held.removeAll()
+        lock.unlock()
+        released.forEach { proto in
+            let response = responder(proto.request)
+            proto.reply(response.status, response.data)
+        }
     }
 
     /// Answers only the start's held package; any other held request stays held.
@@ -724,5 +1100,27 @@ private final class C85HeldRequests {
 
 private final class C85DownloadLog {
     var urls: [URL] = []
+}
+
+private actor C90RequestGate {
+    private var waiter: CheckedContinuation<Void, Never>?
+    private var released = false
+
+    func wait() async {
+        if released { return }
+        await withCheckedContinuation { continuation in
+            if released {
+                continuation.resume()
+                return
+            }
+            waiter = continuation
+        }
+    }
+
+    func release() {
+        released = true
+        waiter?.resume()
+        waiter = nil
+    }
 }
 #endif

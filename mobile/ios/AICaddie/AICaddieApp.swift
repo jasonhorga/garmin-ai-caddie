@@ -674,6 +674,28 @@ public final class LiveRoundAppModel: ObservableObject {
     private var offlineStorageGrewAt: Date?
     private var offlineStorageRemeasureInFlight = false
     private var offlineStorageRemeasureTask: Task<Void, Never>?
+    /// Cancels the cancellable work owned by the current live round. A successful Save & End keeps
+    /// the whole-course download alive so it can finish after the live package is sealed; callers
+    /// that need to abandon the round pass `keepOfflineCourseDownload: false`.
+    private func cancelRoundBackgroundWork(keepOfflineCourseDownload: Bool = false) {
+        cancelRoundEnrichment()
+        prepEnrichmentTask?.cancel()
+        prepEnrichmentTask = nil
+        prepEnrichmentRoundID = nil
+        cancelGarminRasterDownload()
+        clearFreshEntryRelease()
+        if !keepOfflineCourseDownload {
+            offlineCourseDownloadTask?.cancel()
+            offlineCourseDownloadTask = nil
+            offlineCourseDownloadRoundId = nil
+            interruptedOfflineCourseDownloadRoundId = nil
+        }
+        pendingGeometryRefreshTask?.cancel()
+        pendingGeometryRefreshTask = nil
+        activeRoundStartTask?.cancel()
+        activeRoundStartTask = nil
+    }
+
     #if DEBUG
     private(set) var offlineStorageMeasurementCountForTesting = 0
     #endif
@@ -2147,6 +2169,10 @@ public final class LiveRoundAppModel: ObservableObject {
 
     var userRequestedPrepDownloadIDsForTesting: Set<String> { userRequestedPrepDownloadIDs }
 
+    var activePrepCourseDownloadIDForTesting: String? { activePrepCourseDownloadID }
+
+    var garminRasterDownloadTaskRunningForTesting: Bool { garminRasterDownloadTask != nil }
+
     var offlineCourseDownloadRoundIdForTesting: String? { offlineCourseDownloadRoundId }
 
     func evictIdleCoursesForTesting(_ plan: OfflineStorageEvictionPlan, for scope: OfflineStorageScope) {
@@ -2196,9 +2222,10 @@ public final class LiveRoundAppModel: ObservableObject {
         offlineCourseDownloadTask = Task { @MainActor [weak self, syncClient, initial] in
             guard let self else { return }
             let downloadSnapshot = initial
-            guard !Task.isCancelled,
-                  self.liveRoundState?.roundId == expectedRoundId,
-                  self.package?.course.globalId == expectedGlobalId else { return }
+            let isCurrentLiveRound = self.liveRoundState?.roundId == expectedRoundId
+                && self.package?.course.globalId == expectedGlobalId
+            let sealedDownloadStillOwned = self.offlineCourseDownloadRoundId == expectedRoundId
+            guard !Task.isCancelled, (isCurrentLiveRound || sealedDownloadStillOwned) else { return }
             var snapshot = downloadSnapshot
             if let retained = try? self.offlineStore.loadCourseTemplate(
                 globalId: snapshot.course.globalId,
@@ -2381,21 +2408,10 @@ public final class LiveRoundAppModel: ObservableObject {
             prepCourseDownloadTask,
             activeRoundStartTask,
         ]
-        cancelRoundEnrichment()
-        prepEnrichmentTask?.cancel()
-        prepEnrichmentTask = nil
-        prepEnrichmentRoundID = nil
-        cancelGarminRasterDownload()
-        clearFreshEntryRelease()
-        offlineCourseDownloadTask?.cancel()
-        offlineCourseDownloadTask = nil
-        offlineCourseDownloadRoundId = nil
-        interruptedOfflineCourseDownloadRoundId = nil
-        pendingGeometryRefreshTask?.cancel()
-        pendingGeometryRefreshTask = nil
+        cancelRoundBackgroundWork()
+        // Product finish/discard paths leave the shared prep queue alone; test teardown owns the
+        // process-wide queue too, so cancel it before awaiting the captured task handles.
         pausePrepCourseDownload()
-        activeRoundStartTask?.cancel()
-        activeRoundStartTask = nil
         for task in running {
             await task?.value
         }
@@ -3113,6 +3129,10 @@ public final class LiveRoundAppModel: ObservableObject {
         // server is still decoding Garmin ZIPs. Older servers simply fall back to the existing
         // coverage probe path.
         func refreshServerInstallStatus() async {
+            guard !Task.isCancelled else { return }
+            #if DEBUG
+            guard !roundBackgroundWorkStoppedForTesting else { return }
+            #endif
             let primaryGlobalId = snapshot.course.globalId
             let expectedKeys = Set(snapshot.holes.map { roundHole in
                 offlinePrepKey(
@@ -3148,6 +3168,10 @@ public final class LiveRoundAppModel: ObservableObject {
 
             var status: CourseInstallStatus?
             for tee in teeCandidates where status == nil {
+                guard !Task.isCancelled else { return }
+                #if DEBUG
+                guard !roundBackgroundWorkStoppedForTesting else { return }
+                #endif
                 do {
                     guard let candidate = try await syncClient.fetchCourseInstallStatus(
                         globalId: primaryGlobalId,
@@ -3712,6 +3736,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 courseGlobalId: package.course.globalId
             )
             try offlineStore.sealRoundForDeferredFinish(package: package, metadata: metadata)
+            // Seal first: quarantine/media failures above must leave every round-owned task alive
+            // so the player can repair the round and its interrupted downloads can resume.
+            cancelRoundBackgroundWork(keepOfflineCourseDownload: true)
             try leaveSealedRoundLocally(package: package)
             watchBridge?.sendRoundClosureToWatch(
                 roundId: package.roundId,
@@ -3877,8 +3904,11 @@ public final class LiveRoundAppModel: ObservableObject {
             throw LiveRoundFinishError.blockedByQuarantine
         }
         let homePackage = package
-        watchRoundStartRetryTasks.removeValue(forKey: roundId)?.cancel()
         try offlineStore.discardRound(roundId: roundId)
+        // The local discard is durable now; cancellation cannot strand a still-live round after a
+        // pending-media or quarantine guard throws above.
+        cancelRoundBackgroundWork(keepOfflineCourseDownload: true)
+        watchRoundStartRetryTasks.removeValue(forKey: roundId)?.cancel()
         try? offlineStore.removeQuarantinedEvents(roundId: roundId)
         if let homePackage {
             try offlineStore.saveHomePackage(homePackage)
@@ -4176,10 +4206,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// the Watch only after the matching phone data has been removed.
     public func discardActiveRound() {
         guard let package, liveRoundState?.roundId == package.roundId else { return }
-        pendingGeometryRefreshTask?.cancel()
-        pendingGeometryRefreshTask = nil
         pendingGeometryLastAttemptEpoch = nil
-        watchRoundStartRetryTasks.removeValue(forKey: package.roundId)?.cancel()
         do {
             try offlineStore.discardRound(roundId: package.roundId)
             try? offlineStore.removeQuarantinedEvents(roundId: package.roundId)
@@ -4187,6 +4214,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 roundId: package.roundId,
                 disposition: .abandoned
             )
+            cancelRoundBackgroundWork()
+            watchRoundStartRetryTasks.removeValue(forKey: package.roundId)?.cancel()
             if let home = try offlineStore.loadHomePackage() {
                 try activateHomePackage(home, status: "本场已放弃")
             } else {
@@ -6669,6 +6698,10 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
                 refreshDownloadedCourseOptions()
             } else {
+                guard !Task.isCancelled else { throw CancellationError() }
+                #if DEBUG
+                guard !roundBackgroundWorkStoppedForTesting else { throw CancellationError() }
+                #endif
                 let serverStatus: CourseInstallStatus?
                 let statusProbeFailed: Bool
                 do {
@@ -6969,6 +7002,10 @@ public final class LiveRoundAppModel: ObservableObject {
                     ? self.pendingGeometryRetryAttempt + 1 : 0
                 try self.activatePackage(persisted, status: "几何地图已更新")
                 if remainsPending {
+                    guard !Task.isCancelled else { return }
+                    #if DEBUG
+                    guard !self.roundBackgroundWorkStoppedForTesting else { return }
+                    #endif
                     _ = try await syncClient.fetchCourseInstallStatus(
                         globalId: globalId, teeBox: teeBox, loops: loops
                     )

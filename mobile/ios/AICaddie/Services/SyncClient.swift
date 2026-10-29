@@ -514,8 +514,17 @@ public final class SyncClient {
     private let decoder: JSONDecoder
     private let retrySleep: (UInt64) async throws -> Void
     private let monotonicNow: () -> TimeInterval
+    private let timingStore: ClientTimingStore
 
     deinit {
+        let hadRoundStart = packageWorkLock.withLock { () -> Bool in
+            let hadRoundStart = roundStartOwner != nil
+            roundStartOwner = nil
+            return hadRoundStart
+        }
+        if hadRoundStart {
+            timingStore.foregroundStartDidEnd()
+        }
         roundStartSessionLock.lock()
         roundStartSessionStorage?.invalidateAndCancel()
         roundStartSessionStorage = nil
@@ -533,6 +542,8 @@ public final class SyncClient {
         self.decoder = JSONDecoder()
         self.retrySleep = { try await Task.sleep(nanoseconds: $0) }
         self.monotonicNow = { ProcessInfo.processInfo.systemUptime }
+        self.timingStore = ClientTimingStore.shared
+        configureTimingUploader()
     }
 
     init(
@@ -542,7 +553,8 @@ public final class SyncClient {
         session: URLSession = .shared,
         retrySleep: @escaping (UInt64) async throws -> Void,
         roundStartTimeoutInterval: TimeInterval = 30,
-        monotonicNow: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+        monotonicNow: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+        timingStore: ClientTimingStore = ClientTimingStore.testingStore()
     ) {
         self.baseURL = baseURL
         self.adminToken = adminToken
@@ -554,30 +566,43 @@ public final class SyncClient {
         self.decoder = JSONDecoder()
         self.retrySleep = retrySleep
         self.monotonicNow = monotonicNow
+        self.timingStore = timingStore
+        configureTimingUploader()
     }
 
     /// Called synchronously before any start work. Cancelling producers releases even a held
     /// URLProtocol/URLSession request, rather than only ignoring its eventual response.
     func beginRoundStart(_ owner: UUID) {
-        let previous = packageWorkLock.withLock { () -> [Task<Data, Error>] in
+        let state = packageWorkLock.withLock { () -> (previous: [Task<Data, Error>], began: Bool) in
+            let began = roundStartOwner == nil
             roundStartOwner = owner
-            return packageWork.values.compactMap {
+            let previous = packageWork.values.compactMap {
                 switch $0.kind {
                 case .background, .foregroundStart: return $0.task
                 case .userDownload, .watchStart: return nil
                 }
             }
+            return (previous, began)
         }
-        previous.forEach { $0.cancel() }
+        if state.began {
+            ClientTimingStore.foregroundStartDidBegin()
+        }
+        state.previous.forEach { $0.cancel() }
     }
 
     func endRoundStart(_ owner: UUID) {
-        packageWorkLock.withLock {
-            if roundStartOwner == owner { roundStartOwner = nil }
+        let ended = packageWorkLock.withLock { () -> Bool in
+            guard roundStartOwner == owner else { return false }
+            roundStartOwner = nil
+            return true
         }
+        if ended { timingStore.foregroundStartDidEnd() }
     }
 
     #if DEBUG
+    /// Test-only gate used to place cancellation between request construction and transport.
+    var requestDataGateForTesting: ((URLRequest) async -> Void)?
+
     /// Test teardown. From here on every request fails with `CancellationError` before it reaches a
     /// session (`requestData`): the test invalidates this client's sessions next, and a task created
     /// in an invalidated session raises NSGenericException, which ends the whole test process.
@@ -591,11 +616,161 @@ public final class SyncClient {
     #endif
 
     /// Every request of this client goes through here.
-    private func requestData(for request: URLRequest, in urlSession: URLSession) async throws -> (Data, URLResponse) {
+    private func requestData(
+        for request: URLRequest,
+        in urlSession: URLSession,
+        recordTiming: Bool = true
+    ) async throws -> (Data, URLResponse) {
         #if DEBUG
         if roundStartSessionLock.withLock({ invalidatedForTesting }) { throw CancellationError() }
         #endif
-        return try await urlSession.data(for: request)
+        var timedRequest = request
+        let requestId = UUID().uuidString
+        timedRequest.setValue(requestId, forHTTPHeaderField: "X-AI-Caddie-Request-ID")
+        #if DEBUG
+        if let gate = requestDataGateForTesting {
+            await gate(timedRequest)
+        }
+        #endif
+        // Capture cheap raw clocks before the final cancellation check. Formatting a date here
+        // would put avoidable work between that check and URLSession's transport handoff.
+        let startedAt = Date()
+        let started = recordTiming ? monotonicNow() : 0
+        if !recordTiming {
+            try Task.checkCancellation()
+            return try await urlSession.data(for: timedRequest)
+        }
+        try Task.checkCancellation()
+        do {
+            let result = try await urlSession.data(for: timedRequest)
+            let finished = monotonicNow()
+            recordClientTiming(
+                request: timedRequest,
+                requestId: requestId,
+                startedAt: startedAt,
+                elapsed: max(0, finished - started),
+                response: result.1,
+                error: nil,
+                now: finished
+            )
+            return result
+        } catch {
+            let finished = monotonicNow()
+            recordClientTiming(
+                request: timedRequest,
+                requestId: requestId,
+                startedAt: startedAt,
+                elapsed: max(0, finished - started),
+                response: nil,
+                error: error,
+                now: finished
+            )
+            throw error
+        }
+    }
+
+    private func recordClientTiming(
+        request: URLRequest,
+        requestId: String,
+        startedAt: Date,
+        elapsed: TimeInterval,
+        response: URLResponse?,
+        error: Error?,
+        now: TimeInterval
+    ) {
+        let status = (response as? HTTPURLResponse)?.statusCode
+        let serverTotalMs = Self.serverTotalMilliseconds(response)
+        let timingError: String?
+        if let error {
+            timingError = Self.timingErrorCode(error)
+        } else if let status, status >= 400 {
+            timingError = "http_\(status)"
+        } else if status == nil {
+            timingError = "not_http"
+        } else {
+            timingError = nil
+        }
+        let record = ClientTimingRecord(
+            requestId: requestId,
+            path: request.url?.path ?? "/",
+            clientTotalMs: elapsed * 1_000,
+            status: status,
+            error: timingError,
+            startedAt: ISO8601DateFormatter().string(from: startedAt),
+            networkType: nil,
+            serverTotalMs: serverTotalMs
+        )
+        timingStore.record(record, now: now)
+        if elapsed >= 3 {
+            AICaddieLog.net.notice(
+                "Slow request \(record.path, privacy: .public) \(record.clientTotalMs, privacy: .public)ms request_id=\(requestId, privacy: .public) server_total_ms=\(serverTotalMs ?? -1, privacy: .public)"
+            )
+        } else {
+            AICaddieLog.net.debug(
+                "Request \(record.path, privacy: .public) \(record.clientTotalMs, privacy: .public)ms request_id=\(requestId, privacy: .public)"
+            )
+        }
+    }
+
+    private func configureTimingUploader() {
+        timingStore.configureUploader { [weak self] batch in
+            guard let self else { return .unavailable }
+            return await self.uploadClientTiming(batch)
+        }
+    }
+
+    private func uploadClientTiming(_ batch: [ClientTimingUploadRecord]) async -> ClientTimingUploadOutcome {
+        guard let body = try? encoder.encode(batch) else { return .dropped }
+        var request = URLRequest(url: endpointURL("/api/v2/mobile/client-timing"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        applyAuth(to: &request)
+        do {
+            let (_, response) = try await requestData(for: request, in: session, recordTiming: false)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                AICaddieLog.net.debug("Client timing upload rejected")
+                return .dropped
+            }
+            return .sent
+        } catch {
+            // The batch was intentionally removed before the request. Timing must never retry or
+            // affect the business request that triggered this best-effort upload.
+            AICaddieLog.net.debug("Client timing upload dropped: \(String(describing: error), privacy: .public)")
+            return .dropped
+        }
+    }
+
+    private static func serverTotalMilliseconds(_ response: URLResponse?) -> Double? {
+        guard let value = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Server-Timing") else {
+            return nil
+        }
+        for metric in value.split(separator: ",") {
+            let fields = metric.split(separator: ";", omittingEmptySubsequences: true)
+            guard fields.first?.trimmingCharacters(in: .whitespacesAndNewlines) == "total" else { continue }
+            for field in fields.dropFirst() {
+                let pair = field.split(separator: "=", maxSplits: 1).map(String.init)
+                if pair.count == 2, pair[0].trimmingCharacters(in: .whitespaces) == "dur",
+                   let duration = Double(pair[1].trimmingCharacters(in: .whitespaces)) {
+                    return duration
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func timingErrorCode(_ error: Error) -> String {
+        if error is CancellationError { return "cancelled" }
+        if let syncError = error as? SyncClientError {
+            switch syncError {
+            case .notHTTPResponse: return "not_http"
+            case let .http(status, _): return "http_\(status)"
+            }
+        }
+        if let urlError = error as? URLError {
+            return "url_\(urlError.code.rawValue)"
+        }
+        return "client_error"
     }
 
     private func coursePackageData(_ request: URLRequest, foregroundStart: Bool, requestKind: PackageRequestKind = .background, maximumAttempts: Int = SyncClient.courseAssetMaximumAttempts) async throws -> Data {

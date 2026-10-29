@@ -1,8 +1,8 @@
 --- a/mobile/ios/AICaddie/Services/SyncClient.swift
 +++ b/mobile/ios/AICaddie/Services/SyncClient.swift
-@@ -558,8 +558,8 @@
+@@ -578,8 +578,8 @@ public final class SyncClient {
              roundStartOwner = owner
-             return packageWork.values.compactMap {
+             let previous = packageWork.values.compactMap {
                  switch $0.kind {
 -                case .background, .foregroundStart: return $0.task
 -                case .userDownload, .watchStart: return nil
@@ -10,4 +10,4 @@
 +                case .foregroundStart, .userDownload, .watchStart: return nil
                  }
              }
-         }
+             return (previous, began)

@@ -1,0 +1,10 @@
+diff --git a/mobile/ios/AICaddie/Services/SyncClient.swift b/mobile/ios/AICaddie/Services/SyncClient.swift
+--- a/mobile/ios/AICaddie/Services/SyncClient.swift
++++ b/mobile/ios/AICaddie/Services/SyncClient.swift
+@@ -640,6 +640,5 @@
+             try Task.checkCancellation()
+             return try await urlSession.data(for: timedRequest)
+         }
+-        try Task.checkCancellation()
+         do {
+             let result = try await urlSession.data(for: timedRequest)

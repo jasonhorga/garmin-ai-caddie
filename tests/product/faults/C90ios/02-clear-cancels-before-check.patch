@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -3873,6 +3873,7 @@
+         roundId: String,
+         notifyWatch: Bool = true
+     ) throws {
++        cancelRoundBackgroundWork()
+         guard try offlineStore.loadPendingMedia(roundId: roundId).isEmpty else {
+             throw LiveRoundFinishError.pendingMedia
+         }

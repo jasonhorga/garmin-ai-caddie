@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4164,6 +4164,7 @@
+         guard let package, liveRoundState?.roundId == package.roundId else { return }
+         pendingGeometryLastAttemptEpoch = nil
+         do {
++            cancelRoundBackgroundWork()
+             try offlineStore.discardRound(roundId: package.roundId)
+             try? offlineStore.removeQuarantinedEvents(roundId: package.roundId)
+             watchBridge?.sendRoundClosureToWatch(

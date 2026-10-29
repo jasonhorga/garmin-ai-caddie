@@ -1,0 +1,9 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -3718,4 +3718,5 @@ public final class LiveRoundAppModel: ObservableObject {
+         do {
++            cancelRoundBackgroundWork()
+             let quarantined = try offlineStore.loadQuarantinedEvents(roundId: package.roundId)
+             if let blocked = quarantined.first(where: { Self.isScoringEvent($0.event) }) {
+                 setActiveHole(blocked.event.hole)
