@@ -290,6 +290,7 @@ final class C33StartTests: XCTestCase {
         // injected 0.05 s budget must end the never-answered request: without a total budget it would
         // hang for the 120 s package timeout, and a hard-coded 30 s would also miss this wait.
         await fulfillment(of: [sent, stopped, failed], timeout: eventWait)
+        await start.value
         XCTAssertFalse(model.isPreparingRound)
         XCTAssertNil(model.pendingLiveHole)
         XCTAssertNotNil(model.roundStartFailure)
@@ -305,6 +306,8 @@ final class C33StartTests: XCTestCase {
         ) }
         defer { retry.cancel(); retrySubscription.cancel() }
         await fulfillment(of: [retryFailed], timeout: eventWait)
+        await retry.value
+        await model.stopRoundBackgroundWorkForTesting()
         XCTAssertNotNil(model.roundStartFailure)
     }
 
