@@ -2080,10 +2080,13 @@ def _tee_candidate_routes(
     par: int = 4,
     target_m: float = 0.0,
     avoid_zones: list[dict[str, Any]] | None = None,
+    route_evidence: dict[str, Any] | None = None,
     shot_option_clubs: tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None] | None = None,
 ) -> list[dict[str, Any]]:
+    from ai_caddie.geometry.geometry_evidence import route_target_at_distance
+
     rows = _caddie_clean_rows(club_profiles)
-    if not rows:
+    if not rows or (route_evidence and route_evidence.get("routeLocal") and target_m <= 0):
         return []
     safe_p, stock_p, attack_p = shot_option_clubs or _shot_option_clubs(
         rows,
@@ -2147,7 +2150,7 @@ def _tee_candidate_routes(
                 "label": label,
                 "club": str(profile.get("clubName") or ""),
                 "carry_m": carry,
-                "landingLocal": None,
+                "landingLocal": route_target_at_distance(route_evidence, carry) if route_evidence else None,
                 "expectedSurface": surface,
                 "nearRisks": near_risks,
                 "lineRisks": line_risks,
@@ -2332,12 +2335,15 @@ def _route_evidence_seed(
 ) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
     yards = hole.get("yards")
     target_y = _route_target_yards_or_club_m(yards, club_profiles)
-    if not global_id or target_y is None:
+    if not global_id:
         return None, [], [{"label": "route_geometry", "reason": "globalId and playable route target are required for offline seed"}]
     try:
         hazard_source = _load_mobile_hazards(int(global_id), int(local_hole)) or None
         start = {"x": 0.0, "y": 0.0}
-        target = {"x": 0.0, "y": target_y}
+        target = {"x": 0.0, "y": target_y or 1.0}
+        polyline = None
+        meshes = {}
+        origin_offset = 0.0
         if hazard_source:
             # The compact authority already binds every real Tee and the selected green/dogleg
             # endpoint in prodgeometry's local frame.  A synthetic (0, 0) -> (0, yardage) line is
@@ -2367,6 +2373,29 @@ def _route_evidence_seed(
                 ):
                     start = {"x": float(tee_position[0]), "y": float(tee_position[1])}
                     target = {"x": float(target_position[0]), "y": float(target_position[1])}
+        # Share CoursePrep's selected-Tee/layout route without invoking its strategy/history path.
+        from ai_caddie.caddie.analysis import tee_set_for_box
+        from ai_caddie.geometry.hole_render import load_mesh
+        from ai_caddie.geometry.geometry_evidence import remaining_route
+        try:
+            meshes, _by = load_mesh(int(global_id), int(local_hole))
+            polyline, _length = course_prep.derive_route(meshes, tee_set_for_box(global_id, tee_box))
+        except (OSError, KeyError, TypeError, ValueError):
+            polyline = None
+        if polyline:
+            location = hole.get("currentLocation")
+            if isinstance(location, dict) and hazard_source:
+                latitude = _safe_float(location.get("latitude"))
+                longitude = _safe_float(location.get("longitude"))
+                ref_lat, ref_lon = hazard_source.get("refLat"), hazard_source.get("refLon")
+                if latitude is not None and longitude is not None and ref_lat is not None and ref_lon is not None:
+                    from ai_caddie.geometry.shot_projection import world_to_local
+                    local = world_to_local(latitude, longitude, ref_lat=float(ref_lat), ref_lon=float(ref_lon))
+                    polyline, origin_offset = remaining_route(polyline, local)
+            start = polyline[0][:2]
+            target = polyline[-1][:2]
+        elif target_y is None:
+            return None, [], [{"label": "route_geometry", "reason": "playable route target is unavailable"}]
         route = build_route_geometry_evidence(
             global_id,
             local_hole,
@@ -2374,7 +2403,13 @@ def _route_evidence_seed(
             target=target,
             landing_radius_m=18.0,
             _hazards_override=hazard_source or {},
+            **({"route": polyline, "_meshes_override": meshes} if polyline else {}),
         )
+        if polyline:
+            route["routeOriginOffset_m"] = round(origin_offset, 3)
+            green = course_prep._green_distances(_by, polyline, meshes)
+            if green.get("available"):
+                route["greenDistances"] = green
     except Exception:
         return None, [], [{"label": "route_geometry", "reason": "route geometry evidence could not be loaded for offline seed"}]
     evidence = [{"label": "route_geometry", "value": f"route length {route.get('routeLength_m')}m", "refs": [source_ref]}]
@@ -2566,7 +2601,7 @@ def hydrate_live_caddie_geometry_context(
     route_evidence, _route_evidence_rows, route_missing = _route_evidence_seed(
         global_id,
         local_hole,
-        {"yards": refreshed.get("yards")},
+        {"yards": refreshed.get("yards"), "currentLocation": refreshed.get("currentLocation")},
         source_ref,
         club_profiles,
         str(context.get("teeBox") or "unknown"),
@@ -2628,8 +2663,10 @@ def hydrate_live_caddie_geometry_context(
     if route_evidence:
         refreshed["routeEvidence"] = route_evidence
         target_distance_m = float(route_evidence.get("routeLength_m") or 0.0)
-        if target_distance_m > 0:
+        if target_distance_m >= 0:
             refreshed["holeRemaining_m"] = round(target_distance_m, 1)
+        if isinstance(route_evidence.get("greenDistances"), dict):
+            refreshed["greenDistances"] = dict(route_evidence["greenDistances"])
         candidate_routes = _tee_candidate_routes(
             {"yards": refreshed.get("yards")},
             club_profiles,
@@ -2637,6 +2674,7 @@ def hydrate_live_caddie_geometry_context(
             par=_safe_int(refreshed.get("par")) or 4,
             target_m=target_distance_m,
             avoid_zones=route_evidence.get("avoidZones") or [],
+            route_evidence=route_evidence,
         )
         # Replace the old seed even when no route is feasible. Keeping a stale candidate here
         # would let the phone display a pre-geometry shot that the precise water constraints have
@@ -3014,6 +3052,7 @@ def _caddie_context_seeds(
             par=par_value,
             target_m=target_distance_m,
             avoid_zones=avoid_zones,
+            route_evidence=route_evidence,
             shot_option_clubs=shot_option_clubs,
         )
         candidate_routes_state = "ready" if candidate_routes else "missing"
@@ -3085,6 +3124,8 @@ def _caddie_context_seeds(
             context["diagnosticContext"] = diagnostic_context
         if route_evidence:
             context["routeEvidence"] = route_evidence
+            if isinstance(route_evidence.get("greenDistances"), dict):
+                context["greenDistances"] = dict(route_evidence["greenDistances"])
         if manual_notes:
             context["manualNotes"] = manual_notes
         offline_options = _offline_caddie_options(

@@ -821,6 +821,11 @@ def _club_profile_rows(profiles: Any) -> list[dict[str, Any]]:
 
 
 def _sequence_distance(context: dict[str, Any]) -> float:
+    route = context.get("routeEvidence")
+    if isinstance(route, dict) and route.get("routeLocal"):
+        length = _float(route.get("routeLength_m"))
+        if math.isfinite(length) and 0 <= length <= MAX_PIN_DISTANCE_M:
+            return length
     # An installed CoursePrep route is the factual opening plan while the request is still a tee
     # request.  GPS-derived ``holeRemaining_m`` can be tens of metres short because the fix is on
     # the tee apron or the selected tee/centerline differs from the Garmin route; letting it replace
@@ -2879,6 +2884,9 @@ def _route_evidence_length(route_evidence: dict[str, Any]) -> float:
 
 
 def _route_target_for_carry(route_evidence: dict[str, Any], carry_m: float, route_length: float) -> list[float] | None:
+    if route_evidence.get("routeLocal"):
+        from ai_caddie.geometry.geometry_evidence import route_target_at_distance
+        return route_target_at_distance(route_evidence, carry_m)
     start = _local_point(route_evidence.get("routeStartLocal"))
     target = _local_point(route_evidence.get("routeTargetLocal"))
     if start is None or target is None or route_length <= 0:
@@ -5206,6 +5214,9 @@ def _with_option_contract(
 
 
 def _pin_distance(context: dict[str, Any]) -> float:
+    route = context.get("routeEvidence")
+    if isinstance(route, dict) and route.get("routeLocal"):
+        return max(1.0, _sequence_distance(context))
     return max(1.0, _float(context.get("distanceToPin_m"), 0.0))
 
 

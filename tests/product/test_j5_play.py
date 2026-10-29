@@ -213,7 +213,11 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
         self.stack.enter_context(patch.object(mobile_live, "geometry_coverage_for_hole", return_value=ready))
         self.stack.enter_context(patch.object(geometry_evidence, "geometry_coverage_for_hole", return_value=ready))
         self.stack.enter_context(patch.object(geometry_evidence, "_load_hole_sources", return_value=(hazards, md)))
-        self.stack.enter_context(patch.object(hole_render, "load_mesh", return_value=(md, {})))
+        gx, gy = target
+        green = {"name": "Green.drc", "positions": [[-x,0,y] for x,y in
+                 [(gx-10,gy-10),(gx+10,gy-10),(gx+10,gy+10),(gx-10,gy+10)]], "faces": [[0,1,2],[0,2,3]]}
+        md["meshes"] = [green]
+        self.stack.enter_context(patch.object(hole_render, "load_mesh", return_value=(md, {"Green.drc": green})))
         self.stack.enter_context(patch.object(course_reference, "courseview_tees", return_value=[{"index": 2, "name": "Blue"}]))
         self.route_hazards = hazards
         self.route_context = {"source": "ios_live", "sourceRef": "fixture-polyline:1", "globalId": 90101,
@@ -247,15 +251,29 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
     def test_j5_11_live_position_uses_only_the_route_after_its_projection(self):
         self.install_route_geometry()
         # Ten metres beside the route at station 150: the remaining polyline is 50+200=250 m.
-        from ai_caddie.core.data import local_to_wgs84
-        lat, lon = local_to_wgs84(10,150,0,0)
+        from ai_caddie.geometry.shot_projection import local_to_world
+        lat, lon = local_to_world(10,150,ref_lat=0,ref_lon=0)
         self.route_context["currentLocation"] = {"latitude": lat, "longitude": lon}
         seed = mobile_live.hydrate_live_caddie_geometry_context(self.route_context)
         route = seed["routeEvidence"]
         self.assertEqual(route["routeStartLocal"], [0,150])
         self.assertEqual(route["routeLength_m"], 250)
         self.assertEqual(seed["holeRemaining_m"], 250)
+        self.assertEqual((seed["greenDistances"]["frontRouteM"],seed["greenDistances"]["backRouteM"]), (240,250))
         self.assertEqual(route["avoidZones"], [], "the 60–100 m crossing is behind the current station")
+
+    def test_j5_11_route_end_has_no_remaining_tee_distance(self):
+        self.install_route_geometry()
+        from ai_caddie.geometry.shot_projection import local_to_world
+        lat, lon = local_to_world(200,200,ref_lat=0,ref_lon=0)
+        self.route_context["currentLocation"] = {"latitude":lat,"longitude":lon}
+        seed = mobile_live.hydrate_live_caddie_geometry_context(self.route_context)
+        self.assertEqual(seed["routeEvidence"]["routeStartLocal"], [200,200])
+        self.assertEqual(seed["routeEvidence"]["routeLength_m"], 0)
+        self.assertEqual(seed["holeRemaining_m"], 0)
+        self.assertEqual(seed["candidateRoutes"], [])
+        from ai_caddie.caddie.decision import _sequence_distance
+        self.assertEqual(_sequence_distance(seed), 0)
 
     def test_j5_11_straight_route_retains_the_hand_calculated_decision(self):
         self.install_route_geometry(straight=True)
@@ -266,6 +284,36 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
         self.assertTrue(any([step["clubName"] for step in seq["clubs"]] == ["Driver","8I"] for seq in plan["sequences"]), plan["sequences"])
         self.assertEqual([step["routeOffset_m"] for seq in plan["sequences"] if seq["clubs"][0]["clubName"] == "Driver"
                           for step in seq["clubs"]], [240,400])
+
+
+    def test_j5_11_water_after_the_bend_uses_cumulative_mesh_intersections(self):
+        # Compact exports contain straight-chord summaries, not polygons. Read the factual mesh.
+        # The first 100 m leg precedes a lake at x=20..40 on the second leg: 120..140 m.
+        mesh = {"name": "Lake.drc", "positions": [[-20,0,95],[-40,0,95],[-40,0,105],[-20,0,105]],
+                "faces": [[0,1,2],[0,2,3]]}
+        hazard = {"id": "water_1", "kind": "water", "source": "Lake.drc", "component": 1,
+                  "tee_distances": [{"tee_index": 1, "along_target_line_m": [{"start_m": 5, "end_m": 199}]}]}
+        with patch.object(geometry_evidence, "geometry_coverage_for_hole", return_value={"coverage":"ready","missingData":[]}):
+            route = geometry_evidence.build_route_geometry_evidence(90101,1,start=[0,0],target=[100,100],
+                route=[[0,0],[0,100],[100,100]], _hazards_override={"refLat":0,"refLon":0,"hazards":[hazard]},
+                _meshes_override={"meshes":[mesh]})
+        self.assertEqual([(z["carryToFront_m"],z["carryToClear_m"]) for z in route["avoidZones"]], [(120,140)])
+        self.assertEqual([r["local"] for r in route["lineIntersections"]], [[20,100],[40,100]])
+
+    def test_j5_11_polyline_merges_continuous_crossings_but_keeps_real_gaps(self):
+        cases = [
+            # A lake across the corner is one continuous interval, not two hazards.
+            ([[0,0],[0,100],[100,100]], [[-10,90],[20,90],[20,110],[-10,110]], [(90,120)]),
+            # Starting/ending inside water still has factual interval endpoints.
+            ([[0,0],[0,100],[100,100]], [[-1,-1],[101,-1],[101,101],[-1,101]], [(0,200)]),
+            # The same lake crossed on the outward and return legs retains the dry middle gap.
+            ([[0,0],[0,100],[100,100],[100,0]], [[-10,30],[110,30],[110,50],[-10,50]], [(30,50),(250,270)]),
+        ]
+        for points, polygon, expected in cases:
+            with self.subTest(expected=expected), patch.object(geometry_evidence,"geometry_coverage_for_hole",return_value={"coverage":"ready","missingData":[]}):
+                route = geometry_evidence.build_route_geometry_evidence(90101,1,start=points[0],target=points[-1],route=points,
+                    _hazards_override={"refLat":0,"refLon":0,"hazards":[{"id":"water_1","kind":"water","polygon":polygon}]})
+                self.assertEqual([(z["carryToFront_m"],z["carryToClear_m"]) for z in route["avoidZones"]], expected)
 
 
 class DecisionGoldenTests(unittest.TestCase):
