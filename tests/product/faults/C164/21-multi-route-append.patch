@@ -1,8 +1,8 @@
 diff --git a/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift b/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
 --- a/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
 +++ b/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
-@@ -30,6 +30,23 @@
-         }()
+@@ -52,6 +52,23 @@
+         }
          // A selected online sequence is the authoritative route. An online response with no
          // selected sequence is a sparse card and falls through to installed, then local.
 +        var routes: [CaddiePlanSequence] = []

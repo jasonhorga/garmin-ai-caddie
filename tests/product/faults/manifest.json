@@ -1764,6 +1764,13 @@
       "kind": "native-unit",
       "target": "AICaddieTests/LivePlanPagingTests/testUnscoredRoundShowsDashInsteadOfEvenPar",
       "promise": "5.10"
+    },
+    {
+      "id": "tests-product-faults-C164b-26-prep-route-scope-leak",
+      "patch": "tests/product/faults/C164/26-prep-route-scope-leak.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LivePlanPagingTests/testLiveHoleUsesOneRouteWhilePrepRetainsAlternatives",
+      "promise": "5.11"
     }
   ]
 }

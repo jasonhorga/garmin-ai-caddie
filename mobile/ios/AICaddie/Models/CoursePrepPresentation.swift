@@ -160,7 +160,8 @@ struct PrepPlanOption: Equatable, Identifiable {
             online: nil,
             offline: decision,
             par: hole.par,
-            shotType: "tee"
+            shotType: "tee",
+            scope: .prep
         )
     }
 

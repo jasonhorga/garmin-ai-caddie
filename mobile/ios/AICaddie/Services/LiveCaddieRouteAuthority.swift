@@ -1,18 +1,25 @@
 import Foundation
 
-/// One deterministic route authority for live phone, map, and Watch surfaces.
+/// Shared route facts for live-hole and pre-round surfaces. The live-hole scope publishes one
+/// route; the prep scope retains materially different complete alternatives for comparison.
 ///
 /// A live response can contain a useful single-club option while a downloaded CoursePrep row
-/// contains the complete opening chain. This helper publishes exactly one complete route:
-/// online selectedSequence, then installed CoursePrep, then the local evaluator.
+/// contains the complete opening chain. Live-hole scope uses online selectedSequence, then
+/// installed CoursePrep, then the local evaluator.
 enum LiveCaddieRouteAuthority {
+    enum RouteScope: Equatable {
+        case liveHole
+        case prep
+    }
+
     static func resolve(
         installed: CaddiePlanSequence?,
         online: CaddieDecisionResponse?,
         offline: CaddieDecisionResponse?,
         par: Int,
         shotType: String,
-        authority: ClubBagAuthority = .current
+        authority: ClubBagAuthority = .current,
+        scope: RouteScope = .liveHole
     ) -> [CaddiePlanSequence] {
         // Source-specific roster checks keep stale routes out before the single-route selection;
         // `selectedRoute` repeats the check for the chosen sequence after completion filtering.
@@ -34,6 +41,16 @@ enum LiveCaddieRouteAuthority {
             }
             return installed
         }()
+        if scope == .prep {
+            return prepRoutes(
+                installed: installedRoute,
+                online: online,
+                offline: offline,
+                par: par,
+                shotType: shotType,
+                authority: authority
+            )
+        }
         // A selected online sequence is the authoritative route. An online response with no
         // selected sequence is a sparse card and falls through to installed, then local.
         if let selected = selectedRoute(
@@ -58,6 +75,53 @@ enum LiveCaddieRouteAuthority {
             return [selected]
         }
         return []
+    }
+
+    private static func prepRoutes(
+        installed: CaddiePlanSequence?,
+        online: CaddieDecisionResponse?,
+        offline: CaddieDecisionResponse?,
+        par: Int,
+        shotType: String,
+        authority: ClubBagAuthority
+    ) -> [CaddiePlanSequence] {
+        let onlineRoutes = completeDistinctRoutes(
+            online,
+            par: par,
+            shotType: shotType,
+            authority: authority
+        )
+        let offlineRoutes = completeDistinctRoutes(
+            offline,
+            par: par,
+            shotType: shotType,
+            authority: authority
+        )
+        var routes: [CaddiePlanSequence] = []
+        if let installed { routes.append(installed) }
+        for route in onlineRoutes + offlineRoutes {
+            guard !routes.contains(where: { sameVisibleRoute($0, route) }) else { continue }
+            routes.append(route)
+        }
+        return routes
+    }
+
+    private static func completeDistinctRoutes(
+        _ response: CaddieDecisionResponse?,
+        par: Int,
+        shotType: String,
+        authority: ClubBagAuthority
+    ) -> [CaddiePlanSequence] {
+        guard let response else { return [] }
+        return CaddiePlanPresentation.distinctSequences(from: response)
+            .filter { route in
+                isComplete(route, par: par, shotType: shotType)
+                    && authority.rosterAllows(route.steps.map(\.clubName))
+            }
+            .reduce(into: []) { result, route in
+                guard !result.contains(where: { sameVisibleRoute($0, route) }) else { return }
+                result.append(route)
+            }
     }
 
     private static func selectedRoute(

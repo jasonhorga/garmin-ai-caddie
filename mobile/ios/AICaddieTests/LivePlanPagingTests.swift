@@ -69,6 +69,33 @@ final class LivePlanPagingTests: XCTestCase {
         XCTAssertEqual(routes.map(\.id), ["safe"])
     }
 
+    /// J5.11: the live hole publishes one selected route while 备战 keeps the same decision's
+    /// materially different complete alternatives for pre-round comparison.
+    func testLiveHoleUsesOneRouteWhilePrepRetainsAlternatives() {
+        let online = decision(selected: safe)
+        let offline = decision(selected: layup)
+        let liveRoutes = LiveCaddieRouteAuthority.resolve(
+            installed: driver,
+            online: online,
+            offline: offline,
+            par: 4,
+            shotType: "tee",
+            scope: .liveHole
+        )
+        let prepRoutes = LiveCaddieRouteAuthority.resolve(
+            installed: driver,
+            online: online,
+            offline: offline,
+            par: 4,
+            shotType: "tee",
+            scope: .prep
+        )
+        XCTAssertEqual(liveRoutes.map(\.id), ["safe"])
+        XCTAssertGreaterThanOrEqual(prepRoutes.count, 2)
+        XCTAssertEqual(prepRoutes.first?.id, LiveCaddieRouteAuthority.installedRouteId)
+        XCTAssertTrue(prepRoutes.contains { $0.id == "safe" })
+    }
+
     /// J5.11: an empty online response falls through to the installed CoursePrep chain.
     func testInstalledRouteIsTheOnlyFallbackWhenOnlineIsEmpty() {
         let routes = LiveCaddieRouteAuthority.resolve(
