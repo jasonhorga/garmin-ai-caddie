@@ -1806,6 +1806,20 @@
       "kind": "python",
       "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_prep_exemption_uses_current_round_selector",
       "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C175-01-access-filter-token-only",
+      "patch": "tests/product/faults/C175/01-access-filter-token-only.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.C90TimingPersistenceTests.test_uvicorn_access_filter_uses_method_route_templates_and_unmatched_marker",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C175-02-unmatched-raw-path",
+      "patch": "tests/product/faults/C175/02-unmatched-raw-path.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.C90TimingPersistenceTests.test_uvicorn_access_filter_exception_uses_unmatched_marker",
+      "promise": "7.3"
     }
   ]
 }
