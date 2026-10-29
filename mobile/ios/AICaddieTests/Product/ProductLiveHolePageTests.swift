@@ -189,23 +189,73 @@ final class ProductLiveHolePageTests: XCTestCase {
         ))
     }
 
+    /// J5.11: a local route from the current geometry keeps its provenance across page unloads,
+    /// so a later installed CoursePrep chain can replace it instead of being blocked as online.
     func test_j5_11_restored_local_route_allows_later_installed_upgrade() async throws {
         let package = try decisionPackage()
         let hole = try XCTUnwrap(package.holes.first)
+        let prep = try XCTUnwrap(package.coursePrep?.holes.first { $0.hole == hole.number })
+        let revision = try XCTUnwrap(LiveHoleSessionCache.cacheRevision(hole: hole, prep: prep))
         let cache = LiveHoleSessionCache()
         let response = try pageDecision()
         let localRoute = try XCTUnwrap(CaddiePlanSequence.selectedSequence(from: response))
+        // Match the page's versioned read. A nil revision would invalidate this route before
+        // restoration and exercise the initial installed fallback instead of local provenance.
         cache.update(roundId: package.roundId, hole: hole.number,
                      sourceGlobalId: hole.sourceGlobalId, sourceLocalHole: hole.sourceLocalHole,
-                     teeBox: package.course.teeBox) { entry in
+                     teeBox: package.course.teeBox, geometryRevision: revision) { entry in
             entry.caddieRoutes = [localRoute]
             entry.caddieDecisionIsOnline = false
         }
+        let cached = cache.entry(roundId: package.roundId, hole: hole.number,
+                                 sourceGlobalId: hole.sourceGlobalId, sourceLocalHole: hole.sourceLocalHole,
+                                 teeBox: package.course.teeBox, geometryRevision: revision)
+        XCTAssertEqual(cached.caddieRoutes.map(\.id), ["online-safe"])
+        XCTAssertFalse(cached.caddieDecisionIsOnline)
         try await withDecisionPage(package: package, cache: cache) { probe in
-            XCTAssertEqual(try XCTUnwrap(probe.source)(), .offline, "restored local route is not online")
+            let routes = try XCTUnwrap(probe.routes)
+            let source = try XCTUnwrap(probe.source)
+            let refresh = try XCTUnwrap(probe.refresh)
+            XCTAssertEqual(routes().map(\.id), ["online-safe"], "the cached local route must actually be restored")
+            XCTAssertEqual(source(), .offline, "restored local route is not online")
             probe.clientUnavailable = true
-            await probe.refresh?()
-            XCTAssertEqual(try XCTUnwrap(probe.routes)().map(\.id), [LiveCaddieRouteAuthority.installedRouteId])
+            await refresh()
+            XCTAssertEqual(routes().map(\.id), [LiveCaddieRouteAuthority.installedRouteId])
+            XCTAssertEqual(routes().first?.steps.map(\.clubName), ["Driver", "8I"])
+        }
+    }
+
+    /// J5.11: a route without matching geometry is no longer an available fact; the page must
+    /// use the current installed chain rather than misrepresent an invalidated cache as restored.
+    func test_j5_11_unversioned_or_stale_cached_route_uses_current_installed_facts() async throws {
+        let package = try decisionPackage()
+        let hole = try XCTUnwrap(package.holes.first)
+        let prep = try XCTUnwrap(package.coursePrep?.holes.first { $0.hole == hole.number })
+        let revision = try XCTUnwrap(LiveHoleSessionCache.cacheRevision(hole: hole, prep: prep))
+        let localRoute = try XCTUnwrap(CaddiePlanSequence.selectedSequence(from: pageDecision()))
+        let cachedRevisions: [String?] = [nil, "dogleg-r0"]
+        for cachedRevision in cachedRevisions {
+            let cache = LiveHoleSessionCache()
+            cache.update(roundId: package.roundId, hole: hole.number,
+                         sourceGlobalId: hole.sourceGlobalId, sourceLocalHole: hole.sourceLocalHole,
+                         teeBox: package.course.teeBox, geometryRevision: cachedRevision) { entry in
+                entry.caddieRoutes = [localRoute]
+                entry.caddieDecisionIsOnline = false
+            }
+            let stored = cache.entry(roundId: package.roundId, hole: hole.number,
+                                     sourceGlobalId: hole.sourceGlobalId, sourceLocalHole: hole.sourceLocalHole,
+                                     teeBox: package.course.teeBox)
+            XCTAssertEqual(stored.caddieRoutes.map(\.id), ["online-safe"])
+            let cached = cache.entry(roundId: package.roundId, hole: hole.number,
+                                     sourceGlobalId: hole.sourceGlobalId, sourceLocalHole: hole.sourceLocalHole,
+                                     teeBox: package.course.teeBox, geometryRevision: revision)
+            XCTAssertTrue(cached.caddieRoutes.isEmpty)
+            try await withDecisionPage(package: package, cache: cache) { probe in
+                XCTAssertEqual(try XCTUnwrap(probe.source)(), .installed)
+                let routes = try XCTUnwrap(probe.routes)
+                XCTAssertEqual(routes().map(\.id), [LiveCaddieRouteAuthority.installedRouteId])
+                XCTAssertEqual(routes().first?.steps.map(\.clubName), ["Driver", "8I"])
+            }
         }
     }
 
