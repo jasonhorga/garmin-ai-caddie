@@ -45,13 +45,16 @@ executor releases after the merge. Claude commits end with a
 
 ### 会话与交接
 
-- 上下文约 20 万时在同一会话 `/clear` 交接；长文件、日志和代码交给子代理，只带结论回来。
+- 上下文约 20 万时在同一会话 `/clear` 交接；长文件、日志、代码及 CI 产物可交 worker（子代理），只带结论和验收证据回来。
 - 等待靠事件唤醒；Codex 回话控制在一页以内。项目问题统一登记 BACKLOG，交接文件只引用对应条目。
 - 每张卡记各段耗时（写卡、Codex、本机测、CI 轮数和时长、合并到上线）。
+- 项目台写卡、维护验收用例、审查每个 diff 和回话；连续两次打回由项目台接手。交回写明改动、验证结果、未运行项和风险。
 
 ### 开卡前
 
 - 开卡前整份过 BACKLOG；同处代码/同根因/同一次验证的并一张卡，不碰的分开给 Codex 并行。
+- BACKLOG 状态用标记、靠对账不靠记忆：每次合并后、交接前、每天跑 `ah backlog <BACKLOG.md> --repo <owner/name>`；交接里的"下一批"直接贴它的输出，不手写。
+- 复审、交回、部署、验证里发现已知未做/不达标/留以后，当场开卡或在原卡写去向卡号；只写在备注里不算数。
 
 ### 测试约定
 
@@ -61,6 +64,7 @@ executor releases after the merge. Claude commits end with a
 ### CI
 
 - GitHub 托管优先；额度不够自动退回 homeserver 自托管；需要本机数据库/数据的 job 才放自托管。
+- 合并前确认当前 PR head 的所有必需检查全绿；按改动路径选择项目规定的附加检查；卡片要求的截图等产物须取同一次 run，逐项核对并写明验收证据。
 
 ### 本机验证
 
@@ -71,4 +75,4 @@ executor releases after the merge. Claude commits end with a
 
 - 清理按 POLICY allow-list；资源所属项目台负责动作和授权，授权要 Jason 在那个会话里说。
 - 发布容器 `--restart no`；上线后删没有同 revision 容器的旧镜像。
-
+<!-- agenthub:collab:end -->
