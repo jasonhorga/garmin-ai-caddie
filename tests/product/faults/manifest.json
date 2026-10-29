@@ -819,6 +819,55 @@
       "kind": "python",
       "target": "tests.test_course_install",
       "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C135d-16",
+      "patch": "tests/product/faults/C135d/16-watch-template-marks-play.patch",
+      "kind": "python",
+      "target": "tests.test_course_install",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C135d-17",
+      "patch": "tests/product/faults/C135d/17-late-upload-takes-current.patch",
+      "kind": "python",
+      "target": "tests.test_course_install",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C135d-18",
+      "patch": "tests/product/faults/C135d/18-finish-removes-later-rounds.patch",
+      "kind": "python",
+      "target": "tests.test_course_install",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C135d-19",
+      "patch": "tests/product/faults/C135d/19-round-package-loses-courses.patch",
+      "kind": "python",
+      "target": "tests.test_course_install",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C135d-20",
+      "patch": "tests/product/faults/C135d/20-event-log-loses-courses.patch",
+      "kind": "python",
+      "target": "tests.test_course_install",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C135d-21",
+      "patch": "tests/product/faults/C135d/21-event-identity-loses-courses.patch",
+      "kind": "python",
+      "target": "tests.test_course_install",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C135d-22",
+      "patch": "tests/product/faults/C135d/22-round-refresh-starts-play.patch",
+      "kind": "python",
+      "target": "tests.test_course_install",
+      "promise": "4.2"
     }
   ]
 }

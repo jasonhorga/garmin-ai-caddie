@@ -1,0 +1,11 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2148,7 +2148,7 @@
+         ensure_geometry=ensure_geometry,
+         player_id=player_id,
+     )
+-    _record_round_activity(player_id, round_id, global_ids=_package_course_ids(package), restore_only=True)
++    _record_round_activity(player_id, round_id, global_ids=_package_course_ids(package), restore_only=False)
+     return package
+
+

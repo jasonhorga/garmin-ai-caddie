@@ -2148,8 +2148,7 @@ def mobile_round_package(
         ensure_geometry=ensure_geometry,
         player_id=player_id,
     )
-    _record_round_activity(player_id, round_id,
-                           has_events=bool((getattr(package, "eventCursor", None) or {}).get("serverSequence")))
+    _record_round_activity(player_id, round_id, global_ids=_package_course_ids(package), restore_only=True)
     return package
 
 
@@ -2383,9 +2382,61 @@ _ACTIVE_COURSES: dict[tuple[str, str], tuple[int, ...]] = {}
 _ACTIVE_ROUNDS_LOCK = threading.Lock()
 
 
+def _positive_course_ids(values) -> list[int]:
+    result: set[int] = set()
+    for value in values:
+        try:
+            gid = int(value)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if gid > 0:
+            result.add(gid)
+    return sorted(result)
+
+
+def _package_course_ids(package) -> list[int]:
+    """Read only proven course/loop/physical-hole identity, without dumping package enrichment."""
+    def field(value, name):
+        return value.get(name) if isinstance(value, dict) else getattr(value, name, None)
+
+    values = [field(field(package, "course"), "globalId"), field(package, "globalId")]
+    values.extend(field(loop, "globalId") for loop in (field(package, "roundLoops") or []))
+    values.extend(field(hole, "sourceGlobalId") for hole in (field(package, "holes") or []))
+    return _positive_course_ids(values)
+
+
+def _event_round_course_ids(player_id: str, round_id: str) -> list[int]:
+    """Recover the acting player's course binding from accepted facts after an API restart."""
+    with _ACTIVE_ROUNDS_LOCK:
+        known = _ACTIVE_COURSES.get((str(player_id), str(round_id)))
+        if known:
+            return list(known)
+    from . import mobile
+    from ai_caddie.caddie.mobile_round_identity import load_mobile_round_identity
+
+    identity = load_mobile_round_identity(round_id, root=mobile.MOBILE_ROOT, player_id=player_id)
+    gids = _package_course_ids(identity)
+    if gids:
+        return gids
+    try:
+        events = mobile.round_events(round_id, root=mobile.MOBILE_ROOT, player_id=player_id)
+    except (OSError, ValueError):
+        # The append already committed: optional scheduling recovery must not reject its receipt.
+        return []
+    for event in events:
+        payload = event.get("payload") or {}
+        if not isinstance(payload, dict):
+            continue
+        gids.extend(_package_course_ids(payload))
+        gids.extend(payload.get(name) for name in (
+            "courseGlobalId", "frontNineGlobalCourseId", "backNineGlobalCourseId",
+        ))
+    return _positive_course_ids(gids)
+
+
 def _latest_rounds_by_player() -> dict[str, tuple[str, str]]:
-    # Insertion order tracks starts/new events, not background package refreshes of older rounds.
-    return {key[0]: key for key in _ACTIVE_ROUNDS}
+    # Only course-bound rounds can own selected installs. Events never reorder first registration.
+    return {key[0]: key for key in _ACTIVE_ROUNDS if _ACTIVE_COURSES.get(key)}
 
 
 def _publish_current_courses() -> None:
@@ -2401,9 +2452,9 @@ def _current_course_ids(player_id: str) -> tuple[int, ...]:
         return _ACTIVE_COURSES.get(key, ())
 
 
-def _record_round_activity(player_id: str, round_id: str | None, *, finished: bool = False, has_events: bool = False,
+def _record_round_activity(player_id: str, round_id: str | None, *, finished: bool = False,
                            global_ids: list[int] | tuple[int, ...] | None = None,
-                           new_events: bool = False) -> None:
+                           new_events: bool = False, restore_only: bool = False) -> None:
     if not round_id:
         return
     with _ACTIVE_ROUNDS_LOCK:
@@ -2415,15 +2466,17 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
         key = (str(player_id), str(round_id))
         latest = _latest_rounds_by_player().get(key[0])
         if finished:
-            # Finishing the latest round must not revive an earlier round's background reads.
-            for old in list(_ACTIVE_ROUNDS):
-                if old == key or (latest == key and old[0] == key[0]):
+            # A finish retires itself and earlier registrations, never a later playing round.
+            own = [old for old in _ACTIVE_ROUNDS if old[0] == key[0]]
+            if key in own:
+                for old in own[:own.index(key) + 1]:
                     _ACTIVE_ROUNDS.pop(old, None)
                     _ACTIVE_COURSES.pop(old, None)
-        elif has_events or key in _ACTIVE_ROUNDS or not str(round_id).startswith(("home-", "prep-library-")):
-            if new_events:
-                _ACTIVE_ROUNDS.pop(key, None)
-            if key not in _ACTIVE_ROUNDS or latest == key:
+        elif new_events or not str(round_id).startswith(("home-", "prep-library-", "watch-template-")):
+            # Uploads and round refreshes may be delayed for days. They can recover an idle API
+            # or renew this round, but cannot displace another course-bound playing round.
+            may_restore = not ((new_events or restore_only) and latest is not None and latest != key)
+            if may_restore and (key not in _ACTIVE_ROUNDS or latest == key or latest is None):
                 _ACTIVE_ROUNDS[key] = now + 30 * 60
                 if global_ids:
                     _ACTIVE_COURSES[key] = tuple(sorted({int(value) for value in global_ids if int(value) > 0}))
@@ -2853,9 +2906,7 @@ def mobile_course_package(
     # insufficient. Its existing read-only request disables all three options; playing/download
     # paths request background geometry. A home read never starts or refreshes a playing lease.
     if include_event_cursor or background_geometry or ensure_geometry:
-        _record_round_activity(player_id, round_id,
-                               has_events=bool((getattr(package, "eventCursor", None) or {}).get("serverSequence")),
-                               global_ids=[gid for gid, _half in round_loops])
+        _record_round_activity(player_id, round_id, global_ids=[gid for gid, _half in round_loops])
     mark_request_stage("package_route")
     if not background_geometry or ensure_geometry:
         return package
@@ -3079,7 +3130,7 @@ def mobile_round_events(
     result = append_mobile_events_response(
         round_id, request, idempotency_key=idempotency_key, player_id=acting_player_id
     )
-    _record_round_activity(acting_player_id, round_id, has_events=bool(getattr(request, "events", [])),
+    _record_round_activity(acting_player_id, round_id, global_ids=_event_round_course_ids(acting_player_id, round_id),
                            new_events=bool(getattr(request, "events", [])))
     return result
 

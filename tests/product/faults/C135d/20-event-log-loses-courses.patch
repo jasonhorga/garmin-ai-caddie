@@ -1,0 +1,11 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2431,7 +2431,7 @@
+         gids.extend(payload.get(name) for name in (
+             "courseGlobalId", "frontNineGlobalCourseId", "backNineGlobalCourseId",
+         ))
+-    return _positive_course_ids(gids)
++    return []
+
+
+ def _latest_rounds_by_player() -> dict[str, tuple[str, str]]:

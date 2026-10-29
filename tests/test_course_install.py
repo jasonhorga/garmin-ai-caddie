@@ -289,6 +289,24 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self.assertEqual(self.priority(123), 10)
         self.assertTrue(self.main.nearby_work_blocked())
 
+    def test_old_log_with_known_course_cannot_take_over_current_round(self):
+        from ai_caddie.caddie.mobile_live import append_event_batch
+        from server_v2.models import LiveRoundEventBatchRequest
+
+        self.package(999, "live-b")
+        self._background_job(123)
+        # Existing legacy log metadata is read; the current Watch upload remains schema-valid.
+        append_event_batch("saved-old-a", [self._event("saved-old-a", "first", payload={"strokes": 4, "courseGlobalId": 123})],
+                           idempotency_key="first", root=self.root, player_id="fixture")
+        body = LiveRoundEventBatchRequest(roundId="saved-old-a", events=[
+            self._event("saved-old-a", "late"),
+        ])
+        self.main.mobile_round_events("saved-old-a", body, "late", acting_player_id="fixture")
+        self.assertEqual(self.main._current_course_ids("fixture"), (999,))
+        self.assertEqual(self.priority(999), 10)
+        self.assertEqual(self.priority(123), 20)
+        self.assertTrue(self.main.nearby_work_blocked())
+
     def test_watch_events_restore_courses_from_durable_package_identity(self):
         from ai_caddie.caddie.mobile_round_identity import save_mobile_round_identity
         from server_v2.models import LiveRoundEventBatchRequest
@@ -313,6 +331,16 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
             self.main.mobile_round_package("live-a", player_id="fixture")
         self.assertEqual(set(self.main._current_course_ids("fixture")), {123, 456})
         self.assertEqual(self.priority(123), 10)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_old_round_package_refresh_cannot_displace_bound_play(self):
+        self.package(999, "live-b")
+        package = SimpleNamespace(course={"globalId": 123}, roundLoops=[{"globalId": 123}],
+                                  holes=[{"sourceGlobalId": 123}], eventCursor={"serverSequence": 4})
+        with patch.object(self.main, "build_mobile_round_package_response", return_value=package):
+            self.main.mobile_round_package("saved-old-a", player_id="fixture")
+        self.assertEqual(self.main._current_course_ids("fixture"), (999,))
+        self.assertEqual(self.priority(999), 10)
         self.assertTrue(self.main.nearby_work_blocked())
 
     def test_current_course_is_scoped_to_player_on_resume(self):

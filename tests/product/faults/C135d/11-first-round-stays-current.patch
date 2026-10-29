@@ -1,11 +1,11 @@
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2385,7 +2385,7 @@
+@@ -2436,7 +2436,7 @@
 
  def _latest_rounds_by_player() -> dict[str, tuple[str, str]]:
-     # Insertion order tracks starts/new events, not background package refreshes of older rounds.
--    return {key[0]: key for key in _ACTIVE_ROUNDS}
-+    return {key[0]: key for key in reversed(_ACTIVE_ROUNDS)}
+     # Only course-bound rounds can own selected installs. Events never reorder first registration.
+-    return {key[0]: key for key in _ACTIVE_ROUNDS if _ACTIVE_COURSES.get(key)}
++    return {key[0]: key for key in reversed(_ACTIVE_ROUNDS) if _ACTIVE_COURSES.get(key)}
 
 
  def _publish_current_courses() -> None:
