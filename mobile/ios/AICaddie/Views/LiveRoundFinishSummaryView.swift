@@ -4,7 +4,7 @@ import SwiftUI
 /// recovery. No value is installed for an unrelated sealed round's Hub card.
 struct RemovedFinishRejectionAction {
     let recovery: DeferredFinishRecovery
-    let discard: () -> Bool
+    let discard: (String, Int) -> Bool
 }
 
 private struct RemovedFinishRejectionActionKey: EnvironmentKey {

@@ -75,7 +75,7 @@ struct HubDeferredFinishRecoveryCard: View {
     let recovery: DeferredFinishRecovery
     let canResume: Bool
     let onResume: () -> Bool
-    let onDiscardRemoved: () -> Bool
+    let onDiscardRemoved: (String, Int) -> Bool
     @State private var showingDiscardConfirmation = false
 
     var body: some View {
@@ -125,7 +125,7 @@ struct HubDeferredFinishRecoveryCard: View {
             titleVisibility: .visible
         ) {
             Button("丢弃记录", role: .destructive) {
-                _ = onDiscardRemoved()
+                _ = onDiscardRemoved(recovery.roundId, recovery.hole)
             }
             Button("取消", role: .cancel) {}
         }

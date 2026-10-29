@@ -641,6 +641,7 @@ public struct RoundHomeView: View {
     public let isFinishingRound: Bool
     public let finishErrorMessage: String?
     public let deferredFinishRecovery: DeferredFinishRecovery?
+    public let liveFinishRecovery: DeferredFinishRecovery?
     public let onEvent: (LiveRoundEvent) -> Void
     public let onPrepareRound: (String) -> Void
     /// Start a round: (roundId, teeBox, ordered loops) — B4b-2 `loops=`.
@@ -653,7 +654,7 @@ public struct RoundHomeView: View {
     public let onContinueIntoSecondLoop: (RoundLoopEntry, String) -> Void
     public let onFinishRound: () async -> Bool
     public let onResumeDeferredFinish: () -> Bool
-    public let onDiscardRemovedDeferredFinish: () -> Bool
+    public let onDiscardRemovedDeferredFinish: (String, Int) -> Bool
     public let onDiscardRound: () -> Void
     public let onSetActiveHole: (Int) -> Void
     public let onRetainReadyHolePrep: (String, Int, CoursePrepHole) -> Void
@@ -786,6 +787,7 @@ public struct RoundHomeView: View {
         isFinishingRound: Bool = false,
         finishErrorMessage: String? = nil,
         deferredFinishRecovery: DeferredFinishRecovery? = nil,
+        liveFinishRecovery: DeferredFinishRecovery? = nil,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (String, String, [RoundLoopEntry]) -> Void = { _, _, _ in },
@@ -795,7 +797,7 @@ public struct RoundHomeView: View {
         onContinueIntoSecondLoop: @escaping (RoundLoopEntry, String) -> Void = { _, _ in },
         onFinishRound: @escaping () async -> Bool = { false },
         onResumeDeferredFinish: @escaping () -> Bool = { false },
-        onDiscardRemovedDeferredFinish: @escaping () -> Bool = { false },
+        onDiscardRemovedDeferredFinish: @escaping (String, Int) -> Bool = { _, _ in false },
         onDiscardRound: @escaping () -> Void = {},
         onSetActiveHole: @escaping (Int) -> Void = { _ in },
         onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
@@ -870,6 +872,7 @@ public struct RoundHomeView: View {
         self.isFinishingRound = isFinishingRound
         self.finishErrorMessage = finishErrorMessage
         self.deferredFinishRecovery = deferredFinishRecovery
+        self.liveFinishRecovery = liveFinishRecovery
         self.onEvent = onEvent
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
@@ -1825,14 +1828,19 @@ public struct RoundHomeView: View {
 
     /// An active or Watch-created round owns this card. Starting a second round would orphan the
     /// durable score/shot state, so the new-round entry only exists when neither state does.
-    private var removedFinishRejectionAction: RemovedFinishRejectionAction? {
-        guard let recovery = deferredFinishRecovery, !recovery.holeAvailable,
+    var removedFinishRejectionAction: RemovedFinishRejectionAction? {
+        guard let recovery = liveFinishRecovery ?? deferredFinishRecovery, !recovery.holeAvailable,
               liveRoundState?.roundId == recovery.roundId else { return nil }
         return RemovedFinishRejectionAction(recovery: recovery, discard: onDiscardRemovedDeferredFinish)
     }
 
+    var showsInProgressPlayCard: Bool {
+        liveRoundState != nil
+            && liveRoundState?.roundId != (liveFinishRecovery ?? deferredFinishRecovery)?.roundId
+    }
+
     @ViewBuilder private var playSection: some View {
-        if let deferredFinishRecovery {
+        if let deferredFinishRecovery = liveFinishRecovery ?? deferredFinishRecovery {
             VStack(alignment: .leading, spacing: 10) {
                 HubDeferredFinishRecoveryCard(
                     recovery: deferredFinishRecovery,
@@ -1841,7 +1849,7 @@ public struct RoundHomeView: View {
                     onResume: onResumeDeferredFinish,
                     onDiscardRemoved: onDiscardRemovedDeferredFinish
                 )
-                if liveRoundState != nil, liveRoundState?.roundId != deferredFinishRecovery.roundId {
+                if showsInProgressPlayCard {
                     Text("当前还有另一场进行中的球局，请先结束后再重录第 \(deferredFinishRecovery.hole) 洞")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.secondary)

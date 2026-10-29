@@ -94,7 +94,8 @@ public struct AICaddieApp: App {
                         roundStartSelection: model.roundStartSelection,
                         isFinishingRound: model.isFinishingRound,
                         finishErrorMessage: model.finishErrorMessage,
-                        deferredFinishRecovery: model.deferredFinishRecovery,
+                        deferredFinishRecovery: model.sealedFinishRecovery,
+                        liveFinishRecovery: model.liveFinishRecovery,
                         onEvent: model.handleEvent,
                         onPrepareRound: { roundId in
                             Task {
@@ -128,8 +129,8 @@ public struct AICaddieApp: App {
                         onResumeDeferredFinish: {
                             model.resumeDeferredFinishForEditing()
                         },
-                        onDiscardRemovedDeferredFinish: {
-                            model.discardRemovedDeferredFinishRejection()
+                        onDiscardRemovedDeferredFinish: { roundId, hole in
+                            model.discardRemovedDeferredFinishRejection(roundId: roundId, hole: hole)
                         },
                         onDiscardRound: {
                             model.discardActiveRound()
@@ -465,6 +466,22 @@ public final class LiveRoundAppModel: ObservableObject {
     /// A durably rejected deferred finish, or a live finish whose rejected hole was removed.
     /// Both surfaces use the same confirmation-gated discard action.
     @Published public private(set) var deferredFinishRecovery: DeferredFinishRecovery? = nil
+
+    // Recovery interfaces initially expose the existing stored behaviour for behavioral red tests.
+    public var liveFinishRecovery: DeferredFinishRecovery? {
+        guard deferredFinishRecovery?.roundId == liveRoundState?.roundId else { return nil }
+        return deferredFinishRecovery
+    }
+
+    public var sealedFinishRecovery: DeferredFinishRecovery? {
+        guard deferredFinishRecovery?.roundId != liveRoundState?.roundId else { return nil }
+        return deferredFinishRecovery
+    }
+
+    @discardableResult
+    public func discardRemovedDeferredFinishRejection(roundId: String, hole: Int) -> Bool {
+        discardRemovedDeferredFinishRejection()
+    }
 
     public func consumePendingLiveHole() {
         pendingLiveHole = nil

@@ -1455,6 +1455,188 @@ final class C33EventTests: XCTestCase {
         }
     }
 
+    /// J5.9: abandoning the live round removes its recovery too, so the Hub can start again.
+    func testProductSpec59AbandoningLiveRoundClearsRemovedHoleRecovery() async throws {
+        try await withLiveRemovedRejection { model, store, package in
+            model.discardActiveRound()
+            XCTAssertNil(model.liveRoundState)
+            XCTAssertNil(model.liveFinishRecovery)
+            XCTAssertNil(model.deferredFinishRecovery, "an abandoned round must not leave a Hub recovery")
+            XCTAssertNil(model.sealedFinishRecovery)
+            XCTAssertNil(try store.loadRoundPackage(roundId: package.roundId))
+            XCTAssertTrue(try store.loadQuarantinedEvents(roundId: package.roundId).isEmpty)
+            let home = self.recoveryHome(model)
+            XCTAssertNil(home.deferredFinishRecovery)
+            XCTAssertNil(home.liveFinishRecovery)
+            XCTAssertNil(home.removedFinishRejectionAction)
+        }
+    }
+
+    /// J5.9: nine holes plus a second nine restores round hole 10. A stale discard cannot delete it.
+    func testProductSpec59RestoringSecondLoopPreservesRejectedScore() async throws {
+        try await withLiveRemovedRejection { model, store, package in
+            let action = try XCTUnwrap(self.recoveryHome(model).removedFinishRejectionAction)
+            await model.setSecondLoop(RoundLoopEntry(globalId: 32850, half: "all"), roundId: package.roundId)
+            XCTAssertEqual(model.package?.holes.count, 18)
+            XCTAssertTrue(model.package?.holes.contains { $0.number == 10 } == true)
+            XCTAssertNil(model.liveFinishRecovery, "a restored hole must no longer offer removed-hole discard")
+            let blocked = await model.finishActiveRound()
+            XCTAssertFalse(blocked)
+            XCTAssertTrue(model.finishErrorMessage?.contains("请重新录入") == true)
+            XCTAssertNil(self.recoveryHome(model).removedFinishRejectionAction,
+                         "the finish sheet must show the re-entry instruction rather than the removed-hole card")
+            XCTAssertFalse(action.discard(action.recovery.roundId, action.recovery.hole))
+            XCTAssertEqual(try store.loadQuarantinedEvents(roundId: package.roundId).map(\.event.eventId),
+                           ["live-rejected-10"])
+            XCTAssertEqual(model.liveRoundState?.roundId, package.roundId)
+            XCTAssertFalse(try store.isRoundPendingFinish(package.roundId))
+        }
+    }
+
+    /// J5.9: recovery is additional Hub information; it never removes the route back to a live game.
+    func testProductSpec59HubKeepsLiveEntryAlongsideRemovedHoleRecovery() async throws {
+        try await withLiveRemovedRejection { model, _, package in
+            let home = self.recoveryHome(model)
+            XCTAssertTrue(home.showsInProgressPlayCard, "the live HubRoute.hole card must still render")
+            let action = try XCTUnwrap(home.removedFinishRejectionAction)
+            XCTAssertEqual(action.recovery.roundId, package.roundId)
+            XCTAssertEqual(action.recovery.hole, 10)
+            XCTAssertFalse(action.recovery.holeAvailable)
+        }
+    }
+
+    /// J5.9: the same model-bound action supplied to the live finish sheet can discard and seal.
+    func testProductSpec59LiveFinishRecoveryActionSealsOnlyItsRound() async throws {
+        try await withLiveRemovedRejection { model, store, package in
+            let action = try XCTUnwrap(self.recoveryHome(model).removedFinishRejectionAction)
+            XCTAssertTrue(action.discard(action.recovery.roundId, action.recovery.hole))
+            XCTAssertNil(model.liveRoundState)
+            XCTAssertNil(model.liveFinishRecovery, "sealing must remove the live-only affordance immediately")
+            await model.waitForDeferredRoundFinishesForTesting()
+            XCTAssertTrue(try store.loadPendingRoundFinishes().isEmpty)
+            XCTAssertNil(try store.loadRoundPackage(roundId: package.roundId))
+            XCTAssertNil(model.deferredFinishRecovery)
+        }
+    }
+
+    /// J5.9: discard is tied to the displayed round and hole, not whichever recovery is current.
+    func testProductSpec59StaleDiscardIdentityLeavesRejectedFactsUntouched() async throws {
+        try await withLiveRemovedRejection { model, store, package in
+            XCTAssertFalse(model.discardRemovedDeferredFinishRejection(roundId: "other-round", hole: 10))
+            XCTAssertFalse(model.discardRemovedDeferredFinishRejection(roundId: package.roundId, hole: 11))
+            XCTAssertEqual(try store.loadQuarantinedEvents(roundId: package.roundId).map(\.event.eventId),
+                           ["live-rejected-10"])
+            XCTAssertEqual(model.liveRoundState?.roundId, package.roundId)
+        }
+    }
+
+    /// J5.9: ordinary score sync must preserve an unresolved finish's actionable status.
+    func testProductSpec59OrdinarySyncPreservesPausedFinishInstruction() async throws {
+        try await withLiveRemovedRejection { model, _, _ in
+            await model.syncPendingEvents()
+            XCTAssertTrue(model.syncStatus.hasPrefix("结束已暂停 · "))
+            XCTAssertTrue(model.syncStatus.contains("第 10 洞"))
+            XCTAssertTrue(model.syncStatus.contains("该洞成绩不会上传"))
+        }
+    }
+
+    /// J5.9: a sealed A and a live B own separate recovery facts, including after A's retry/B sync.
+    func testProductSpec59SealedAndLiveRecoveriesRemainIndependent() async throws {
+        try await withDeferredRecovery(hole: 10) { model, store, packageA, _ in
+            let packageB = packageA.rebasedForOfflineStart(roundId: "live-recovery-b")
+            C33URLProtocol.setHandlers(onStart: { proto in
+                if proto.request.url?.path.hasSuffix("/package") == true {
+                    proto.reply(200, try! JSONEncoder().encode(packageB))
+                } else { proto.reply(404) }
+            })
+            try store.saveRoundPackage(packageB)
+            try store.saveRoundStart(roundId: packageB.roundId, startHole: 1)
+            await model.prepareCourseRound(roundId: packageB.roundId, teeBox: "blue", loops: packageB.loopEntries)
+            await model.stopRoundBackgroundWorkForTesting()
+            let rejected = LiveRoundEvent(eventId: "b-rejected-11", roundId: packageB.roundId,
+                timestamp: "2026-01-01T00:02:00Z", hole: 11, kind: .score, payload: ["strokes": .number(3)])
+            try store.appendEvent(rejected)
+            try store.appendSyncMarker(roundId: packageB.roundId, timestamp: "2026-01-01T00:02:01Z",
+                result: SyncResult(accepted: 1, duplicate: false, acceptedEventIds: [rejected.eventId]))
+            try store.quarantineEvent(rejected, status: 422, reason: "removed B hole")
+            let blocked = await model.finishActiveRound()
+            XCTAssertFalse(blocked)
+            XCTAssertEqual(model.liveFinishRecovery?.roundId, packageB.roundId)
+            XCTAssertEqual(model.sealedFinishRecovery?.roundId, packageA.roundId)
+            model.syncOnForeground()
+            await model.waitForDeferredRoundFinishesForTesting()
+            XCTAssertEqual(model.liveFinishRecovery?.hole, 11)
+            XCTAssertEqual(model.sealedFinishRecovery?.hole, 10)
+            XCTAssertTrue(model.syncStatus.hasPrefix("结束已暂停 · "))
+            XCTAssertTrue(model.syncStatus.contains("第 11 洞"), "B follow-up must preserve B's rejected-hole instruction")
+            let home = self.recoveryHome(model)
+            XCTAssertTrue(home.showsInProgressPlayCard)
+            XCTAssertEqual(home.removedFinishRejectionAction?.recovery.roundId, packageB.roundId)
+            model.discardActiveRound()
+            XCTAssertNil(model.liveFinishRecovery)
+            XCTAssertEqual(model.sealedFinishRecovery?.roundId, packageA.roundId)
+            XCTAssertTrue(try store.isRoundPendingFinish(packageA.roundId))
+            XCTAssertEqual(try store.loadQuarantinedEvents(roundId: packageA.roundId).count, 1)
+        }
+    }
+
+    private func recoveryHome(_ model: LiveRoundAppModel) -> RoundHomeView {
+        RoundHomeView(
+            package: model.package, offlineStore: model.offlineStore, sessionStore: nil,
+            liveRoundState: model.liveRoundState,
+            finishErrorMessage: model.finishErrorMessage,
+            deferredFinishRecovery: model.sealedFinishRecovery,
+            liveFinishRecovery: model.liveFinishRecovery,
+            onDiscardRemovedDeferredFinish: { roundId, hole in
+                model.discardRemovedDeferredFinishRejection(roundId: roundId, hole: hole)
+            }
+        )
+    }
+
+    private func withLiveRemovedRejection(
+        _ body: (LiveRoundAppModel, OfflineStore, LiveRoundPackage) async throws -> Void
+    ) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://live-recovery.example.test")!, session: session)
+        let model = c33Model(store, client)
+        let nine = try c33Package()
+        let eighteen = try XCTUnwrap(nine.composingSecondLoop(
+            RoundLoopEntry(globalId: 32850, half: "all"), from: nine, roundId: "live-recovery-round"
+        ))
+        C33URLProtocol.setHandlers(onStart: { proto in
+            let path = proto.request.url?.path ?? ""
+            if path.hasSuffix("/package") { proto.reply(200, try! JSONEncoder().encode(eighteen)); return }
+            if path.hasSuffix("/events") {
+                let batch = try! JSONDecoder().decode(EventBatch.self, from: c33RequestBody(proto.request))
+                proto.reply(200, try! JSONEncoder().encode(SyncResult(accepted: batch.events.count,
+                    duplicate: false, acceptedEventIds: batch.events.map(\.eventId))))
+            } else if path.hasSuffix("/finish") { proto.reply(200) } else { proto.reply(404) }
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        await model.prepareCourseRound(roundId: eighteen.roundId, teeBox: "blue", loops: eighteen.loopEntries)
+        await model.stopRoundBackgroundWorkForTesting()
+        XCTAssertEqual(model.package?.holes.count, 18)
+        let rejected = LiveRoundEvent(eventId: "live-rejected-10", roundId: eighteen.roundId,
+            timestamp: "2026-01-01T00:00:00Z", hole: 10, kind: .score, payload: ["strokes": .number(3)])
+        try store.appendEvent(rejected)
+        try store.appendSyncMarker(roundId: eighteen.roundId, timestamp: "2026-01-01T00:00:01Z",
+            result: SyncResult(accepted: 1, duplicate: false, acceptedEventIds: [rejected.eventId]))
+        try store.quarantineEvent(rejected, status: 422, reason: "removed live hole")
+        await model.setSecondLoop(nil, roundId: eighteen.roundId)
+        XCTAssertEqual(model.package?.holes.count, 9)
+        let blocked = await model.finishActiveRound()
+        XCTAssertFalse(blocked)
+        XCTAssertEqual(model.liveFinishRecovery?.hole, 10)
+        try await body(model, store, eighteen)
+        await model.stopRoundBackgroundWorkForTesting()
+        await model.waitForDeferredRoundFinishesForTesting()
+    }
+
     private func withDeferredRecovery(
         hole: Int = 3,
         _ body: (LiveRoundAppModel, OfflineStore, LiveRoundPackage, WatchEventBridge) async throws -> Void
