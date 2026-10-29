@@ -286,7 +286,13 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
                 "carries":[o["carry_m"] for o in plan["options"]]})
         print("GREEN_POSITION_PROBE=" + json.dumps(observations))
         self.assertEqual([r["holeRemaining"] for r in observations], [20,26.9,15])
-        self.assertEqual([r["carries"] for r in observations], [[10,20,28],[17,27,35],[5,15,23]])
+    def test_j5_11_supplied_pin_distance_is_preserved_near_green(self):
+        self.install_route_geometry()
+        carries = []
+        for local, phone in [((200,220),20),((190,225),27),((215,200),15)]:
+            _seed, plan = self.position_decision(local,phone)
+            carries.append([o["carry_m"] for o in plan["options"]])
+        self.assertEqual(carries, [[10,20,28],[17,27,35],[5,15,23]])
 
     def test_j5_11_explicit_distance_wins_over_dogleg_route(self):
         self.install_route_geometry()
