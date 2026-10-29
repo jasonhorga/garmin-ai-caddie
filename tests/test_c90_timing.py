@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 import json
+import logging
 from pathlib import Path
 import tempfile
 import unittest
@@ -17,6 +18,47 @@ from server_v2.timing_api import sanitize_client_record
 
 
 class C90TimingPersistenceTests(unittest.TestCase):
+    def test_uvicorn_access_filter_uses_method_route_templates_and_unmatched_marker(self) -> None:
+        """J7.3: access diagnostics retain method/status but never retain opaque URL segments."""
+        cases = [
+            ("GET", "/api/v2/players/p_1a2b3c4d/clubs/bag?token=secret", 200, "/api/v2/players/{player_id}/clubs/bag"),
+            ("PUT", "/api/v2/players/p_1a2b3c4d/clubs/bag", 204, "/api/v2/players/{player_id}/clubs/bag"),
+            ("GET", "/api/v2/history/rounds/900001", 404, "/api/v2/history/rounds/{round_ref}"),
+            ("GET", "/api/v2/history/rounds/r_ab12cd", 500, "/api/v2/history/rounds/{round_ref}"),
+            ("GET", "/api/v2/history/rounds/r_ab12cd/removed", 404, "<unmatched>"),
+        ]
+        for method, path, status, expected_path in cases:
+            record = logging.LogRecord(
+                "uvicorn.access", logging.INFO, __file__, 0,
+                '%s "%s %s %s" %s',
+                ("127.0.0.1", method, path, "HTTP/1.1", status), None,
+            )
+            self.assertTrue(request_timing.URLRedactionFilter().filter(record))
+            output = record.getMessage()
+            self.assertIn(f'"{method} ', output)
+            self.assertIn(f'" {status}', output)
+            self.assertIn(expected_path, output)
+            self.assertNotIn("p_1a2b3c4d", output)
+            self.assertNotIn("900001", output)
+            self.assertNotIn("r_ab12cd", output)
+            self.assertNotIn("token=secret", output)
+
+    def test_uvicorn_access_filter_exception_uses_unmatched_marker(self) -> None:
+        """J7.3: a route matcher failure still emits a safe access record."""
+        path = "/api/v2/history/rounds/r_ab12cd"
+        record = logging.LogRecord(
+            "uvicorn.access", logging.INFO, __file__, 0,
+            '%s "%s %s %s" %s',
+            ("127.0.0.1", "GET", path, "HTTP/1.1", 503), None,
+        )
+        with patch.object(request_timing, "route_template", side_effect=RuntimeError("matcher"), create=True):
+            self.assertTrue(request_timing.URLRedactionFilter().filter(record))
+        output = record.getMessage()
+        self.assertIn("<unmatched>", output)
+        self.assertIn('"GET ', output)
+        self.assertIn('" 503', output)
+        self.assertNotIn("r_ab12cd", output)
+
     def test_template_path_keeps_double_slash_prefix_without_url_parsing(self) -> None:
         self.assertEqual(request_timing.template_path("//api/v2/courses/3881?x=1"), "//api/v2/courses/{id}")
         self.assertEqual(request_timing.template_path("//[x"), "//[x")
