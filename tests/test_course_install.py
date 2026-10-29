@@ -134,6 +134,7 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self.enterContext(patch.object(main, "_ACTIVE_COURSES", {}))
         self.enterContext(patch.object(main, "_ACTIVE_EVENT_TIMES", {}))
         self.enterContext(patch.object(main, "_ACTIVE_EVENT_DEVICES", {}))
+        self.enterContext(patch.object(main, "_ACTIVE_PACKAGED_ROUNDS", set()))
         self.enterContext(patch.object(main, "_ACTIVE_SELECTIONS", {}))
         self.enterContext(patch.object(ci, "_CURRENT_COURSE_IDS", type(ci._CURRENT_COURSE_IDS)()))
         self.enterContext(patch.object(ci, "_ACTIVE", set()))
@@ -422,17 +423,16 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
             "legacy-round", body, "legacy-2", acting_player_id="fixture"
         )
         self.assertEqual(result.accepted, 1)
-        before = len(__import__("ai_caddie.caddie.mobile_live", fromlist=["round_events"]).round_events(
-            "legacy-round", root=self.root, player_id="fixture"
-        ))
+        from ai_caddie.caddie.mobile_live import round_events
+
+        before = len(round_events("legacy-round", root=self.root, player_id="fixture"))
         duplicate = self.main.mobile_round_events(
             "legacy-round", body, "legacy-2", acting_player_id="fixture"
         )
-        after = len(__import__("ai_caddie.caddie.mobile_live", fromlist=["round_events"]).round_events(
-            "legacy-round", root=self.root, player_id="fixture"
-        ))
+        after = len(round_events("legacy-round", root=self.root, player_id="fixture"))
         self.assertTrue(duplicate.duplicate)
         self.assertEqual(duplicate.accepted, 0)
+        self.assertIn("legacy-2", duplicate.duplicateEventIds)
         self.assertEqual(after, before)
 
     def test_rv161_p1_switch_mixed_old_round_demoted(self):
