@@ -912,13 +912,26 @@ public final class SyncClient {
         teeBox: String,
         loops: [RoundLoopEntry]
     ) async throws -> CourseInstallStatus? {
-        try await fetchCourseInstallStatus(
-            globalId: globalId,
-            teeBox: teeBox,
-            loops: loops,
-            timeoutInterval: Self.courseInstallStatusTimeoutInterval,
-            maximumAttempts: 1
-        )
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/courses/\(globalId)/install/status"),
+            resolvingAgainstBaseURL: false
+        ) else { throw URLError(.badURL) }
+        components.queryItems = [
+            URLQueryItem(name: "tee_box", value: teeBox),
+            URLQueryItem(name: "loops", value: RoundLoopEntry.query(loops)),
+        ]
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = Self.courseInstallStatusTimeoutInterval
+        applyAuth(to: &request)
+        do {
+            let (data, response) = try await requestData(for: request, in: session)
+            try validate(response: response, data: data)
+            return try decoder.decode(CourseInstallStatus.self, from: data)
+        } catch let error as SyncClientError {
+            if case .http(status: 404, body: _) = error { return nil }
+            throw error
+        }
     }
 
     /// Fast, best-effort release check used only when opening an already complete local course.

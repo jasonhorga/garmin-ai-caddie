@@ -1,6 +1,6 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -6820,7 +6820,7 @@
+@@ -6904,7 +6904,7 @@
                  let serverStatus: CourseInstallStatus?
                  let statusProbeFailed: Bool
                  do {

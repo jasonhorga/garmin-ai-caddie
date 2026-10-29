@@ -2132,6 +2132,36 @@ public final class LiveRoundAppModel: ObservableObject {
 
     private struct IntentPrefetchWaitTimeout: Error {}
 
+    private final class IntentPrefetchWaitRace<Value>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Value, Error>?
+        private var finished = false
+
+        func install(_ continuation: CheckedContinuation<Value, Error>) {
+            lock.lock()
+            if finished {
+                lock.unlock()
+                continuation.resume(throwing: CancellationError())
+                return
+            }
+            self.continuation = continuation
+            lock.unlock()
+        }
+
+        func finish(_ result: Result<Value, Error>) {
+            lock.lock()
+            guard !finished else {
+                lock.unlock()
+                return
+            }
+            finished = true
+            let continuation = self.continuation
+            self.continuation = nil
+            lock.unlock()
+            continuation?.resume(with: result)
+        }
+    }
+
     /// Consume the selected course's map-only intent without issuing a second package request.
     /// An in-flight intent is awaited by Start; a completed package remains memory-only and is
     /// rebased to the new round identity before activation. The foreground budget wins over the
@@ -2151,25 +2181,32 @@ public final class LiveRoundAppModel: ObservableObject {
         guard let task = intentPrefetchTasks[key] else { return (nil, false) }
         do {
             let waitNanoseconds = roundStartIntentWaitNanoseconds
-            let cached = try await withThrowingTaskGroup(of: LiveRoundPackage.self) { group in
-                group.addTask {
-                    try await withTaskCancellationHandler {
-                        try await task.value
-                    } onCancel: {
-                        task.cancel()
+            let race = IntentPrefetchWaitRace<LiveRoundPackage>()
+            let cached = try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation {
+                    (continuation: CheckedContinuation<LiveRoundPackage, Error>) in
+                    race.install(continuation)
+                    Task {
+                        do {
+                            race.finish(.success(try await task.value))
+                        } catch {
+                            race.finish(.failure(error))
+                        }
+                    }
+                    Task {
+                        do {
+                            try await Task.sleep(nanoseconds: waitNanoseconds)
+                            race.finish(.failure(IntentPrefetchWaitTimeout()))
+                        } catch {
+                            // The wait was completed by the producer or cancellation.
+                        }
                     }
                 }
-                group.addTask {
-                    try await Task.sleep(nanoseconds: waitNanoseconds)
-                    throw IntentPrefetchWaitTimeout()
-                }
-                defer { group.cancelAll() }
-                guard let value = try await group.next() else { throw CancellationError() }
-                return value
+            } onCancel: {
+                race.finish(.failure(CancellationError()))
             }
             return (cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt), false)
         } catch is IntentPrefetchWaitTimeout {
-            task.cancel()
             guard isCurrentRoundPreparation(preparationToken) else { return (nil, true) }
             roundStartFailure = .timedOut
             syncStatus = roundStartFailure?.presentationMessage ?? "服务器较慢，没能开始，点重试"

@@ -405,9 +405,6 @@ final class RoundStartTwoStageTests: XCTestCase {
         let requests = C85RequestLog()
         let intentSent = expectation(description: "intent package sent")
         let intentSentOnce = C33FirstMatch()
-        let intentStopped = expectation(description: "timed-out intent is cancelled")
-        let intentStoppedOnce = C33FirstMatch()
-        let stoppedRequestCount = C85Counter()
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host,
                   proto.request.url?.path.hasSuffix("/package") == true else { proto.reply(404); return }
@@ -420,12 +417,7 @@ final class RoundStartTwoStageTests: XCTestCase {
                 // after the bounded test wait instead of leaving a URLSession task alive.
                 proto.reply(503)
             }
-        }, onStop: { request in
-            held.forget(request)
-            guard request.url?.path.hasSuffix("/package") == true, intentStoppedOnce.claim() else { return }
-            stoppedRequestCount.set(requests.all.filter { c33Query($0, "map_only") == "true" }.count)
-            intentStopped.fulfill()
-        })
+        }, onStop: { held.forget($0) })
         let fixture = makeModel(host: host, held: held, roundStartIntentWaitNanoseconds: 50_000_000)
         let model = fixture.model
         let intent = MobileCourseOption(globalId: intentId, name: "Intent nine", holes: 9, teeBox: "blue")
@@ -447,14 +439,12 @@ final class RoundStartTwoStageTests: XCTestCase {
             await start.value
             return
         }
-        await fulfillment(of: [intentStopped], timeout: eventWait)
-
         XCTAssertEqual(model.roundStartFailure, .timedOut)
         XCTAssertNil(model.pendingLiveHole)
         XCTAssertEqual(
-            stoppedRequestCount.value,
+            requests.all.filter { c33Query($0, "map_only") == "true" }.count,
             1,
-            "timeout cancels the original intent before the prep worker can issue a retry"
+            "timeout ends only the foreground wait and does not issue a duplicate map request"
         )
     }
 

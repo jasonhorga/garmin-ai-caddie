@@ -1,27 +1,34 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -1892,23 +1892,7 @@
-         }
+@@ -1923,30 +1923,7 @@
          guard let task = intentPrefetchTasks[key] else { return (nil, false) }
          do {
--            let waitNanoseconds = roundStartIntentWaitNanoseconds
--            let cached = try await withThrowingTaskGroup(of: LiveRoundPackage.self) { group in
--                group.addTask {
--                    try await withTaskCancellationHandler {
--                        try await task.value
--                    } onCancel: {
--                        task.cancel()
+             let waitNanoseconds = roundStartIntentWaitNanoseconds
+-            let race = IntentPrefetchWaitRace<LiveRoundPackage>()
+-            let cached = try await withTaskCancellationHandler {
+-                try await withCheckedThrowingContinuation {
+-                    (continuation: CheckedContinuation<LiveRoundPackage, Error>) in
+-                    race.install(continuation)
+-                    Task {
+-                        do {
+-                            race.finish(.success(try await task.value))
+-                        } catch {
+-                            race.finish(.failure(error))
+-                        }
+-                    }
+-                    Task {
+-                        do {
+-                            try await Task.sleep(nanoseconds: waitNanoseconds)
+-                            race.finish(.failure(IntentPrefetchWaitTimeout()))
+-                        } catch {
+-                            // The wait was completed by the producer or cancellation.
+-                        }
 -                    }
 -                }
--                group.addTask {
--                    try await Task.sleep(nanoseconds: waitNanoseconds)
--                    throw IntentPrefetchWaitTimeout()
--                }
--                defer { group.cancelAll() }
--                guard let value = try await group.next() else { throw CancellationError() }
--                return value
+-            } onCancel: {
+-                race.finish(.failure(CancellationError()))
 -            }
 +            let cached = try await task.value
              return (cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt), false)
          } catch is IntentPrefetchWaitTimeout {
-             task.cancel()
+             guard isCurrentRoundPreparation(preparationToken) else { return (nil, true) }
