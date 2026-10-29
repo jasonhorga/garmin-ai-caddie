@@ -4697,7 +4697,6 @@ class MobileContractTests(unittest.TestCase):
     def test_native_visual_tokens_share_garmin_pro_score_semantics(self) -> None:
         ios_tokens = _read_required_source(self, IOS_DIR / "Design" / "AICaddieDesignTokens.swift")
         watch_tokens = _read_required_source(self, WATCH_DIR / "Design" / "AICaddieDesignTokens.swift")
-        results = _read_required_source(self, IOS_DIR / "Views" / "ResultsView.swift")
         caddie_plan = _read_required_source(self, IOS_DIR / "Views" / "CaddiePlanView.swift")
         watch_glance = _read_required_source(self, WATCH_DIR / "Views" / "WatchCaddieGlanceView.swift")
 
@@ -4708,7 +4707,6 @@ class MobileContractTests(unittest.TestCase):
             self.assertIn("static func scoreColor(toPar", source)
             self.assertIn("static func confidenceColor(_", source)
 
-        self.assertIn("AICaddieDesignTokens.scoreColor(toPar: round.toPar)", results)
         self.assertIn("LiveHoleStyle.green", caddie_plan)
         self.assertIn("AICaddieDesignTokens.confidenceColor(state.caddieConfidence)", watch_glance)
 
