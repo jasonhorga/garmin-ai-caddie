@@ -1,6 +1,6 @@
 --- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 +++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -6389,7 +6389,7 @@
+@@ -6460,7 +6460,7 @@
      /// target wins; otherwise use live GPS→green-middle, then the downloaded tee→middle fallback.
      private var effectiveDistanceToPinMetres: Double? {
          LiveCaddieDistance.resolve(

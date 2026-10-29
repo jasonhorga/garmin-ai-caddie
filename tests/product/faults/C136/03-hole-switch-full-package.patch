@@ -1,24 +1,11 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -6963,18 +6963,12 @@
-                 // Geometry retries are map facts only. Re-fetching the complete round package
-                 // repeatedly used to replace the active round's player events, bag, and caddie
-                 // context while a single hole's mesh was still pending.
--                let refreshed = try await syncClient.fetchCoursePackage(
--                    globalId: globalId,
-+                let refreshed = try await syncClient.fetchRoundPackage(
-                     roundId: roundId,
--                    teeBox: teeBox,
--                    loops: loops,
-                     capturedAt: Date(),
-                     ensureGeometry: false,
--                    backgroundGeometry: true,
--                    mapOnly: true,
--                    includeEventCursor: false,
--                    requestKind: .background,
--                    priorityHole: self.liveRoundState?.activeHole ?? snapshot.holes.first?.number
-+                    foregroundStart: false,
-+                    requestKind: .background
-                 )
-                 guard !Task.isCancelled,
-                       self.package?.roundId == roundId,
+@@ -4542,7 +4542,7 @@
+             // A hole change should prioritize the selected hole's pending geometry without
+             // re-fetching the personal round package. The refresh task is single-flight and is
+             // re-seeded with the new active-hole priority.
+-            schedulePendingGeometryRefresh(for: package, mapOnly: true)
++            schedulePendingGeometryRefresh(for: package)
+             #if DEBUG
+             UITestPagerTrace.shared.record("setActiveHole saved=\(liveRoundState?.activeHole ?? -1)")
+             #endif

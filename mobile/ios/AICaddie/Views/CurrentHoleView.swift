@@ -580,6 +580,7 @@ public struct CurrentHoleView: View {
     private let mediaUploadClient: MediaUploadClient?
     private let caddieBaseURL: URL?
     private let adminToken: String?
+    private let networkSession: URLSession
     private let offlineStore: OfflineStore?
     private let eventSnapshot: LiveEventLogSnapshot
     private let watchBridge: WatchEventBridge?
@@ -776,6 +777,7 @@ public struct CurrentHoleView: View {
         hole: Hole,
         caddieBaseURL: URL? = nil,
         adminToken: String? = nil,
+        networkSession: URLSession = .shared,
         caddieClient: CaddieDecisionClient? = nil,
         offlineStore: OfflineStore? = nil,
         watchBridge: WatchEventBridge? = nil,
@@ -812,6 +814,7 @@ public struct CurrentHoleView: View {
         self.mediaUploadClient = caddieBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: adminToken) }
         self.caddieBaseURL = caddieBaseURL
         self.adminToken = adminToken
+        self.networkSession = networkSession
         self.offlineStore = offlineStore
         self.eventSnapshot = LiveEventLogSnapshot(store: offlineStore)
         self.watchBridge = watchBridge
@@ -4438,7 +4441,7 @@ public struct CurrentHoleView: View {
 
     @MainActor
     func caddieCoordinateForTesting() -> CLLocationCoordinate2D? {
-        isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole
+        caddieRequestCoordinate
     }
 
     @MainActor
@@ -4534,7 +4537,7 @@ public struct CurrentHoleView: View {
                 entry.garminRequestStarted = false
             }
         }
-        let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
+        let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken, session: networkSession)
         if let cached = GarminRasterMetadataCache.cached(
             globalId: requestGlobalId,
             localHole: requestLocalHole,
@@ -4661,7 +4664,7 @@ public struct CurrentHoleView: View {
                 entry.prepRequestStarted = false
             }
         }
-        let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
+        let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken, session: networkSession)
         // The hole task or the 障碍 mapping task owns this request. A row landing after that task
         // was cancelled (the player changed holes) is neither shown nor pushed to the watch (C89).
         return await LiveHolePrepPublication.run(
@@ -4735,7 +4738,7 @@ public struct CurrentHoleView: View {
             preciseMapTimedOut = true
             return
         }
-        let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
+        let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken, session: networkSession)
         // The server-side install journal is already doing the expensive work. Keep the active
         // hole responsive with a short first probe, then back off (LiveHolePrepProbe): a cold
         // course's geometry can take minutes, and the hole being played should still switch to its
@@ -5682,7 +5685,7 @@ public struct CurrentHoleView: View {
                 shotType: selectedShotType,
                 distanceToPinM: caddiePlanningDistanceMetres,
                 lie: selectedLie,
-                coordinate: isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole,
+                coordinate: caddieRequestCoordinate,
                 // Keep the flag coordinate in the server contract: the decision service uses it
                 // when distanceToPin_m is unavailable. Pixel-only edits remain signature-only.
                 targetCoordinate: wireTargetCoordinate,
@@ -6475,6 +6478,13 @@ public struct CurrentHoleView: View {
             staticMiddleM: liveGreenDistances?.middleM,
             holeYards: hole.yards
         )
+    }
+
+    /// The request coordinate follows the hole-state gate, while planning distance has its own
+    /// tee/live transition. Keep the production request and its test seam on one calculation.
+    private var caddieRequestCoordinate: CLLocationCoordinate2D? {
+        // Source pin retained for the request's original gate: coordinate: isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole
+        isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole
     }
 
     static func planningDistanceForCaddie(

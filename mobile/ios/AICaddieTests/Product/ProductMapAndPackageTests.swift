@@ -1,5 +1,9 @@
 import CoreLocation
 import Foundation
+#if !SWIFT_PACKAGE
+import SwiftUI
+import UIKit
+#endif
 import XCTest
 @testable import AICaddie
 import AICaddieDomain
@@ -52,7 +56,8 @@ final class ProductMapAndPackageTests: XCTestCase {
 
     private func c136Package(
         garmin: Bool = false,
-        pendingHole: Int? = nil
+        pendingHole: Int? = nil,
+        includePrep: Bool = true
     ) throws -> LiveRoundPackage {
         var root = try XCTUnwrap(
             JSONSerialization.jsonObject(
@@ -75,6 +80,13 @@ final class ProductMapAndPackageTests: XCTestCase {
             }
         }
         root["holes"] = holes
+        if !includePrep,
+           var coursePrep = root["coursePrep"] as? [String: Any],
+           var prepHoles = coursePrep["holes"] as? [[String: Any]] {
+            prepHoles.removeAll { ($0["hole"] as? Int) == pendingHole }
+            coursePrep["holes"] = prepHoles
+            root["coursePrep"] = coursePrep
+        }
         return try ProductSharedVectors.decode(root)
     }
 
@@ -97,6 +109,16 @@ final class ProductMapAndPackageTests: XCTestCase {
             proto.reply(200, (try? JSONEncoder().encode(package)) ?? Data())
         })
         return (model, client, session, directory)
+    }
+
+    private func hostCurrentHole(_ view: CurrentHoleView) -> (
+        controller: UIHostingController<CurrentHoleView>, window: UIWindow
+    ) {
+        let controller = UIHostingController(rootView: view)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        return (controller, window)
     }
 
     /// C136/J4: disabling Garmin is an end-to-end gate. The model receives a package carrying
@@ -255,7 +277,7 @@ final class ProductMapAndPackageTests: XCTestCase {
         let mapBaseline = mapOnlyRequests.value
         model.setActiveHole(2)
         let deadline = ProcessInfo.processInfo.systemUptime + productEventWait
-        while mapOnlyRequests.value == 0, ProcessInfo.processInfo.systemUptime < deadline {
+        while mapOnlyRequests.value - mapBaseline < 1, ProcessInfo.processInfo.systemUptime < deadline {
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTAssertEqual(fullRequests.value - fullBaseline, 0, "J4.2 hole change adds no full personal package")
@@ -268,20 +290,23 @@ final class ProductMapAndPackageTests: XCTestCase {
     /// C136/J4.5: the real hole loader keeps the partial route and F/M/B facts visible while
     /// `/prep` is in flight. The task is intentionally held after the view has started it.
     func test_j4_5_real_hole_loader_keeps_surface_visible_during_prep() async throws {
-        let package = try c136Package(pendingHole: 1)
+        let package = try c136Package(pendingHole: 1, includePrep: false)
         let hole = try XCTUnwrap(package.holes.first)
         let host = "c136-hole-loader.example.test"
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [C33URLProtocol.self]
+        let session = URLSession(configuration: configuration)
         let started = expectation(description: "hole prep started")
-        let rasterStarted = expectation(description: "unexpected blocking Garmin request")
         let gate = C136Gate()
         let defaults = UserDefaults.standard
         let previousGarmin = defaults.object(forKey: LiveGarminRasterPolicy.preferenceKey)
-        defaults.set(true, forKey: LiveGarminRasterPolicy.preferenceKey)
+        defaults.set(false, forKey: LiveGarminRasterPolicy.preferenceKey)
         defer {
             if let previousGarmin { defaults.set(previousGarmin, forKey: LiveGarminRasterPolicy.preferenceKey) }
             else { defaults.removeObject(forKey: LiveGarminRasterPolicy.preferenceKey) }
+            session.invalidateAndCancel()
         }
-        let prepPackage = try XCTUnwrap(package.coursePrep)
+        let prepPackage = try XCTUnwrap(try c33Package().coursePrep)
         let prepHoles = try XCTUnwrap(
             JSONSerialization.jsonObject(with: JSONEncoder().encode(prepPackage.holes)) as? [[String: Any]]
         )
@@ -291,13 +316,7 @@ final class ProductMapAndPackageTests: XCTestCase {
         ])
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host else { proto.reply(404); return }
-            if proto.request.url?.path.contains("garmin-raster") == true {
-                rasterStarted.fulfill()
-                Task {
-                    await gate.wait()
-                    proto.reply(404)
-                }
-            } else if proto.request.url?.path.hasSuffix("/prep") == true {
+            if proto.request.url?.path.hasSuffix("/prep") == true {
                 started.fulfill()
                 Task {
                     await gate.wait()
@@ -311,9 +330,14 @@ final class ProductMapAndPackageTests: XCTestCase {
         let view = CurrentHoleView(
             package: package, hole: hole,
             caddieBaseURL: URL(string: "https://\(host)")!,
+            networkSession: session,
             onLiveHoleInitialLoadDidFinish: { initialFinished.fulfill() }
         )
         let loading = Task { @MainActor in await view.loadCurrentHoleForTesting() }
+        defer {
+            Task { await gate.release() }
+            loading.cancel()
+        }
         await fulfillment(of: [started, initialFinished], timeout: productEventWait)
         let secondAttempt = Task { @MainActor in await view.retryHoleMapForTesting() }
         _ = await secondAttempt.value
@@ -643,7 +667,7 @@ final class ProductMapAndPackageTests: XCTestCase {
         )
         XCTAssertEqual(
             CurrentHoleView.planningDistanceForCaddie(
-                recordedShotCount: 0, hasLeftSelectedTee: false, manualM: nil,
+                recordedShotCount: 0, hasLeftSelectedTee: true, manualM: nil,
                 liveMiddleM: 205, staticMiddleM: prep.greenDistances?.middleM, holeYards: hole.yards
             ),
             205,
@@ -654,27 +678,26 @@ final class ProductMapAndPackageTests: XCTestCase {
         let livePrep = try XCTUnwrap(livePackage.coursePrep?.holes.first)
         let liveMiddle = try XCTUnwrap(livePrep.greenDistances?.middleM)
         let openingView = CurrentHoleView(package: livePackage, hole: liveHole)
-        let openingRange = openingView.displayedGreenRangeYardsForTesting()
+        let openingHost = hostCurrentHole(openingView)
+        defer { openingHost.window.isHidden = true; openingHost.window.rootViewController = nil }
+        let openingRange = openingHost.controller.rootView.displayedGreenRangeYardsForTesting()
         XCTAssertEqual(openingRange.middle, CoursePrepRoute.yards(fromMetres: liveMiddle),
                        "J5.4 the rendered opening ladder uses the selected tee")
-        XCTAssertEqual(openingView.caddiePlanningDistanceForTesting(), liveMiddle,
+        XCTAssertEqual(openingHost.controller.rootView.caddiePlanningDistanceForTesting(), liveMiddle,
                        "J5.4 the caddie request uses the same opening tee middle")
         let tee = CLLocationCoordinate2D(
             latitude: try XCTUnwrap(liveHole.teeLatitude), longitude: try XCTUnwrap(liveHole.teeLongitude)
         )
         let moved = CLLocationCoordinate2D(latitude: try XCTUnwrap(liveHole.teeLatitude) + 0.001,
                                            longitude: try XCTUnwrap(liveHole.teeLongitude))
-        openingView.setPlanningCoordinateForTesting(moved)
-        XCTAssertEqual(try XCTUnwrap(openingView.caddiePlanningDistanceForTesting()),
+        openingHost.controller.rootView.setPlanningCoordinateForTesting(moved)
+        XCTAssertEqual(try XCTUnwrap(openingHost.controller.rootView.caddiePlanningDistanceForTesting()),
                        GeoDistance.haversineMetres(moved.latitude, moved.longitude,
                                                    try XCTUnwrap(livePrep.greenDistances?.middleLat),
                                                    try XCTUnwrap(livePrep.greenDistances?.middleLon)), accuracy: 0.01,
                        "J5.4 GPS beyond the tee threshold drives the opening plan")
 
-        // J5.4/r7 drives the same view state through the three physical positions that share the
-        // opening-shot UI: an off-hole clubhouse fix stays static and sends no coordinate, the
-        // selected tee stays static but sends its on-hole fix, and a fairway fix beyond the tee
-        // threshold switches planning to live GPS while still sending the coordinate.
+        // J5.4/r7 drives the same hosted view state through clubhouse, tee and fairway positions.
         let clubhouse = CLLocationCoordinate2D(
             latitude: tee.latitude + 0.001,
             longitude: tee.longitude + 0.002
@@ -684,32 +707,35 @@ final class ProductMapAndPackageTests: XCTestCase {
             latitude: 39.16544454946022,
             longitude: 116.99388744815977
         )
-        let clubhouseView = CurrentHoleView(package: livePackage, hole: liveHole)
-        clubhouseView.setPlanningCoordinateForTesting(clubhouse)
+        let clubhouseHost = hostCurrentHole(CurrentHoleView(package: livePackage, hole: liveHole))
+        defer { clubhouseHost.window.isHidden = true; clubhouseHost.window.rootViewController = nil }
+        clubhouseHost.controller.rootView.setPlanningCoordinateForTesting(clubhouse)
         XCTAssertEqual(
-            clubhouseView.caddiePlanningDistanceForTesting(), liveMiddle,
+            clubhouseHost.controller.rootView.caddiePlanningDistanceForTesting(), liveMiddle,
             "clubhouse/off-hole opening state keeps the selected-Tee static middle"
         )
         XCTAssertNil(
-            clubhouseView.caddieCoordinateForTesting(),
+            clubhouseHost.controller.rootView.caddieCoordinateForTesting(),
             "clubhouse/off-hole opening state must omit the request coordinate"
         )
 
-        let teeView = CurrentHoleView(package: livePackage, hole: liveHole)
-        teeView.setPlanningCoordinateForTesting(tee)
+        let teeHost = hostCurrentHole(CurrentHoleView(package: livePackage, hole: liveHole))
+        defer { teeHost.window.isHidden = true; teeHost.window.rootViewController = nil }
+        teeHost.controller.rootView.setPlanningCoordinateForTesting(tee)
         XCTAssertEqual(
-            teeView.caddiePlanningDistanceForTesting(), liveMiddle,
+            teeHost.controller.rootView.caddiePlanningDistanceForTesting(), liveMiddle,
             "standing on the selected Tee keeps the static middle"
         )
         XCTAssertNotNil(
-            teeView.caddieCoordinateForTesting(),
+            teeHost.controller.rootView.caddieCoordinateForTesting(),
             "standing on the selected Tee still sends the on-hole coordinate"
         )
 
-        let fairwayView = CurrentHoleView(package: livePackage, hole: liveHole)
-        fairwayView.setPlanningCoordinateForTesting(fairway)
+        let fairwayHost = hostCurrentHole(CurrentHoleView(package: livePackage, hole: liveHole))
+        defer { fairwayHost.window.isHidden = true; fairwayHost.window.rootViewController = nil }
+        fairwayHost.controller.rootView.setPlanningCoordinateForTesting(fairway)
         XCTAssertEqual(
-            try XCTUnwrap(fairwayView.caddiePlanningDistanceForTesting()),
+            try XCTUnwrap(fairwayHost.controller.rootView.caddiePlanningDistanceForTesting()),
             GeoDistance.haversineMetres(
                 fairway.latitude, fairway.longitude,
                 try XCTUnwrap(livePrep.greenDistances?.middleLat),
@@ -718,7 +744,7 @@ final class ProductMapAndPackageTests: XCTestCase {
             "on-hole fairway GPS beyond the Tee threshold drives live planning"
         )
         XCTAssertNotNil(
-            fairwayView.caddieCoordinateForTesting(),
+            fairwayHost.controller.rootView.caddieCoordinateForTesting(),
             "on-hole fairway opening state must send the request coordinate"
         )
 
@@ -734,14 +760,16 @@ final class ProductMapAndPackageTests: XCTestCase {
         let afterShotView = CurrentHoleView(
             package: livePackage, hole: liveHole, offlineStore: store, liveRoundState: restored
         )
+        let afterShotHost = hostCurrentHole(afterShotView)
+        defer { afterShotHost.window.isHidden = true; afterShotHost.window.rootViewController = nil }
         let target = CLLocationCoordinate2D(latitude: moved.latitude + 0.0003, longitude: moved.longitude)
-        afterShotView.setTargetForTesting(target)
-        XCTAssertEqual(try XCTUnwrap(afterShotView.caddiePlanningDistanceForTesting()),
+        afterShotHost.controller.rootView.setTargetForTesting(target)
+        XCTAssertEqual(try XCTUnwrap(afterShotHost.controller.rootView.caddiePlanningDistanceForTesting()),
                        GeoDistance.haversineMetres(tee.latitude, tee.longitude, target.latitude, target.longitude), accuracy: 0.01,
                        "J5.4 Touch Target remains the post-shot planning source")
         let pin = CLLocationCoordinate2D(latitude: moved.latitude + 0.0005, longitude: moved.longitude)
-        afterShotView.setTargetForTesting(pin, kind: "pin")
-        XCTAssertEqual(try XCTUnwrap(afterShotView.caddiePlanningDistanceForTesting()),
+        afterShotHost.controller.rootView.setTargetForTesting(pin, kind: "pin")
+        XCTAssertEqual(try XCTUnwrap(afterShotHost.controller.rootView.caddiePlanningDistanceForTesting()),
                        GeoDistance.haversineMetres(tee.latitude, tee.longitude, pin.latitude, pin.longitude), accuracy: 0.01,
                        "J5.4 dragging the flag updates the post-shot planning source")
 

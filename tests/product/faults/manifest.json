@@ -1732,7 +1732,14 @@
     },
     {
       "id": "tests-product-faults-C136-01",
-      "patch": "tests/product/faults/C136/01-garmin-disabled-hole-gate.patch",
+      "patch": "tests/product/faults/C136/01-garmin-disabled-model.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_garmin_disabled_model_sends_no_raster_request",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C136-01a",
+      "patch": "tests/product/faults/C136/01a-garmin-disabled-hole-gate.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_garmin_disabled_hole_view_sends_no_raster_request",
       "promise": "J4.5"

@@ -4901,7 +4901,7 @@ public final class LiveRoundAppModel: ObservableObject {
             // A hole change should prioritize the selected hole's pending geometry without
             // re-fetching the personal round package. The refresh task is single-flight and is
             // re-seeded with the new active-hole priority.
-            schedulePendingGeometryRefresh(for: package)
+            schedulePendingGeometryRefresh(for: package, mapOnly: true)
             #if DEBUG
             UITestPagerTrace.shared.record("setActiveHole saved=\(liveRoundState?.activeHole ?? -1)")
             #endif
@@ -7306,7 +7306,7 @@ public final class LiveRoundAppModel: ObservableObject {
         watchTopoSender?.sync()
     }
 
-    private func schedulePendingGeometryRefresh(for snapshot: LiveRoundPackage) {
+    private func schedulePendingGeometryRefresh(for snapshot: LiveRoundPackage, mapOnly: Bool = false) {
         #if DEBUG
         guard !roundBackgroundWorkStoppedForTesting else { return }
         #endif
@@ -7352,22 +7352,31 @@ public final class LiveRoundAppModel: ObservableObject {
             self.pendingGeometryRefreshExecuting = true
             defer { self.pendingGeometryRefreshExecuting = false }
             do {
-                // Geometry retries are map facts only. Re-fetching the complete round package
-                // repeatedly used to replace the active round's player events, bag, and caddie
-                // context while a single hole's mesh was still pending.
-                let refreshed = try await syncClient.fetchCoursePackage(
-                    globalId: globalId,
-                    roundId: roundId,
-                    teeBox: teeBox,
-                    loops: loops,
-                    capturedAt: Date(),
-                    ensureGeometry: false,
-                    backgroundGeometry: true,
-                    mapOnly: true,
-                    includeEventCursor: false,
-                    requestKind: .background,
-                    priorityHole: self.liveRoundState?.activeHole ?? snapshot.holes.first?.number
-                )
+                let refreshed: LiveRoundPackage
+                if mapOnly {
+                    // A hole change only needs map facts and must never replace the active
+                    // round's player events, bag, or caddie context.
+                    refreshed = try await syncClient.fetchCoursePackage(
+                        globalId: globalId,
+                        roundId: roundId,
+                        teeBox: teeBox,
+                        loops: loops,
+                        capturedAt: Date(),
+                        ensureGeometry: false,
+                        backgroundGeometry: true,
+                        mapOnly: true,
+                        includeEventCursor: false,
+                        requestKind: .background,
+                        priorityHole: self.liveRoundState?.activeHole ?? snapshot.holes.first?.number
+                    )
+                } else {
+                    // Initial/package retry keeps the established round-package path so the
+                    // server deadline and its backoff remain authoritative for all facts.
+                    refreshed = try await syncClient.fetchRoundPackage(
+                        roundId: roundId, capturedAt: Date(), ensureGeometry: false,
+                        foregroundStart: false, requestKind: .background
+                    )
+                }
                 guard !Task.isCancelled,
                       self.package?.roundId == roundId,
                       self.liveRoundState?.roundId == roundId,
@@ -7405,7 +7414,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 self.pendingGeometryRefreshTask = nil
                 if remainsPending {
                     self.pendingGeometryRefreshExecuting = false
-                    self.schedulePendingGeometryRefresh(for: persisted)
+                    self.schedulePendingGeometryRefresh(for: persisted, mapOnly: mapOnly)
                 }
             } catch {
                 self.pendingGeometryRetryAttempt += 1
@@ -7417,7 +7426,7 @@ public final class LiveRoundAppModel: ObservableObject {
                       self.liveRoundState?.roundId == roundId,
                       self.package?.course.globalId == globalId else { return }
                 self.pendingGeometryRefreshExecuting = false
-                self.schedulePendingGeometryRefresh(for: self.package ?? snapshot)
+                self.schedulePendingGeometryRefresh(for: self.package ?? snapshot, mapOnly: mapOnly)
             }
         }
     }
