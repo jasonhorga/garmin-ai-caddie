@@ -15,6 +15,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import stat
 import tempfile
 import threading
 from typing import Any, BinaryIO, Callable, Iterator
@@ -41,6 +42,11 @@ ROUND_INDEX_SCHEMA = "ai-caddie-mobile-round-event-index-v3"
 _IDENTITY_FIELDS = ("roundId", "clientId", "eventId")
 REDACTED_LOCAL_MEDIA_URL = "[REDACTED_LOCAL_MEDIA_URL]"
 REDACTED_MOBILE_PATH = "[REDACTED_PATH]"
+MAX_MOBILE_EVENT_BYTES = 64 * 1024
+
+
+class EventPayloadTooLargeError(ValueError):
+    """An event remains over the transport bound after decision summarisation."""
 
 
 @dataclass(frozen=True)
@@ -459,6 +465,48 @@ def sanitize_mobile_event(event: dict[str, Any]) -> dict[str, Any]:
     return sanitized
 
 
+def bound_mobile_event(event: dict[str, Any]) -> dict[str, Any]:
+    """Bound one effective event envelope without dropping its scoring fact.
+
+    Large caddie decisions are diagnostics, so retain their top-level scalar fields and an
+    explicit byte count while preserving the score/club event around them.  The same function is
+    used when appending and when reading legacy rows so old oversized decisions cannot re-expand a
+    response.
+    """
+    def encoded(value: dict[str, Any]) -> bytes:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True).encode("utf-8")
+
+    raw_size = len(encoded(event))
+    if raw_size <= MAX_MOBILE_EVENT_BYTES:
+        return deepcopy(event)
+    candidate = dict(event)
+    payload = candidate.get("payload")
+    decision = payload.get("decision") if isinstance(payload, dict) else None
+    if isinstance(payload, dict) and decision is not None:
+        original_bytes = len(json.dumps(decision, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+        summary: dict[str, Any] = {}
+        if isinstance(decision, dict):
+            for key, value in decision.items():
+                if isinstance(value, str):
+                    encoded_value = value.encode("utf-8")
+                    summary[str(key)] = (
+                        value
+                        if len(encoded_value) <= 256
+                        else encoded_value[:256].decode("utf-8", errors="ignore")
+                    )
+                elif value is None or isinstance(value, (bool, int, float)):
+                    summary[str(key)] = value
+        summary["truncated"] = True
+        summary["originalBytes"] = original_bytes
+        candidate["payload"] = dict(payload)
+        candidate["payload"]["decision"] = summary
+        if len(encoded(candidate)) <= MAX_MOBILE_EVENT_BYTES:
+            return candidate
+    raise EventPayloadTooLargeError(
+        f"event_payload_too_large: encoded event is {raw_size} bytes; maximum is {MAX_MOBILE_EVENT_BYTES}"
+    )
+
+
 class FileEventStore:
     """Store one physical player's v1 event partition.
 
@@ -644,19 +692,27 @@ class FileEventStore:
     def _indexed_round_log_unlocked(
         self, round_id: str, *, handle: BinaryIO | None, rebuild: bool = False,
         index_sink: list[_RoundEventIndex] | None = None,
+        sanitize: bool = True,
     ) -> _StoredLog:
         marker = self._load_commit_marker()
-        if marker is None:
-            raise ValueError("event_commit_store_corrupt")
+        if marker is not None:
+            committed_length = self._visible_committed_length_unlocked(handle=handle)
+            marker = self._load_commit_marker()
+            committed_prefix = marker.committed_prefix_sha256 if marker is not None else None
+        else:
+            # Keep the legacy no-marker path fail-closed when a pending intent is left behind.
+            committed_length = self._visible_committed_length_unlocked(handle=handle)
+            marker = self._load_commit_marker()
+            committed_prefix = marker.committed_prefix_sha256 if marker is not None else None
         index = None if rebuild else self._load_round_index_unlocked(
-            marker.committed_byte_length, marker.committed_prefix_sha256,
+            committed_length, committed_prefix,
         )
         if index is None:
             rebuild = True
-            index = self._round_index_from_log_unlocked(marker.committed_byte_length, handle=handle)
+            index = self._round_index_from_log_unlocked(committed_length, handle=handle)
             try:
                 self._write_round_index_unlocked(
-                    index, marker.committed_byte_length, marker.committed_prefix_sha256,
+                    index, committed_length, committed_prefix,
                 )
             except OSError:
                 # An unavailable auxiliary sidecar cannot prevent an otherwise durable ACK.
@@ -675,7 +731,7 @@ class FileEventStore:
                 )
             row = dict(parsed)
             raw_event = deepcopy(row.get("event"))
-            if isinstance(raw_event, dict):
+            if sanitize and isinstance(raw_event, dict):
                 row["event"] = self._sanitize_event(raw_event)
                 if "eventHash" in row and self._is_legacy_compatible_event(row["event"]):
                     row["eventHash"] = _sha256(_normalized_event_for_hash(row["event"]))
@@ -700,6 +756,213 @@ class FileEventStore:
             rounds = self._round_index_from_log_unlocked(committed_length)
             self._write_round_index_unlocked(rounds, committed_length, committed_prefix)
             return True
+
+    @staticmethod
+    def _file_snapshot(path: Path) -> tuple[bytes | None, os.stat_result | None]:
+        try:
+            return path.read_bytes(), path.stat()
+        except FileNotFoundError:
+            return None, None
+
+    def _replace_bytes_preserving_metadata(
+        self,
+        path: Path,
+        data: bytes,
+        metadata: os.stat_result | None,
+    ) -> None:
+        self._ensure_root_durable()
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=path.parent,
+            prefix=f".{path.name}.migrate-",
+            suffix=".tmp",
+        )
+        temporary_path = Path(temporary_name)
+        try:
+            if metadata is not None:
+                os.fchmod(descriptor, stat.S_IMODE(metadata.st_mode))
+                if hasattr(os, "fchown"):
+                    try:
+                        os.fchown(descriptor, metadata.st_uid, metadata.st_gid)
+                    except PermissionError:
+                        if metadata.st_uid != os.getuid():
+                            raise
+            with os.fdopen(descriptor, "wb") as handle:
+                descriptor = -1
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, path)
+            self._fsync_directory(path.parent)
+        except BaseException:
+            if descriptor >= 0:
+                os.close(descriptor)
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
+            raise
+
+    def _restore_file_snapshot(
+        self,
+        path: Path,
+        snapshot: tuple[bytes | None, os.stat_result | None],
+    ) -> None:
+        data, metadata = snapshot
+        if data is None:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                return
+            self._fsync_directory(path.parent)
+            return
+        self._replace_bytes_preserving_metadata(path, data, metadata)
+
+    def _restore_metadata(self, path: Path, metadata: os.stat_result | None) -> None:
+        if metadata is None or not path.exists():
+            return
+        os.chmod(path, stat.S_IMODE(metadata.st_mode))
+        try:
+            os.chown(path, metadata.st_uid, metadata.st_gid)
+        except PermissionError:
+            if metadata.st_uid != os.getuid():
+                raise
+
+    @staticmethod
+    def _migration_round_report(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for event in events:
+            grouped.setdefault(str(event.get("roundId") or ""), []).append(event)
+        report: dict[str, dict[str, Any]] = {}
+        for round_id, rows in sorted(grouped.items()):
+            identities = [
+                (
+                    str(event.get("roundId") or ""),
+                    str(event.get("clientId") or ""),
+                    str(event.get("eventId") or ""),
+                )
+                for event in rows
+            ]
+            report[round_id] = {
+                "rows": len(rows),
+                "identitySha256": _sha256(identities),
+            }
+        return report
+
+    def migrate_event_payloads(
+        self,
+        *,
+        apply: bool = False,
+        timestamp: str | None = None,
+    ) -> dict[str, Any]:
+        """Bound legacy event payloads under the event lock with rollback on every failure."""
+        with self._locked(self.event_lock, shared=not apply):
+            if not self.log.exists():
+                return {
+                    "root": str(self.root), "apply": apply, "changed": 0, "oversized": 0,
+                    "bytesBefore": 0, "bytesAfter": 0, "rounds": {},
+                }
+
+            snapshots = {
+                path: self._file_snapshot(path)
+                for path in (self.log, self.commit_marker, self.pending_commit, self.round_index)
+            }
+            temporary_path: Path | None = None
+            backup: Path | None = None
+            try:
+                if apply:
+                    # Make the existing store self-consistent before taking the replacement bytes.
+                    self._recover_event_log_unlocked()
+                committed_length = self._visible_committed_length_unlocked()
+                raw = self._read_log_range(0, committed_length) if committed_length else b""
+                output: list[bytes] = []
+                before_events: list[dict[str, Any]] = []
+                after_events: list[dict[str, Any]] = []
+                changed = 0
+                oversized = 0
+                bytes_after = 0
+                for line in raw.splitlines(keepends=True):
+                    transformed = line
+                    try:
+                        row = json.loads(line.decode("utf-8"))
+                    except (UnicodeDecodeError, ValueError):
+                        output.append(line)
+                        bytes_after += len(line)
+                        continue
+                    if not isinstance(row, dict) or not isinstance(row.get("event"), dict):
+                        output.append(line)
+                        bytes_after += len(line)
+                        continue
+                    event = row["event"]
+                    before_events.append(event)
+                    bounded = self._sanitize_event(event)
+                    old_size = len(json.dumps(event, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+                    if old_size > MAX_MOBILE_EVENT_BYTES:
+                        oversized += 1
+                    if bounded != event:
+                        changed += 1
+                        row = dict(row)
+                        row["event"] = bounded
+                        if isinstance(row.get("eventHash"), str):
+                            row["eventHash"] = _sha256(_normalized_event_for_hash(bounded))
+                        transformed = (json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+                    after_events.append(bounded)
+                    bytes_after += len(transformed)
+                    output.append(transformed)
+
+                before_rounds = self._migration_round_report(before_events)
+                after_rounds = self._migration_round_report(after_events)
+                if before_rounds != after_rounds:
+                    raise ValueError("migration_identity_or_row_count_changed")
+                report: dict[str, Any] = {
+                    "root": str(self.root), "apply": apply, "changed": changed,
+                    "oversized": oversized, "bytesBefore": len(raw), "bytesAfter": bytes_after,
+                    "rounds": before_rounds,
+                }
+                if not apply or changed == 0:
+                    return report
+
+                stamp = timestamp or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+                backup = self.log.with_name(f"{self.log.name}.bak-{stamp}")
+                if backup.exists():
+                    raise FileExistsError(backup)
+                self._replace_bytes_preserving_metadata(backup, raw, snapshots[self.log][1])
+                new_raw = b"".join(output)
+                self._replace_bytes_preserving_metadata(self.log, new_raw, snapshots[self.log][1])
+                old_marker = self._load_commit_marker()
+                if old_marker is None:
+                    raise ValueError("event_commit_store_corrupt")
+                new_marker = _CommitMarker(
+                    committed_byte_length=len(new_raw),
+                    committed_prefix_sha256=hashlib.sha256(new_raw).hexdigest(),
+                    legacy_baseline_byte_length=old_marker.legacy_baseline_byte_length,
+                )
+                self._write_committed_length(new_marker)
+                self._restore_metadata(self.commit_marker, snapshots[self.commit_marker][1])
+                index = self._round_index_from_log_unlocked(len(new_raw))
+                self._write_round_index_unlocked(
+                    index, new_marker.committed_byte_length, new_marker.committed_prefix_sha256,
+                )
+                self._restore_metadata(self.round_index, snapshots[self.round_index][1])
+                self._recover_event_log_unlocked()
+                for round_id, expected in before_rounds.items():
+                    with self.log.open("rb") as handle:
+                        stored = self._indexed_round_log_unlocked(round_id, handle=handle)
+                    events = [row.row["event"] for row in stored.rows if isinstance(row.row.get("event"), dict)]
+                    if len(events) != expected["rows"] or self._migration_round_report(events).get(round_id) != expected:
+                        raise ValueError("migration_identity_or_row_count_changed")
+                report["backup"] = str(backup)
+                report["index"] = str(self.round_index)
+                return report
+            except BaseException:
+                if apply:
+                    for path in (self.log, self.commit_marker, self.pending_commit, self.round_index):
+                        self._restore_file_snapshot(path, snapshots[path])
+                    with _PREFIX_CACHE_LOCK:
+                        _PREFIX_CACHE.pop(str(self.log.resolve()), None)
+                raise
+            finally:
+                if temporary_path is not None and temporary_path.exists():
+                    temporary_path.unlink()
 
     def round_event_holes(self, round_id: str) -> list[int]:
         """Return compatible hole numbers without replaying unrelated event payloads.
@@ -1278,11 +1541,23 @@ class FileEventStore:
     def read_rows(self, round_id: str | None = None) -> list[dict[str, Any]]:
         round_key = None if round_id is None else str(round_id)
         with self._locked(self.event_lock, shared=True):
+            if round_key is not None:
+                if not self.log.exists() and not self.commit_marker.exists():
+                    return []
+                try:
+                    with self.log.open("rb") as handle:
+                        stored_log = self._indexed_round_log_unlocked(round_key, handle=handle)
+                except FileNotFoundError:
+                    return []
+                return [
+                    deepcopy(stored.row)
+                    for stored in stored_log.rows
+                    if self._is_legacy_compatible_stored_row(stored.row)
+                ]
             return [
                 deepcopy(stored.row)
                 for stored in self._stored_rows()
                 if self._is_legacy_compatible_stored_row(stored.row)
-                and (round_key is None or str(stored.row.get("roundId") or "") == round_key)
             ]
 
     def read_rows_and_ack(
@@ -1294,12 +1569,18 @@ class FileEventStore:
         round_key = str(round_id)
         client_key = str(consumer_id)
         with self._locked(self.event_lock, shared=True):
-            stored_log = self._stored_log()
+            if not self.log.exists() and not self.commit_marker.exists():
+                stored_log = _StoredLog((), 0)
+            else:
+                try:
+                    with self.log.open("rb") as handle:
+                        stored_log = self._indexed_round_log_unlocked(round_key, handle=handle)
+                except FileNotFoundError:
+                    stored_log = _StoredLog((), 0)
             rows = [
                 deepcopy(stored.row)
                 for stored in stored_log.rows
                 if self._is_legacy_compatible_stored_row(stored.row)
-                and str(stored.row.get("roundId") or "") == round_key
             ]
             with self._locked(self.ack_lock):
                 acks = self._load_safe_acks_unlocked(stored_log.high_water)
@@ -1317,15 +1598,28 @@ class FileEventStore:
         round_key = str(round_id)
         client_key = str(consumer_id) if consumer_id is not None else None
         with self._locked(self.event_lock, shared=True):
-            snapshot = self._round_sequence_snapshot(round_key)
+            if not self.log.exists() and not self.commit_marker.exists():
+                snapshot = _StoredLog((), 0)
+            else:
+                try:
+                    with self.log.open("rb") as handle:
+                        snapshot = self._indexed_round_log_unlocked(
+                            round_key, handle=handle, sanitize=False
+                        )
+                except FileNotFoundError:
+                    snapshot = _StoredLog((), 0)
             acked_sequence = 0
             if client_key is not None:
                 with self._locked(self.ack_lock):
                     acks = self._load_safe_acks_unlocked(snapshot.high_water)
                     ack_row = acks.get(self._ack_key(round_key, client_key), {})
                     acked_sequence = max(0, int(ack_row.get("serverSequence") or 0))
-        latest_sequence = max(snapshot.positions, default=0)
-        pending_count = sum(position > acked_sequence for position in snapshot.positions)
+        positions = [
+            stored.position for stored in snapshot.rows
+            if self._is_legacy_compatible_stored_row(stored.row)
+        ]
+        latest_sequence = max(positions, default=0)
+        pending_count = sum(position > acked_sequence for position in positions)
         return latest_sequence, pending_count, acked_sequence
 
     def read_events(self, round_id: str) -> list[EventReceipt]:
@@ -1350,8 +1644,18 @@ class FileEventStore:
     def _high_water_unlocked(self) -> int:
         return self._stored_log().high_water
 
-    def _sanitize_event(self, event: dict[str, Any]) -> dict[str, Any]:
-        source = deepcopy(event)
+    def _sanitize_event(
+        self,
+        event: dict[str, Any],
+        *,
+        reject_oversize: bool = False,
+    ) -> dict[str, Any]:
+        try:
+            source = bound_mobile_event(event)
+        except EventPayloadTooLargeError:
+            if reject_oversize:
+                raise
+            source = deepcopy(event)
         candidate = (
             self._additional_sanitizer(deepcopy(source))
             if self._additional_sanitizer is not None
@@ -1368,6 +1672,14 @@ class FileEventStore:
                 sanitized[field] = source[field]
             else:
                 sanitized.pop(field, None)
+        if reject_oversize:
+            # The bound was applied before sanitizer work; sanitized output cannot gain a payload
+            # large enough to invalidate the deterministic envelope cap.
+            encoded = json.dumps(sanitized, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            if len(encoded) > MAX_MOBILE_EVENT_BYTES:
+                raise EventPayloadTooLargeError(
+                    f"event_payload_too_large: encoded event is {len(encoded)} bytes; maximum is {MAX_MOBILE_EVENT_BYTES}"
+                )
         return sanitized
 
     def _prepare_events(self, round_id: str, events: list[dict[str, Any]]) -> list[_PreparedEvent]:
@@ -1377,7 +1689,7 @@ class FileEventStore:
                 raise ValueError("event envelope must be an object")
             if event.get("roundId") is not None and str(event.get("roundId")) != round_id:
                 raise ValueError("event roundId does not match path")
-            sanitized = self._sanitize_event(event)
+            sanitized = self._sanitize_event(event, reject_oversize=True)
             identity = (
                 round_id,
                 str(event.get("clientId") or ""),
@@ -1955,7 +2267,7 @@ class FileEventStore:
 
     def read_ack(self, round_id: str, consumer_id: str) -> int:
         with self._locked(self.event_lock, shared=True):
-            committed_high_water = self._high_water_unlocked()
+            committed_high_water = self._indexed_high_water_unlocked()
             with self._locked(self.ack_lock):
                 acks = self._load_safe_acks_unlocked(committed_high_water)
                 row = acks.get(self._ack_key(str(round_id), str(consumer_id)), {})
@@ -1992,7 +2304,7 @@ class FileEventStore:
         client_key = str(consumer_id)
         requested = max(0, int(position))
         with self._locked(self.event_lock, shared=True):
-            committed_high_water = self._high_water_unlocked()
+            committed_high_water = self._indexed_high_water_unlocked()
             with self._locked(self.ack_lock):
                 acks = self._load_safe_acks_unlocked(committed_high_water)
                 if requested > committed_high_water:
@@ -2009,6 +2321,28 @@ class FileEventStore:
                     }
                     self._atomic_write_json(self.acks, {"schema": ACK_SCHEMA, "acks": acks})
                 return acked
+
+    def _indexed_high_water_unlocked(self) -> int:
+        """Return the global sequence watermark from the light round index."""
+        if not self.log.exists() and not self.commit_marker.exists():
+            return 0
+        marker = self._load_commit_marker()
+        if marker is None:
+            committed_length = self._visible_committed_length_unlocked()
+            marker = self._load_commit_marker()
+            committed_prefix = marker.committed_prefix_sha256 if marker is not None else None
+        else:
+            committed_length = self._visible_committed_length_unlocked()
+            marker = self._load_commit_marker()
+            committed_prefix = marker.committed_prefix_sha256 if marker is not None else None
+        index = self._load_round_index_unlocked(committed_length, committed_prefix)
+        if index is None:
+            index = self._round_index_from_log_unlocked(committed_length)
+            try:
+                self._write_round_index_unlocked(index, committed_length, committed_prefix)
+            except OSError:
+                logger.warning("mobile_event_round_index repair failed root=%s", self.root, exc_info=True)
+        return index.high_water
 
     def _atomic_write_json(self, path: Path, payload: dict[str, Any]) -> None:
         self._ensure_root_durable()

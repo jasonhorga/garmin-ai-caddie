@@ -1,0 +1,20 @@
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -2267,7 +2267,7 @@
+ 
+     def read_ack(self, round_id: str, consumer_id: str) -> int:
+         with self._locked(self.event_lock, shared=True):
+-            committed_high_water = self._indexed_high_water_unlocked()
++            committed_high_water = self._high_water_unlocked()
+             with self._locked(self.ack_lock):
+                 acks = self._load_safe_acks_unlocked(committed_high_water)
+                 row = acks.get(self._ack_key(str(round_id), str(consumer_id)), {})
+@@ -2304,7 +2304,7 @@
+         client_key = str(consumer_id)
+         requested = max(0, int(position))
+         with self._locked(self.event_lock, shared=True):
+-            committed_high_water = self._indexed_high_water_unlocked()
++            committed_high_water = self._high_water_unlocked()
+             with self._locked(self.ack_lock):
+                 acks = self._load_safe_acks_unlocked(committed_high_water)
+                 if requested > committed_high_water:

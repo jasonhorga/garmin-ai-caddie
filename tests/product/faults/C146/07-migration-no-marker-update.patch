@@ -1,0 +1,11 @@
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -936,7 +936,7 @@
+                     committed_prefix_sha256=hashlib.sha256(new_raw).hexdigest(),
+                     legacy_baseline_byte_length=old_marker.legacy_baseline_byte_length,
+                 )
+-                self._write_committed_length(new_marker)
++                # mutant: leave the old commit marker in place
+                 self._restore_metadata(self.commit_marker, snapshots[self.commit_marker][1])
+                 index = self._round_index_from_log_unlocked(len(new_raw))
+                 self._write_round_index_unlocked(

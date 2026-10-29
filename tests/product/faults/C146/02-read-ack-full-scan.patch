@@ -1,0 +1,17 @@
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -1385,13 +1385,6 @@
+         client_key = str(consumer_id)
+         with self._locked(self.event_lock, shared=True):
+-            if not self.log.exists() and not self.commit_marker.exists():
+-                stored_log = _StoredLog((), 0)
+-            else:
+-                try:
+-                    with self.log.open("rb") as handle:
+-                        stored_log = self._indexed_round_log_unlocked(round_key, handle=handle)
+-                except FileNotFoundError:
+-                    stored_log = _StoredLog((), 0)
++            stored_log = self._stored_log()
+             rows = [
+                 deepcopy(stored.row)
+                 for stored in stored_log.rows

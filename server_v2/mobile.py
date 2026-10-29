@@ -31,6 +31,7 @@ from ai_caddie.caddie.mobile_live import (
     replay_event_log,
     round_events,
 )
+from ai_caddie.caddie.mobile_event_store import EventPayloadTooLargeError
 from ai_caddie.caddie.round_loops import RoundLoopFactsMissingError
 from ai_caddie.history.history import OWNER_ID, HistoryData
 from ai_caddie.history.corrected_history import corrected_history_data
@@ -773,6 +774,12 @@ def append_mobile_events_response(
             # the client may bisect the request and quarantine this singleton.
             logger.warning("mobile_events validation_failed status=422 path=body.events type=event_invalid")
             raise HTTPException(status_code=422, detail={"code": "event_invalid", "message": str(exc)}) from exc
+        except EventPayloadTooLargeError as exc:
+            logger.warning("mobile_events validation_failed status=422 path=body.events type=event_payload_too_large")
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "event_payload_too_large", "message": str(exc)},
+            ) from exc
         except ValueError as exc:
             logger.warning("mobile_events validation_failed status=422 path=body.events type=event_batch_invalid")
             raise HTTPException(status_code=422, detail=str(exc)) from exc

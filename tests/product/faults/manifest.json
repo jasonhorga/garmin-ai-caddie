@@ -651,6 +651,69 @@
       "kind": "native-unit",
       "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_2_new_round_route_back_action_reaches_home_after_first_stroke",
       "promise": "5.2"
+    },
+    {
+      "id": "tests-product-faults-C146-01",
+      "patch": "tests/product/faults/C146/01-read-rows-full-scan.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_indexed_round_reads_do_not_scan_unrelated_six_mb_history",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C146-02",
+      "patch": "tests/product/faults/C146/02-read-ack-full-scan.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_indexed_round_reads_do_not_scan_unrelated_six_mb_history",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C146-03",
+      "patch": "tests/product/faults/C146/03-read-round-crosses-indexed-identity.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_indexed_round_read_matches_legacy_sanitized_rows",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C146-04",
+      "patch": "tests/product/faults/C146/04-remove-event-bound.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_oversized_decision_is_stored_as_bounded_summary",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C146-05",
+      "patch": "tests/product/faults/C146/05-migration-no-backup.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_dry_run_and_apply_preserve_identity",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C146-06",
+      "patch": "tests/product/faults/C146/06-ack-full-scan.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_indexed_round_reads_do_not_scan_unrelated_six_mb_history",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C146-07",
+      "patch": "tests/product/faults/C146/07-migration-no-marker-update.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_dry_run_and_apply_preserve_identity",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C146-08",
+      "patch": "tests/product/faults/C146/08-migration-no-rollback.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_failure_restores_store_atomically",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C146-09",
+      "patch": "tests/product/faults/C146/09-reconciliation-uses-summary.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_apply_reconciliation_uses_ledger_for_truncated_decision_summary",
+      "promise": "5.9"
     }
   ]
 }

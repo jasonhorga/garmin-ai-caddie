@@ -1,0 +1,16 @@
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -1650,12 +1650,7 @@
+         *,
+         reject_oversize: bool = False,
+     ) -> dict[str, Any]:
+-        try:
+-            source = bound_mobile_event(event)
+-        except EventPayloadTooLargeError:
+-            if reject_oversize:
+-                raise
+-            source = deepcopy(event)
++        source = deepcopy(event)
+         candidate = (
+             self._additional_sanitizer(deepcopy(source))
+             if self._additional_sanitizer is not None
