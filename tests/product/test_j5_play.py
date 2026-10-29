@@ -188,6 +188,86 @@ class PlayTests(HTTPFixture, unittest.TestCase):
         self.assertEqual({k:v for k,v in self.disk().items() if "/swing-candidates/" not in k}, before)
 
 
+
+class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
+    """J4.6/J5.11: online routes, hazards and landings share physical route stations."""
+
+    def install_route_geometry(self, *, straight=False):
+        # Hand geometry: two 200 m legs, a 60–100 m water crossing, and a lake that only
+        # the diagonal shortcut crosses. Driver 240 + 8I 160 reaches the green at station 400.
+        route = [[0, 0], [0, 400]] if straight else [[0, 0], [0, 200], [200, 200]]
+        target = route[-1]
+        hazards = {"globalId": 90101, "refLat": 0, "refLon": 0,
+                   "tees": [{"tee_index": 1, "sets": [2], "position": route[0], "target_distance_m": 400}],
+                   "target": {"position": target}, "hazards": [
+                       {"id": "water_1", "kind": "water", "polygon": [[-5,60],[5,60],[5,100],[-5,100]]}]}
+        if not straight:
+            hazards["hazards"].append({"id": "water_2", "kind": "water",
+                                       "polygon": [[40,40],[180,40],[180,180],[40,180]]})
+        md = {"hole": {"TeeLocations": [{"X": 0, "Y": 0, "Sets": [2]}],
+                       "Doglegs": [{"Line": [{"X": x, "Y": y} for x,y in route]}]}, "meshes": []}
+        from ai_caddie.geometry import hole_render
+        from ai_caddie.courses import course_reference
+        ready = {"coverage": "ready", "hasHazards": True, "hasMeshes": True, "missingData": [], "evidence": []}
+        self.stack.enter_context(patch.object(mobile_live, "_load_mobile_hazards", return_value=hazards))
+        self.stack.enter_context(patch.object(mobile_live, "geometry_coverage_for_hole", return_value=ready))
+        self.stack.enter_context(patch.object(geometry_evidence, "geometry_coverage_for_hole", return_value=ready))
+        self.stack.enter_context(patch.object(geometry_evidence, "_load_hole_sources", return_value=(hazards, md)))
+        self.stack.enter_context(patch.object(hole_render, "load_mesh", return_value=(md, {})))
+        self.stack.enter_context(patch.object(course_reference, "courseview_tees", return_value=[{"index": 2, "name": "Blue"}]))
+        self.route_hazards = hazards
+        self.route_context = {"source": "ios_live", "sourceRef": "fixture-polyline:1", "globalId": 90101,
+            "hole": 1, "localHole": 1, "teeBox": "blue", "par": 4, "yards": 437,
+            "distanceToPin_m": 400 if straight else 282.8,
+            "greenDistances": {"frontM": 390 if straight else 270, "middleM": 400 if straight else 282.8,
+                               "backM": 410 if straight else 300, "frontRouteM": 390, "backRouteM": 400},
+            "clubProfiles": {name: {"clubName": name, "median_m": carry, "p10_m": carry-5,
+                                     "p90_m": carry+5, "sampleSize": 20}
+                             for name, carry in [("Driver",240),("8I",160)]}}
+
+    def online_decision(self):
+        response = self.client.post("/api/v2/caddie/decision", json={"shotType": "tee", "context": self.route_context,
+                                                                         "includeExplanation": False})
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()
+
+    def test_j5_11_dogleg_uses_route_stations_for_hazards_and_two_shot_finish(self):
+        self.install_route_geometry()
+        seed = mobile_live.hydrate_live_caddie_geometry_context(self.route_context)
+        plan = self.online_decision()
+        self.assertTrue(plan["sequences"], "a diagonal lake must not make the playable dogleg infeasible")
+        self.assertEqual(seed["routeEvidence"]["routeLength_m"], 400)
+        zones = seed["routeEvidence"]["avoidZones"]
+        self.assertEqual([(z["id"],z["carryToFront_m"],z["carryToClear_m"]) for z in zones], [("water_1",60,100)])
+        self.assertTrue(any([step["clubName"] for step in seq["clubs"]] == ["Driver","8I"] for seq in plan["sequences"]), plan["sequences"])
+        driver = next(option for option in plan["options"] if option["club"] == "Driver")
+        self.assertEqual(driver["targetLocal"], [40,200], "240 route metres is after the bend, never on the diagonal")
+        self.assertEqual(max(step["routeOffset_m"] for seq in plan["sequences"] for step in seq["clubs"]), 400)
+
+    def test_j5_11_live_position_uses_only_the_route_after_its_projection(self):
+        self.install_route_geometry()
+        # Ten metres beside the route at station 150: the remaining polyline is 50+200=250 m.
+        from ai_caddie.core.data import local_to_wgs84
+        lat, lon = local_to_wgs84(10,150,0,0)
+        self.route_context["currentLocation"] = {"latitude": lat, "longitude": lon}
+        seed = mobile_live.hydrate_live_caddie_geometry_context(self.route_context)
+        route = seed["routeEvidence"]
+        self.assertEqual(route["routeStartLocal"], [0,150])
+        self.assertEqual(route["routeLength_m"], 250)
+        self.assertEqual(seed["holeRemaining_m"], 250)
+        self.assertEqual(route["avoidZones"], [], "the 60–100 m crossing is behind the current station")
+
+    def test_j5_11_straight_route_retains_the_hand_calculated_decision(self):
+        self.install_route_geometry(straight=True)
+        seed = mobile_live.hydrate_live_caddie_geometry_context(self.route_context)
+        plan = self.online_decision()
+        self.assertEqual(seed["routeEvidence"]["routeLength_m"], 400)
+        self.assertEqual([(z["carryToFront_m"],z["carryToClear_m"]) for z in seed["routeEvidence"]["avoidZones"]], [(60,100)])
+        self.assertTrue(any([step["clubName"] for step in seq["clubs"]] == ["Driver","8I"] for seq in plan["sequences"]), plan["sequences"])
+        self.assertEqual([step["routeOffset_m"] for seq in plan["sequences"] if seq["clubs"][0]["clubName"] == "Driver"
+                          for step in seq["clubs"]], [240,400])
+
+
 class DecisionGoldenTests(unittest.TestCase):
     def test_j5_11_decisions_equal_hand_routes(self):
         for row in vectors("caddie_golden.json")["cases"]:
