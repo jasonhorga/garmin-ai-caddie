@@ -52,3 +52,28 @@ class ConcurrencyProbeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["topo"]["failed"], 1)
         self.assertEqual(result["topo"]["errors"], ['{"detail":"missing"}'])
         self.assertEqual(result["package"]["p50Ms"], 900.0)
+
+    async def test_serial_idle_probes_do_not_compete_and_include_existing_personal_package(self):
+        active = peak = 0
+        seen = []
+
+        async def respond(request):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            seen.append(request.url)
+            await asyncio.sleep(0.001)
+            active -= 1
+            return httpx.Response(200, json={})
+
+        args = argparse.Namespace(global_id=1, round_id="live-1-existing", tee_box="blue",
+                                  latitude=0, longitude=0, radius_km=50, self_host=True,
+                                  prefetch=False, install_pressure=False, serial_idle=True)
+        async with httpx.AsyncClient(base_url="http://fixture", transport=httpx.MockTransport(respond)) as client:
+            sample = await _sample(client, args, 0)
+        self.assertEqual(peak, 1)
+        personal = [url for url in seen if url.path.endswith("/package")
+                    and url.params["map_only"] == "false"
+                    and url.params["round_id"] == args.round_id]
+        self.assertEqual(len(personal), 1)
+        self.assertIn("package_personal_cached", sample.timings)
