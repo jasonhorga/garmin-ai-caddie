@@ -1,8 +1,11 @@
 --- a/ai_caddie/geometry/topo_render.py
 +++ b/ai_caddie/geometry/topo_render.py
-@@ -1180,4 +1180,4 @@
+@@ -1181,7 +1181,7 @@
      # As with topo, a replaced renderer is a test double and cannot be pickled into a worker.
      if render_hole_green_detail is not _RENDER_HOLE_GREEN_DETAIL:
          return _compute_in_render_worker(render_hole_green_detail, gid, hole, crop, size=size)
 -    return _run_render_cpu(render_hole_green_detail, gid, hole, crop, size=size)
 +    return _compute_in_render_worker(render_hole_green_detail, gid, hole, crop, size=size)
+
+
+ _cache_lock = threading.Lock()

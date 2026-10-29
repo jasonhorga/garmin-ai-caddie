@@ -1,7 +1,10 @@
 --- a/ai_caddie/geometry/garmin_raster.py
 +++ b/ai_caddie/geometry/garmin_raster.py
-@@ -320,3 +320,3 @@
+@@ -319,6 +319,6 @@
      if matte_sky_webp is not _MATTE_SKY_WEBP:  # non-picklable test double, as in topo
          return matte_sky_webp(source)
 -    return _run_render_cpu(matte_sky_webp, source)
 +    return matte_sky_webp(source)
+
+
+ def _matte_path(global_id: int, hole: object, version: str) -> Path:
