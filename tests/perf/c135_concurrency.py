@@ -8,7 +8,8 @@ Run against a local fixture or a private deployment, for example:
 
 Self-hosted samples compare a warmed map-only package with a fresh personal package. With
 ``--install-pressure`` each sample also starts another synthetic course's whole-course install
-and a cold topo request. External probes require an existing ``--round-id`` and only read its
+and a cold topo request. Idle self-host probes prime personal stats to measure stats-hit delivery.
+External probes require an existing ``--round-id`` and only read its
 map-only package and light routes. Use the same script with ``--server-repo`` for both revisions;
 run under taskset and set AI_CADDIE_TOPO_RENDER_PROCESSES to simulate cgroup-derived pool sizes
 on hosts without a CPU quota. Failed responses are reported separately from latency quantiles.
@@ -299,6 +300,10 @@ async def _warm_light_routes(client: httpx.AsyncClient, args: argparse.Namespace
         if phase != "ready":
             raise RuntimeError(f"foreground fixture install failed: {response.text[:2000]}")
         statuses["install_status"] = response.status_code
+        if args.warm_personal:
+            response = await client.get(_package_path(args, args.round_id, map_only=False))
+            if response.status_code != 200:
+                raise RuntimeError(f"personal stats warmup {response.status_code}: {response.text}")
     return statuses
 
 
@@ -369,11 +374,14 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         raise SystemExit("external probes require an existing --round-id (read-only mode)")
     if args.samples < 1:
         raise SystemExit("--samples must be positive")
+    args.warm_personal = bool(args.warm_personal or (args.self_host and not args.install_pressure))
     args.prefetch = bool(args.prefetch and args.self_host)
     if args.prepare_fixture and remote:
         raise SystemExit("--prepare-fixture is restricted to a loopback base URL")
     if (args.prepare_fixture or args.install_pressure) and not args.self_host:
         raise SystemExit("fixture preparation and install pressure require --self-host")
+    if args.warm_personal and not args.self_host:
+        raise SystemExit("personal stats warmup requires --self-host")
     args.round_id = args.round_id or f"live-{args.global_id}-{uuid.uuid4()}"
     fixture_temp = tempfile.TemporaryDirectory(prefix="caddie-c135-") if args.fixture_root is None else None
     fixture_root = Path(args.fixture_root).resolve() if args.fixture_root is not None else Path(fixture_temp.name)
@@ -421,6 +429,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         "cpuAffinity": sorted(os.sched_getaffinity(0)),
         "renderProcessesEnv": os.environ.get("AI_CADDIE_TOPO_RENDER_PROCESSES"),
         "fixturePrepared": bool(args.prepare_fixture), "remoteReadOnly": not args.self_host,
+        "personalStatsWarmed": bool(args.warm_personal),
         "warmStatuses": warm_statuses, "metrics": _summarize(samples),
         "pressure": [sample.pressure for sample in samples],
     }
@@ -457,6 +466,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--self-host", action="store_true", help="Start a fixture API subprocess on a temporary high port")
     parser.add_argument("--server-repo", default=str(REPO_ROOT), help="Self-host API source revision (same probe for before/after)")
     parser.add_argument("--install-pressure", action="store_true", help="Local synthetic whole-course install plus cold topo for every sample")
+    parser.add_argument("--warm-personal", action="store_true", help="Prime personal stats (default for self-host probes without install pressure)")
     parser.add_argument("--round-id", help="Existing round id for remote low-side-effect probes")
     parser.add_argument(
         "--prepare-fixture", action="store_true",
