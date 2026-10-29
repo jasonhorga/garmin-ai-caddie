@@ -44,6 +44,7 @@ from ai_caddie.core.priority_work import (
     PriorityExecutor,
     foreground_work,
     work_priority,
+    yield_to_foreground,
 )
 from ai_caddie.core.play_order import expand_display_holes, play_order
 
@@ -3064,6 +3065,9 @@ def run_course_install_job(identifier: str) -> None:
             # Queue the bitmap first; a cold hole returns None here and builds after supplements.
             from ai_caddie.courses.vector_prep import warm_requested_vectors
 
+            # The vector seed is this coordinator's own CPU: a background pass gives a live
+            # package the interpreter first. No vector/geometry lock is held at this point.
+            yield_to_foreground()
             try:
                 warm_requested_vectors(gid, hole)
             except Exception:
@@ -3072,6 +3076,8 @@ def run_course_install_job(identifier: str) -> None:
     for gid, holes in pending_by_gid.items():
         if course_install.cancellation_requested(identifier):
             return
+        # Window boundary inside a pass: a background install pauses here while a package is live.
+        yield_to_foreground()
         try:
             from ai_caddie.caddie.analysis import tee_set_for_box
             from ai_caddie.courses.vector_prep import request_vector_tee

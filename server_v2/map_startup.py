@@ -8,7 +8,7 @@ import logging
 import threading
 import time
 
-from ai_caddie.core.priority_work import FOREGROUND, NEARBY, background_work
+from ai_caddie.core.priority_work import FOREGROUND, NEARBY, background_work, yield_to_foreground
 from ai_caddie.caddie.round_loops import resolve_round_loops, source_start_hole
 from ai_caddie.courses.course_reference import COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S, courseview_release_info
 from server_v2 import course_install
@@ -103,6 +103,8 @@ def _prefetch_nearby_releases(matches) -> int:
         return 0
     count = 0
     for match in _nearest_three(matches):
+        # Course boundary, outside the release lock /tees shares: pause while a package is live.
+        yield_to_foreground()
         if tee_requests_in_flight():
             break
         gid = int(match.global_id)
@@ -144,6 +146,7 @@ def _enqueue_nearby(matches) -> int:
     # gradually enqueue the fourth through thirtieth courses while the first three are busy.
     count = 0
     for match in _nearest_three(matches):
+        yield_to_foreground()
         gid = int(match.global_id)
         holes = int(match.holes)
         with _LOCK:
