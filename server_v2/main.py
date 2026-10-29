@@ -12,7 +12,7 @@ import re
 import threading
 import time
 from collections.abc import Callable
-from functools import lru_cache
+from functools import lru_cache, wraps
 from typing import Any, Annotated, Literal
 
 from fastapi import BackgroundTasks, Body, Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
@@ -37,7 +37,14 @@ from ai_caddie.connectors.session_material import cleanup_session_material
 from ai_caddie.connectors.snapshot import snapshot_to_payload, write_connector_status
 from ai_caddie.connectors.sync_lock import SyncInProgress, acquire_sync_lock
 from ai_caddie.core.data import ROOT
-from ai_caddie.core.priority_work import FOREGROUND, NEARBY, SELECTED_COURSE, PriorityExecutor, work_priority
+from ai_caddie.core.priority_work import (
+    FOREGROUND,
+    NEARBY,
+    SELECTED_COURSE,
+    PriorityExecutor,
+    foreground_work,
+    work_priority,
+)
 from ai_caddie.core.play_order import expand_display_holes, play_order
 
 from .annotations import create_annotation_response, list_annotation_response, list_target_annotation_response
@@ -2133,7 +2140,17 @@ def confirm_vision_finding_route(
     return confirm_vision_finding_response(finding_id, request, player_id=player_id)
 
 
+def _foreground_package_route(function):
+    """Keep package CPU inside the shared admission gate even when called without ASGI."""
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        with foreground_work():
+            return function(*args, **kwargs)
+    return wrapped
+
+
 @app.get("/api/v2/mobile/rounds/{round_id}/package", response_model=LiveRoundPackageResponse)
+@_foreground_package_route
 def mobile_round_package(
     round_id: str,
     captured_at: str | None = None,
@@ -2379,6 +2396,10 @@ def _current_geometry_revision(global_id: int, hole: int) -> str | None:
 # Explicit finish releases it; a lost/offline client expires without a resident timer.
 _ACTIVE_ROUNDS: dict[tuple[str, str], float] = {}
 _ACTIVE_COURSES: dict[tuple[str, str], tuple[int, ...]] = {}
+# The gid alone is insufficient for C157: a playing round is one ordered loop pairing and tee.
+# ``None`` means an older/recovered round has no proven selection and intentionally uses the gid
+# fallback for compatibility.
+_ACTIVE_SELECTIONS: dict[tuple[str, str], tuple[str, str] | None] = {}
 _ACTIVE_ROUNDS_LOCK = threading.Lock()
 
 
@@ -2454,7 +2475,8 @@ def _current_course_ids(player_id: str) -> tuple[int, ...]:
 
 def _record_round_activity(player_id: str, round_id: str | None, *, finished: bool = False,
                            global_ids: list[int] | tuple[int, ...] | None = None,
-                           new_events: bool = False, restore_only: bool = False) -> None:
+                           new_events: bool = False, restore_only: bool = False,
+                           selection: tuple[str, str] | None = None) -> None:
     if not round_id:
         return
     with _ACTIVE_ROUNDS_LOCK:
@@ -2463,6 +2485,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
             if deadline <= now:
                 _ACTIVE_ROUNDS.pop(stale, None)
                 _ACTIVE_COURSES.pop(stale, None)
+                _ACTIVE_SELECTIONS.pop(stale, None)
         key = (str(player_id), str(round_id))
         latest = _latest_rounds_by_player().get(key[0])
         if finished:
@@ -2472,6 +2495,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                 for old in own[:own.index(key) + 1]:
                     _ACTIVE_ROUNDS.pop(old, None)
                     _ACTIVE_COURSES.pop(old, None)
+                    _ACTIVE_SELECTIONS.pop(old, None)
         elif new_events or not str(round_id).startswith(("home-", "prep-library-", "watch-template-")):
             # Uploads and round refreshes may be delayed for days. They can recover an idle API
             # or renew this round, but cannot displace another course-bound playing round.
@@ -2480,7 +2504,33 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                 _ACTIVE_ROUNDS[key] = now + 30 * 60
                 if global_ids:
                     _ACTIVE_COURSES[key] = tuple(sorted({int(value) for value in global_ids if int(value) > 0}))
+                if selection is not None:
+                    _ACTIVE_SELECTIONS[key] = (str(selection[0]), str(selection[1]).strip().lower())
         _publish_current_courses()
+
+
+def _playing_selection_matches(
+    player_id: str,
+    global_id: int,
+    *,
+    loop_key: str | None = None,
+    tee_box: str | None = None,
+) -> bool:
+    """Return whether a package is the active round's exact loop/tee selection.
+
+    Recovered legacy rounds have no selection evidence; those deliberately fall back to the old
+    gid rule. A caller without loop/tee evidence likewise uses gid, and the caller reports that
+    fallback through its normal request path rather than guessing a pairing.
+    """
+    with _ACTIVE_ROUNDS_LOCK:
+        key = _latest_rounds_by_player().get(str(player_id))
+        gids = _ACTIVE_COURSES.get(key, ()) if key else ()
+        if int(global_id) not in gids:
+            return False
+        current = _ACTIVE_SELECTIONS.get(key) if key else None
+    if not loop_key or not tee_box or current is None:
+        return True
+    return current == (str(loop_key), str(tee_box).strip().lower())
 
 
 def nearby_work_blocked() -> bool:
@@ -2491,6 +2541,7 @@ def nearby_work_blocked() -> bool:
             if deadline <= now:
                 _ACTIVE_ROUNDS.pop(key, None)
                 _ACTIVE_COURSES.pop(key, None)
+                _ACTIVE_SELECTIONS.pop(key, None)
         _publish_current_courses()
         if _ACTIVE_ROUNDS:
             return True
@@ -2864,6 +2915,7 @@ def _parse_round_loops_or_422(raw: str, global_id: int) -> list[tuple[int, str]]
 
 
 @app.get("/api/v2/mobile/courses/{global_id}/package", response_model=LiveRoundPackageResponse)
+@_foreground_package_route
 def mobile_course_package(
     global_id: int,
     background_tasks: BackgroundTasks,
@@ -2906,7 +2958,15 @@ def mobile_course_package(
     # insufficient. Its existing read-only request disables all three options; playing/download
     # paths request background geometry. A home read never starts or refreshes a playing lease.
     if include_event_cursor or background_geometry or ensure_geometry:
-        _record_round_activity(player_id, round_id, global_ids=[gid for gid, _half in round_loops])
+        _record_round_activity(
+            player_id,
+            round_id,
+            global_ids=[gid for gid, _half in round_loops],
+            selection=(
+                round_loop_key(round_loops),
+                str(tee_box or package.course.get("teeBox") or "blue"),
+            ),
+        )
     mark_request_stage("package_route")
     if not background_geometry or ensure_geometry:
         return package
@@ -2951,7 +3011,16 @@ def mobile_course_package(
         refs=refs,
         requested=requested,
         ready=ready,
-        priority=(SELECTED_COURSE if global_id in _current_course_ids(player_id) else NEARBY),
+        priority=(
+            SELECTED_COURSE
+            if _playing_selection_matches(
+                player_id,
+                global_id,
+                loop_key=round_loop_key(round_loops),
+                tee_box=str(tee_box or package.course.get("teeBox") or "blue"),
+            )
+            else NEARBY
+        ),
         priority_hole=priority_hole,
     )
     mark_request_stage("background_enqueue")

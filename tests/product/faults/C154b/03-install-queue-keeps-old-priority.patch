@@ -1,0 +1,8 @@
+diff --git a/server_v2/course_install.py b/server_v2/course_install.py
+--- a/server_v2/course_install.py
++++ b/server_v2/course_install.py
+@@ -547,3 +547,3 @@ def _launch(identifier: str) -> None:
+     # stable submit method also keeps lightweight test/embedding executors source-compatible.
+-    run_keyed.__priority_work_key__ = identifier
++    run_keyed.__priority_work_key__ = None
+     _WORKER.submit(run_keyed, identifier, priority=launch_priority)

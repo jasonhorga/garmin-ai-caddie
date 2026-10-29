@@ -1057,6 +1057,34 @@
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59WatchReconciliationPreservesRejectedHolePrompt",
       "promise": "C145-5b"
+    },
+    {
+      "id": "tests-product-faults-C154b-01",
+      "patch": "tests/product/faults/C154b/01-background-skips-gate.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C154b-02",
+      "patch": "tests/product/faults/C154b/02-gate-never-times-out.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C154b-03",
+      "patch": "tests/product/faults/C154b/03-install-queue-keeps-old-priority.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.ForegroundAdmissionTests.test_J42_queued_install_is_reordered_by_current_priority",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C154b-04",
+      "patch": "tests/product/faults/C154b/04-same-gid-ignores-loop-tee.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.LoopTeeAdmissionTests.test_J42_course_package_uses_nearby_for_same_gid_wrong_selection",
+      "promise": "4.2"
     }
   ]
 }

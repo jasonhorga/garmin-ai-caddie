@@ -7,6 +7,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from ai_caddie.courses.prep_work import cancellation
+from ai_caddie.core.priority_work import background_work
 from .timing import mark
 
 
@@ -14,8 +15,12 @@ async def run_prep(request: Request, build: Callable):
     cancelled = threading.Event()
 
     def work():
-        with cancellation(cancelled):
-            return build()
+        # /prep is a background CPU consumer from the package admission point of view.  The
+        # package itself never calls this gate, so a synchronous package cannot deadlock waiting
+        # for its own prep helper.
+        with background_work():
+            with cancellation(cancelled):
+                return build()
 
     async def watch_disconnect():
         # is_disconnected() cancels its own receive scope and can lose the disconnect under

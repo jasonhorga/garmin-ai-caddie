@@ -8,12 +8,18 @@ from contextvars import ContextVar
 import heapq
 import itertools
 import threading
+import time
 from typing import Any, Callable, Hashable
 
 FOREGROUND = 0
 SELECTED_COURSE = 10
 NEARBY = 20
 BACKFILL = 30
+
+# A package build is synchronous CPU work in the API process.  New background units wait for it
+# so a round start does not spend its budget competing with warmers.  Thirty seconds is deliberately
+# finite: a wedged package must not permanently starve recovery/render work.
+FOREGROUND_GATE_TIMEOUT_SECONDS = 30.0
 
 
 _CURRENT_PRIORITY: ContextVar[int | None] = ContextVar("work_priority", default=None)
@@ -32,6 +38,79 @@ def work_priority(priority: int):
         yield
     finally:
         _CURRENT_PRIORITY.reset(token)
+
+
+class ForegroundGate:
+    """Coordinate synchronous package requests with background CPU units.
+
+    A foreground request never acquires a background slot, which avoids a package -> warmer
+    deadlock.  Background callers wait while at least one package is in flight and are admitted
+    after the package exits, or after the bounded timeout if the request is stuck.
+    """
+
+    def __init__(self, *, timeout_s: float = FOREGROUND_GATE_TIMEOUT_SECONDS,
+                 clock: Callable[[], float] = time.monotonic) -> None:
+        self.timeout_s = max(0.0, float(timeout_s))
+        self._clock = clock
+        self._condition = threading.Condition()
+        self._foreground = 0
+        self._background = 0
+
+    @contextmanager
+    def foreground(self):
+        with self._condition:
+            self._foreground += 1
+        try:
+            yield
+        finally:
+            with self._condition:
+                self._foreground = max(0, self._foreground - 1)
+                self._condition.notify_all()
+
+    @contextmanager
+    def background(self, *, timeout_s: float | None = None):
+        timeout = self.timeout_s if timeout_s is None else max(0.0, float(timeout_s))
+        deadline = self._clock() + timeout
+        with self._condition:
+            while self._foreground:
+                remaining = deadline - self._clock()
+                if remaining <= 0:
+                    break
+                self._condition.wait(timeout=remaining)
+            self._background += 1
+        try:
+            yield
+        finally:
+            with self._condition:
+                self._background = max(0, self._background - 1)
+                self._condition.notify_all()
+
+    @property
+    def foreground_count(self) -> int:
+        with self._condition:
+            return self._foreground
+
+    @property
+    def background_count(self) -> int:
+        with self._condition:
+            return self._background
+
+
+FOREGROUND_GATE = ForegroundGate()
+
+
+@contextmanager
+def foreground_work():
+    """Mark one package request as foreground CPU work."""
+    with FOREGROUND_GATE.foreground():
+        yield
+
+
+@contextmanager
+def background_work(*, timeout_s: float | None = None):
+    """Admit one background CPU unit, with the finite package starvation bound."""
+    with FOREGROUND_GATE.background(timeout_s=timeout_s):
+        yield
 
 
 class PrioritySlots:
@@ -88,7 +167,11 @@ class PriorityExecutor:
 
     def submit(self, fn: Callable, /, *args: Any, priority: int = SELECTED_COURSE,
                **kwargs: Any) -> Future:
-        return self._submit(fn, args, kwargs, priority=int(priority), key=None)
+        # Callers that need durable reprioritisation can attach a process-local key to the
+        # submitted callable while retaining this long-standing ``submit`` API. This keeps simple
+        # test/embedding doubles compatible and routes keyed work through the same heap path.
+        key = getattr(fn, "__priority_work_key__", None)
+        return self._submit(fn, args, kwargs, priority=int(priority), key=key)
 
     def submit_keyed(
         self,

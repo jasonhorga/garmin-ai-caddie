@@ -7,7 +7,7 @@ import logging
 import threading
 import time
 
-from ai_caddie.core.priority_work import FOREGROUND, NEARBY
+from ai_caddie.core.priority_work import FOREGROUND, NEARBY, background_work
 from ai_caddie.caddie.round_loops import resolve_round_loops, source_start_hole
 from ai_caddie.courses.course_reference import COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S, courseview_release_info
 from server_v2 import course_install
@@ -81,6 +81,11 @@ def _nearest_three(matches) -> list:
 
 
 def prefetch_nearby_releases(matches) -> int:
+    with background_work():
+        return _prefetch_nearby_releases(matches)
+
+
+def _prefetch_nearby_releases(matches) -> int:
     """Cache the nearest three courses' small CourseView release (Tee names) after discovery.
 
     A tap on one of them then finds its Tee rows cached and /tees answers without a Garmin round
@@ -119,6 +124,11 @@ def prefetch_nearby_releases(matches) -> int:
 
 
 def enqueue_nearby(matches) -> int:
+    with background_work():
+        return _enqueue_nearby(matches)
+
+
+def _enqueue_nearby(matches) -> int:
     """The nearest three provider courses, without personal prep or a synchronous download.
 
     One shared durable journal per physical course, independent of player/Tee/loop selections.

@@ -24,7 +24,12 @@ import time
 from typing import Any
 
 from ai_caddie.core.data import ROOT
-from ai_caddie.core.priority_work import NEARBY, SELECTED_COURSE, PriorityExecutor
+from ai_caddie.core.priority_work import (
+    NEARBY,
+    SELECTED_COURSE,
+    PriorityExecutor,
+    background_work,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +96,8 @@ def set_current_course_ids(courses_by_player: dict[str, set[int]]) -> None:
                 changed.append(state)
     for state in changed:
         _reprioritize_topo_queue(state)
+        if hasattr(_WORKER, "reprioritize"):
+            _WORKER.reprioritize(str(state.get("jobId") or ""), int(state.get("priority", NEARBY)))
 
 
 def _root() -> Path:
@@ -530,7 +537,15 @@ def _launch(identifier: str) -> None:
             state["priority"] = NEARBY
             _write(state)
         launch_priority = int(state.get("priority", SELECTED_COURSE))
-    _WORKER.submit(_run, identifier, priority=launch_priority)
+    # Keyed submission lets a playing-course signal reorder a job that is already waiting in this
+    # executor; changing only the durable journal leaves the stale heap priority in place.
+    def run_keyed(job_identifier: str) -> None:
+        return _run(job_identifier)
+
+    # PriorityExecutor.submit recognises this marker and stores a keyed heap entry. Calling the
+    # stable submit method also keeps lightweight test/embedding executors source-compatible.
+    run_keyed.__priority_work_key__ = identifier
+    _WORKER.submit(run_keyed, identifier, priority=launch_priority)
 
 
 def _schedule_retry(identifier: str) -> None:
@@ -1206,7 +1221,8 @@ def _run(identifier: str) -> None:
         # importing it back at module load would create a circular import.
         from .main import run_course_install_job
 
-        run_course_install_job(identifier)
+        with background_work():
+            run_course_install_job(identifier)
     except Exception:  # noqa: BLE001 - a job failure must be durable and retryable
         # Keep traceback details in the server log, never in the durable journal that may be
         # inspected/backed up independently of the process.

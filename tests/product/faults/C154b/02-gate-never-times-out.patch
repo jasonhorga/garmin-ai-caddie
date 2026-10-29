@@ -1,0 +1,10 @@
+diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
+--- a/ai_caddie/core/priority_work.py
++++ b/ai_caddie/core/priority_work.py
+@@ -74,6 +74,4 @@ class ForegroundGate:
+             while self._foreground:
+                 remaining = deadline - self._clock()
+-                if remaining <= 0:
+-                    break
+                 self._condition.wait(timeout=remaining)
+             self._background += 1

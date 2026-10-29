@@ -7,6 +7,7 @@ from pathlib import Path
 from ai_caddie.history.history import OWNER_ID
 from ai_caddie.history.mobile_stats import PREVIOUS_WINDOW, build_mobile_previous, build_mobile_stats
 from ai_caddie.history.stats_cache import cached_build_history_stats, cached_load_history_data
+from ai_caddie.core.priority_work import background_work
 
 from .data_source import load_history_data_for_mode
 from .models import HistoryStatsResponse, HistoryStatsSummaryResponse, MobileStatsResponse
@@ -150,7 +151,8 @@ def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Threa
 
         def run() -> None:
             try:
-                warm_stats_cache(player_id=clean_player_id)
+                with background_work():
+                    warm_stats_cache(player_id=clean_player_id)
             finally:
                 with _WARM_LOCK:
                     if _WARM_THREADS.get(clean_player_id) is threading.current_thread():
