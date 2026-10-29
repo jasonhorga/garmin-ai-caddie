@@ -1,6 +1,6 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -1890,7 +1890,7 @@
+@@ -1920,7 +1920,7 @@
          if let cached = intentPrefetchPackages[key] {
              return (cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt), false)
          }
@@ -8,4 +8,4 @@
 +        guard intentPrefetchTasks[key] == nil, let task = intentPrefetchTasks[key] else { return (nil, false) }
          do {
              let waitNanoseconds = roundStartIntentWaitNanoseconds
-             let cached = try await withThrowingTaskGroup(of: LiveRoundPackage.self) { group in
+             let race = IntentPrefetchWaitRace<LiveRoundPackage>()
