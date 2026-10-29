@@ -1053,7 +1053,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                     .filter { $0.name == "holes" }
                     .compactMap { $0.value.flatMap(Int.init) } ?? []
                 let succeeds = requestLock.withLock { statusShouldSucceed }
-                body = try self.offlinePrepResponseData(
+                body = try offlinePrepResponseData(
                     for: fetched, localHoles: requested,
                     geometryCoverage: succeeds ? "ready" : "partial",
                     geometryRevision: newRevision
