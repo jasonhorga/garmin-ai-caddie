@@ -1385,7 +1385,17 @@ def _tee_independent_vector(vector: dict[str, Any]) -> dict[str, Any]:
     """Keep map geometry from a cached Tee while withholding its route and distance facts."""
     out = dict(vector)
     out.pop("route", None)
-    for key in ("teeSet", "teeYards", "greenDistances", "steps", "cautions", "candidateRoutes", "carryTargets"):
+    for key in (
+        "teeSet",
+        "teeYards",
+        "blue_yards",
+        "route_len_m",
+        "greenDistances",
+        "steps",
+        "cautions",
+        "candidateRoutes",
+        "carryTargets",
+    ):
         out.pop(key, None)
     map_value = out.get("map")
     if isinstance(map_value, dict):
@@ -1394,8 +1404,24 @@ def _tee_independent_vector(vector: dict[str, Any]) -> dict[str, Any]:
         if isinstance(overlay, dict):
             overlay_copy = dict(overlay)
             overlay_copy.pop("route", None)
+            overlay_copy.pop("ln", None)
             map_copy["overlay"] = overlay_copy
         out["map"] = map_copy
+    hazards = out.get("hazards")
+    if isinstance(hazards, dict):
+        hazard_copy = dict(hazards)
+        details = hazard_copy.get("details")
+        if isinstance(details, list):
+            cleaned_details = []
+            for detail in details:
+                if not isinstance(detail, dict):
+                    continue
+                detail_copy = dict(detail)
+                for key in ("frontM", "backM", "frontRouteM", "backRouteM", "sideM"):
+                    detail_copy.pop(key, None)
+                cleaned_details.append(detail_copy)
+            hazard_copy["details"] = cleaned_details
+        out["hazards"] = hazard_copy
     missing = [row for row in (out.get("missingData") or []) if isinstance(row, dict)]
     missing.append({"label": "tee_route", "reason": "selected Tee vector is pending; Tee-independent map geometry is shown"})
     out["missingData"] = missing
@@ -1521,6 +1547,34 @@ def first_hole_lightweight_course_prep(
                     )
                     if vector is not None and not tee_facts_bound.get(source_global_id, True):
                         vector = _tee_independent_vector(vector)
+                    if vector is None and not map_only and (
+                        selected_set is not None or selected_tee_box not in {"", "unknown"}
+                    ):
+                        # A full package must carry the selected Tee's distances even when its
+                        # precise vector cache is absent.  The precise route seed uses the same
+                        # mesh route and green-distance calculation as /prep, without waiting for
+                        # strategy/raster work; CourseView lightweight prep remains the fallback
+                        # when the mesh is not installed yet.
+                        if selected_set is not None:
+                            try:
+                                vector = course_prep.precise_route_seed_hole(
+                                    source_global_id,
+                                    source_local_hole,
+                                    tee_set=selected_set,
+                                    include_facts=True,
+                                )
+                            except Exception:
+                                vector = None
+                        if vector is None:
+                            prep_call_kwargs = dict(prep_kwargs)
+                            if selected_tee_box:
+                                prep_call_kwargs["tee_set"] = selected_set
+                            try:
+                                vector = course_prep.lightweight_prep_hole(
+                                    source_global_id, source_local_hole, **prep_call_kwargs
+                                )
+                            except Exception:
+                                vector = None
                     if vector is None and (selected_set is not None or selected_tee_box not in {"", "unknown"}):
                         # Reuse an existing vector only for Tee-independent geometry. Never
                         # expose that vector's route, F/M/B or nominal yardage as today's
