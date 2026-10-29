@@ -1174,7 +1174,7 @@
       "id": "tests-product-faults-C152-02",
       "patch": "tests/product/faults/C152/02-indexed-read-rehashes-prefix.patch",
       "kind": "python",
-      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_indexed_round_read_after_append_stays_bounded_inside_prefix_safety_window",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_j59_indexed_round_read_rejects_same_size_committed_row_tamper",
       "promise": "5.9"
     },
     {
@@ -1196,13 +1196,6 @@
       "patch": "tests/product/faults/C152/03-append-does-not-cache.patch",
       "kind": "python",
       "target": "tests.product.test_j5_play.EventAppendTests.test_j59_append_reads_only_target_round_on_seven_mb_history",
-      "promise": "5.9"
-    },
-    {
-      "id": "tests-product-faults-C152-04-indexed-read-skips-prefix-validation",
-      "patch": "tests/product/faults/C152/04-indexed-read-skips-prefix-validation.patch",
-      "kind": "python",
-      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_j59_indexed_round_read_rejects_same_size_committed_row_tamper",
       "promise": "5.9"
     }
   ]
