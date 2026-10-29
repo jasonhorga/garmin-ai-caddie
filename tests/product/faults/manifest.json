@@ -1783,14 +1783,14 @@
       "id": "tests-product-faults-C136-08",
       "patch": "tests/product/faults/C136/08-prep-drops-selected-tee.patch",
       "kind": "python",
-      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_package_and_prep_use_same_selected_gold_tee_when_blue_cache_is_only_map",
+      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_package_and_prep_use_same_selected_release_tee_on_real_paths",
       "promise": "J4.4"
     },
     {
       "id": "tests-product-faults-C136-09",
       "patch": "tests/product/faults/C136/09-blue-tee-fallback.patch",
       "kind": "python",
-      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_package_and_prep_use_same_selected_gold_tee_when_blue_cache_is_only_map",
+      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_package_and_prep_use_same_selected_release_tee_on_real_paths",
       "promise": "J4.4"
     },
     {
@@ -1818,7 +1818,14 @@
       "id": "tests-product-faults-C136-13",
       "patch": "tests/product/faults/C136/13-course-prep-drops-tee.patch",
       "kind": "python",
-      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_package_and_prep_use_same_selected_gold_tee_when_blue_cache_is_only_map",
+      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_package_and_prep_use_same_selected_release_tee_on_real_paths",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-14",
+      "patch": "tests/product/faults/C136/14-course-prep-straight-distance.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_full_package_prefers_selected_precise_distance_seed_before_map_fallback",
       "promise": "J4.4"
     },
     {

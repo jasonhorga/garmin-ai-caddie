@@ -450,6 +450,42 @@ class ReworkContractTests(unittest.TestCase):
         self.assertIsNone(result['holes'][0].get('route'))
         self.assertNotIn('greenDistances', result['holes'][0])
 
+    def test_full_package_prefers_selected_precise_distance_seed_before_map_fallback(self):
+        """J4.4: full packages keep selected Tee F/M/B when only another Tee vector is cached."""
+        from ai_caddie.caddie import mobile_live as ml
+
+        precise = {
+            'globalId': 123, 'localHole': 1, 'hole': 1,
+            'geometryCoverage': 'partial',
+            'route': [[0.0, 40.0, 0.0], [0.0, 344.0, 344.0]],
+            'greenDistances': {'available': True, 'middleM': 344.0},
+            'teeSet': 4,
+            'holeImageProjection': {'available': True},
+        }
+        lightweight = {
+            **precise,
+            'route': [[0.0, 40.0, 0.0], [0.0, 300.0, 300.0]],
+            'greenDistances': {'available': True, 'middleM': 300.0},
+        }
+        package = {
+            'course': {'globalId': 123, 'teeBox': 'white'}, 'clubProfiles': [],
+            'holes': [{'number': 1, 'sourceGlobalId': 123, 'sourceLocalHole': 1}],
+        }
+        with (
+            patch('ai_caddie.core.data.mesh_path', return_value=Path(__file__)),
+            patch('ai_caddie.caddie.mobile_live._load_mobile_hazards', return_value={
+                'globalId': 123, 'tees': [{'sets': [4]}],
+            }),
+            patch('ai_caddie.courses.course_reference.courseview_tees', return_value=[]),
+            patch('ai_caddie.caddie.analysis.tee_set_for_box', side_effect=lambda gid, box, **kw: 4),
+            patch('ai_caddie.courses.vector_prep.cached_vector_hole', return_value=None),
+            patch.object(ml.course_prep, 'precise_route_seed_hole', return_value=precise) as precise_seed,
+            patch.object(ml.course_prep, 'lightweight_prep_hole', return_value=lightweight),
+        ):
+            result = ml.first_hole_lightweight_course_prep(package, map_only=False)
+        self.assertEqual(result['holes'][0]['greenDistances']['middleM'], 344.0)
+        self.assertEqual(precise_seed.call_args.kwargs, {'tee_set': 4, 'include_facts': True})
+
     def test_follower_waits_one_second_and_marks_uncacheable(self):
         from server_v2 import mobile
         future = Future()

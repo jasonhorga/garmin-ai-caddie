@@ -384,57 +384,114 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertAlmostEqual(blue_hole["teeLatitude"], 40.0, delta=0.00001)
         self.assertAlmostEqual(blue_hole["teeLongitude"], 116.0, delta=0.00001)
 
-    def test_package_and_prep_use_same_selected_gold_tee_when_blue_cache_is_only_map(self) -> None:
-        """J4.4/J5.4: package anchor, /prep route and F/M/B facts share one Tee resolver."""
+    def test_package_and_prep_use_same_selected_release_tee_on_real_paths(self) -> None:
+        """J4.4: real package/map-only/prep paths share release Tee authority and distances."""
         from ai_caddie.caddie import mobile_live
         from ai_caddie.courses import course_prep
+        from ai_caddie.courses import course_reference, courseview_core
         from ai_caddie.geometry import shot_projection
+        from server_v2 import main as server_main
 
         hazards = {
             "globalId": 31832, "refLat": 40.0, "refLon": 116.0,
             "tees": [
+                {"sets": [1], "position": [0.0, 50.0], "target_distance_m": 250.0},
                 {"sets": [2], "position": [0.0, 0.0], "target_distance_m": 300.0},
-                {"sets": [4], "position": [0.0, 50.0], "target_distance_m": 250.0},
+                {"sets": [3], "position": [0.0, -25.0], "target_distance_m": 325.0},
+                {"sets": [4], "position": [0.0, -50.0], "target_distance_m": 350.0},
             ],
         }
-        source = {"globalId": 31832, "holes": [{"number": 1, "teeLatitude": 40.0, "teeLongitude": 116.0, "yards": 328}]}
-        prep_call = {}
-
-        def fake_prep_nine(_gid, *, holes, **kwargs):
-            prep_call.update(kwargs)
-            tee_set = course_prep.resolve_tee_set_for_hole(_gid, int(holes[0]), kwargs.get("tee_box"))
-            return [{
-                "hole": int(holes[0]), "teeSet": tee_set,
-                "route": [[0.0, 50.0, 0.0], [0.0, 300.0, 250.0]],
-                "greenDistances": {"available": True, "frontM": 242.0, "middleM": 250.0, "backM": 258.0},
-            }]
+        course_data = {
+            "buildId": 309,
+            "sourceVariant": "fixture",
+            "holes": [
+                {
+                    "holeNumber": hole,
+                    "greenRadii": [12] * 30,
+                    "pars": [{"par": 4, "playerType": 1}],
+                    "lines": [{
+                        "role": "route",
+                        "points": [
+                            {"latitude": 40.0, "longitude": 116.0},
+                            {"latitude": 40.0027, "longitude": 116.0},
+                        ],
+                    }],
+                }
+                for hole in (1, 2)
+            ],
+        }
+        release = [
+            {"name": "Black", "gender": "MEN", "index": 1},
+            {"name": "Blue", "gender": "MEN", "index": 2},
+            {"name": "White", "gender": "MEN", "index": 3},
+            {"name": "Red", "gender": "MEN", "index": 4},
+        ]
+        vector = {
+            "globalId": 31832,
+            "localHole": 1,
+            "route": [[0.0, 0.0, 0.0], [0.0, 300.0, 300.0]],
+            "greenDistances": {"available": True, "frontM": 292.0, "middleM": 300.0, "backM": 308.0},
+            "teeSet": 2,
+            "map": {"image": None, "overlay": {"w": 678, "h": 1060, "ln": 300.0,
+                    "route": [[10.0, 1000.0, 0.0], [12.0, 40.0, 300.0]],
+                    "surfaces": [{"kind": "Fairway", "polygons": []}]}},
+        }
+        source = {
+            "globalId": 31832,
+            "holes": [
+                {"number": hole, "teeLatitude": 40.0, "teeLongitude": 116.0, "yards": 328}
+                for hole in (1, 2)
+            ],
+        }
+        package = {
+            "course": {"globalId": 31832, "teeBox": "blue"},
+            "clubProfiles": [],
+            "holes": [
+                {"number": hole, "sourceGlobalId": 31832, "sourceLocalHole": hole}
+                for hole in (1, 2)
+            ],
+        }
 
         with (
             patch.object(mobile_live, "_load_mobile_hazards", return_value=hazards),
             patch.object(mobile_live, "geometry_coverage_for_hole", return_value={"coverage": "partial"}),
-            patch.object(course_prep.course_reference, "courseview_tees", return_value=[
-                {"name": "Blue", "index": 2}, {"name": "Gold", "index": 4}
-            ]),
-            patch.object(course_prep, "prep_nine", side_effect=fake_prep_nine),
-            patch.object(course_prep, "resolve_tee_set_for_hole", return_value=4),
+            patch.object(course_prep, "geometry_coverage_for_hole", return_value={"coverage": "partial"}),
+            patch.object(course_prep.course_reference, "courseview_tees", return_value=release),
+            patch.object(course_reference, "courseview_tees", return_value=release),
+            patch.object(courseview_core, "load_cached_course_data", return_value=course_data),
+            patch.object(course_prep.hole_render, "load_mesh", side_effect=FileNotFoundError),
+            patch.object(course_prep, "hazard_path", return_value=Path(__file__)),
+            patch.object(course_prep, "read_json", return_value=hazards),
+            patch.object(course_reference, "load_course_par", return_value=course_reference.CoursePar(31832, [4, 4], "courseview", "high")),
             patch.object(course_prep, "effective_club_ladder", return_value=[]),
+            patch("ai_caddie.core.data.mesh_path", return_value=Path(__file__)),
+            patch("ai_caddie.courses.vector_prep.cached_vector_hole",
+                  side_effect=lambda *args, **kwargs: vector if kwargs.get("tee_set") == 2 else None),
         ):
-            package_hole = mobile_live._package_holes(
-                source, {"holes": []}, course_key="", hole_numbers=[1], tee_box="gold"
-            )[0]
-            prep_package = mobile_live._course_prep_package(
-                31832, [package_hole], tee_box="gold"
-            )
-
-        tee_local = shot_projection.world_to_local(
-            package_hole["teeLatitude"], package_hole["teeLongitude"], ref_lat=40.0, ref_lon=116.0
-        )
-        self.assertAlmostEqual(tee_local[1], 50.0, places=6)
-        self.assertEqual(package_hole["yards"], round(250.0 * 1.09361))
-        self.assertIsNotNone(prep_package)
-        self.assertEqual(prep_package["holes"][0]["teeSet"], 4)
-        self.assertEqual(prep_package["holes"][0]["greenDistances"]["middleM"], 250.0)
-        self.assertEqual(prep_call["tee_box"], "gold")
+            for tee_box, expected_set in (("black", 1), ("blue", 2), ("white", 3), ("red", 4), ("gold", 2)):
+                package_holes = mobile_live._package_holes(
+                    source, {"holes": []}, course_key="", hole_numbers=[1, 2], tee_box=tee_box
+                )
+                full = mobile_live.first_hole_lightweight_course_prep(
+                    {**package, "course": {"globalId": 31832, "teeBox": tee_box}}, map_only=False
+                )
+                map_only = mobile_live.first_hole_lightweight_course_prep(
+                    {**package, "course": {"globalId": 31832, "teeBox": tee_box}}, map_only=True
+                )
+                prep = server_main._build_course_prep_nine(31832, [1, 2], False, False, tee_box, "me")
+                self.assertEqual([row["teeSet"] for row in prep["holes"]], [expected_set, expected_set])
+                self.assertEqual([row["teeSet"] for row in full["holes"]], [expected_set, expected_set])
+                full_middle = [row["greenDistances"]["middleM"] for row in full["holes"]]
+                prep_middle = [row["greenDistances"]["middleM"] for row in prep["holes"]]
+                self.assertTrue(all(abs(left - right) <= 3.0 for left, right in zip(full_middle, prep_middle)))
+                self.assertEqual(len(map_only["holes"]), 2)
+                if expected_set != 2:
+                    self.assertTrue(all("greenDistances" not in row and "route" not in row for row in map_only["holes"]))
+                anchor = shot_projection.world_to_local(
+                    package_holes[0]["teeLatitude"], package_holes[0]["teeLongitude"],
+                    ref_lat=40.0, ref_lon=116.0,
+                )
+                self.assertAlmostEqual(anchor[1], {1: 50.0, 2: 0.0, 3: -25.0, 4: -50.0}[expected_set], places=6)
 
     def test_mobile_geometry_context_keeps_only_caddie_risk_surfaces(self) -> None:
         from ai_caddie.caddie.mobile_live import _hazards_from_geometry
