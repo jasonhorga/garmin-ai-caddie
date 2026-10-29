@@ -1,3 +1,4 @@
+import CoreLocation
 import SwiftUI
 import UIKit
 import XCTest
@@ -8,6 +9,204 @@ import XCTest
 @MainActor
 final class ProductLiveHolePageTests: XCTestCase {
     #if !SWIFT_PACKAGE
+    // J5.11: synthetic dogleg inputs, with independently specified 284.3 m straight range and
+    // 320.9 m centreline stations. No expected value is derived from the planner under test.
+    private func decisionPackage() throws -> LiveRoundPackage {
+        let base = try ProductInputs.package().rebasedForOfflineStart(roundId: UUID().uuidString)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(base)) as? [String: Any])
+        let profiles: [[String: Any]] = [
+            ["clubName": "Driver", "sampleSize": 24, "median_m": 197, "p10_m": 189, "p90_m": 205],
+            ["clubName": "8I", "sampleSize": 24, "median_m": 121, "p10_m": 115, "p90_m": 127],
+        ]
+        json["clubProfiles"] = profiles
+        // One pixel/metre, affine equatorial anchors (100 m = 0.000899321606 degrees).
+        let prep: [String: Any] = [
+            "hole": 1, "par": 4, "par_source": "synthetic", "blue_yards": 351, "route_len_m": 320.9,
+            "geometryCoverage": "ready", "geometryRevision": "dogleg-r1",
+            "route": [[20.0, 350.0], [130.0, 250.0], [304.3, 350.0]],
+            "map": ["overlay": ["w": 400, "h": 400, "ppm": 1, "ln": 320.9,
+                "route": [[20.0, 350.0, 0.0], [130.0, 250.0, 135.5], [304.3, 350.0, 320.9]]]],
+            "holeImageProjection": ["available": true, "widthPx": 400, "heightPx": 400, "refs": [
+                ["lat": 0.0, "lon": 0.0, "px": 20.0, "py": 350.0],
+                ["lat": 0.0, "lon": 0.000899321606, "px": 120.0, "py": 350.0],
+                ["lat": 0.000899321606, "lon": 0.0, "px": 20.0, "py": 250.0],
+            ]],
+            "greenDistances": ["available": true, "middleM": 284.3,
+                               "middleLat": 0.0, "middleLon": 0.002556771326],
+            "steps": [
+                ["clubName": "Driver", "note": "", "targetCarryM": 197, "routeOffsetM": 197,
+                 "role": "tee", "planIndex": 0],
+                ["clubName": "8I", "note": "", "targetCarryM": 121, "routeOffsetM": 318,
+                 "role": "scoring", "planIndex": 1],
+            ],
+            "cautions": [], "hazards": ["water_carry": [], "bunkers": [], "details": []],
+        ]
+        json["coursePrep"] = ["schema": "ai-caddie-course-prep-v1", "globalId": 81001, "holes": [prep]]
+        json["caddieContextSeeds"] = [[
+            "hole": 1, "sourceRef": "synthetic:dogleg", "shotTypes": ["tee"], "requiredLiveInputs": [],
+            "context": ["par": 4, "clubProfiles": profiles], "selectedOfflineOptionId": "stock",
+            "offlineOptions": [["optionId": "stock", "label": "推荐", "clubName": "Driver", "carryM": 197,
+                                "sampleSize": 24, "confidence": "high", "riskScore": 0,
+                                "source": "synthetic", "sourceRefs": []]],
+            "evidence": [], "missingData": [],
+        ]]
+        return try ProductSharedVectors.decode(json)
+    }
+
+    private func pageDecision(empty: Bool = false) throws -> CaddieDecisionResponse {
+        let sequence: [String: Any] = ["id": "online-safe", "label": "推荐", "clubs": [
+            ["clubName": "8I", "role": "advance", "targetCarry_m": 121, "routeOffset_m": 121],
+            ["clubName": "Driver", "role": "scoring", "targetCarry_m": 197, "routeOffset_m": 318],
+        ]]
+        var json: [String: Any] = [
+            "schema": "ai-caddie-decision-v2", "decisionId": "online-result", "shotType": "tee", "phase": "Tee",
+            "context": [:], "options": [], "sequences": empty ? [] : [sequence],
+            "avoidZones": [], "forbiddenZones": [], "acceptableMiss": [:], "evidence": [],
+            "confidence": [:], "missingData": [], "auditCriteria": [],
+        ]
+        if !empty { json["selectedSequence"] = sequence; json["selectedOptionId"] = "online-safe" }
+        return try ProductSharedVectors.decode(json)
+    }
+
+    private func withDecisionPage(
+        package: LiveRoundPackage? = nil,
+        cache: LiveHoleSessionCache = LiveHoleSessionCache(),
+        _ exercise: (LiveHoleDecisionProbe) async throws -> Void
+    ) async throws {
+        let package = try package ?? decisionPackage()
+        let hole = try XCTUnwrap(package.holes.first)
+        let session = C33URLProtocol.session()
+        let client = CaddieDecisionClient(baseURL: URL(string: "https://decisions.example.test")!, session: session)
+        let probe = LiveHoleDecisionProbe()
+        let fix = LocationFix(coordinate: .init(latitude: 0, longitude: 0), horizontalAccuracyM: 5,
+                              altitudeM: nil, capturedAt: "2026-10-01T00:00:00Z")
+        // A nonselected mounted page retains SwiftUI state but starts no lifecycle/network tasks.
+        let view = CurrentHoleView(package: package, hole: hole, caddieClient: client,
+                                   sessionCache: cache, isSelected: false)
+            .observingDecisionsForTesting(probe, locationProvider: LocationProvider(fixedFix: fix))
+        let host = UIHostingController(rootView: view)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            probe.refresh = nil; probe.request = nil; probe.routes = nil; probe.source = nil
+            probe.planningDistance = nil; probe.offlineDecision = nil; probe.setTarget = nil
+            session.invalidateAndCancel()
+            C33URLProtocol.setHandlers(onStart: nil)
+        }
+        let mounted = try await waitForHostedState(host) { probe.refresh != nil }
+        XCTAssertTrue(mounted)
+        try await exercise(probe)
+    }
+
+    func test_j5_11_request_keeps_straight_distance_while_local_dogleg_uses_route() async throws {
+        try await withDecisionPage { probe in
+            let request = try XCTUnwrap(probe.request)
+            let setTarget = try XCTUnwrap(probe.setTarget)
+            let initial = try XCTUnwrap(request())
+            guard case .number(let initialDistance)? = initial.context["distanceToPin_m"] else {
+                return XCTFail("wire distance missing")
+            }
+            XCTAssertEqual(initialDistance, 284.3, accuracy: 0.1,
+                           "on-hole wire value has main's straight-distance semantics")
+            setTarget(CGPoint(x: 189, y: 350)) // 169 m Touch Target from tee.
+            let targeted = try XCTUnwrap(request())
+            guard case .number(let distance)? = targeted.context["distanceToPin_m"] else {
+                return XCTFail("wire distance missing")
+            }
+            XCTAssertEqual(distance, 284.3, accuracy: 0.1, "Touch Target cannot change the wire distance")
+            XCTAssertEqual(targeted.context["canonicalPlanRemainingRouteLength_m"], .number(320.9))
+            let offline = try XCTUnwrap(probe.offlineDecision)
+            let route = try XCTUnwrap(CaddiePlanSequence.selectedSequence(from: try XCTUnwrap(offline())))
+            XCTAssertEqual(route.steps.map(\.clubName), ["Driver", "8I"])
+            XCTAssertGreaterThanOrEqual(route.steps.last?.routeOffsetM ?? 0, 306.2)
+            XCTAssertEqual(try XCTUnwrap(probe.planningDistance)() ?? -1, 320.9, accuracy: 0.1)
+        }
+    }
+
+    /// J5.11: run seed -> online -> each real load fallback, checking the published physical chain
+    /// and the actual session flag. Removing any corresponding write-back must fail this test.
+    private func assertOnlineRefreshRetained(_ fallback: String) async throws {
+        let package = try decisionPackage()
+        let cache = LiveHoleSessionCache()
+        let hole = try XCTUnwrap(package.holes.first)
+        let online = try JSONEncoder().encode(pageDecision())
+        let empty = try JSONEncoder().encode(pageDecision(empty: true))
+        try await withDecisionPage(package: package, cache: cache) { probe in
+            let refresh = try XCTUnwrap(probe.refresh)
+            let routes = try XCTUnwrap(probe.routes)
+            probe.clientUnavailable = true
+            await refresh() // Actual no-client seed, then the online response.
+            XCTAssertEqual(routes().first?.steps.map(\.clubName), ["Driver", "8I"])
+            probe.clientUnavailable = false
+            C33URLProtocol.setHandlers(onStart: { $0.reply(200, online) })
+            await refresh()
+            XCTAssertEqual(routes().map(\.id), ["online-safe"])
+            XCTAssertEqual(routes().first?.steps.map(\.clubName), ["8I", "Driver"])
+            if fallback == "no-client" {
+                probe.clientUnavailable = true
+            } else if fallback == "empty" {
+                C33URLProtocol.setHandlers(onStart: { $0.reply(200, empty) })
+            } else {
+                C33URLProtocol.setHandlers(onStart: { proto in
+                    proto.client?.urlProtocol(proto, didFailWithError: URLError(.notConnectedToInternet))
+                })
+            }
+            await refresh()
+            let entry = cache.entry(roundId: package.roundId, hole: hole.number,
+                                    sourceGlobalId: hole.sourceGlobalId, sourceLocalHole: hole.sourceLocalHole,
+                                    teeBox: package.course.teeBox)
+            XCTAssertFalse(entry.caddieDecisionIsOnline, "\(fallback) must clear the real page's online flag")
+            XCTAssertEqual(routes().map(\.id), ["online-safe"], "\(fallback) must retain the online route")
+            XCTAssertEqual(routes().first?.steps.map(\.clubName), ["8I", "Driver"])
+        }
+    }
+
+    func test_j5_11_online_then_error_retains_route() async throws {
+        try await assertOnlineRefreshRetained("error")
+    }
+
+    func test_j5_11_online_then_empty_card_retains_route() async throws {
+        try await assertOnlineRefreshRetained("empty")
+    }
+
+    func test_j5_11_online_then_no_client_retains_route() async throws {
+        try await assertOnlineRefreshRetained("no-client")
+    }
+
+    func test_j5_11_unsigned_online_response_clears_previous_cache_identity() throws {
+        var entry = LiveHoleSessionCache.Entry()
+        entry.storeOnlineDecision(try pageDecision(), inputSignature: "previous-input")
+        entry.storeOnlineDecision(try pageDecision(), inputSignature: nil)
+        XCTAssertNil(entry.caddieDecisionInputSignature)
+        XCTAssertTrue(LiveHoleSessionCachePolicy.shouldFetchDecision(
+            inputSignature: "previous-input", cachedSignature: entry.caddieDecisionInputSignature,
+            hasCachedDecision: entry.caddieDecision != nil
+        ))
+    }
+
+    func test_j5_11_restored_local_route_allows_later_installed_upgrade() async throws {
+        let package = try decisionPackage()
+        let hole = try XCTUnwrap(package.holes.first)
+        let cache = LiveHoleSessionCache()
+        let response = try pageDecision()
+        let localRoute = try XCTUnwrap(CaddiePlanSequence.selectedSequence(from: response))
+        cache.update(roundId: package.roundId, hole: hole.number,
+                     sourceGlobalId: hole.sourceGlobalId, sourceLocalHole: hole.sourceLocalHole,
+                     teeBox: package.course.teeBox) { entry in
+            entry.caddieRoutes = [localRoute]
+            entry.caddieDecisionIsOnline = false
+        }
+        try await withDecisionPage(package: package, cache: cache) { probe in
+            XCTAssertEqual(try XCTUnwrap(probe.source)(), .offline, "restored local route is not online")
+            probe.clientUnavailable = true
+            await probe.refresh?()
+            XCTAssertEqual(try XCTUnwrap(probe.routes)().map(\.id), [LiveCaddieRouteAuthority.installedRouteId])
+        }
+    }
+
     /// Drive the callbacks used by CurrentHoleView with the real first-stroke model and store.
     /// Deliberately do not refresh the rendered callback Value between starting and dismissal.
     private func withPrepSession(

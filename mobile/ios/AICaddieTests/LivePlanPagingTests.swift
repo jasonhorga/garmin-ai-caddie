@@ -153,6 +153,30 @@ final class LivePlanPagingTests: XCTestCase {
         XCTAssertEqual(refreshed?.merged.map(\.id), ["safe"])
     }
 
+    /// J5.11: the page's provenance rule must distinguish transport state from cached route id.
+    func testPageRouteSourceUsesDecisionAndTransportState() {
+        XCTAssertEqual(CurrentHoleView.caddieRouteSource(
+            isOnline: true, isOfflineFallback: false, hasDecision: true,
+            retainedSource: .offline, incomingIsInstalled: false
+        ), .online)
+        XCTAssertEqual(CurrentHoleView.caddieRouteSource(
+            isOnline: false, isOfflineFallback: true, hasDecision: true,
+            retainedSource: .online, incomingIsInstalled: true
+        ), .offline)
+        XCTAssertEqual(CurrentHoleView.caddieRouteSource(
+            isOnline: false, isOfflineFallback: false, hasDecision: false,
+            retainedSource: .online, incomingIsInstalled: true
+        ), .offline)
+        XCTAssertEqual(CurrentHoleView.caddieRouteSource(
+            isOnline: false, isOfflineFallback: false, hasDecision: false,
+            retainedSource: .offline, incomingIsInstalled: true
+        ), .installed)
+        XCTAssertEqual(CurrentHoleView.caddieRouteSource(
+            isOnline: false, isOfflineFallback: false, hasDecision: true,
+            retainedSource: nil, incomingIsInstalled: false
+        ), .offline)
+    }
+
     /// J5.11: when both authoritative sources are empty, local evaluation supplies one route.
     func testLocalRouteIsTheOnlyFinalFallback() {
         let routes = LiveCaddieRouteAuthority.resolve(

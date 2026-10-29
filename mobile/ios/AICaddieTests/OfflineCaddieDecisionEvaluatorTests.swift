@@ -385,6 +385,7 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         water: [[Double]] = [],
         canonical: [(String, Double)] = [],
         routeLengthM: Double? = nil,
+        remainingRouteM: Double? = nil,
         planningHazards: [[String: JSONValue]] = [],
         omitProfiles: Bool = false
     ) throws -> CaddieDecisionResponse {
@@ -422,8 +423,11 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
             seed: seed,
             input: LiveCaddieInput(shotType: "tee", distanceToPinM: distanceM)
         )
-        if !water.isEmpty || !canonical.isEmpty {
+        if !water.isEmpty || !canonical.isEmpty || remainingRouteM != nil {
             var context = request.context
+            if let remainingRouteM {
+                context["canonicalPlanRemainingRouteLength_m"] = .number(remainingRouteM)
+            }
             if let routeLengthM {
                 context["canonicalPlanRouteLength_m"] = .number(routeLengthM)
             }
@@ -463,6 +467,19 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(route.steps.last?.routeOffsetM ?? 0, 306.2)
         XCTAssertLessThanOrEqual(route.steps.last?.routeOffsetM ?? 0, 320.9 + 8)
         XCTAssertFalse(route.steps.contains { $0.clubName.lowercased().contains("putter") })
+    }
+
+    /// J5.11: at the dogleg bend, only 185.4 m remains; the original 320.9 m tee chain cannot
+    /// overwrite this local context. The 197 m Driver is inside the 20 m scoring window.
+    func testRemainingRouteContextOverridesOriginalTeeLengthLocally() throws {
+        let decision = try wholeHoleDecision(
+            par: 4, distanceM: 150,
+            bag: [("Driver", 197, 8), ("8I", 121, 6)], options: [("stock", "Driver")],
+            canonical: [("Driver", 197), ("8I", 121)], routeLengthM: 320.9, remainingRouteM: 185.4
+        )
+        let route = try XCTUnwrap(CaddiePlanSequence.selectedSequence(from: decision))
+        XCTAssertEqual(route.steps.map(\.clubName), ["Driver"])
+        XCTAssertEqual(route.steps.last?.routeOffsetM ?? -1, 185.4, accuracy: 0.001)
     }
 
     /// J5.11: a local fallback may report a longer measured chain, but it never invents a putter

@@ -556,12 +556,51 @@ struct LiveScoreDismissalCoordinator: Equatable {
     }
 }
 
+#if DEBUG
+/// Drives the mounted page's real request/reconcile path without starting its lifecycle tasks.
+@MainActor
+final class LiveHoleDecisionProbe {
+    var refresh: (() async -> Void)?
+    var request: (() -> CaddieDecisionRequest?)?
+    var routes: (() -> [CaddiePlanSequence])?
+    var source: (() -> LiveCaddieRouteAuthority.RouteSource?)?
+    var planningDistance: (() -> Double?)?
+    var offlineDecision: (() -> CaddieDecisionResponse?)?
+    var setTarget: ((CGPoint?) -> Void)?
+    var clientUnavailable = false
+}
+#endif
+
 public struct CurrentHoleView: View {
     @Environment(\.dismiss) private var dismiss
     // The pager's owner can navigate home directly; standalone destinations use dismiss.
     private let onBackToHome: (() -> Void)?
     #if DEBUG
     private var navigationProbe: LiveHolePageNavigationProbe?
+    private var decisionProbe: LiveHoleDecisionProbe?
+
+    func observingDecisionsForTesting(
+        _ probe: LiveHoleDecisionProbe, locationProvider: LocationProvider
+    ) -> Self {
+        var view = self
+        view.decisionProbe = probe
+        view._locationProvider = StateObject(wrappedValue: locationProvider)
+        return view
+    }
+
+    @MainActor
+    private func bindDecisionProbe() {
+        guard let decisionProbe else { return }
+        decisionProbe.refresh = { await loadCaddieDecision() }
+        decisionProbe.request = { makeCaddieDecisionRequest() }
+        decisionProbe.routes = { liveCaddieRoutes }
+        decisionProbe.source = { caddieRouteSourceByHole[hole.number] }
+        decisionProbe.planningDistance = { caddiePlanningDistanceMetres }
+        decisionProbe.offlineDecision = { makeOfflineCaddieDecision() }
+        decisionProbe.setTarget = { targetPixel = $0 }
+        currentCoordinate = locationProvider.latestFix?.coordinate
+    }
+
 
     func observingNavigationForTesting(_ probe: LiveHolePageNavigationProbe?) -> Self {
         var view = self
@@ -933,7 +972,7 @@ public struct CurrentHoleView: View {
             self._caddieRoutesByHole = State(initialValue: [hole.number: [initialRoute]])
             self._retainedCaddieRouteByHole = State(initialValue: [hole.number: initialRoute])
             self._caddieRouteSourceByHole = State(initialValue: [
-                hole.number: initialRoute.id == LiveCaddieRouteAuthority.installedRouteId ? .installed : .online
+                hole.number: Self.restoredCaddieRouteSource(routeId: initialRoute.id, isOnline: initialSession.caddieDecisionIsOnline)
             ])
         } else if let initialHolePrep,
                   let installed = LiveCaddieRouteAuthority.installedRoute(
@@ -1113,6 +1152,7 @@ public struct CurrentHoleView: View {
         .navigationBarBackButtonHidden(true)
         .onAppear {
             #if DEBUG
+            bindDecisionProbe()
             UITestPagerTrace.shared.metric(.currentHoleAppear)
             UITestPagerTrace.shared.record("page appear hole=\(hole.number) selected=\(isSelected)")
             #endif
@@ -1282,8 +1322,9 @@ public struct CurrentHoleView: View {
             if let route = cachedSession.caddieRoutes.first {
                 caddieRoutesByHole[hole.number] = [route]
                 retainedCaddieRouteByHole[hole.number] = route
-                caddieRouteSourceByHole[hole.number] = route.id == LiveCaddieRouteAuthority.installedRouteId
-                    ? .installed : .online
+                caddieRouteSourceByHole[hole.number] = Self.restoredCaddieRouteSource(
+                    routeId: route.id, isOnline: cachedSession.caddieDecisionIsOnline
+                )
             }
             // A reused CurrentHoleView must not carry a manual choice into the next hole. The
             // persisted `selectedStrategyMode` remains available for legacy event replay, while
@@ -3062,6 +3103,26 @@ public struct CurrentHoleView: View {
         )
     }
 
+    static func caddieRouteSource(
+        isOnline: Bool,
+        isOfflineFallback: Bool,
+        hasDecision: Bool,
+        retainedSource: LiveCaddieRouteAuthority.RouteSource?,
+        incomingIsInstalled: Bool
+    ) -> LiveCaddieRouteAuthority.RouteSource {
+        if isOnline { return .online }
+        if isOfflineFallback { return .offline }
+        if !hasDecision, retainedSource == .online { return .offline }
+        if incomingIsInstalled { return .installed }
+        return .offline
+    }
+
+    static func restoredCaddieRouteSource(
+        routeId: String, isOnline: Bool
+    ) -> LiveCaddieRouteAuthority.RouteSource {
+        routeId == LiveCaddieRouteAuthority.installedRouteId ? .installed : .online
+    }
+
     static func caddieRouteScope(isPrepMode: Bool) -> LiveCaddieRouteAuthority.RouteScope {
         isPrepMode ? .prep : .liveHole
     }
@@ -3188,13 +3249,13 @@ public struct CurrentHoleView: View {
             }
             return
         }
-        let incomingSource: LiveCaddieRouteAuthority.RouteSource = {
-            if sessionEntry().caddieDecisionIsOnline { return .online }
-            if caddieDecision?.isOfflineFallback == true { return .offline }
-            if caddieDecision == nil, caddieRouteSourceByHole[hole.number] == .online { return .offline }
-            if incoming.first?.id == LiveCaddieRouteAuthority.installedRouteId { return .installed }
-            return .offline
-        }()
+        let incomingSource = Self.caddieRouteSource(
+            isOnline: sessionEntry().caddieDecisionIsOnline,
+            isOfflineFallback: caddieDecision?.isOfflineFallback == true,
+            hasDecision: caddieDecision != nil,
+            retainedSource: caddieRouteSourceByHole[hole.number],
+            incomingIsInstalled: incoming.first?.id == LiveCaddieRouteAuthority.installedRouteId
+        )
 
         // Choose the visible first route once (shared pure rule, `LiveCaddieRouteAuthority`).
         guard let reconciled = LiveCaddieRouteAuthority.reconciled(
@@ -5674,7 +5735,8 @@ public struct CurrentHoleView: View {
             }
         }
 #if DEBUG
-        let effectiveClient = ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1"
+        let effectiveClient = (decisionProbe?.clientUnavailable == true
+            || ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1")
             ? nil
             : caddieClient
         #else
@@ -5721,11 +5783,7 @@ public struct CurrentHoleView: View {
             guard !(requestedBeforePrep && holePrep != nil) else { return }
             if LiveCaddieDecisionUsability.hasRecommendation(response) {
                 updateSession { entry in
-                    entry.caddieDecision = response
-                    if let inputSignature {
-                        entry.caddieDecisionInputSignature = inputSignature
-                    }
-                    entry.caddieDecisionIsOnline = true
+                    entry.storeOnlineDecision(response, inputSignature: inputSignature)
                 }
             }
             let offlineDecision = makeOfflineCaddieDecision()
