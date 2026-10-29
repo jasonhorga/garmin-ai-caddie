@@ -162,6 +162,8 @@ UP_REASONS = frozenset({
     "release_record_missing",
     "release_record_invalid",
     "release_record_unavailable",
+    "restart_policy_failed",
+    "restart_policy_withheld",
 })
 UP_FIELDS = frozenset({"action", "result", "part", "container", "revision", "elapsed_s", "reason", "candidates", "selection"})
 
@@ -652,7 +654,8 @@ def previous_release(cfg: Config, containers: list[Container], sha: str) -> Cont
     return None
 
 
-def restore_previous(cfg: Config, previous: Container | None) -> bool | None:
+def restore_previous(cfg: Config, previous: Container | None, *, live: bool = True) -> bool | None:
+    """`live=False`: the replaced release kept on-failure, so the restored one stays `no`."""
     if previous is None:
         log("no previous container to restore")
         return None
@@ -663,7 +666,10 @@ def restore_previous(cfg: Config, previous: Container | None) -> bool | None:
         log(f"error: {exc}")
     if wait_health(cfg.local_health_url, previous.revision, cfg.health_timeout, cfg.poll):
         log(f"restored: {previous.name} serves revision {previous.revision}")
-        mark_live(previous.name)
+        if live:
+            mark_live(previous.name)
+        else:
+            log(f"warning: {previous.name} keeps restart policy no so only one release restarts on its own")
         return True
     log(f"error: ROLLBACK NOT CONFIRMED: {previous.name} did not report revision {previous.revision}")
     return False
@@ -899,14 +905,20 @@ def verify_live(cfg: Config, sha: str, current: Container, containers: list[Cont
             log(f"error: {reason}; no stopped previous release to restore, {current.name} left running")
             raise CutoverFailed(reason, False) from None
         log(f"error: {reason}; restoring {previous.name}")
-        set_restart_policy(current.name, "no", check=False)
+        replaced = set_restart_policy(current.name, "no", check=False).returncode == 0
+        if not replaced:
+            # current stays the only on-failure release; it is the one the record names.
+            log(f"error: {current.name} could not be set to restart policy no; "
+                f"{previous.name} will not be marked on-failure")
+            reason = f"{reason}; {current.name} kept restart policy {LIVE_RESTART_POLICY}"
         docker("stop", "--time", STOP_TIMEOUT_SECONDS, current.name, capture=True, check=False)
-        restored = restore_previous(cfg, previous)
+        restored = restore_previous(cfg, previous, live=replaced)
         if not restored:
             docker("stop", "--time", STOP_TIMEOUT_SECONDS, previous.name, capture=True, check=False)
             try:
                 ensure_network(cfg, current)
-                docker("start", current.name, capture=True, check=False)
+                if docker("start", current.name, capture=True, check=False).returncode == 0:
+                    mark_live(current.name)
             except BaseException as restore_exc:
                 log(f"error: failed to re-start {current.name} after restore failure: {type(restore_exc).__name__}")
         raise CutoverFailed(reason, restored) from None
@@ -1163,19 +1175,50 @@ def set_restart_policy(name: str, policy: str, *, check: bool = True):
                   capture=True, check=check)
 
 
+def policy_warning(name: str, reason: str, message: str) -> None:
+    """`up` prints only redacted fields, so its warning is a reason code."""
+    if _UP_QUIET:
+        up_line(action="up", container=name, reason=reason)
+    else:
+        log(f"warning: {message}")
+
+
 def mark_live(name: str) -> None:
     """Let the serving release restart after a crash; it already serves, so a failure only warns."""
     if set_restart_policy(name, LIVE_RESTART_POLICY, check=False).returncode != 0:
-        log(f"warning: {name} keeps restart policy no; the next deploy, rollback or up corrects it")
+        policy_warning(name, "restart_policy_failed",
+                       f"{name} keeps restart policy no; the next deploy, rollback or up corrects it")
 
 
-def normalize_restart_policy(cfg: Config, containers: list[Container], live: Container | None) -> None:
+def withhold_live(name: str) -> None:
+    policy_warning(name, "restart_policy_withheld",
+                   f"{name} is held at restart policy no because another release kept its policy")
+    if set_restart_policy(name, "no", check=False).returncode != 0:
+        policy_warning(name, "restart_policy_failed", f"{name} could not be set to restart policy no")
+
+
+def normalize_restart_policy(cfg: Config, containers: list[Container], live: Container | None,
+                             *, check: bool = True) -> list[str]:
     """Only `live` may restart on its own: Docker also starts a stopped on-failure
-    container when the daemon restarts, and old releases would then race for the port."""
+    container when the daemon restarts, and old releases would then race for the port.
+
+    The other releases are set to `no` first and `live` last.  With `check=False` (boot
+    recovery) a refused update only warns; `live` is then held at `no` as well, because the
+    release that kept its policy may still be on-failure.  Returns the releases that kept it."""
+    kept = []
     for container in containers:
-        if container.name.startswith(cfg.prefix):
-            is_live = live is not None and container.id == live.id
-            set_restart_policy(container.name, LIVE_RESTART_POLICY if is_live else "no")
+        if container.name.startswith(cfg.prefix) and (live is None or container.id != live.id):
+            if set_restart_policy(container.name, "no", check=check).returncode != 0:
+                policy_warning(container.name, "restart_policy_failed",
+                               f"{container.name} could not be set to restart policy no")
+                kept.append(container.name)
+    if live is not None:
+        if kept:
+            withhold_live(live.name)
+        elif set_restart_policy(live.name, LIVE_RESTART_POLICY, check=check).returncode != 0:
+            policy_warning(live.name, "restart_policy_failed",
+                           f"{live.name} keeps its restart policy; the next deploy, rollback or up corrects it")
+    return kept
 
 
 def ensure_network(cfg: Config, container: Container) -> None:
@@ -1395,6 +1438,7 @@ def up(cfg: UpConfig) -> Container:
         container = api.name
         previous_api = None
         normalized = False
+        kept = []
         if not api.running:
             with SyncLock(cfg):
                 # A deploy can change the release set while recovery waits for this lock.
@@ -1412,7 +1456,8 @@ def up(cfg: UpConfig) -> Container:
                         raise UpFailed("api", "none", "no valid release candidate",
                                        reason="no_release_candidate") from None
                     # Before the stop below, so the replaced release stays down on a daemon restart.
-                    normalize_restart_policy(cfg, containers, api)
+                    # A refused update must not keep the API down: boot recovery is the last resort.
+                    kept = normalize_restart_policy(cfg, containers, api, check=False)
                     normalized = True
                     if current is not None and current.name != api.name:
                         previous_api = current
@@ -1426,17 +1471,24 @@ def up(cfg: UpConfig) -> Container:
                     docker("start", api.name, label="API start", capture=True, quiet=True)
         if not normalized:
             # Docker started the live release itself at boot: keep it, only correct the policies.
-            normalize_restart_policy(cfg, list_containers(), api)
+            normalize_restart_policy(cfg, list_containers(), api, check=False)
         if not wait_health(cfg.local_health_url, api.revision, cfg.health_timeout, cfg.poll):
             if previous_api is not None:
-                set_restart_policy(api.name, "no", check=False)
+                replaced = set_restart_policy(api.name, "no", check=False).returncode == 0
+                if not replaced:
+                    policy_warning(api.name, "restart_policy_failed",
+                                   f"{api.name} could not be set to restart policy no")
                 docker("stop", api.name, label="API stop after failed health", capture=True,
                        quiet=True, check=False)
                 try:
                     ensure_network(cfg, previous_api)
                     docker("start", previous_api.name, label="API restore after failed health",
                            capture=True, quiet=True, check=False)
-                    set_restart_policy(previous_api.name, LIVE_RESTART_POLICY, check=False)
+                    # Only if no other release can still restart on its own.
+                    if replaced and not [name for name in kept if name != previous_api.name]:
+                        mark_live(previous_api.name)
+                    else:
+                        withhold_live(previous_api.name)
                 except BaseException as restore_exc:
                     log(f"error: failed to restore {previous_api.name}: {type(restore_exc).__name__}")
             raise UpFailed("api", api.name, "API health check failed", reason="api_unhealthy")

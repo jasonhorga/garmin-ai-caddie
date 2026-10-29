@@ -326,7 +326,11 @@ ops/agenthub_deploy.py rollback <40-lowercase-hex-sha>
    unchanged. Only after the record (and the cleanup below) is the new release
    switched to `--restart=on-failure:3`, so a release that fails its checks is
    always stopped as `no`. A restored previous release is switched back to
-   `on-failure:3` once it is healthy again.
+   `on-failure:3` once it is healthy again — unless Docker refused to set the
+   replaced release to `no`: it then keeps `on-failure:3` (it is the one the
+   record names), the restored release stays `no`, and the result line's reason
+   says so. When the idempotent path restores nothing and re-starts the live
+   container, that container is switched back to `on-failure:3`.
    Still under the lock, keeps the newest `AICADDIE_DEPLOY_KEEP_STOPPED` stopped
    prefix containers, removes older ones with `docker rm -v`, and removes
    their `garmin-ai-caddie-api`/`aicaddie-sync` image tags only when no
@@ -445,7 +449,13 @@ the live release (it is `on-failure:3`); `up` then keeps it running, does not
 start it again, and only corrects restart policies (selected release
 `on-failure:3`, every other release `no`, the replaced one before it is
 stopped). If the database came up too late and the release used up its three
-restarts, `up` starts it once the database is healthy. If `HOME` is unavailable or the default path
+restarts, `up` starts it once the database is healthy. A refused
+`docker update` never stops recovery: `up` prints
+`action=up container=<name> reason=restart_policy_failed` and carries on, and
+if another release kept its policy the selected one is held at `no`
+(`reason=restart_policy_withheld`) so at most one release is on-failure; the
+next deploy or rollback refuses to switch until the policies can be corrected.
+If `HOME` is unavailable or the default path
 cannot be written, deploy and rollback log the condition and continue; `up`
 uses the legacy selection.
 Read the boot recovery log with:
