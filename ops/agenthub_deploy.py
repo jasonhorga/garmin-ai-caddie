@@ -92,7 +92,10 @@ IMAGE_FORMAT = '{"id":{{json .Id}},"tags":{{json .RepoTags}},"labels":{{json .Co
 # exact-revision deploy controller used before agenthub.
 FIXED_ENV = {
     "AI_CADDIE_PRIVATE_ROOT": PRIVATE_ROOT,
-    "AI_CADDIE_TOPO_RENDER_PROCESSES": "2",
+    # 3 since C154a: green/raster CPU work shares the topo pool; with 2, two cold greens
+    # (~9s each on real data) fill it and raster mattes queue behind them (review-C154a-r1).
+    # Fixed rather than cgroup-derived so a 2-core container keeps two render workers.
+    "AI_CADDIE_TOPO_RENDER_PROCESSES": "3",
     "PORT": CONTAINER_PORT,
 }
 
