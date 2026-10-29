@@ -515,6 +515,40 @@ class MonitorLifecycleTests(unittest.TestCase):
                 self.assertFalse(thread.is_alive())
         asyncio.run(run())
 
+    def test_J42_monitor_does_not_absorb_a_change_between_boot_warm_and_start(self):
+        """J4.2: the boot warmer's starting revision also owns its completion acknowledgement."""
+        from server_v2 import main, history_stats as hs
+        revision = ["old"]
+        stop, entered, release, retried = [threading.Event() for _ in range(4)]
+        calls = []
+        def warm(*, player_id):
+            calls.append(revision[0])
+            if len(calls) == 1:
+                entered.set()
+                release.wait(1)
+            else:
+                retried.set()
+            return True
+        with patch.object(main, "_history_input_signature", side_effect=lambda _: (revision[0],)), \
+             patch.object(hs, "history_input_signature", side_effect=lambda _: (revision[0],)), \
+             patch.object(hs, "warm_stats_cache", side_effect=warm):
+            initial = hs.warm_stats_cache_in_background(player_id="fixture-boot-change")
+            thread = None
+            try:
+                self.assertTrue(entered.wait(1))
+                revision[0] = "new"
+                thread = main._start_history_signature_monitor(stop_event=stop, interval_s=.01,
+                    player_id="fixture-boot-change", initial_warm=initial)
+                release.set()
+                self.assertTrue(retried.wait(1))
+                self.assertEqual(calls, ["old", "new"])
+            finally:
+                release.set()
+                stop.set()
+                initial.join(1)
+                if thread is not None:
+                    thread.join(1)
+
     def test_J42_failed_warm_does_not_acknowledge_signature(self):
         """J4.2: a failed best-effort warm remains eligible on the next monitor tick."""
         from server_v2 import main, history_stats as hs

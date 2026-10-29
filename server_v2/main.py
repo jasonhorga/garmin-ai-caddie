@@ -261,7 +261,7 @@ def _start_boot_background_work() -> None:
     from ai_caddie.caddie.mobile_event_store import start_round_event_index_migration
     from . import mobile as mobile_service
 
-    warm_stats_cache_in_background()
+    initial_warm = warm_stats_cache_in_background()
     start_round_event_index_migration(mobile_service.MOBILE_ROOT)
     start_render_backfill()
     _garmin_sync_jobs.start(_run_garmin_sync_job)
@@ -282,12 +282,12 @@ def _start_boot_background_work() -> None:
     _stop_history_signature_monitor()
     with _HISTORY_MONITOR_LOCK:
         _HISTORY_MONITOR_STOP = threading.Event()
-        _HISTORY_MONITOR_THREAD = _start_history_signature_monitor(stop_event=_HISTORY_MONITOR_STOP)
+        _HISTORY_MONITOR_THREAD = _start_history_signature_monitor(stop_event=_HISTORY_MONITOR_STOP, initial_warm=initial_warm)
 
 
 def _start_history_signature_monitor(
     *, stop_event: threading.Event | None = None, interval_s: float = 60.0,
-    player_id: str = OWNER_ID,
+    player_id: str = OWNER_ID, initial_warm: threading.Thread | None = None,
 ) -> threading.Thread:
     """Watch one player's sync-owned files; boot watches owner, member syncs warm explicitly.
 
@@ -298,7 +298,7 @@ def _start_history_signature_monitor(
 
     def monitor() -> None:
         previous = _history_input_signature(player_id)
-        pending = None
+        pending = initial_warm
         while not stop.wait(max(0.01, float(interval_s))):
             try:
                 if pending is not None:
