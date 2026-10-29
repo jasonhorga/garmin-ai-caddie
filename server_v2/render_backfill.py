@@ -706,7 +706,7 @@ class RenderBackfill:
                 self._current_unit = (key, unit)
             error = None
             try:
-                with background_work():
+                with background_work(unit_type="backfill"):
                     with work_priority(BACKFILL):
                         if unit == "topo":
                             self._render_topo(task["globalId"], task["localHole"])

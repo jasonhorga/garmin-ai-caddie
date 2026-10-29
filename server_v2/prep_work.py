@@ -22,7 +22,7 @@ async def run_prep(request: Request, build: Callable, *, exempt: Callable = lamb
             yield
         else:
             # A client that disconnects while this cold leader waits stops the wait, too.
-            with background_work(while_waiting=checkpoint):
+            with background_work(while_waiting=checkpoint, unit_type="prep"):
                 checkpoint()
                 yield
 

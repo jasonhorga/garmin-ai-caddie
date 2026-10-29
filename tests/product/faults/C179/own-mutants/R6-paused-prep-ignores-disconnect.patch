@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/prep_work.py b/ai_caddie/courses/prep_work.py
+index bf2bcfc9..c358b491 100644
+--- a/ai_caddie/courses/prep_work.py
++++ b/ai_caddie/courses/prep_work.py
+@@ -35,7 +35,7 @@ def hole_boundary():
+     from ai_caddie.core.priority_work import yield_to_foreground
+ 
+     checkpoint()
+-    yield_to_foreground(while_waiting=checkpoint)
++    yield_to_foreground()
+ 
+ 
+ # Only transport prep calls install this policy. Package's synchronous helpers remain ungated.

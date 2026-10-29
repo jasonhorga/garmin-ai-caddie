@@ -13,6 +13,15 @@ from ai_caddie.core.priority_work import ForegroundGate, PriorityExecutor
 
 
 class ForegroundAdmissionTests(unittest.TestCase):
+    def test_J42_background_slot_logs_hold_duration_by_unit_type(self):
+        """J4.2: each admitted unit reports its measured slot hold time."""
+        gate = ForegroundGate()
+        with self.assertLogs("ai_caddie.core.priority_work", level="INFO") as logs:
+            with gate.background(unit_type="fixture"):
+                pass
+        self.assertTrue(any("background_slot hold_ms=" in line and "unit=fixture" in line
+                            for line in logs.output))
+
     def test_J42_package_in_flight_delays_background_until_package_finishes(self):
         """J4.2: a package gets the CPU admission window before background work starts."""
         gate = ForegroundGate(timeout_s=1.0)
@@ -251,6 +260,81 @@ class SingleUnitAdmissionTests(unittest.TestCase):
         b.join(1)
         self.assertEqual(gate.background_count, 0)
 
+    def test_J42_fifo_admission_prevents_a_looping_worker_from_cutting_in(self):
+        """J4.2: a queued unit runs before a worker can start its next unit."""
+        gate = ForegroundGate(timeout_s=5)
+        first_in, release, second_in = threading.Event(), threading.Event(), threading.Event()
+        entries: list[str] = []
+
+        def looping_worker():
+            for index in range(20):
+                with gate.background():
+                    entries.append(f"loop-{index}")
+                    if index == 0:
+                        first_in.set()
+                        release.wait(2)
+
+        def waiting_worker():
+            with gate.background():
+                entries.append("waiting")
+                second_in.set()
+
+        first = threading.Thread(target=looping_worker, daemon=True)
+        second = threading.Thread(target=waiting_worker, daemon=True)
+        first.start()
+        self.assertTrue(first_in.wait(1))
+        second.start()
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            with gate._condition:
+                if gate._background_waiters:
+                    break
+            time.sleep(.001)
+        release.set()
+        self.assertTrue(second_in.wait(1), "FIFO waiter was starved by the looping worker")
+        first.join(2)
+        second.join(1)
+        self.assertFalse(first.is_alive())
+        self.assertLess(entries.index("waiting"), entries.index("loop-1"))
+
+    def test_J42_reduced_loop_starvation_scenarios_are_bounded(self):
+        """J4.2: short backfill-shaped loops cannot postpone a queued unit indefinitely."""
+        for count, delay in ((20, .005), (8, .02)):
+            with self.subTest(count=count, delay=delay):
+                gate = ForegroundGate(timeout_s=5)
+                first_in, release, second_in = threading.Event(), threading.Event(), threading.Event()
+                completed = threading.Event()
+
+                def looping_worker():
+                    for index in range(count):
+                        with gate.background():
+                            if index == 0:
+                                first_in.set()
+                                release.wait(2)
+                            time.sleep(delay)
+                    completed.set()
+
+                def waiting_worker():
+                    with gate.background():
+                        second_in.set()
+
+                first = threading.Thread(target=looping_worker, daemon=True)
+                second = threading.Thread(target=waiting_worker, daemon=True)
+                first.start()
+                self.assertTrue(first_in.wait(1))
+                second.start()
+                deadline = time.monotonic() + 1
+                while time.monotonic() < deadline:
+                    with gate._condition:
+                        if gate._background_waiters:
+                            break
+                    time.sleep(.001)
+                release.set()
+                self.assertTrue(second_in.wait(1), "queued unit exceeded its bounded wait")
+                first.join(2)
+                second.join(1)
+                self.assertTrue(completed.is_set())
+
     def test_J42_nested_unit_shares_its_admission_and_a_stale_holder_stops_blocking(self):
         gate = ForegroundGate(timeout_s=5)
         with gate.background():
@@ -266,18 +350,31 @@ class SingleUnitAdmissionTests(unittest.TestCase):
                 release.wait(3)
 
         waits = []
+        errors = []
 
         def advance(timeout):
             waits.append(timeout)
             now[0] += timeout
+            if len(waits) > 3:
+                raise AssertionError("stale holder kept blocking beyond the watchdog")
         thread = threading.Thread(target=holder, daemon=True)
         thread.start()
         try:
             self.assertTrue(held.wait(1))
+            def contender():
+                try:
+                    with gate.background():
+                        pass
+                except BaseException as exc:  # watchdog failures are reported below
+                    errors.append(exc)
+
             with patch.object(gate._condition, "wait", side_effect=advance), \
                  self.assertLogs("ai_caddie.core.priority_work", level="WARNING") as logs:
-                with gate.background():
-                    self.assertEqual(gate.background_count, 2)
+                worker = threading.Thread(target=contender, daemon=True)
+                worker.start()
+                worker.join(2)
+                self.assertFalse(worker.is_alive(), "stale holder watchdog did not complete")
+                self.assertFalse(errors, errors)
             self.assertEqual(waits, [120])
             self.assertIn("background_slot stale_unit", logs.output[0])
         finally:
@@ -308,6 +405,38 @@ class SingleUnitAdmissionTests(unittest.TestCase):
                 self.assertFalse(resumed.is_set())
             self.assertTrue(resumed.wait(1))
         thread.join(1)
+
+    def test_J42_render_true_prep_yields_between_holes(self):
+        """J4.2: the cold render=True /prep loop yields before starting its next hole."""
+        from ai_caddie.core import priority_work
+        from ai_caddie.courses import course_prep
+        gate = ForegroundGate(timeout_s=2)
+        first, release, second = threading.Event(), threading.Event(), threading.Event()
+
+        def build_hole(_gid, hole, **_kwargs):
+            if int(hole) == 1:
+                first.set()
+                release.wait(2)
+            if int(hole) == 2:
+                second.set()
+            return {"hole": int(hole)}
+
+        def run():
+            with priority_work.background_work(unit_type="prep"):
+                course_prep.prep_nine(123, [1, 2], ladder=[], render=True)
+
+        with patch.object(priority_work, "FOREGROUND_GATE", gate), \
+             patch.object(course_prep, "prep_hole", side_effect=build_hole), \
+             patch.object(course_prep.course_reference, "load_course_par", return_value={}):
+            thread = threading.Thread(target=run, daemon=True)
+            thread.start()
+            self.assertTrue(first.wait(1))
+            with gate.foreground():
+                release.set()
+                self.assertFalse(second.wait(.3), "render=True prep skipped its hole checkpoint")
+            self.assertTrue(second.wait(1))
+            thread.join(1)
+        self.assertFalse(thread.is_alive())
 
     def test_J42_stats_warm_pauses_between_phases_while_package_is_live(self):
         from ai_caddie.core import priority_work
@@ -378,6 +507,7 @@ class SingleUnitAdmissionTests(unittest.TestCase):
         from server_v2 import course_install, main as server_main
         gate = ForegroundGate(timeout_s=5)
         ensured, first, go = [], threading.Event(), threading.Event()
+        vector_started = threading.Event()
         waiting, observed = _observed_waits(gate)
 
         def ensure(gid, *, holes, on_hole_complete=None, **kwargs):
@@ -409,7 +539,8 @@ class SingleUnitAdmissionTests(unittest.TestCase):
             )
             with patch.object(priority_work, "FOREGROUND_GATE", gate), observed, \
                  patch("ai_caddie.caddie.mobile_live._ensure_geometry_for_course", side_effect=ensure), \
-                 patch("ai_caddie.courses.vector_prep.warm_requested_vectors"), \
+                 patch("ai_caddie.courses.vector_prep.warm_requested_vectors",
+                       side_effect=lambda *_args, **_kwargs: vector_started.set()), \
                  patch.object(server_main, "prefetch_garmin_rasters"), \
                  patch.object(server_main, "_TOPO_PIPELINE_POOL", TopoPool()), \
                  patch.object(server_main, "_probe_geometry_revision", return_value=("r1", "current")):
@@ -423,9 +554,12 @@ class SingleUnitAdmissionTests(unittest.TestCase):
                     go.set()
                     self.assertTrue(waiting.wait(1), "install pass continued beside the package")
                     self.assertEqual(ensured, [901])
+                    self.assertFalse(vector_started.is_set(),
+                                     "vector seed started before its install checkpoint yielded")
                 thread.join(2)
         self.assertFalse(thread.is_alive())
         self.assertEqual(ensured, [901, 902])
+        self.assertTrue(vector_started.is_set())
 
 
 class NearbyDispatchTests(unittest.TestCase):
@@ -672,21 +806,36 @@ class RouteAdmissionTests(unittest.IsolatedAsyncioTestCase):
 
         request = Request({"type": "http", "method": "GET", "path": "/", "headers": []}, receive)
         built = []
+        first, release = threading.Event(), threading.Event()
         waiting, observed = _observed_waits(self.gate)
 
+        def build_hole(hole):
+            if int(hole) == 7:
+                first.set()
+                release.wait(2)
+            built.append(int(hole))
+            return {"hole": int(hole)}
+
         def build():
-            return prep_cache.cached_course_prep(global_id=123, requested=[7], render=False,
-                include_shots=False, player_id=self.player, build=lambda: built.append(7) or {})
+            return prep_cache.cached_course_prep(
+                global_id=123, requested=[7, 8], render=False, include_shots=False,
+                player_id=self.player,
+                build=lambda: {"holes": list(prep_cache.cached_hole_preps(
+                    global_id=123, holes=[7, 8], render=False, include_shots=False,
+                    player_id=self.player, variant="disconnect", build_hole=build_hole).values())},
+            )
 
         with patch.object(prep_work, "background_work", observed_admission), observed:
+            response = asyncio.create_task(prep_work.run_prep(request, build))
+            await self.event(first)
             with self.gate.foreground():
-                response = asyncio.create_task(prep_work.run_prep(request, build))
+                release.set()
                 await self.event(waiting)
                 disconnect.set()
                 self.assertEqual((await response).status_code, 499)
                 # The package (5s deadline) is still live: only the disconnect ends the wait.
                 self.assertTrue(await asyncio.to_thread(left.wait, 1), "thread kept waiting after disconnect")
-        self.assertEqual(built, [])
+        self.assertEqual(built, [7])
         self.assertEqual(prep_cache._inflight, {})
 
     async def test_J42_package_without_tee_installs_under_the_registered_tee(self):

@@ -163,7 +163,7 @@ def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Threa
 
         def run() -> None:
             try:
-                with background_work():
+                with background_work(unit_type="stats"):
                     thread.history_signature = history_input_signature(clean_player_id)
                     thread.warm_succeeded = warm_stats_cache(player_id=clean_player_id) is True
             finally:

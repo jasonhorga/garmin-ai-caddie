@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index bb68b5ca..9c04f412 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -3176,7 +3176,7 @@ def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, i
+         )
+     out = []
+     for hole in requested_holes:
+-        hole_boundary()
++        checkpoint()
+         if int(hole) in cached:
+             # Callers own the returned rows; never hand out the shared cached object.
+             prep = copy.deepcopy(cached[int(hole)])

@@ -225,6 +225,49 @@ class PackageLaneTests(unittest.IsolatedAsyncioTestCase):
         self.seed.assert_called_once()
         self.process.assert_not_called()  # background observes the foreground's persisted vector
 
+    async def test_J42_package_route_does_not_wait_on_nearby_checkpoint_lock(self):
+        """J4.2: a package's real startup path stays live while nearby pauses at a boundary."""
+        import asyncio
+        from ai_caddie.core import priority_work
+        from ai_caddie.courses.course_search import CourseMatch
+        from server_v2 import map_startup as ms
+
+        first = threading.Event()
+        proceed = threading.Event()
+        waiting = threading.Event()
+        original_wait = self.gate._condition.wait
+
+        def gate_wait(timeout):
+            waiting.set()
+            return original_wait(timeout)
+
+        matches = [CourseMatch(gid, "Fixture", 9, None, None, 1, distance_km=distance)
+                   for gid, distance in ((901, 1), (902, 2))]
+
+        def release_info(gid, **_kwargs):
+            if int(gid) == 901:
+                first.set()
+                proceed.wait(2)
+            return {"release_version": 1}
+
+        with patch.object(priority_work, "FOREGROUND_GATE", self.gate), \
+             patch.object(ms, "_RELEASE_PREFETCHED", {}), \
+             patch.object(ms, "nearby_work_blocked", lambda: False), \
+             patch.object(ms, "tee_requests_in_flight", lambda: False), \
+             patch.object(ms, "courseview_release_info", side_effect=release_info), \
+             patch.object(self.gate._condition, "wait", side_effect=gate_wait):
+            worker = threading.Thread(target=ms.prefetch_nearby_releases, args=(matches,), daemon=True)
+            worker.start()
+            self.assertTrue(first.wait(1))
+            with self.gate.foreground():
+                proceed.set()
+                self.assertTrue(await asyncio.to_thread(waiting.wait, 1),
+                                "nearby worker did not pause at its course boundary")
+                response = await asyncio.wait_for(self.request("live-r11"), 1.5)
+                self.assertEqual(response.status_code, 200, response.text)
+            worker.join(2)
+        self.assertFalse(worker.is_alive())
+
     async def test_J42_background_package_reaches_process_lane(self):
         response = await self.request("prep-library-123")
         self.assertEqual(response.status_code, 200, response.text)
@@ -492,6 +535,22 @@ class WarmCompletionTests(unittest.TestCase):
 
 
 class SharedCpuPoolTests(unittest.TestCase):
+    def test_J42_cancelled_render_future_falls_back_in_process(self):
+        """J4.2: a render cancelled before dispatch is recomputed in the API process."""
+        from concurrent.futures import CancelledError
+        from ai_caddie.geometry import topo_render as tr
+
+        future = Future()
+        future.set_exception(CancelledError())
+        pool = Mock()
+        pool.submit.return_value = future
+        with patch.object(tr, "_render_process_count", return_value=1), \
+             patch.object(tr, "_get_render_pool", return_value=pool), \
+             patch.object(tr, "_compute_in_render_worker", return_value={"fallback": True}) as fallback:
+            result = tr._run_render_cpu(lambda: {"should": "not run"})
+        self.assertEqual(result, {"fallback": True})
+        fallback.assert_called_once()
+
     def test_J42_vector_uses_render_budget_and_recovers_broken_pool(self):
         """J4.2: vectors inherit topo's CPU count/nice/recovery instead of adding a second pool."""
         from concurrent.futures.process import BrokenProcessPool
@@ -561,6 +620,30 @@ class SharedCpuPoolTests(unittest.TestCase):
                 for worker in workers:
                     worker.join(2)
         self.assertEqual(results, {"bg1": "bg1", "bg2": "bg2", "fg": "fg"})
+
+    def test_J42_admitted_background_render_requeues_below_a_foreground_waiter(self):
+        """J4.2: a background HTTP-context unit is raised to NEARBY on every CPU admission."""
+        from ai_caddie.core import priority_work
+        from ai_caddie.core.priority_work import FOREGROUND, work_priority
+        from ai_caddie.geometry import topo_render as tr
+        priorities = []
+
+        class Slots:
+            capacity = 2
+
+            def acquire(self, priority):
+                priorities.append(priority)
+
+            def release(self):
+                pass
+
+        slots = Slots()
+        with patch.object(tr, "_cpu_slots", slots), \
+             patch.object(priority_work, "FOREGROUND_GATE", priority_work.ForegroundGate()):
+            with work_priority(FOREGROUND), priority_work.background_work(unit_type="render"):
+                with tr._cpu_pool_admission(2):
+                    pass
+        self.assertEqual(priorities, [priority_work.NEARBY])
 
     def test_J42_background_vector_lane_child_runs_below_api_priority(self):
         """J4.2: the real shared CPU child that seeds background vectors is niced (default 10)."""

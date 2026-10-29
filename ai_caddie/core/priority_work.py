@@ -78,6 +78,10 @@ class ForegroundGate:
         self._slot_timeout_s = max(0.0, float(slot_timeout_s))
         self._running: dict[object, float] = {}
         self._slot_warned: set[object] = set()
+        # Admission tickets are FIFO so a worker that just released a slot cannot repeatedly
+        # cut in front of a waiter.  The queue is process-local and tickets are removed on every
+        # abandoned wait, including a disconnected /prep request.
+        self._background_waiters: list[object] = []
 
     @contextmanager
     def foreground(self):
@@ -125,7 +129,8 @@ class ForegroundGate:
 
     @contextmanager
     def background(self, *, timeout_s: float | None = None,
-                   while_waiting: Callable[[], None] | None = None):
+                   while_waiting: Callable[[], None] | None = None,
+                   unit_type: str = "unknown"):
         if _BACKGROUND_ADMISSION.get() is self:
             # A unit nested in an admitted unit (same thread/context) is part of that unit.
             yield
@@ -135,28 +140,41 @@ class ForegroundGate:
 
         timing = current()
         standalone = timing is None
+        ticket = object()
         with self._condition:
+            self._background_waiters.append(ticket)
             marked = False
             wait_started = self._clock()
-            while True:
-                now = self._clock()
-                deadline = self._foreground_deadline_locked(now, timeout)
-                if deadline is None:
-                    deadline = self._slot_deadline_locked(now)
-                if deadline is None:
-                    break
-                if not marked:
-                    if timing is None:
-                        timing = RequestTiming(request_id())
-                    # ``mark`` names the stage that just ended: the work before this gate.
-                    timing.mark("before_background_gate")
-                    marked = True
-                self._wait_locked(deadline, now, while_waiting)
+            try:
+                while True:
+                    now = self._clock()
+                    foreground_deadline = self._foreground_deadline_locked(now, timeout)
+                    slot_deadline = self._slot_deadline_locked(now)
+                    is_head = self._background_waiters[0] is ticket
+                    if is_head and foreground_deadline is None and slot_deadline is None:
+                        break
+                    if not marked:
+                        if timing is None:
+                            timing = RequestTiming(request_id())
+                        # ``mark`` names the stage that just ended: the work before this gate.
+                        timing.mark("before_background_gate")
+                        marked = True
+                    # A non-head waiter has no deadline of its own.  It wakes on release; a
+                    # disconnect callback still gets the short polling interval.
+                    deadline = min((d for d in (foreground_deadline, slot_deadline)
+                                    if d is not None), default=now + _ABANDON_POLL_SECONDS)
+                    self._wait_locked(deadline, now, while_waiting)
+            except BaseException:
+                self._background_waiters.remove(ticket)
+                self._condition.notify_all()
+                raise
+            self._background_waiters.pop(0)
             if marked:
                 timing.mark("background_gate_wait")
                 logger.info("background_gate_wait wait_ms=%.1f", (self._clock() - wait_started) * 1000)
             unit = object()
-            self._running[unit] = self._clock()
+            started = self._clock()
+            self._running[unit] = started
             self._background += 1
         token = _BACKGROUND_ADMISSION.set(self)
         try:
@@ -172,6 +190,7 @@ class ForegroundGate:
                 self._slot_warned.discard(unit)
                 self._background = max(0, self._background - 1)
                 self._condition.notify_all()
+            logger.info("background_slot hold_ms=%.1f unit=%s", (self._clock() - started) * 1000, unit_type)
 
     def yield_to_foreground(self, *, while_waiting: Callable[[], None] | None = None) -> None:
         """Pause an admitted unit, keeping its slot, while an unexpired package is live."""
@@ -235,12 +254,14 @@ def foreground_work():
 
 @contextmanager
 def background_work(*, timeout_s: float | None = None,
-                    while_waiting: Callable[[], None] | None = None):
+                    while_waiting: Callable[[], None] | None = None,
+                    unit_type: str = "unknown"):
     """Admit one background CPU unit, with the finite package starvation bound.
 
     ``while_waiting`` is polled during the wait and may raise to abandon admission.
     """
-    with FOREGROUND_GATE.background(timeout_s=timeout_s, while_waiting=while_waiting):
+    with FOREGROUND_GATE.background(timeout_s=timeout_s, while_waiting=while_waiting,
+                                    unit_type=unit_type):
         yield
 
 

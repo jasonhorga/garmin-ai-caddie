@@ -88,7 +88,7 @@ def _nearest_three(matches) -> list:
 
 
 def prefetch_nearby_releases(matches) -> int:
-    with background_work():
+    with background_work(unit_type="nearby"):
         return _prefetch_nearby_releases(matches)
 
 
@@ -133,7 +133,7 @@ def _prefetch_nearby_releases(matches) -> int:
 
 
 def enqueue_nearby(matches) -> int:
-    with background_work():
+    with background_work(unit_type="map_startup"):
         return _enqueue_nearby(matches)
 
 
@@ -256,7 +256,7 @@ def prepare_priority_hole(
         request_vector_tee(gid, hole, tee_set)
         result = ensure_prodgeometry(gid, hole)
         geometry_ms = (time.perf_counter() - started) * 1000 - metadata_ms
-        lane = background_work() if background else nullcontext()
+        lane = background_work(unit_type="map_startup") if background else nullcontext()
         with lane:
             vector = (
                 cached_vector_hole(
