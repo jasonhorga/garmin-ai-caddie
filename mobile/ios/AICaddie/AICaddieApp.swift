@@ -6525,12 +6525,6 @@ public final class LiveRoundAppModel: ObservableObject {
         applySpeculativeDownloadPolicy()
     }
 
-    #if DEBUG
-    func setNetworkStateForTesting(_ state: SpeculativeNetworkState) {
-        networkStateChanged(state)
-    }
-    #endif
-
     /// 设置 → "用蜂窝网络预下载球场" changed.
     public func speculativePrefetchSettingChanged() {
         applySpeculativeDownloadPolicy()
