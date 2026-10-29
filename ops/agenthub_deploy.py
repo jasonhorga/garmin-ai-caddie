@@ -62,6 +62,9 @@ SYNC_DEPS_REPOSITORY = "aicaddie-sync-deps"
 PRIVATE_ROOT = "/var/lib/ai-caddie"
 CONTAINER_PORT = "9000"
 STOP_TIMEOUT_SECONDS = "30"
+# Only the live release carries this; every other release container is `no`,
+# because a daemon restart also starts a stopped on-failure container (C13).
+LIVE_RESTART_POLICY = "on-failure:3"
 SYNC_CHECK_MARKER = "sync contract ok (check-only)"
 DEFAULT_RELEASE_STATE_RELATIVE = Path(".local/state/aicaddie/current-release")
 # Stop timeout plus gate/sync check time, on top of the health waits.
@@ -660,6 +663,7 @@ def restore_previous(cfg: Config, previous: Container | None) -> bool | None:
         log(f"error: {exc}")
     if wait_health(cfg.local_health_url, previous.revision, cfg.health_timeout, cfg.poll):
         log(f"restored: {previous.name} serves revision {previous.revision}")
+        mark_live(previous.name)
         return True
     log(f"error: ROLLBACK NOT CONFIRMED: {previous.name} did not report revision {previous.revision}")
     return False
@@ -861,7 +865,7 @@ def deploy(cfg: Config, sha: str) -> str:
         wait_database_healthy(cfg)
         containers = list_containers()
         current = find_current(cfg, containers)
-        normalize_restart_policy(cfg, containers)
+        normalize_restart_policy(cfg, containers, current)
         if current is not None and current.revision == sha:
             verify_live(cfg, sha, current, containers, private)
             deployed = current.name
@@ -874,6 +878,8 @@ def deploy(cfg: Config, sha: str) -> str:
             reason = str(exc) if isinstance(exc, DeployError) else type(exc).__name__
             log(f"warning: cleanup incomplete: {reason}")
         write_release_state(cfg, sha)
+        # Only now: a new release that failed its checks was stopped as `no`.
+        mark_live(deployed)
     return deployed
 
 
@@ -893,6 +899,7 @@ def verify_live(cfg: Config, sha: str, current: Container, containers: list[Cont
             log(f"error: {reason}; no stopped previous release to restore, {current.name} left running")
             raise CutoverFailed(reason, False) from None
         log(f"error: {reason}; restoring {previous.name}")
+        set_restart_policy(current.name, "no", check=False)
         docker("stop", "--time", STOP_TIMEOUT_SECONDS, current.name, capture=True, check=False)
         restored = restore_previous(cfg, previous)
         if not restored:
@@ -934,6 +941,7 @@ def switch(cfg: Config, sha: str, new_name: str, current: Container | None,
     try:
         if current is not None:
             log(f"stopping {current.name}")
+            set_restart_policy(current.name, "no")
             docker("stop", "--time", STOP_TIMEOUT_SECONDS, current.name, capture=True)
         log(f"starting {new_name}")
         run_api_container(cfg, private, new_name, sha, values, cpus, memory)
@@ -1117,7 +1125,7 @@ def rollback(cfg: Config, sha: str) -> str:
     with SyncLock(cfg):
         wait_database_healthy(cfg)
         current, target = select_rollback(cfg, sha)
-        normalize_restart_policy(cfg, list_containers())
+        normalize_restart_policy(cfg, list_containers(), current)
         if target is None:
             if not wait_health(cfg.local_health_url, sha, cfg.health_timeout, cfg.poll):
                 raise DeployError(f"{current.name} runs revision {sha} but its health check fails")
@@ -1129,6 +1137,7 @@ def rollback(cfg: Config, sha: str) -> str:
         try:
             if current is not None:
                 log(f"stopping {current.name}")
+                set_restart_policy(current.name, "no")
                 docker("stop", "--time", STOP_TIMEOUT_SECONDS, current.name, capture=True)
             log(f"starting {target.name}")
             ensure_network(cfg, target)
@@ -1139,19 +1148,34 @@ def rollback(cfg: Config, sha: str) -> str:
             shield_signals()
             reason = str(exc) if isinstance(exc, DeployError) else f"unexpected {type(exc).__name__}"
             log(f"error: {reason}; restoring the previous container")
+            # The target was normalized to `no` and is only marked live after success.
             docker("stop", "--time", STOP_TIMEOUT_SECONDS, target.name, capture=True, quiet=True, check=False)
             restored = restore_previous(cfg, current)
             raise CutoverFailed(reason, restored) from None
         shield_signals()
         write_release_state(cfg, sha)
+        mark_live(target.name)
         return target.name
 
 
-def normalize_restart_policy(cfg: Config, containers: list[Container]) -> None:
-    """Make every release container independently safe across daemon restarts."""
+def set_restart_policy(name: str, policy: str, *, check: bool = True):
+    return docker("update", f"--restart={policy}", name, label="release restart policy",
+                  capture=True, check=check)
+
+
+def mark_live(name: str) -> None:
+    """Let the serving release restart after a crash; it already serves, so a failure only warns."""
+    if set_restart_policy(name, LIVE_RESTART_POLICY, check=False).returncode != 0:
+        log(f"warning: {name} keeps restart policy no; the next deploy, rollback or up corrects it")
+
+
+def normalize_restart_policy(cfg: Config, containers: list[Container], live: Container | None) -> None:
+    """Only `live` may restart on its own: Docker also starts a stopped on-failure
+    container when the daemon restarts, and old releases would then race for the port."""
     for container in containers:
         if container.name.startswith(cfg.prefix):
-            docker("update", "--restart=no", container.name, label="release restart policy")
+            is_live = live is not None and container.id == live.id
+            set_restart_policy(container.name, LIVE_RESTART_POLICY if is_live else "no")
 
 
 def ensure_network(cfg: Config, container: Container) -> None:
@@ -1370,6 +1394,7 @@ def up(cfg: UpConfig) -> Container:
                            reason="no_release_candidate")
         container = api.name
         previous_api = None
+        normalized = False
         if not api.running:
             with SyncLock(cfg):
                 # A deploy can change the release set while recovery waits for this lock.
@@ -1381,10 +1406,14 @@ def up(cfg: UpConfig) -> Container:
                 container = api.name
                 if not api.running:
                     try:
-                        current = find_current(cfg, list_containers())
+                        containers = list_containers()
+                        current = find_current(cfg, containers)
                     except DeployError:
                         raise UpFailed("api", "none", "no valid release candidate",
                                        reason="no_release_candidate") from None
+                    # Before the stop below, so the replaced release stays down on a daemon restart.
+                    normalize_restart_policy(cfg, containers, api)
+                    normalized = True
                     if current is not None and current.name != api.name:
                         previous_api = current
                         up_line(action="up", selection="record", container=current.name,
@@ -1395,14 +1424,19 @@ def up(cfg: UpConfig) -> Container:
                     log(f"starting {api.name}")
                     ensure_network(cfg, api)
                     docker("start", api.name, label="API start", capture=True, quiet=True)
+        if not normalized:
+            # Docker started the live release itself at boot: keep it, only correct the policies.
+            normalize_restart_policy(cfg, list_containers(), api)
         if not wait_health(cfg.local_health_url, api.revision, cfg.health_timeout, cfg.poll):
             if previous_api is not None:
+                set_restart_policy(api.name, "no", check=False)
                 docker("stop", api.name, label="API stop after failed health", capture=True,
                        quiet=True, check=False)
                 try:
                     ensure_network(cfg, previous_api)
                     docker("start", previous_api.name, label="API restore after failed health",
                            capture=True, quiet=True, check=False)
+                    set_restart_policy(previous_api.name, LIVE_RESTART_POLICY, check=False)
                 except BaseException as restore_exc:
                     log(f"error: failed to restore {previous_api.name}: {type(restore_exc).__name__}")
             raise UpFailed("api", api.name, "API health check failed", reason="api_unhealthy")

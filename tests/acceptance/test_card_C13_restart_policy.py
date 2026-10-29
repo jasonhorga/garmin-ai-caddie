@@ -22,6 +22,17 @@ class CardC13RestartPolicyAcceptance(unittest.TestCase):
         self.harness.setUp()
         self.addCleanup(self.harness.doCleanups)
 
+    def live_only_on_failure(self, live: str) -> None:
+        # C198: only the live release restarts on its own; Docker reports on-failure:3 as
+        # Name "on-failure" with MaximumRetryCount 3.
+        for c in self.harness.state()["containers"]:
+            name = c["Name"][1:]
+            if name.startswith(harness.PREFIX):
+                policy = c["HostConfig"]["RestartPolicy"]
+                expected = {"Name": "on-failure", "MaximumRetryCount": 3} if name == live \
+                    else {"Name": "no", "MaximumRetryCount": 0}
+                self.assertEqual(policy, expected, name)
+
     def test_deploy_uses_restart_no_and_records_revision(self) -> None:
         state = self.harness.state()
         state["containers"][0]["HostConfig"]["RestartPolicy"] = {"Name": "on-failure:3"}
@@ -32,10 +43,7 @@ class CardC13RestartPolicyAcceptance(unittest.TestCase):
         self.harness.state_path.write_text(json.dumps(state))
         result = self.harness.deploy()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        state = self.harness.state()
-        release = [c for c in state["containers"] if c["Name"][1:].startswith(harness.PREFIX)]
-        self.assertTrue(release)
-        self.assertTrue(all(c["HostConfig"]["RestartPolicy"]["Name"] == "no" for c in release))
+        self.live_only_on_failure(harness.PREFIX + harness.NEW[:8])
         self.assertEqual(self.harness.by_name(harness.PREFIX + "33333333")["HostConfig"]["RestartPolicy"]["Name"], "no")
         new = self.harness.by_name(harness.PREFIX + harness.NEW[:8])
         self.assertEqual(new["Run"]["--restart"], ["no"])
@@ -99,9 +107,7 @@ class CardC13RestartPolicyAcceptance(unittest.TestCase):
         self.harness.state_path.write_text(json.dumps(state))
         result = self.harness.invoke("rollback", harness.OLD, sha=harness.OLD)
         self.assertEqual(result.returncode, 0, result.stdout)
-        state = self.harness.state()
-        releases = [c for c in state["containers"] if c["Name"][1:].startswith(harness.PREFIX)]
-        self.assertTrue(all(c["HostConfig"]["RestartPolicy"]["Name"] == "no" for c in releases))
+        self.live_only_on_failure(harness.PREFIX + "11111111-production-20261014")
         self.assertEqual(json.loads((self.harness.tmp / "release-state.json").read_text())["revision"], harness.OLD)
 
     def test_live_rollback_branch_records_revision(self) -> None:

@@ -42,7 +42,7 @@ DB_CANARY = "canary-db-password-447d"
 LOCAL_HEALTH = f"http://127.0.0.1:{PORT}/api/v2/health"
 PUBLIC_URL = "https://public.example.invalid/canary-public-route/api/v2/health"
 CANARIES = (ADMIN_CANARY, DB_CANARY, "canary-public-route", "canary-sync-path", "canary-lock-path")
-UP_COMMANDS = {"info", "version", "ps", "inspect", "image", "start"}
+UP_COMMANDS = {"info", "version", "ps", "inspect", "image", "start", "update"}
 RESULT_PREFIX = "agenthub-deploy: result="
 # Every wait except the one under test is long, so a quick run ended on the wait under test.
 LONG_WAITS = {
@@ -280,6 +280,16 @@ def main(argv):
                     })
             print(name)
         save(state)
+        return 0
+    if command == "update" and len(args) == 2 and args[0].startswith("--restart="):
+        # C198: `up` corrects restart policies; nothing else may be updated.
+        c = find_container(state, args[1])
+        if c is None:
+            fail("Error response from daemon: No such container: " + args[1])
+        policy, _, count = args[0].split("=", 1)[1].partition(":")
+        c["HostConfig"]["RestartPolicy"] = {"Name": policy, "MaximumRetryCount": int(count or 0)}
+        save(state)
+        print(args[1])
         return 0
     fail("fake docker: command not allowed for up: " + " ".join(argv[:2]), 2)
 
@@ -705,7 +715,13 @@ class UpOrderTest(unittest.TestCase):
 
                 self.assert_ok(proc, SERVING)
                 self.assertNotIn("start", self.commands())
-                self.assertEqual(self.state()["containers"], before)
+                # C198: only restart policies change: the serving release keeps on-failure:3,
+                # the stopped releases become `no`, the database is untouched.
+                after = self.state()["containers"]
+                for c in before:
+                    if c["Name"][1:].startswith(PREFIX) and c["Name"][1:] != SERVING:
+                        c["HostConfig"]["RestartPolicy"] = {"Name": "no", "MaximumRetryCount": 0}
+                self.assertEqual(after, before)
                 self.assertIn(SERVING_REV, self.health_reports())
 
     # -- G1: Docker daemon ------------------------------------------------------------

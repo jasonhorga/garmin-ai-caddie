@@ -58,7 +58,7 @@ SERVING = PREFIX + "2b2b2b2b-production-20261019"
 OLDER = PREFIX + "11111111-production-20261014"
 LOCAL_HEALTH = f"http://127.0.0.1:{PORT}/api/v2/health"
 USER = "tester-451"
-UP_COMMANDS = {"info", "version", "ps", "inspect", "image", "start"}
+UP_COMMANDS = {"info", "version", "ps", "inspect", "image", "start", "update"}
 RESULT_PREFIX = "agenthub-deploy: result="
 
 BOOT_ITEMS = (
@@ -269,6 +269,16 @@ def main(argv):
                     })
             print(name)
         save(state)
+        return 0
+    if command == "update" and len(args) == 2 and args[0].startswith("--restart="):
+        # C198: `up` corrects restart policies; nothing else may be updated.
+        c = find_container(state, args[1])
+        if c is None:
+            fail("Error response from daemon: No such container: " + args[1])
+        policy, _, count = args[0].split("=", 1)[1].partition(":")
+        c["HostConfig"]["RestartPolicy"] = {"Name": policy, "MaximumRetryCount": int(count or 0)}
+        save(state)
+        print(args[1])
         return 0
     fail("fake docker: command not allowed for up: " + " ".join(argv[:2]), 2)
 
