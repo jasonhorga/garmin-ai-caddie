@@ -805,9 +805,11 @@ class RouteAdmissionTests(unittest.IsolatedAsyncioTestCase):
         from server_v2 import prep_work
         left = threading.Event()
         real = prep_work.background_work
+        admitted_kwargs = []
 
         @contextmanager
         def observed_admission(**kwargs):
+            admitted_kwargs.append(kwargs)
             try:
                 with real(**kwargs):
                     yield
@@ -837,6 +839,8 @@ class RouteAdmissionTests(unittest.IsolatedAsyncioTestCase):
                 # The package (5s deadline) is still live: only the disconnect ends the wait.
                 self.assertTrue(await asyncio.to_thread(left.wait, 1), "thread kept waiting after disconnect")
         self.assertEqual(built, [])
+        self.assertTrue(admitted_kwargs and callable(admitted_kwargs[0].get("while_waiting")),
+                        "cold prep admission did not install its disconnect checkpoint")
         self.assertEqual(prep_cache._inflight, {})
 
     async def test_J42_package_without_tee_installs_under_the_registered_tee(self):
