@@ -40,6 +40,7 @@ from ai_caddie.rounds.correction_audit import CorrectionConflict, IdentityUnavai
 from ai_caddie.caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 from ai_caddie.caddie.mobile_round_identity import (
     MobileRoundIdentityError,
+    _normalise_tee_box,
     load_mobile_round_identity,
     save_mobile_round_identity,
 )
@@ -732,8 +733,7 @@ def _persist_mobile_package_identity(package: LiveRoundPackageResponse, *, playe
         save_mobile_round_identity(
             str(package.roundId), [row.model_dump() for row in package.roundLoops],
             package.loopKey, package.holes, root=MOBILE_ROOT, player_id=player_id,
-            tee_box=(getattr(package, "course", {}).get("teeBox")
-                     if isinstance(getattr(package, "course", {}), dict) else None),
+            tee_box=package.course.get("teeBox") if isinstance(package.course, dict) else None,
             event_lock=_timed_lock,
         )
     except MobileRoundIdentityError as exc:
@@ -828,16 +828,17 @@ def finish_mobile_round_response(
         # The explicit finish field is authoritative. Older phone and Watch clients omit it, so
         # recover the Tee bound when their course package was opened. This identity is durable and
         # player-scoped, so the same path covers Watch events relayed by iPhone and direct Watch HTTP.
-        explicit_tee = str(meta.get("teeBox") or meta.get("tee_box") or "").strip().lower()
-        if explicit_tee and explicit_tee not in {"unknown", "none", "null"}:
+        explicit_tee = _normalise_tee_box(
+            meta.get("teeBox") or meta.get("tee_box") or meta.get("tee")
+        )
+        if explicit_tee is not None:
             meta["teeBox"] = explicit_tee
         else:
             identity = load_mobile_round_identity(
                 round_id, root=MOBILE_ROOT, player_id=player_id,
             )
-            bound_tee = identity.get("teeBox") if isinstance(identity, dict) else None
-            bound_tee = str(bound_tee or "").strip().lower()
-            if bound_tee and bound_tee not in {"unknown", "none", "null"}:
+            bound_tee = _normalise_tee_box(identity.get("teeBox") if isinstance(identity, dict) else None)
+            if bound_tee is not None:
                 meta["teeBox"] = bound_tee
         try:
             summary = round_ingest.ingest_round(
