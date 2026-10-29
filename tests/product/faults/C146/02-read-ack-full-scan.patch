@@ -9,7 +9,7 @@
 -                try:
 -                    with self.log.open("rb") as handle:
 -                        stored_log = self._indexed_round_log_unlocked(
--                            round_key, handle=handle, verify_prefix=False
+-                            round_key, handle=handle, verify_prefix=True
 -                        )
 -                except FileNotFoundError:
 -                    stored_log = _StoredLog((), 0)
