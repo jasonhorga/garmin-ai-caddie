@@ -63,6 +63,48 @@
       "kind": "python",
       "target": "tests.test_concurrency_probe",
       "promise": "C135d.5"
+    },
+    {
+      "id": "tests-product-faults-C135d-10",
+      "patch": "tests/product/faults/C135d/10-topo-affinity-ignored.patch",
+      "kind": "python",
+      "target": "tests.test_topo_render",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C135d-11",
+      "patch": "tests/product/faults/C135d/11-first-round-stays-current.patch",
+      "kind": "python",
+      "target": "tests.test_course_install",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C135d-12",
+      "patch": "tests/product/faults/C135d/12-home-marks-play.patch",
+      "kind": "python",
+      "target": "tests.test_course_install",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C135d-13",
+      "patch": "tests/product/faults/C135d/13-keep-old-priority.patch",
+      "kind": "python",
+      "target": "tests.test_course_install",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C135d-14",
+      "patch": "tests/product/faults/C135d/14-player-scope-ignored.patch",
+      "kind": "python",
+      "target": "tests.test_course_install",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C135d-15",
+      "patch": "tests/product/faults/C135d/15-active-job-not-demoted.patch",
+      "kind": "python",
+      "target": "tests.test_course_install",
+      "promise": "4.2"
     }
   ]
 }

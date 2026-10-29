@@ -189,6 +189,36 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self.assertEqual(self.priority(999), 20)
         self.assertEqual(set(self.main._ACTIVE_ROUNDS), {("fixture", "live-a")})
 
+    def test_complete_former_course_journal_priority_is_overwritten(self):
+        self.package(123, "live-a")
+        self.package(999, "live-b")
+        identifier = self.ci.job_id(global_id=123, tee_box="blue", loop_key="123:all", player_id="fixture")
+        state = self.ci._read(identifier)
+        state.update(priority=10, phase="ready")
+        for row in state["holes"].values():
+            row.update(geometry="ready", topo="ready", geometryRevision="r1", topoRevision="r1")
+        self.ci._write(state)
+        self.ci._ACTIVE.discard(identifier)
+        # The ready job does not reach _launch: enqueue itself must discard the old 10.
+        job = self.ci.enqueue(global_id=123, tee_box="blue", loop_key="123:all", player_id="fixture",
+                              refs=[{"globalId": 123, "localHole": 1, "geometryRevision": "r1"}],
+                              requested={}, ready={123: [1]}, priority=20)
+        self.assertEqual(job["phase"], "ready")
+        self.assertEqual(self.priority(123), 20)
+
+    def test_new_events_move_latest_round_but_finish_does_not_revive_older_play(self):
+        self.package(123, "live-a")
+        self.package(999, "live-b")
+        with patch.object(self.main, "append_mobile_events_response", return_value=SimpleNamespace()):
+            self.main.mobile_round_events("live-a", SimpleNamespace(events=[{}]), "fixture-key",
+                                          acting_player_id="fixture")
+        self.assertEqual(self.priority(123), 10)
+        self.assertEqual(self.priority(999), 20)
+        self.main._record_round_activity("fixture", "live-a", finished=True)
+        self.assertFalse(self.main._ACTIVE_ROUNDS)
+        self.assertEqual(self.priority(123), 20)
+        self.assertEqual(self.priority(999), 20)
+
     def test_current_course_is_scoped_to_player_on_resume(self):
         self.package(123, "live-a", player="alice")
         bob = self.package(123, "prep-library-123", player="bob").courseInstallJob
@@ -208,10 +238,11 @@ class CourseInstallJournalTests(unittest.TestCase):
         from server_v2 import course_install
 
         state = {"jobId": "old-course", "globalId": 999, "phase": "queued",
-                 "priority": course_install.SELECTED_COURSE, "cancelRequested": False}
+                 "priority": course_install.SELECTED_COURSE, "cancelRequested": False,
+                 "playerKey": course_install._player_key("fixture")}
         submitted: list[int] = []
         course_install._ACTIVE.clear()
-        course_install.set_current_course_ids({123})
+        course_install.set_current_course_ids({"fixture": {123}})
         with (
             patch.object(course_install, "_read", return_value=state),
             patch.object(course_install, "_write") as write,
@@ -223,7 +254,7 @@ class CourseInstallJournalTests(unittest.TestCase):
         self.assertEqual(state["priority"], course_install.NEARBY)
         write.assert_called_once()
         course_install._ACTIVE.clear()
-        course_install.set_current_course_ids(set())
+        course_install.set_current_course_ids({})
 
     @staticmethod
     def _real_package():

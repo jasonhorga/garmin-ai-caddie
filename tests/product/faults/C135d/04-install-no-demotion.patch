@@ -1,11 +1,11 @@
 --- a/server_v2/course_install.py
 +++ b/server_v2/course_install.py
-@@ -513,7 +513,7 @@
+@@ -526,7 +526,7 @@
              gid = int(state.get("globalId") or 0)
          except (TypeError, ValueError):
              gid = 0
--        if gid and gid not in _CURRENT_COURSE_IDS:
-+        if False and gid and gid not in _CURRENT_COURSE_IDS:
-             state["priority"] = max(int(state.get("priority", SELECTED_COURSE)), NEARBY)
+-        if gid and gid not in _CURRENT_COURSE_IDS.get(str(state.get("playerKey") or ""), set()):
++        if False and gid and gid not in _CURRENT_COURSE_IDS.get(str(state.get("playerKey") or ""), set()):
+             state["priority"] = NEARBY
              _write(state)
          launch_priority = int(state.get("priority", SELECTED_COURSE))

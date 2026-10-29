@@ -1,0 +1,11 @@
+--- a/server_v2/course_install.py
++++ b/server_v2/course_install.py
+@@ -886,7 +886,7 @@
+         state["priorityHole"] = start_hole
+         # The caller's current playing scope is authoritative, including demotion of legacy 10
+         # journals. Each player/loop/Tee has its own job identity, so public discovery stays separate.
+-        state["priority"] = int(priority)
++        state["priority"] = min(int(state.get("priority", priority)), int(priority))
+         _recount(state)
+         if _all_assets_ready(state):
+             state["phase"] = "ready"

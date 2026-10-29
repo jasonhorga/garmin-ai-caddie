@@ -2383,24 +2383,51 @@ _ACTIVE_COURSES: dict[tuple[str, str], tuple[int, ...]] = {}
 _ACTIVE_ROUNDS_LOCK = threading.Lock()
 
 
+def _latest_rounds_by_player() -> dict[str, tuple[str, str]]:
+    # Insertion order tracks starts/new events, not background package refreshes of older rounds.
+    return {key[0]: key for key in _ACTIVE_ROUNDS}
+
+
+def _publish_current_courses() -> None:
+    course_install.set_current_course_ids({
+        player: set(_ACTIVE_COURSES.get(key, ()))
+        for player, key in _latest_rounds_by_player().items()
+    })
+
+
+def _current_course_ids(player_id: str) -> tuple[int, ...]:
+    with _ACTIVE_ROUNDS_LOCK:
+        key = _latest_rounds_by_player().get(str(player_id))
+        return _ACTIVE_COURSES.get(key, ())
+
+
 def _record_round_activity(player_id: str, round_id: str | None, *, finished: bool = False, has_events: bool = False,
-                           global_ids: list[int] | tuple[int, ...] | None = None) -> None:
+                           global_ids: list[int] | tuple[int, ...] | None = None,
+                           new_events: bool = False) -> None:
     if not round_id:
         return
     with _ACTIVE_ROUNDS_LOCK:
+        now = time.monotonic()
         for stale, deadline in list(_ACTIVE_ROUNDS.items()):
-            if deadline <= time.monotonic():
+            if deadline <= now:
                 _ACTIVE_ROUNDS.pop(stale, None)
                 _ACTIVE_COURSES.pop(stale, None)
         key = (str(player_id), str(round_id))
+        latest = _latest_rounds_by_player().get(key[0])
         if finished:
-            _ACTIVE_ROUNDS.pop(key, None)
-            _ACTIVE_COURSES.pop(key, None)
+            # Finishing the latest round must not revive an earlier round's background reads.
+            for old in list(_ACTIVE_ROUNDS):
+                if old == key or (latest == key and old[0] == key[0]):
+                    _ACTIVE_ROUNDS.pop(old, None)
+                    _ACTIVE_COURSES.pop(old, None)
         elif has_events or key in _ACTIVE_ROUNDS or not str(round_id).startswith(("home-", "prep-library-")):
-            _ACTIVE_ROUNDS[key] = time.monotonic() + 30 * 60
-            if global_ids:
-                _ACTIVE_COURSES[key] = tuple(sorted({int(value) for value in global_ids if int(value) > 0}))
-        course_install.set_current_course_ids({gid for values in _ACTIVE_COURSES.values() for gid in values})
+            if new_events:
+                _ACTIVE_ROUNDS.pop(key, None)
+            if key not in _ACTIVE_ROUNDS or latest == key:
+                _ACTIVE_ROUNDS[key] = now + 30 * 60
+                if global_ids:
+                    _ACTIVE_COURSES[key] = tuple(sorted({int(value) for value in global_ids if int(value) > 0}))
+        _publish_current_courses()
 
 
 def nearby_work_blocked() -> bool:
@@ -2411,7 +2438,7 @@ def nearby_work_blocked() -> bool:
             if deadline <= now:
                 _ACTIVE_ROUNDS.pop(key, None)
                 _ACTIVE_COURSES.pop(key, None)
-        course_install.set_current_course_ids({gid for values in _ACTIVE_COURSES.values() for gid in values})
+        _publish_current_courses()
         if _ACTIVE_ROUNDS:
             return True
     with course_install._LOCK:
@@ -2822,9 +2849,13 @@ def mobile_course_package(
         )
     except RoundLoopError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    _record_round_activity(player_id, round_id,
-                           has_events=bool((getattr(package, "eventCursor", None) or {}).get("serverSequence")),
-                           global_ids=[global_id])
+    # Home bootstrap can use suggestedLiveRoundId (live-<gid>), so the ID prefix alone is
+    # insufficient. Its existing read-only request disables all three options; playing/download
+    # paths request background geometry. A home read never starts or refreshes a playing lease.
+    if include_event_cursor or background_geometry or ensure_geometry:
+        _record_round_activity(player_id, round_id,
+                               has_events=bool((getattr(package, "eventCursor", None) or {}).get("serverSequence")),
+                               global_ids=[gid for gid, _half in round_loops])
     mark_request_stage("package_route")
     if not background_geometry or ensure_geometry:
         return package
@@ -2869,7 +2900,7 @@ def mobile_course_package(
         refs=refs,
         requested=requested,
         ready=ready,
-        priority=NEARBY,
+        priority=(SELECTED_COURSE if global_id in _current_course_ids(player_id) else NEARBY),
         priority_hole=priority_hole,
     )
     mark_request_stage("background_enqueue")
@@ -3048,7 +3079,8 @@ def mobile_round_events(
     result = append_mobile_events_response(
         round_id, request, idempotency_key=idempotency_key, player_id=acting_player_id
     )
-    _record_round_activity(acting_player_id, round_id, has_events=bool(getattr(request, "events", [])))
+    _record_round_activity(acting_player_id, round_id, has_events=bool(getattr(request, "events", [])),
+                           new_events=bool(getattr(request, "events", [])))
     return result
 
 

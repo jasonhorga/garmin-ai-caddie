@@ -1045,7 +1045,10 @@ def _render_process_count() -> int:
         else:
             cpus = os.cpu_count() or 1
     except (OSError, ValueError, ZeroDivisionError):
-        cpus = os.cpu_count() or 1
+        try:
+            cpus = len(os.sched_getaffinity(0))
+        except (AttributeError, OSError):
+            cpus = os.cpu_count() or 1
     return max(1, cpus - 1)
 
 

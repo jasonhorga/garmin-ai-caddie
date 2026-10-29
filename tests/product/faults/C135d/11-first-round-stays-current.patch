@@ -1,0 +1,11 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2385,7 +2385,7 @@
+
+ def _latest_rounds_by_player() -> dict[str, tuple[str, str]]:
+     # Insertion order tracks starts/new events, not background package refreshes of older rounds.
+-    return {key[0]: key for key in _ACTIVE_ROUNDS}
++    return {key[0]: key for key in reversed(_ACTIVE_ROUNDS)}
+
+
+ def _publish_current_courses() -> None:

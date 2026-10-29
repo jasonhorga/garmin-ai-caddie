@@ -1,0 +1,11 @@
+--- a/server_v2/course_install.py
++++ b/server_v2/course_install.py
+@@ -526,7 +526,7 @@
+             gid = int(state.get("globalId") or 0)
+         except (TypeError, ValueError):
+             gid = 0
+-        if gid and gid not in _CURRENT_COURSE_IDS.get(str(state.get("playerKey") or ""), set()):
++        if gid and gid not in set().union(*_CURRENT_COURSE_IDS.values()):
+             state["priority"] = NEARBY
+             _write(state)
+         launch_priority = int(state.get("priority", SELECTED_COURSE))
