@@ -1254,6 +1254,18 @@ class AgenthubDeployScriptTest(unittest.TestCase):
             self.assert_up_logged(result.stdout, OLD_NAME, "restart_policy_failed")
             self.assert_up_logged(result.stdout, NEW_NAME, "restart_policy_withheld")
 
+    def test_G6_refused_no_during_deploy_leaves_no_second_on_failure_release(self) -> None:
+        # The other releases are set to `no` before the live one is marked, so a refusal
+        # part-way never adds a second on-failure release; deploy then refuses to switch.
+        stuck = self.stopped_release()["Name"][1:]
+        self.add_container(self.stopped_release(), ON_FAILURE)
+        self.set_scenario(fail_updates=[[stuck, "no"]])
+        result = self.deploy()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("previous_untouched=true", result.stdout)
+        self.assert_old_serving()
+        self.assert_release_policies({OLD_NAME: "no", stuck: ON_FAILURE})
+
     def test_G6_live_release_restarted_after_failed_restore_is_on_failure(self) -> None:
         self.assertEqual(self.deploy().returncode, 0)
         self.set_scenario(unhealthy=[OLD])

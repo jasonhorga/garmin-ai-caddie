@@ -1,12 +1,12 @@
 diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
 --- a/ops/agenthub_deploy.py
 +++ b/ops/agenthub_deploy.py
-@@ -1174,7 +1174,7 @@ def normalize_restart_policy(cfg: Config, containers: list[Container], live: Con
-     container when the daemon restarts, and old releases would then race for the port."""
-     for container in containers:
-         if container.name.startswith(cfg.prefix):
--            is_live = live is not None and container.id == live.id
-+            is_live = False
-             set_restart_policy(container.name, LIVE_RESTART_POLICY if is_live else "no")
-
-
+@@ -1215,7 +1215,7 @@ def normalize_restart_policy(cfg: Config, containers: list[Container], live: Con
+     if live is not None:
+         if kept:
+             withhold_live(live.name)
+-        elif set_restart_policy(live.name, LIVE_RESTART_POLICY, check=check).returncode != 0:
++        elif set_restart_policy(live.name, "no", check=check).returncode != 0:
+             policy_warning(live.name, "restart_policy_failed",
+                            f"{live.name} keeps its restart policy; the next deploy, rollback or up corrects it")
+     return kept
