@@ -4898,6 +4898,10 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             try offlineStore.saveActiveHole(roundId: package.roundId, hole: hole)
             liveRoundState = try offlineStore.restoreLiveRoundState(roundId: package.roundId, package: package)
+            // A hole change should prioritize the selected hole's pending geometry without
+            // re-fetching the personal round package. The refresh task is single-flight and is
+            // re-seeded with the new active-hole priority.
+            schedulePendingGeometryRefresh(for: package)
             #if DEBUG
             UITestPagerTrace.shared.record("setActiveHole saved=\(liveRoundState?.activeHole ?? -1)")
             #endif

@@ -36,7 +36,10 @@ public enum LiveCaddieDistance {
         staticMiddleM: Double?,
         holeYards: Int?
     ) -> Double? {
-        guard recordedShotCount == 0 || isTeeShotOffTheHole else {
+        // A fresh tee request uses the selected tee until the player has either recorded a
+        // stroke or moved more than the tee threshold. Once either condition is true, the live
+        // GPS middle distance is the planning source (manual/flag input remains authoritative).
+        guard recordedShotCount == 0 && !isTeeShotOffTheHole else {
             return resolve(
                 manualM: manualM,
                 liveMiddleM: liveMiddleM,

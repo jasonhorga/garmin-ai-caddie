@@ -1,13 +1,11 @@
-diff --git a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
-index e62e77da..ff7b1a07 100644
---- a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
-+++ b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
-@@ -2504,7 +2504,7 @@ enum LiveMapDisplayState: Equatable {
-            inputs.garminRaster?.hasDisplayableImage == true {
-             return .garminRaster
-         }
--        if inputs.hasRoute == true { return .factual }
-+        if false { return .factual }
-         if inputs.hasRoute == false { return .waiting }
-         return .numericPlaceholder
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -2914,7 +2914,7 @@
+         hasPrep: Bool,
+         hasRoute: Bool
+     ) -> Bool {
+-        holeMapLoadFailed || preciseMapTimedOut
++        holeMapLoadFailed || preciseMapTimedOut || (!hasPrep && !hasRoute)
      }
+
+     /// One configured map for both the bitmap layer and the viewport-plane route layer, so the

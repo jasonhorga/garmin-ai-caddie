@@ -1734,14 +1734,14 @@
       "id": "tests-product-faults-C136-01",
       "patch": "tests/product/faults/C136/01-garmin-disabled-hole-gate.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_garmin_disabled_model_sends_no_raster_request",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_garmin_disabled_hole_view_sends_no_raster_request",
       "promise": "J4.5"
     },
     {
       "id": "tests-product-faults-C136-02",
       "patch": "tests/product/faults/C136/02-garmin-slow-blocks-hole.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_slow_failed_garmin_does_not_block_first_hole_or_scoring",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_real_hole_loader_keeps_surface_visible_during_prep",
       "promise": "J4.5"
     },
     {
@@ -1755,14 +1755,14 @@
       "id": "tests-product-faults-C136-04",
       "patch": "tests/product/faults/C136/04-prep-hang-waits.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_hanging_prep_keeps_route_and_numeric_surface_visible",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_map_spinner_stops_after_prep_success_or_failure",
       "promise": "J4.5"
     },
     {
       "id": "tests-product-faults-C136-05",
       "patch": "tests/product/faults/C136/05-map-spinner-never-terminal.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_map_spinner_stops_after_prep_success_or_failure",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_real_hole_loader_keeps_surface_visible_during_prep",
       "promise": "J4.5"
     },
     {
@@ -1820,6 +1820,12 @@
       "kind": "python",
       "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_package_and_prep_use_same_selected_gold_tee_when_blue_cache_is_only_map",
       "promise": "J4.4"
+    },
+    {
+      "patch": "tests/product/faults/C136/05-garmin-raster-failure.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testProductSpec45RasterFailureStopsVisibleSpinner",
+      "promise": "J4.5"
     }
   ]
 }

@@ -1,12 +1,11 @@
-diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
---- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift	2026-10-28 21:06:21.288058767 +0000
-+++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift	2026-10-28 21:06:21.265058498 +0000
-@@ -6353,7 +6353,7 @@
-         staticMiddleM: Double?,
-         holeYards: Int?
-     ) -> Double? {
--        LiveCaddieDistance.planningDistance(
-+        LiveCaddieDistance.resolve(
-             recordedShotCount: recordedShotCount,
-             isTeeShotOffTheHole: isTeeShotOffTheHole,
-             manualM: manualM,
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -6389,7 +6389,7 @@
+     /// target wins; otherwise use live GPS→green-middle, then the downloaded tee→middle fallback.
+     private var effectiveDistanceToPinMetres: Double? {
+         LiveCaddieDistance.resolve(
+-            manualM: distanceToPinMetres ?? mapTargetDistanceMetres ?? greenPinDistanceMetres,
++            manualM: distanceToPinMetres ?? greenPinDistanceMetres,
+             liveMiddleM: liveGreenMetres?.middle,
+             staticMiddleM: liveGreenDistances?.middleM,
+             holeYards: hole.yards

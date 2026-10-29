@@ -1,13 +1,24 @@
-diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
-index 99aed291..ea2bbf3c 100644
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -1723,7 +1723,7 @@ public final class LiveRoundAppModel: ObservableObject {
-                 loops: loops,
-                 capturedAt: preparedAt,
-                 preparationToken: preparationToken,
--                mapOnly: isNewRound
-+                mapOnly: false
-             )
-             recordUITestLatency(
-                 "course-start.fetch.end globalId=\(globalId) found=\(fetched != nil)"
+@@ -6963,18 +6963,12 @@
+                 // Geometry retries are map facts only. Re-fetching the complete round package
+                 // repeatedly used to replace the active round's player events, bag, and caddie
+                 // context while a single hole's mesh was still pending.
+-                let refreshed = try await syncClient.fetchCoursePackage(
+-                    globalId: globalId,
++                let refreshed = try await syncClient.fetchRoundPackage(
+                     roundId: roundId,
+-                    teeBox: teeBox,
+-                    loops: loops,
+                     capturedAt: Date(),
+                     ensureGeometry: false,
+-                    backgroundGeometry: true,
+-                    mapOnly: true,
+-                    includeEventCursor: false,
+-                    requestKind: .background,
+-                    priorityHole: self.liveRoundState?.activeHole ?? snapshot.holes.first?.number
++                    foregroundStart: false,
++                    requestKind: .background
+                 )
+                 guard !Task.isCancelled,
+                       self.package?.roundId == roundId,

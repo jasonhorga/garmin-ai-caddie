@@ -23,18 +23,19 @@ private final class C136Counter {
 }
 
 private actor C136Gate {
-    private var continuation: CheckedContinuation<Void, Never>?
+    private var continuations: [CheckedContinuation<Void, Never>] = []
     private var released = false
 
     func wait() async {
         if released { return }
-        await withCheckedContinuation { continuation = $0 }
+        await withCheckedContinuation { continuations.append($0) }
     }
 
     func release() {
         released = true
-        continuation?.resume()
-        continuation = nil
+        let pending = continuations
+        continuations.removeAll()
+        pending.forEach { $0.resume() }
     }
 }
 #endif
@@ -137,6 +138,33 @@ final class ProductMapAndPackageTests: XCTestCase {
         await fixture.model.stopRoundBackgroundWorkForTesting()
     }
 
+    /// C136/J4.5: the selected hole's Garmin guards cover both the direct descriptor request and
+    /// its recovery loop. With the persisted switch off neither path may issue a request.
+    func test_j4_5_garmin_disabled_hole_view_sends_no_raster_request() async throws {
+        let package = try c136Package(garmin: true)
+        let hole = try XCTUnwrap(package.holes.first)
+        let host = "c136-garmin-hole-off.example.test"
+        let requests = C136Counter()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            if proto.request.url?.path.contains("garmin-raster") == true { requests.increment() }
+            proto.reply(200)
+        })
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: LiveGarminRasterPolicy.preferenceKey)
+        defaults.set(false, forKey: LiveGarminRasterPolicy.preferenceKey)
+        defer {
+            if let previous { defaults.set(previous, forKey: LiveGarminRasterPolicy.preferenceKey) }
+            else { defaults.removeObject(forKey: LiveGarminRasterPolicy.preferenceKey) }
+        }
+        let view = CurrentHoleView(
+            package: package, hole: hole,
+            caddieBaseURL: URL(string: "https://\(host)")!
+        )
+        await view.loadGarminRasterForTesting()
+        await view.recoverGarminDescriptorForTesting()
+        XCTAssertEqual(requests.value, 0, "disabled Garmin must gate both hole raster paths")
+    }
+
     /// C136/J4: a slow/failed raster pass is independent of the playable first hole. The test holds
     /// the actual downloader, calls the same initial-load callback used by CurrentHoleView, and
     /// proves the model can publish and persist the active hole before releasing the raster.
@@ -237,6 +265,47 @@ final class ProductMapAndPackageTests: XCTestCase {
         await model.stopRoundBackgroundWorkForTesting()
     }
 
+    /// C136/J4.5: the real hole loader keeps the partial route and F/M/B facts visible while
+    /// `/prep` is in flight. The task is intentionally held after the view has started it.
+    func test_j4_5_real_hole_loader_keeps_surface_visible_during_prep() async throws {
+        let package = try c136Package(pendingHole: 1)
+        let hole = try XCTUnwrap(package.holes.first)
+        let host = "c136-hole-loader.example.test"
+        let started = expectation(description: "hole prep started")
+        let gate = C136Gate()
+        let prepData = try JSONEncoder().encode(try XCTUnwrap(package.coursePrep))
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            if proto.request.url?.path.hasSuffix("/prep") == true {
+                started.fulfill()
+                Task {
+                    await gate.wait()
+                    proto.reply(200, prepData)
+                }
+            } else {
+                proto.reply(404)
+            }
+        })
+        let initialFinished = expectation(description: "initial hole facts published")
+        let view = CurrentHoleView(
+            package: package, hole: hole,
+            caddieBaseURL: URL(string: "https://\(host)")!,
+            onLiveHoleInitialLoadDidFinish: { initialFinished.fulfill() }
+        )
+        let loading = Task { @MainActor in await view.loadCurrentHoleForTesting() }
+        await fulfillment(of: [started, initialFinished], timeout: productEventWait)
+        let secondAttempt = Task { @MainActor in await view.retryHoleMapForTesting() }
+        _ = await secondAttempt.value
+        XCTAssertFalse(view.mapPreparingSurfaceFailedForTesting(),
+                       "a retry joining an in-flight prep cannot mark the map as failed")
+        XCTAssertEqual(view.liveMapDisplayStateForTesting(), .factual,
+                       "partial route remains actionable while prep is held")
+        let visible = view.displayedGreenRangeYardsForTesting()
+        XCTAssertNotNil(visible.middle, "numeric middle remains visible during prep")
+        await gate.release()
+        await loading.value
+    }
+
     /// C136/J4: a held prep request cannot replace the factual route/numeric first frame with the
     /// full-screen waiting page. The fetch is the real live prep publication seam and is released
     /// only after the visible state has been asserted.
@@ -298,7 +367,7 @@ final class ProductMapAndPackageTests: XCTestCase {
         )
         XCTAssertFalse(
             CurrentHoleView.mapPreparingSurfaceFailed(
-                holeMapLoadFailed: false, preciseMapTimedOut: false, hasPrep: false, hasRoute: true
+                holeMapLoadFailed: false, preciseMapTimedOut: false, hasPrep: false, hasRoute: false
             ),
             "J4.5 an in-flight prep keeps the route surface actionable"
         )
@@ -559,6 +628,51 @@ final class ProductMapAndPackageTests: XCTestCase {
             205,
             "J5.4 an unrecorded GPS fix beyond the selected Tee uses live distance"
         )
+        let livePackage = try c136Package()
+        let liveHole = try XCTUnwrap(livePackage.holes.first)
+        let livePrep = try XCTUnwrap(livePackage.coursePrep?.holes.first)
+        let liveMiddle = try XCTUnwrap(livePrep.greenDistances?.middleM)
+        let openingView = CurrentHoleView(package: livePackage, hole: liveHole)
+        let openingRange = openingView.displayedGreenRangeYardsForTesting()
+        XCTAssertEqual(openingRange.middle, CoursePrepRoute.yards(fromMetres: liveMiddle),
+                       "J5.4 the rendered opening ladder uses the selected tee")
+        XCTAssertEqual(openingView.caddiePlanningDistanceForTesting(), liveMiddle,
+                       "J5.4 the caddie request uses the same opening tee middle")
+        let moved = CLLocationCoordinate2D(latitude: try XCTUnwrap(liveHole.teeLatitude) + 0.001,
+                                           longitude: try XCTUnwrap(liveHole.teeLongitude))
+        openingView.setPlanningCoordinateForTesting(moved)
+        XCTAssertEqual(try XCTUnwrap(openingView.caddiePlanningDistanceForTesting()),
+                       GeoDistance.haversineMetres(moved.latitude, moved.longitude,
+                                                   try XCTUnwrap(livePrep.greenDistances?.middleLat),
+                                                   try XCTUnwrap(livePrep.greenDistances?.middleLon)), accuracy: 0.01,
+                       "J5.4 GPS beyond the tee threshold drives the opening plan")
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        let tee = CLLocationCoordinate2D(
+            latitude: try XCTUnwrap(liveHole.teeLatitude), longitude: try XCTUnwrap(liveHole.teeLongitude)
+        )
+        try store.appendEvent(LiveRoundEventBuilder(roundId: livePackage.roundId).makeLocationEvent(
+            hole: liveHole.number, coordinate: moved, horizontalAccuracyM: 5
+        ))
+        let restored = try store.restoreLiveRoundState(
+            roundId: livePackage.roundId, package: livePackage
+        )
+        let afterShotView = CurrentHoleView(
+            package: livePackage, hole: liveHole, offlineStore: store, liveRoundState: restored
+        )
+        let target = CLLocationCoordinate2D(latitude: moved.latitude + 0.0003, longitude: moved.longitude)
+        afterShotView.setTargetForTesting(target)
+        XCTAssertEqual(try XCTUnwrap(afterShotView.caddiePlanningDistanceForTesting()),
+                       GeoDistance.haversineMetres(tee.latitude, tee.longitude, target.latitude, target.longitude), accuracy: 0.01,
+                       "J5.4 Touch Target remains the post-shot planning source")
+        let pin = CLLocationCoordinate2D(latitude: moved.latitude + 0.0005, longitude: moved.longitude)
+        afterShotView.setTargetForTesting(pin, kind: "pin")
+        XCTAssertEqual(try XCTUnwrap(afterShotView.caddiePlanningDistanceForTesting()),
+                       GeoDistance.haversineMetres(tee.latitude, tee.longitude, pin.latitude, pin.longitude), accuracy: 0.01,
+                       "J5.4 dragging the flag updates the post-shot planning source")
+
         XCTAssertEqual(
             LiveGreenRangePresentation.resolve(
                 live: LiveGreenRangeYards(front: 220, middle: nil, back: 437),

@@ -2962,7 +2962,7 @@ public struct CurrentHoleView: View {
         hasPrep: Bool,
         hasRoute: Bool
     ) -> Bool {
-        holeMapLoadFailed || preciseMapTimedOut || (!hasPrep && !hasRoute)
+        holeMapLoadFailed || preciseMapTimedOut
     }
 
     /// One configured map for both the bitmap layer and the viewport-plane route layer, so the
@@ -3826,7 +3826,7 @@ public struct CurrentHoleView: View {
             let distance = GeoDistance.haversineMetres(
                 fix.latitude, fix.longitude, tee.latitude, tee.longitude
             )
-            return distance.isFinite && distance <= 30
+            return distance.isFinite && distance > 30
         }
         guard route.count >= 2 else { return false }
         // Local metres around the fix (equirectangular; holes are a few hundred metres long).
@@ -4321,21 +4321,32 @@ public struct CurrentHoleView: View {
             // making the player wait for a second prep GET/render request.
             async let mapResult = loadHoleMap()
             await loadCaddieDecision(syncClub: syncClub, allowCachedDecision: true)
+            guard !Task.isCancelled else { return }
+            #if DEBUG
+            UITestEventLatencyTrace.record(
+                "live-hole.initial-load-finished hole=\(hole.number) course=\(package.course.globalId)"
+            )
+            #endif
+            if isSelected {
+                onLiveHoleInitialLoadDidFinish()
+            }
             _ = await mapResult
         } else {
             // A cold hole may have no `/prep` row yet. Keep the package route/numeric facts and
-            // caddie seed playable immediately; the per-hole map request upgrades the screen in
-            // the background and can be cancelled when the player changes holes.
+            // caddie seed playable immediately while the per-hole map request upgrades the screen
+            // in the background and can be cancelled when the player changes holes.
+            async let mapResult = loadHoleMap()
             await loadCaddieDecision(syncClub: syncClub, allowCachedDecision: true)
-        }
-        guard !Task.isCancelled else { return }
-        #if DEBUG
-        UITestEventLatencyTrace.record(
-            "live-hole.initial-load-finished hole=\(hole.number) course=\(package.course.globalId)"
-        )
-        #endif
-        if isSelected {
-            onLiveHoleInitialLoadDidFinish()
+            guard !Task.isCancelled else { return }
+            #if DEBUG
+            UITestEventLatencyTrace.record(
+                "live-hole.initial-load-finished hole=\(hole.number) course=\(package.course.globalId)"
+            )
+            #endif
+            if isSelected {
+                onLiveHoleInitialLoadDidFinish()
+            }
+            _ = await mapResult
         }
 
         // The package request has already queued prodgeometry in the backend. Keep the CourseView
@@ -4377,6 +4388,52 @@ public struct CurrentHoleView: View {
     @MainActor
     func loadCurrentHoleForTesting() async {
         await loadCurrentHole()
+    }
+
+    @MainActor
+    func loadGarminRasterForTesting() async {
+        await loadGarminRaster()
+    }
+
+    @MainActor
+    func recoverGarminDescriptorForTesting() async {
+        await recoverGarminDescriptor()
+    }
+
+    @MainActor
+    func liveMapDisplayStateForTesting() -> LiveMapDisplayState {
+        liveMapDisplayState
+    }
+
+    @MainActor
+    func displayedGreenRangeYardsForTesting() -> LiveGreenRangeYards {
+        displayedGreenRangeYards
+    }
+
+    @MainActor
+    func setPlanningCoordinateForTesting(_ coordinate: CLLocationCoordinate2D?) {
+        currentCoordinate = coordinate
+        currentHorizontalAccuracyM = coordinate == nil ? nil : 5
+    }
+
+    @MainActor
+    func setTargetForTesting(_ coordinate: CLLocationCoordinate2D?, kind: String = "target") {
+        handleMapTargetChanged(coordinate, kind: kind)
+    }
+
+    @MainActor
+    func retryHoleMapForTesting() async -> Bool {
+        await loadHoleMap()
+    }
+
+    @MainActor
+    func mapPreparingSurfaceFailedForTesting() -> Bool {
+        Self.mapPreparingSurfaceFailed(
+            holeMapLoadFailed: holeMapLoadFailed,
+            preciseMapTimedOut: preciseMapTimedOut,
+            hasPrep: holePrep != nil,
+            hasRoute: liveHasRoute
+        )
     }
     #endif
 
@@ -4531,8 +4588,10 @@ public struct CurrentHoleView: View {
     }
 
     private func loadHoleMap() async -> Bool {
+        let requestWasAlreadyInFlight = sessionEntry().prepRequestStarted
         let loaded = await loadHoleMap(forMapping: false)
-        if !loaded, holePrep == nil {
+        if !loaded, holePrep == nil, !requestWasAlreadyInFlight,
+           !sessionEntry().prepRequestStarted {
             holeMapLoadFailed = true
         }
         return loaded
@@ -4969,9 +5028,14 @@ public struct CurrentHoleView: View {
 
     /// The Watch payload uses the same Tee/GPS origin as the phone's F/M/B, in metres.
     private var liveGreenMetres: (front: Double?, middle: Double?, back: Double?)? {
-        guard recordedNonPuttShotCount > 0 else { return nil }
-        guard let here = greenRangeCoordinate,
-              let gd = liveGreenDistances else { return nil }
+        // A GPS fix that has left the selected tee is already the opening-shot planning source,
+        // even before the golfer records that stroke. Keep the tee origin for the displayed
+        // pre-shot ladder, but use the live fix for the caddie request.
+        guard recordedNonPuttShotCount > 0 || isTeeShotOffTheHole else { return nil }
+        let here = isTeeShotOffTheHole
+            ? (locationProvider.latestFix?.coordinate ?? currentCoordinate)
+            : greenRangeCoordinate
+        guard let here, let gd = liveGreenDistances else { return nil }
         func metres(_ lat: Double?, _ lon: Double?) -> Double? {
             guard let lat, let lon else { return nil }
             return GeoDistance.haversineMetres(here.latitude, here.longitude, lat, lon)

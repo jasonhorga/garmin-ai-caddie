@@ -5,6 +5,20 @@ import UIKit
 import XCTest
 @testable import AICaddie
 
+
+private actor GarminRasterRetryGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
 private final class GarminRasterStubURLProtocol: URLProtocol {
     enum Mode { case serverError, timeout }
     static var mode: Mode = .serverError
@@ -70,13 +84,21 @@ final class GarminRasterTests: XCTestCase {
     @MainActor
     func testProductSpec45RasterFailureStopsVisibleSpinner() async {
         let url = URL(string: "https://c136.example.test/raster-timeout.jpg")!
+        let retryStarted = expectation(description: "retry backoff started")
+        let gate = GarminRasterRetryGate()
         let store = GarminRasterImageStore(
-            sleep: { _ in throw CancellationError() },
+            sleep: { _ in
+                retryStarted.fulfill()
+                await gate.wait()
+            },
             loader: { _ in nil }
         )
-        await store.load(url)
+        let loading = Task { @MainActor in await store.load(url) }
+        await fulfillment(of: [retryStarted], timeout: 2)
         XCTAssertEqual(store.failedURL, url)
-        XCTAssertFalse(store.isLoading)
+        XCTAssertFalse(store.isLoading, "the failed attempt clears the visible spinner before retry")
+        await gate.release()
+        await loading.value
     }
 
     private func projection(
