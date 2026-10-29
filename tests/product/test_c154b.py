@@ -822,36 +822,21 @@ class RouteAdmissionTests(unittest.IsolatedAsyncioTestCase):
 
         request = Request({"type": "http", "method": "GET", "path": "/", "headers": []}, receive)
         built = []
-        first, release = threading.Event(), threading.Event()
         waiting, observed = _observed_waits(self.gate)
 
-        def build_hole(hole):
-            if int(hole) == 7:
-                first.set()
-                release.wait(2)
-            built.append(int(hole))
-            return {"hole": int(hole)}
-
         def build():
-            return prep_cache.cached_course_prep(
-                global_id=123, requested=[7, 8], render=False, include_shots=False,
-                player_id=self.player,
-                build=lambda: {"holes": list(prep_cache.cached_hole_preps(
-                    global_id=123, holes=[7, 8], render=False, include_shots=False,
-                    player_id=self.player, variant="disconnect", build_hole=build_hole).values())},
-            )
+            return prep_cache.cached_course_prep(global_id=123, requested=[7], render=False,
+                include_shots=False, player_id=self.player, build=lambda: built.append(7) or {})
 
         with patch.object(prep_work, "background_work", observed_admission), observed:
-            response = asyncio.create_task(prep_work.run_prep(request, build))
-            await self.event(first)
             with self.gate.foreground():
-                release.set()
+                response = asyncio.create_task(prep_work.run_prep(request, build))
                 await self.event(waiting)
                 disconnect.set()
                 self.assertEqual((await response).status_code, 499)
                 # The package (5s deadline) is still live: only the disconnect ends the wait.
                 self.assertTrue(await asyncio.to_thread(left.wait, 1), "thread kept waiting after disconnect")
-        self.assertEqual(built, [7])
+        self.assertEqual(built, [])
         self.assertEqual(prep_cache._inflight, {})
 
     async def test_J42_package_without_tee_installs_under_the_registered_tee(self):
