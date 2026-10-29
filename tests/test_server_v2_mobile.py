@@ -479,11 +479,21 @@ class ServerV2MobileTests(unittest.TestCase):
                     {**package, "course": {"globalId": 31832, "teeBox": tee_box}}, map_only=True
                 )
                 prep = server_main._build_course_prep_nine(31832, [1, 2], False, False, tee_box, "me")
+                package_prep = mobile_live._course_prep_package(
+                    31832, package_holes, tee_box=tee_box
+                )
                 self.assertEqual([row["teeSet"] for row in prep["holes"]], [expected_set, expected_set])
                 self.assertEqual([row["teeSet"] for row in full["holes"]], [expected_set, expected_set])
+                self.assertIsNotNone(package_prep)
+                self.assertEqual(
+                    [row["teeSet"] for row in package_prep["holes"]],
+                    [expected_set, expected_set],
+                )
                 full_middle = [row["greenDistances"]["middleM"] for row in full["holes"]]
                 prep_middle = [row["greenDistances"]["middleM"] for row in prep["holes"]]
+                package_middle = [row["greenDistances"]["middleM"] for row in package_prep["holes"]]
                 self.assertTrue(all(abs(left - right) <= 3.0 for left, right in zip(full_middle, prep_middle)))
+                self.assertTrue(all(abs(left - right) <= 3.0 for left, right in zip(package_middle, prep_middle)))
                 self.assertEqual(len(map_only["holes"]), 2)
                 if expected_set != 2:
                     self.assertTrue(all("greenDistances" not in row and "route" not in row for row in map_only["holes"]))
