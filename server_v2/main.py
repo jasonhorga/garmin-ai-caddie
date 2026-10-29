@@ -3045,22 +3045,26 @@ def mobile_course_package(
             or not active_selection
         )
     )
+    package_kwargs = {
+        "round_id": round_id,
+        "tee_box": tee_box,
+        "captured_at": captured_at,
+        "client_id": client_id,
+        "ensure_geometry": ensure_geometry,
+        "include_event_cursor": include_event_cursor,
+        "prepare_map": (background_geometry or map_only) and not ensure_geometry,
+        "priority_hole": effective_priority_hole,
+        "map_only": map_only,
+        "loops": round_loops,
+        "player_id": player_id,
+    }
+    # Preserve the established builder call shape for foreground requests.  The flag is
+    # meaningful only for the non-current background vector lane and older callers/tests rely
+    # on the foreground call containing no extra option.
+    if background_vector:
+        package_kwargs["background_vector"] = True
     try:
-        package = build_mobile_course_package_response(
-            global_id,
-            round_id=round_id,
-            tee_box=tee_box,
-            captured_at=captured_at,
-            client_id=client_id,
-            ensure_geometry=ensure_geometry,
-            include_event_cursor=include_event_cursor,
-            prepare_map=(background_geometry or map_only) and not ensure_geometry,
-            priority_hole=effective_priority_hole,
-            map_only=map_only,
-            background_vector=background_vector,
-            loops=round_loops,
-            player_id=player_id,
-        )
+        package = build_mobile_course_package_response(global_id, **package_kwargs)
     except RoundLoopError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     package_course = (
