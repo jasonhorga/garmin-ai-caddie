@@ -132,6 +132,9 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self.enterContext(patch.dict(os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}))
         self.enterContext(patch.object(main, "_ACTIVE_ROUNDS", {}))
         self.enterContext(patch.object(main, "_ACTIVE_COURSES", {}))
+        self.enterContext(patch.object(main, "_ACTIVE_EVENT_TIMES", {}))
+        self.enterContext(patch.object(main, "_ACTIVE_EVENT_DEVICES", {}))
+        self.enterContext(patch.object(main, "_ACTIVE_SELECTIONS", {}))
         self.enterContext(patch.object(ci, "_CURRENT_COURSE_IDS", type(ci._CURRENT_COURSE_IDS)()))
         self.enterContext(patch.object(ci, "_ACTIVE", set()))
         self.submitted = []
@@ -211,13 +214,11 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
 
     def test_late_events_keep_latest_round_and_finish_does_not_revive_older_play(self):
         self.package(123, "live-a")
+        self._post_events("live-a", "live-a-1", timestamp="2026-10-29T09:00:00Z")
         self.package(999, "live-b")
-        with patch.object(self.main, "append_mobile_events_response", return_value=SimpleNamespace()):
-            self.main.mobile_round_events("live-a", SimpleNamespace(events=[{}]), "fixture-key",
-                                          acting_player_id="fixture")
         self.assertEqual(self.priority(123), 20)
         self.assertEqual(self.priority(999), 10)
-        self.main._record_round_activity("fixture", "live-b", finished=True)
+        self._finish("live-b")
         self.assertFalse(self.main._ACTIVE_ROUNDS)
         self.assertEqual(self.priority(123), 20)
         self.assertEqual(self.priority(999), 20)
@@ -235,32 +236,68 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
 
     def test_late_unregistered_event_upload_keeps_bound_current_round(self):
         self.package(999, "live-b")
-        with patch.object(self.main, "append_mobile_events_response", return_value=SimpleNamespace()):
-            self.main.mobile_round_events("old-round-a", SimpleNamespace(events=[{}]), "old-upload",
-                                          acting_player_id="fixture")
+        self._post_events("old-round-a", "old-upload", timestamp="2026-10-29T08:00:00Z")
         self.assertEqual(self.priority(999), 10)
         self.assertEqual(self.main._current_course_ids("fixture"), (999,))
         self.assertTrue(self.main.nearby_work_blocked())
 
     def test_watch_deferred_events_then_finish_cannot_remove_later_play(self):
+        self.package(123, "saved-old-a")
+        self._post_events("saved-old-a", "old-1", timestamp="2026-10-29T09:00:00Z")
         self.package(999, "live-b")
-        with (patch.object(self.main, "append_mobile_events_response", return_value=SimpleNamespace()),
-              patch.object(self.main, "finish_mobile_round_response", return_value=SimpleNamespace())):
-            self.main.mobile_round_events("saved-old-a", SimpleNamespace(events=[{}]), "old-upload",
-                                          acting_player_id="fixture")
-            self.main.mobile_round_finish("saved-old-a", SimpleNamespace(), acting_player_id="fixture")
+        self._finish("saved-old-a")
         self.assertIn(("fixture", "live-b"), self.main._ACTIVE_ROUNDS)
         self.assertEqual(self.priority(999), 10)
         self.assertTrue(self.main.nearby_work_blocked())
 
     def test_finish_earlier_registered_round_preserves_later_round(self):
         self.package(123, "live-a")
+        self._post_events("live-a", "old-1", timestamp="2026-10-29T09:00:00Z")
         self.package(999, "live-b")
-        with (patch.object(self.main, "append_mobile_events_response", return_value=SimpleNamespace()),
-              patch.object(self.main, "finish_mobile_round_response", return_value=SimpleNamespace())):
-            self.main.mobile_round_events("live-a", SimpleNamespace(events=[{}]), "old-upload",
-                                          acting_player_id="fixture")
-            self.main.mobile_round_finish("live-a", SimpleNamespace(), acting_player_id="fixture")
+        self._finish("live-a")
+        self.assertNotIn(("fixture", "live-a"), self.main._ACTIVE_ROUNDS)
+        self.assertEqual(self.priority(999), 10)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_late_events_keep_latest_round_mixed_client_ids(self):
+        """J4.2: a phone batch containing relayed Watch events still marks the new round current."""
+        self.package(123, "live-a")
+        self._post_events("live-a", "live-a-1", timestamp="2026-10-29T09:00:00Z",
+                          client_ids=("ios-phone", "apple-watch"))
+        self.package(999, "live-b")
+        self.assertEqual(self.main._current_course_ids("fixture"), (999,))
+        self.assertEqual(self.priority(123), 20)
+        self.assertEqual(self.priority(999), 10)
+        self._finish("live-b")
+        self.assertFalse(self.main._ACTIVE_ROUNDS)
+
+    def test_late_unregistered_event_upload_mixed_client_ids_keeps_bound_current_round(self):
+        """J4.2: a mixed old upload cannot displace the newly registered round."""
+        self.package(999, "live-b")
+        self._post_events("old-round-a", "old-upload", timestamp="2026-10-29T08:00:00Z",
+                          client_ids=("ios-phone", "apple-watch"))
+        self.assertEqual(self.main._current_course_ids("fixture"), (999,))
+        self.assertEqual(self.priority(999), 10)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_watch_deferred_events_then_finish_mixed_client_ids_cannot_remove_later_play(self):
+        """J4.2: finishing an earlier mixed-client round leaves the later play active."""
+        self.package(123, "saved-old-a")
+        self._post_events("saved-old-a", "old-1", timestamp="2026-10-29T09:00:00Z",
+                          client_ids=("ios-phone", "apple-watch"))
+        self.package(999, "live-b")
+        self._finish("saved-old-a")
+        self.assertIn(("fixture", "live-b"), self.main._ACTIVE_ROUNDS)
+        self.assertEqual(self.priority(999), 10)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_finish_earlier_registered_round_mixed_client_ids_preserves_later_round(self):
+        """J4.2: an earlier mixed-client finish cannot retire the later round."""
+        self.package(123, "live-a")
+        self._post_events("live-a", "old-1", timestamp="2026-10-29T09:00:00Z",
+                          client_ids=("ios-phone", "apple-watch"))
+        self.package(999, "live-b")
+        self._finish("live-a")
         self.assertNotIn(("fixture", "live-a"), self.main._ACTIVE_ROUNDS)
         self.assertEqual(self.priority(999), 10)
         self.assertTrue(self.main.nearby_work_blocked())
@@ -271,10 +308,11 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
                                ready={}, priority=20)
 
     @staticmethod
-    def _event(rid, event_id, *, payload=None, timestamp="2026-10-29T08:00:00Z"):
+    def _event(rid, event_id, *, payload=None, timestamp="2026-10-29T08:00:00Z",
+               client_id="apple-watch", kind="score"):
         return {"schema": "ai-caddie-live-round-event-v1", "eventId": event_id,
                 "roundId": rid, "timestamp": timestamp, "hole": 1,
-                "kind": "score", "payload": payload or {"strokes": 4}, "clientId": "apple-watch"}
+                "kind": kind, "payload": payload or {"strokes": 4}, "clientId": client_id}
 
     def _identity(self, rid, gid):
         from ai_caddie.caddie.mobile_round_identity import save_mobile_round_identity
@@ -290,14 +328,21 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
             player_id="fixture",
         )
 
-    def _post_events(self, rid, event_id, *, timestamp, payload=None):
+    def _post_events(self, rid, event_id, *, timestamp, payload=None,
+                     client_ids=("apple-watch",), kind="score"):
         from server_v2.models import LiveRoundEventBatchRequest
 
         body = LiveRoundEventBatchRequest(
             roundId=rid,
-            events=[self._event(rid, event_id, timestamp=timestamp, payload=payload)],
+            events=[self._event(rid, f"{event_id}-{index}", timestamp=timestamp,
+                                payload=payload, client_id=client_id, kind=kind)
+                    for index, client_id in enumerate(client_ids)],
         )
         return self.main.mobile_round_events(rid, body, event_id, acting_player_id="fixture")
+
+    def _finish(self, rid):
+        with patch.object(self.main, "finish_mobile_round_response", return_value=SimpleNamespace()):
+            self.main.mobile_round_finish(rid, SimpleNamespace(), acting_player_id="fixture")
 
     def test_timestamp_n1_courseless_live_round_survives_old_deferred_finish(self):
         """J4.2 active-round admission: event time beats deferred-finish arrival order."""
@@ -339,26 +384,19 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self.assertEqual(self.priority(456), 20)
 
     def test_timestamp_order_beats_round_registration_order(self):
-        """J4.2 active-round admission: current play is newest event time, not dict order."""
-        older = ("fixture", "older-round")
-        newer = ("fixture", "newer-round")
-        now = time.monotonic() + 60
-        self.main._ACTIVE_ROUNDS.update({newer: now, older: now})
-        self.main._ACTIVE_COURSES.update({newer: (123,), older: (456,)})
-        self.main._ACTIVE_EVENT_TIMES.update({
-            newer: self.main.datetime.fromisoformat("2026-10-29T10:00:00+00:00"),
-            older: self.main.datetime.fromisoformat("2026-10-29T09:00:00+00:00"),
-        })
-        self.main._ACTIVE_EVENT_DEVICES.update({newer: "apple-watch", older: "apple-watch"})
-        self.main._publish_current_courses()
+        """J4.2: current play is newest event time, not package registration order."""
+        self.package(123, "newer-round")
+        self._post_events("newer-round", "newer-1", timestamp="2026-10-29T10:00:00Z")
+        self.package(456, "older-round")
+        self._post_events("older-round", "older-1", timestamp="2026-10-29T09:00:00Z")
         self.assertEqual(self.main._current_course_ids("fixture"), (123,))
 
     def test_missing_event_timestamp_falls_back_to_arrival_order(self):
         """J4.2 legacy event envelopes remain active when timestamp parsing is unavailable."""
-        self.main._record_round_activity(
-            "fixture", "legacy-round", global_ids=[123], new_events=True,
-            event_timestamp_valid=False,
-        )
+        request = SimpleNamespace(events=[{}])
+        with patch.object(self.main, "append_mobile_events_response", return_value=SimpleNamespace()):
+            self.main.mobile_round_events("legacy-round", request, "legacy-round-1",
+                                          acting_player_id="fixture")
         self.assertIn(("fixture", "legacy-round"), self.main._ACTIVE_ROUNDS)
 
     def test_old_event_payload_container_type_error_does_not_turn_event_receipt_into_500(self):
@@ -384,6 +422,106 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
             "legacy-round", body, "legacy-2", acting_player_id="fixture"
         )
         self.assertEqual(result.accepted, 1)
+        before = len(__import__("ai_caddie.caddie.mobile_live", fromlist=["round_events"]).round_events(
+            "legacy-round", root=self.root, player_id="fixture"
+        ))
+        duplicate = self.main.mobile_round_events(
+            "legacy-round", body, "legacy-2", acting_player_id="fixture"
+        )
+        after = len(__import__("ai_caddie.caddie.mobile_live", fromlist=["round_events"]).round_events(
+            "legacy-round", root=self.root, player_id="fixture"
+        ))
+        self.assertTrue(duplicate.duplicate)
+        self.assertEqual(duplicate.accepted, 0)
+        self.assertEqual(after, before)
+
+    def test_rv161_p1_switch_mixed_old_round_demoted(self):
+        """J4.2 P1: mixed phone/Watch event batches do not block a newly packaged round."""
+        self.package(123, "round-o")
+        self._post_events("round-o", "o1", timestamp="2026-10-29T09:00:00Z",
+                          client_ids=("ios-phone", "apple-watch"))
+        self.package(999, "round-l")
+        self.assertEqual(self.main._current_course_ids("fixture"), (999,))
+        self.assertEqual(self.priority(123), 20)
+        self.assertEqual(self.priority(999), 10)
+
+    def test_rv161_p2_finish_later_retires_earlier_mixed(self):
+        """J4.2 P2: finishing the later mixed-client round retires all earlier timed rounds."""
+        self.package(123, "round-o")
+        self._post_events("round-o", "o1", timestamp="2026-10-29T09:00:00Z",
+                          client_ids=("ios-phone", "apple-watch"))
+        self.package(999, "round-l")
+        self._post_events("round-l", "l1", timestamp="2026-10-29T10:00:00Z",
+                          client_ids=("ios-phone", "apple-watch"))
+        self._finish("round-l")
+        self.assertFalse(self.main._ACTIVE_ROUNDS)
+        self.assertFalse(self.main.nearby_work_blocked())
+        self.assertEqual(self.priority(123), 20)
+
+    def test_rv161_p2b_finish_after_device_flip(self):
+        """J4.2 P2b: a final Watch-only batch does not change finish retirement scope."""
+        self.package(123, "round-o")
+        self._post_events("round-o", "o1", timestamp="2026-10-29T09:00:00Z",
+                          client_ids=("ios-phone",))
+        self.package(999, "round-l")
+        self._post_events("round-l", "l1", timestamp="2026-10-29T10:00:00Z",
+                          client_ids=("ios-phone",))
+        self._post_events("round-l", "l2", timestamp="2026-10-29T10:05:00Z",
+                          client_ids=("apple-watch",))
+        self._finish("round-l")
+        self.assertFalse(self.main._ACTIVE_ROUNDS)
+        self.assertFalse(self.main.nearby_work_blocked())
+        self.assertEqual(self.priority(123), 20)
+
+    def test_rv161_p4_restart_mixed_old_upload_then_live_package(self):
+        """J4.2 P4: restart recovery uses player event time across mixed batches."""
+        self._background_job(123)
+        self._background_job(456)
+        self._identity("watch-live", 123)
+        self._identity("saved-old", 456)
+        self._post_events("saved-old", "o1", timestamp="2026-10-29T09:00:00Z",
+                          client_ids=("ios-phone", "apple-watch"))
+        self._post_events("watch-live", "l1", timestamp="2026-10-29T10:00:00Z",
+                          client_ids=("ios-phone", "apple-watch"))
+        self.package(123, "watch-live")
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+        self.assertEqual(self.priority(123), 10)
+        self.assertEqual(self.priority(456), 20)
+
+    def test_rv161_p5_prep_gate_uses_same_current_round(self):
+        """J4.2 P5: prep exemption and current-course publication share one selector."""
+        self._identity("saved-old", 456)
+        self._post_events("saved-old", "o1", timestamp="2026-10-29T09:00:00Z")
+        self._post_events("live-l", "l1", timestamp="2026-10-29T10:00:00Z")
+        current = self.main._current_course_ids("fixture")
+        prep = self.main._playing_prep_matches("fixture", 456, [1], "blue")
+        self.assertEqual(bool(current and 456 in current), prep)
+
+    def test_rv161_p6_timestamps_normalize_timezone_and_naive_utc(self):
+        """J4.2 P6: naive timestamps are UTC and offset forms compare on one timeline."""
+        a = self.main._request_event_timestamp(SimpleNamespace(
+            events=[self._event("r", "1", timestamp="2026-10-29T18:00:00+08:00",
+                                 client_id="ios-phone")]))
+        b = self.main._request_event_timestamp(SimpleNamespace(
+            events=[self._event("r", "1", timestamp="2026-10-29T10:00:00",
+                                 client_id="ios-phone")]))
+        self.assertEqual(a[0], b[0])
+
+    def test_rv161_p7_equal_timestamps_use_later_registration(self):
+        """J4.2 P7: equal event times use the later registered round."""
+        self._identity("r1", 123)
+        self._identity("r2", 456)
+        self._post_events("r1", "a", timestamp="2026-10-29T10:00:00Z")
+        self._post_events("r2", "b", timestamp="2026-10-29T10:00:00Z")
+        self.assertEqual(self.main._current_course_ids("fixture"), (456,))
+
+    def test_rv161_p8_old_round_score_edit_does_not_take_current(self):
+        """J4.2 P8: an old round's later score upload cannot steal the active round."""
+        self._identity("saved-old", 456)
+        self.package(123, "live-l")
+        self._post_events("live-l", "l1", timestamp="2026-10-29T10:00:00Z")
+        self._post_events("saved-old", "o-edit", timestamp="2026-10-29T10:30:00Z")
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
 
     def test_events_restore_current_courses_from_accepted_round_log(self):
         from ai_caddie.caddie.mobile_live import append_event_batch
