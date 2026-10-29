@@ -330,6 +330,9 @@ final class ProductMapAndPackageTests: XCTestCase {
             package: package, hole: hole,
             caddieBaseURL: URL(string: "https://\(host)")!,
             networkSession: session,
+            caddieClient: CaddieDecisionClient(
+                baseURL: URL(string: "https://\(host)")!, session: session
+            ),
             isSelected: false
         )
         let hosted = hostCurrentHole(view)
