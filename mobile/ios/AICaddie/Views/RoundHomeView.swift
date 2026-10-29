@@ -1260,8 +1260,10 @@ public struct RoundHomeView: View {
                     // The persisted model cursor is the safe initial selection so the visible page
                     // starts location updates before the delayed native binding acknowledgement.
                     isSelected: selected,
-                    // This owner holds NavigationStack's binding. A TabView page's environment
-                    // dismissal need not target that stack; the home action clears its real path.
+                    // This owner holds NavigationStack's binding. Inside the equatable LiveHolePage
+                    // wrapper the page's environment dismiss() was observed to be a no-op (J5.2
+                    // trace: dismiss before/after, no path change); clearing the real path does not
+                    // depend on which presentation dismiss() resolves to.
                     onBackToHome: {
                         tracePager("back home path before=\(path)")
                         path = []
