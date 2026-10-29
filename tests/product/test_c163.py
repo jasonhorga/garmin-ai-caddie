@@ -246,8 +246,10 @@ class PackageLaneTests(unittest.IsolatedAsyncioTestCase):
                     if len(checkpoints) >= 2:
                         waiting.set()
                 def wait(timeout):
-                    if phase == "gate":
-                        checkpoint()
+                    # "gate": both units wait for the package. "compute": one unit computes and
+                    # the other waits for the single background slot (C179); neither holds a
+                    # geometry worker.
+                    checkpoint()
                     return old_wait(timeout)
                 def compute(*args, **kwargs):
                     checkpoint()
@@ -278,6 +280,71 @@ class PackageLaneTests(unittest.IsolatedAsyncioTestCase):
                         release.set()
                         await asyncio.gather(*(asyncio.to_thread(f.result, 3) for f in futures))
                         pool.shutdown()
+
+    async def test_J42_background_geometry_uses_shared_pool_one_download_at_a_time(self):
+        """J4.2: background prepares keep Garmin downloads within the two-worker bound (N6)."""
+        import asyncio
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.core.priority_work import PriorityExecutor
+        from ai_caddie.geometry import geometry_sync
+        pool = PriorityExecutor(2, name="fixture-geometry")
+        lock, release, started = threading.Lock(), threading.Event(), threading.Event()
+        running, peak, threads = [0], [0], []
+
+        def ensure(gid, hole):
+            if hole == 3:  # the playing hole's foreground prepare
+                return {"ok": True}
+            with lock:
+                running[0] += 1
+                peak[0] = max(peak[0], running[0])
+                threads.append(threading.current_thread().name)
+            started.set()
+            release.wait(3)
+            with lock:
+                running[0] -= 1
+            return {"ok": False}
+
+        futures = []
+        with patch.object(mobile_live, "_GEOMETRY_INSTALL_POOL", pool), \
+             patch.object(geometry_sync, "ensure_prodgeometry", side_effect=ensure):
+            try:
+                for hole in (1, 2):
+                    self.prepare([(123, "front")], priority_hole=hole, tee_box="blue",
+                                 wait=False, background=True)
+                with self.ms._LOCK:
+                    futures = list(self.ms._STARTING.values())
+                self.assertTrue(await asyncio.to_thread(started.wait, 1))
+                await asyncio.sleep(.2)  # time for a second background download to start wrongly
+                result = await asyncio.wait_for(asyncio.to_thread(
+                    self.prepare, [(123, "front")], priority_hole=3, tee_box="blue"), .5)
+                self.assertTrue(result["drawable"])
+                self.assertEqual(running[0], 1)
+            finally:
+                release.set()
+                await asyncio.gather(*(asyncio.to_thread(f.result, 3) for f in futures))
+                pool.shutdown()
+        self.assertEqual(peak[0], 1)
+        self.assertEqual(len(threads), 2)
+        self.assertTrue(all(name.startswith("fixture-geometry") for name in threads), threads)
+
+    def test_J42_background_placeholders_are_bounded(self):
+        """J4.2: a download burst keeps at most sixteen background prepares in flight."""
+        with self.ms._LOCK:
+            for hole in range(16):
+                self.ms._STARTING[(((999, "front"),), hole, "blue", True)] = Future()
+        with patch.object(self.ms._BACKGROUND_PREP_POOL, "submit") as submit:
+            result = self.prepare([(123, "front")], priority_hole=5, tee_box="blue",
+                                  wait=False, background=True)
+        submit.assert_not_called()
+        self.assertTrue(result["pending"])
+        self.assertEqual(len(self.ms._STARTING), 16)
+
+    def test_J42_only_foreground_prepares_count_as_round_start_in_flight(self):
+        """J4.2: optional warm-up yields to a round start, not to background downloads."""
+        self.ms._STARTING[(((123, "front"),), 1, "blue", True)] = Future()
+        self.assertFalse(self.ms.startup_in_flight())
+        self.ms._STARTING[(((123, "front"),), 1, "blue", False)] = Future()
+        self.assertTrue(self.ms.startup_in_flight())
 
 
 
@@ -446,6 +513,68 @@ class SharedCpuPoolTests(unittest.TestCase):
             pool.submit.return_value = f
             self.assertEqual(vp.precise_route_seed_hole_in_process(123, 2), {"recreated": True})
             self.assertEqual(get.call_count, 2)
+
+    def test_J42_foreground_render_does_not_queue_behind_background_cpu_work(self):
+        """J4.2: a cold topo/green for the player gets a child while background seeds hold the rest."""
+        from concurrent.futures import ThreadPoolExecutor
+        from ai_caddie.core.priority_work import FOREGROUND, work_priority
+        from ai_caddie.geometry import topo_render as tr
+        release, fg_go = threading.Event(), threading.Event()
+        started, results = [], {}
+
+        def block(name):
+            started.append(name)
+            release.wait(5)
+            return name
+
+        def background(name):
+            results[name] = tr._run_render_cpu(block, name)
+
+        def foreground():
+            with work_priority(FOREGROUND):
+                results["fg"] = tr._run_render_cpu(lambda: (fg_go.wait(5), "fg")[1])
+
+        # Real admission and idle pool wrapper; threads stand in for the forkserver children.
+        with patch.object(tr, "_render_process_count", return_value=2), \
+             patch.object(tr, "_render_pool", None), patch.object(tr, "_cpu_slots", None, create=True), \
+             patch.object(tr, "ProcessPoolExecutor", lambda **kw: ThreadPoolExecutor(kw["max_workers"])):
+            workers = [threading.Thread(target=background, args=(name,), daemon=True) for name in ("bg1", "bg2")]
+            try:
+                workers[0].start()
+                deadline = time.monotonic() + 1
+                while not started and time.monotonic() < deadline:
+                    time.sleep(.01)
+                workers[1].start()
+                time.sleep(.1)
+                fg = threading.Thread(target=foreground, daemon=True)
+                fg.start()
+                time.sleep(.1)
+                # A backfill timeout discards the pool while the foreground render is running.
+                tr._discard_render_pool(tr._render_pool)
+                fg_go.set()
+                fg.join(1)
+                self.assertEqual(results.get("fg"), "fg", "foreground render waited behind background")
+                self.assertEqual(started, ["bg1"])  # the reserved child is not lent to bg2
+            finally:
+                release.set()
+                fg_go.set()
+                for worker in workers:
+                    worker.join(2)
+        self.assertEqual(results, {"bg1": "bg1", "bg2": "bg2", "fg": "fg"})
+
+    def test_J42_background_vector_lane_child_runs_below_api_priority(self):
+        """J4.2: the real shared CPU child that seeds background vectors is niced (default 10)."""
+        import os
+        from ai_caddie.geometry import topo_render as tr
+        with patch.dict(os.environ, {"AI_CADDIE_TOPO_RENDER_PROCESSES": "1"}), \
+             patch.object(tr, "_render_pool", None), patch.object(tr, "_cpu_slots", None, create=True):
+            os.environ.pop("AI_CADDIE_TOPO_RENDER_NICE", None)
+            try:
+                child = tr._run_render_cpu(os.getpriority, os.PRIO_PROCESS, 0)
+            finally:
+                if tr._render_pool is not None:
+                    tr._render_pool.shutdown(wait=True)
+        self.assertGreaterEqual(child, os.getpriority(os.PRIO_PROCESS, 0) + 10)
 
     def test_J42_shared_cpu_pool_releases_children_after_idle(self):
         """J4.2: a completed background seed must not leave a resident child pool."""

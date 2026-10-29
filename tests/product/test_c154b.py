@@ -1,6 +1,6 @@
 """C154b/C157 admission behavior under the J4.2 start budget."""
 
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from types import SimpleNamespace
 import threading
 import time
@@ -178,7 +178,8 @@ class GateAgeTests(unittest.TestCase):
             with gate.background():
                 pass
         self.assertEqual(waits, [1])
-        self.assertIn("background_gate_enter", timing.marks)
+        # ``mark`` names the stage that just ended: the time before the gate, then the gate wait.
+        self.assertIn("before_background_gate", timing.marks)
         self.assertIn("background_gate_wait", timing.marks)
 
     def test_J42_background_thread_wait_is_persisted_without_http_context(self):
@@ -198,6 +199,264 @@ class GateAgeTests(unittest.TestCase):
         self.assertEqual(finish.call_args.kwargs, {
             "method": "BACKGROUND", "path": "/internal/package-admission", "status": 200,
         })
+
+
+def _observed_waits(gate):
+    """An Event set whenever a thread blocks on the gate; the real wait still runs."""
+    waiting = threading.Event()
+    original = gate._condition.wait
+
+    def wait(timeout):
+        waiting.set()
+        return original(timeout)
+    return waiting, patch.object(gate._condition, "wait", side_effect=wait)
+
+
+class SingleUnitAdmissionTests(unittest.TestCase):
+    """J4.2: one background unit runs at a time, and pauses between granules for a package.
+
+    "Background first, package 200 ms later" waited ~2 s because units already running were never
+    interrupted and several ran at once (#599 r1 N2). The gate's running count is admission, and
+    each long unit yields at its granule boundary (install window, prep hole, stats phase, course).
+    """
+
+    def test_J42_second_background_unit_waits_for_the_running_one(self):
+        gate = ForegroundGate(timeout_s=5)
+        first_in, release, second_in = threading.Event(), threading.Event(), threading.Event()
+        waiting, observed = _observed_waits(gate)
+
+        def first():
+            with gate.background():
+                first_in.set()
+                release.wait(3)
+
+        def second():
+            with gate.background():
+                second_in.set()
+
+        with observed:
+            a = threading.Thread(target=first, daemon=True)
+            a.start()
+            self.assertTrue(first_in.wait(1))
+            b = threading.Thread(target=second, daemon=True)
+            b.start()
+            try:
+                self.assertTrue(waiting.wait(1), "second unit was admitted beside the running one")
+                self.assertFalse(second_in.is_set())
+                self.assertEqual(gate.background_count, 1)
+            finally:
+                release.set()
+            self.assertTrue(second_in.wait(1))
+        a.join(1)
+        b.join(1)
+        self.assertEqual(gate.background_count, 0)
+
+    def test_J42_nested_unit_shares_its_admission_and_a_stale_holder_stops_blocking(self):
+        gate = ForegroundGate(timeout_s=5)
+        with gate.background():
+            with gate.background():  # same context: part of the running unit, not a self-deadlock
+                self.assertEqual(gate.background_count, 1)
+        now = [0.0]
+        gate = ForegroundGate(clock=lambda: now[0], slot_timeout_s=120)
+        held, release = threading.Event(), threading.Event()
+
+        def holder():
+            with gate.background():
+                held.set()
+                release.wait(3)
+
+        waits = []
+
+        def advance(timeout):
+            waits.append(timeout)
+            now[0] += timeout
+        thread = threading.Thread(target=holder, daemon=True)
+        thread.start()
+        try:
+            self.assertTrue(held.wait(1))
+            with patch.object(gate._condition, "wait", side_effect=advance), \
+                 self.assertLogs("ai_caddie.core.priority_work", level="WARNING") as logs:
+                with gate.background():
+                    self.assertEqual(gate.background_count, 2)
+            self.assertEqual(waits, [120])
+            self.assertIn("background_slot stale_unit", logs.output[0])
+        finally:
+            release.set()
+            thread.join(1)
+
+    def test_J42_running_unit_pauses_at_yield_point_while_package_is_live(self):
+        from ai_caddie.core.priority_work import yield_to_foreground
+        gate = ForegroundGate(timeout_s=5)
+        admitted, go, resumed = threading.Event(), threading.Event(), threading.Event()
+        waiting, observed = _observed_waits(gate)
+
+        def unit():
+            with gate.background():
+                admitted.set()
+                go.wait(3)
+                yield_to_foreground()
+                resumed.set()
+
+        yield_to_foreground()  # outside an admitted unit it never waits (package threads)
+        with observed:
+            thread = threading.Thread(target=unit, daemon=True)
+            thread.start()
+            self.assertTrue(admitted.wait(1))
+            with gate.foreground():
+                go.set()
+                self.assertTrue(waiting.wait(1), "running unit did not pause for the package")
+                self.assertFalse(resumed.is_set())
+            self.assertTrue(resumed.wait(1))
+        thread.join(1)
+
+    def test_J42_stats_warm_pauses_between_phases_while_package_is_live(self):
+        from ai_caddie.core import priority_work
+        from server_v2 import history_stats as hs
+        gate = ForegroundGate(timeout_s=5)
+        phases, first, go = [], threading.Event(), threading.Event()
+        waiting, observed = _observed_waits(gate)
+
+        def load(*args, **kwargs):
+            phases.append("load")
+            first.set()
+            go.wait(3)
+
+        with patch.object(priority_work, "FOREGROUND_GATE", gate), observed, \
+             patch.object(hs, "history_input_signature", return_value=("fixture",)), \
+             patch.object(hs, "cached_load_history_data", side_effect=load), \
+             patch.object(hs, "load_history_stats_response",
+                          side_effect=lambda window="all", **kw: phases.append(window)), \
+             patch.object(hs, "load_mobile_stats_response",
+                          side_effect=lambda window="all", **kw: phases.append(f"mobile-{window}")):
+            thread = hs.warm_stats_cache_in_background(player_id="fixture-phase-yield")
+            self.assertTrue(first.wait(1))
+            with gate.foreground():
+                go.set()
+                self.assertTrue(waiting.wait(1), "stats warm ran its next phase beside the package")
+                self.assertEqual(phases, ["load"])
+            thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(phases[:5], ["load", "all", "last10", "last20", "12m"])
+        self.assertTrue(thread.warm_succeeded)
+
+    def test_J42_nearby_prefetch_pauses_between_courses_while_package_is_live(self):
+        from ai_caddie.core import priority_work
+        from ai_caddie.courses.course_search import CourseMatch
+        from server_v2 import map_startup as ms
+        gate = ForegroundGate(timeout_s=5)
+        fetched, first, go = [], threading.Event(), threading.Event()
+        waiting, observed = _observed_waits(gate)
+
+        def release_info(gid, **kwargs):
+            fetched.append(gid)
+            if len(fetched) == 1:
+                first.set()
+                go.wait(3)
+            return {"release_version": 1}
+
+        matches = [CourseMatch(gid, "Fixture", 9, None, None, 1, distance_km=km)
+                   for gid, km in ((901, 1), (902, 2))]
+        with patch.object(priority_work, "FOREGROUND_GATE", gate), observed, \
+             patch.object(ms, "_RELEASE_PREFETCHED", {}), \
+             patch.object(ms, "nearby_work_blocked", lambda: False), \
+             patch.object(ms, "tee_requests_in_flight", lambda: False), \
+             patch.object(ms, "courseview_release_info", side_effect=release_info):
+            thread = threading.Thread(target=ms.prefetch_nearby_releases, args=(matches,), daemon=True)
+            thread.start()
+            self.assertTrue(first.wait(1))
+            with gate.foreground():
+                go.set()
+                self.assertTrue(waiting.wait(1), "nearby prefetch fetched the next course beside the package")
+                self.assertEqual(fetched, [901])
+            thread.join(2)
+        self.assertEqual(fetched, [901, 902])
+
+    def test_J42_background_install_pass_pauses_at_its_window_boundary(self):
+        import os
+        from tempfile import TemporaryDirectory
+        from ai_caddie.core import priority_work
+        from server_v2 import course_install, main as server_main
+        gate = ForegroundGate(timeout_s=5)
+        ensured, first, go = [], threading.Event(), threading.Event()
+        waiting, observed = _observed_waits(gate)
+
+        def ensure(gid, *, holes, on_hole_complete=None, **kwargs):
+            ensured.append(gid)
+            results = [{"globalId": gid, "localHole": hole, "hole": hole, "ok": True, "status": "cached"}
+                       for hole in holes]
+            if len(ensured) == 1:
+                first.set()
+                go.wait(3)
+            for result in results:
+                on_hole_complete(result)
+            return {"results": results}
+
+        class TopoPool:
+            def submit_keyed(self, key, fn, *args, **kwargs):
+                from concurrent.futures import Future
+                future = Future()
+                future.set_result(True)
+                return future
+
+        with TemporaryDirectory() as directory, \
+             patch.dict(os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}), \
+             patch.object(course_install, "_launch"):
+            state = course_install.enqueue(
+                global_id=901, tee_box="blue", loop_key="901:front+902:front", player_id="owner",
+                refs=[{"globalId": 901, "localHole": 1, "displayHole": 1},
+                      {"globalId": 902, "localHole": 1, "displayHole": 10}],
+                requested={901: [1], 902: [1]}, ready={},
+            )
+            with patch.object(priority_work, "FOREGROUND_GATE", gate), observed, \
+                 patch("ai_caddie.caddie.mobile_live._ensure_geometry_for_course", side_effect=ensure), \
+                 patch("ai_caddie.courses.vector_prep.warm_requested_vectors"), \
+                 patch.object(server_main, "prefetch_garmin_rasters"), \
+                 patch.object(server_main, "_TOPO_PIPELINE_POOL", TopoPool()), \
+                 patch.object(server_main, "_probe_geometry_revision", return_value=("r1", "current")):
+                def run():
+                    with priority_work.background_work():
+                        server_main.run_course_install_job(state["jobId"])
+                thread = threading.Thread(target=run, daemon=True)
+                thread.start()
+                self.assertTrue(first.wait(1))
+                with gate.foreground():
+                    go.set()
+                    self.assertTrue(waiting.wait(1), "install pass continued beside the package")
+                    self.assertEqual(ensured, [901])
+                thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(ensured, [901, 902])
+
+
+class NearbyDispatchTests(unittest.TestCase):
+    def test_J42_pending_nearby_batches_are_kept_per_player(self):
+        """J4.2: another player's discovery must not replace a waiting batch (#599 r2 N4)."""
+        from server_v2 import map_startup as ms
+        entered, release = threading.Event(), threading.Event()
+        seen = []
+
+        def enqueue(batch):
+            seen.append(batch[0])
+            if len(seen) == 1:
+                entered.set()
+                release.wait(3)
+            return 0
+
+        with patch.object(ms, "enqueue_nearby", side_effect=enqueue), \
+             patch.object(ms, "prefetch_nearby_releases", return_value=0), \
+             patch.object(ms, "_NEARBY_PENDING", {}), patch.object(ms, "_NEARBY_DISPATCH_THREAD", None):
+            ms.schedule_nearby(["a1"], player_id="a")
+            self.assertTrue(entered.wait(1))
+            worker = ms._NEARBY_DISPATCH_THREAD
+            try:
+                ms.schedule_nearby(["a2"], player_id="a")
+                ms.schedule_nearby(["b1"], player_id="b")
+                ms.schedule_nearby(["a3"], player_id="a")  # replaces only a's own waiting batch
+            finally:
+                release.set()
+            worker.join(2)
+            self.assertFalse(worker.is_alive())
+        self.assertEqual(seen, ["a1", "b1", "a3"])
 
 
 class RouteAdmissionTests(unittest.IsolatedAsyncioTestCase):
@@ -293,6 +552,15 @@ class RouteAdmissionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.main._playing_prep_matches(self.player, 123, [4], "white"))
         self.assertFalse(self.main._playing_prep_matches("someone-else", 123, [10], "white"))
         self.assertFalse(self.main._playing_prep_matches(self.player, 123, [10], "blue"))
+        # A whole-course cold prep (no holes signal) is a ~19s background unit, never exempt.
+        self.assertFalse(self.main._playing_prep_matches(self.player, 123, None, "white"))
+        self.assertFalse(self.main._playing_prep_matches(self.player, 123, [], "white"))
+        # A recovered lease without selection proves only local hole 1.
+        selection = self.main._ACTIVE_SELECTIONS.pop(active)
+        self.assertTrue(self.main._playing_prep_matches(self.player, 123, [1], None))
+        for hole in (4, 10):
+            self.assertFalse(self.main._playing_prep_matches(self.player, 123, [hole], None))
+        self.main._ACTIVE_SELECTIONS[active] = selection
         self.main._ACTIVE_ROUNDS[active] = 0
         self.assertFalse(self.main._playing_prep_matches(self.player, 123, [10], "white"))
 
@@ -344,6 +612,98 @@ class RouteAdmissionTests(unittest.IsolatedAsyncioTestCase):
                 # Same synchronous helper as package, outside request prep admission policy.
                 self.assertEqual(self.prep_builder(123, [5]), {"hole": [5]})
             self.assertEqual((await prep).status_code, 200)
+
+    async def test_J42_cold_background_prep_yields_between_holes_to_a_package(self):
+        import asyncio
+        from ai_caddie.courses import prep_cache
+        built, first, go = [], threading.Event(), threading.Event()
+        waiting, observed = _observed_waits(self.gate)
+
+        def build_hole(hole):
+            built.append(hole)
+            if hole == 1:
+                first.set()
+                go.wait(3)
+            return {"hole": hole}
+
+        def builder(gid, holes, *args):
+            # The real per-hole loop and single-flight; only each hole's CPU body is a fixture.
+            return prep_cache.cached_course_prep(
+                global_id=gid, requested=holes, render=False, include_shots=False,
+                player_id=self.player, build=lambda: {"holes": list(prep_cache.cached_hole_preps(
+                    global_id=gid, holes=holes, render=False, include_shots=False,
+                    player_id=self.player, variant="fixture", build_hole=build_hole).values())})
+
+        with patch.object(self.main, "_build_course_prep_nine", side_effect=builder), \
+             patch.object(prep_cache, "_requested_geometry_sig", return_value="g"), observed:
+            prep = asyncio.create_task(self.client.get("/api/v2/courses/123/prep?holes=1&holes=2&render=false"))
+            await self.event(first)
+            with self.gate.foreground():
+                go.set()
+                await self.event(waiting)
+                self.assertEqual(built, [1])
+                self.assertFalse(prep.done())
+            response = await prep
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(built, [1, 2])
+
+    async def test_J42_disconnected_cold_prep_stops_waiting_at_the_gate(self):
+        """J4.2: a cold leader whose client left must not hold its thread for the gate deadline."""
+        import asyncio
+        from starlette.requests import Request
+        from ai_caddie.courses import prep_cache
+        from server_v2 import prep_work
+        left = threading.Event()
+        real = prep_work.background_work
+
+        @contextmanager
+        def observed_admission(**kwargs):
+            try:
+                with real(**kwargs):
+                    yield
+            finally:
+                left.set()
+
+        disconnect = asyncio.Event()
+
+        async def receive():
+            await disconnect.wait()
+            return {"type": "http.disconnect"}
+
+        request = Request({"type": "http", "method": "GET", "path": "/", "headers": []}, receive)
+        built = []
+        waiting, observed = _observed_waits(self.gate)
+
+        def build():
+            return prep_cache.cached_course_prep(global_id=123, requested=[7], render=False,
+                include_shots=False, player_id=self.player, build=lambda: built.append(7) or {})
+
+        with patch.object(prep_work, "background_work", observed_admission), observed:
+            with self.gate.foreground():
+                response = asyncio.create_task(prep_work.run_prep(request, build))
+                await self.event(waiting)
+                disconnect.set()
+                self.assertEqual((await response).status_code, 499)
+                # The package (5s deadline) is still live: only the disconnect ends the wait.
+                self.assertTrue(await asyncio.to_thread(left.wait, 1), "thread kept waiting after disconnect")
+        self.assertEqual(built, [])
+        self.assertEqual(prep_cache._inflight, {})
+
+    async def test_J42_package_without_tee_installs_under_the_registered_tee(self):
+        """J4.2: lease, install identity and install priority share the omitted-Tee rule."""
+        from tests.test_course_install import CourseInstallJournalTests
+        from server_v2.models import LiveRoundPackageResponse
+        payload = CourseInstallJournalTests._real_package().model_dump(by_alias=True)
+        payload["course"]["teeBox"] = "white"  # the built package's own Tee fact
+        package = LiveRoundPackageResponse.model_validate(payload)
+        with patch.object(self.main, "build_mobile_course_package_response", return_value=package), \
+             patch.object(self.main.course_install, "enqueue", return_value={"jobId": "fixture"}) as enqueue:
+            r = await self.client.get("/api/v2/mobile/courses/123/package?round_id=live-no-tee"
+                                      "&loops=123:all&background_geometry=true")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.main._ACTIVE_SELECTIONS[self.player, "live-no-tee"], ("123:all", "blue"))
+        self.assertEqual(enqueue.call_args.kwargs["tee_box"], "blue")
+        self.assertEqual(enqueue.call_args.kwargs["priority"], self.main.SELECTED_COURSE)
 
     async def test_J42_actual_course_route_registers_nondefault_loop_and_tee(self):
         from tests.test_course_install import CourseInstallJournalTests
@@ -563,6 +923,10 @@ class InstallWiringTests(unittest.TestCase):
             with gate.foreground():
                 ci._run("own")
             run.assert_called_once_with("own")
+            # The same gid with another Tee or loop is someone else's download, not the round.
+            for other in ({"teeBox": "blue"}, {"loopKey": "123:front"}):
+                self.assertFalse(main._playing_install_matches({**state, **other}), other)
+            self.assertTrue(main._playing_install_matches(state))
 
     def test_J42_backfill_real_unit_enters_package_gate(self):
         from pathlib import Path
