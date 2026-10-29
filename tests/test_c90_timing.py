@@ -154,6 +154,28 @@ class C90TimingEndpointTests(unittest.TestCase):
         self.assertNotIn("p_1a2b3c4d", serialized)
         self.assertNotIn("r_ab12cd", serialized)
 
+    def test_client_timing_unmatched_route_records_marker_not_opaque_ids(self) -> None:
+        """J7.3: a client path the route table cannot match never persists its segments."""
+        paths = [
+            "/api/v2/players/p_1a2b3c4d/clubs/bag/",
+            "/api/v2/players/p_1a2b3c4d/removed-endpoint",
+            "/api/v2/history/rounds/r_ab12cd/",
+        ]
+        sanitized = [
+            sanitize_client_record({
+                "request_id": f"client-unmatched-{index}",
+                "path": path,
+                "client_total_ms": 12,
+                "status": 404,
+                "started_at": "2026-10-27T08:00:00Z",
+            })
+            for index, path in enumerate(paths)
+        ]
+        self.assertEqual([row["path"] for row in sanitized if row is not None], ["<unmatched>"] * len(paths))
+        serialized = json.dumps(sanitized)
+        self.assertNotIn("p_1a2b3c4d", serialized)
+        self.assertNotIn("r_ab12cd", serialized)
+
     def test_exception_timing_keeps_matched_route_template(self) -> None:
         """J7.3: a 500 timing record keeps the matched route for diagnosis."""
         from server_v2 import main
