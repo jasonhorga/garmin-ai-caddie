@@ -32,7 +32,7 @@ final class LivePlanPagingTests: XCTestCase {
     private lazy var safe = route("safe", [("3W", 160), ("8I", 125)])
     private lazy var layup = route("layup", [("3H", 150), ("7I", 130), ("54", 45)])
 
-    private func decision(selected route: CaddiePlanSequence?, offline: Bool = false) -> CaddieDecisionResponse {
+    private func decision(selected route: CaddiePlanSequence?) -> CaddieDecisionResponse {
         let rows = route.map { route in
             [[String: JSONValue](dictionaryLiteral:
                 ("id", .string(route.id)),
@@ -186,17 +186,27 @@ final class LivePlanPagingTests: XCTestCase {
     /// whole-hole plan still uses the downloaded tee-to-green fact.
     func testMapTargetDoesNotChangeWholeHolePlanningDistance() {
         let before = CurrentHoleView.caddiePlanningDistanceMetres(
-            manualM: nil, mapTargetM: nil, isTeeShotOffTheHole: false,
+            manualM: nil, isTeeShotOffTheHole: false,
             routeRemainingM: 320.9,
             liveMiddleM: 284.3, staticMiddleM: 284.3, holeYards: 351
         )
         let after = CurrentHoleView.caddiePlanningDistanceMetres(
-            manualM: nil, mapTargetM: 169, isTeeShotOffTheHole: false,
+            manualM: nil, isTeeShotOffTheHole: false,
             routeRemainingM: 320.9,
             liveMiddleM: 284.3, staticMiddleM: 284.3, holeYards: 351
         )
         XCTAssertEqual(before ?? -1, 320.9, accuracy: 0.001)
         XCTAssertEqual(after ?? -1, 320.9, accuracy: 0.001)
+    }
+
+    /// B5: a moved flag remains a planning input after the tee shot; a Touch Target is not.
+    func testMovedFlagChangesApproachPlanningDistance() {
+        let distance = CurrentHoleView.caddiePlanningDistanceMetres(
+            manualM: nil, isTeeShotOffTheHole: false,
+            routeRemainingM: 140, liveMiddleM: 140, staticMiddleM: 140,
+            holeYards: 351, pinM: 155, shotType: "approach"
+        )
+        XCTAssertEqual(distance ?? -1, 155, accuracy: 0.001)
     }
 
     /// J5.11 dogleg fixture: the current lie uses the remaining centreline station, not the

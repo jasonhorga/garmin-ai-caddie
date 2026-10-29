@@ -1,12 +1,13 @@
 diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+index 43ec93d..641b07f 100644
 --- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 +++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -3036,7 +3036,7 @@
+@@ -3051,7 +3051,7 @@ public struct CurrentHoleView: View {
+         pinM: Double? = nil,
+         shotType: String = "tee"
      ) -> Double? {
-         _ = mapTargetM
+-        let endpointM = manualM ?? (shotType.caseInsensitiveCompare("tee") == .orderedSame ? nil : pinM)
++        let endpointM = manualM ?? (shotType.caseInsensitiveCompare("tee") == .orderedSame ? nil : liveMiddleM)
          return LiveCaddieDistance.resolve(
--            manualM: manualM,
-+            manualM: manualM ?? mapTargetM,
+             manualM: endpointM,
              liveMiddleM: isTeeShotOffTheHole ? nil : (routeRemainingM ?? liveMiddleM),
-             staticMiddleM: staticMiddleM,
-             holeYards: holeYards

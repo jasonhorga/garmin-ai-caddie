@@ -1,7 +1,8 @@
 diff --git a/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift b/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
+index 013488a..2522e82 100644
 --- a/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
 +++ b/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
-@@ -52,6 +52,23 @@
+@@ -59,6 +59,21 @@ enum LiveCaddieRouteAuthority {
          }
          // A selected online sequence is the authoritative route. An online response with no
          // selected sequence is a sparse card and falls through to installed, then local.
@@ -9,7 +10,7 @@ diff --git a/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift b/mobil
 +        if let installedRoute {
 +            routes.append(installedRoute)
 +        }
-+        for response in [online, offline].compactMap({ $0 }),
++        for response in [authoritativeOnline, offline].compactMap({ $0 }),
 +            let route = selectedRoute(
 +                from: response,
 +                par: par,
@@ -19,9 +20,7 @@ diff --git a/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift b/mobil
 +            ) {
 +            routes.append(route)
 +        }
-+        if !routes.isEmpty {
-+            return routes
-+        }
++        if !routes.isEmpty { return routes }
          if let selected = selectedRoute(
-             from: online,
+             from: authoritativeOnline,
              par: par,

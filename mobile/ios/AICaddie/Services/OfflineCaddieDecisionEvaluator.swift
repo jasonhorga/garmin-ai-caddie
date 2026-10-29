@@ -498,7 +498,7 @@ public final class OfflineCaddieDecisionEvaluator {
 
     private func targetDistanceMetres(from context: [String: JSONValue], shotType: String? = nil) -> Double? {
         let routeKeys = shotType?.caseInsensitiveCompare("tee") == .orderedSame
-            ? ["canonicalPlanRemainingRouteLength_m", "canonicalPlanRouteLength_m"]
+            ? ["canonicalPlanRouteLength_m"]
             : []
         for key in routeKeys + ["distanceToPin_m", "remainingToPin_m", "holeRemaining_m", "canonicalPlanRouteLength_m"] {
             if let value = number(context[key]), value.isFinite, value > 0, value <= 1000 {

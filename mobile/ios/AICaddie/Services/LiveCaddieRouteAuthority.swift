@@ -7,6 +7,12 @@ import Foundation
 /// contains the complete opening chain. Live-hole scope uses online selectedSequence, then
 /// installed CoursePrep, then the local evaluator.
 enum LiveCaddieRouteAuthority {
+    enum RouteSource: Equatable {
+        case installed
+        case online
+        case offline
+    }
+
     enum RouteScope: Equatable {
         case liveHole
         case prep
@@ -23,10 +29,10 @@ enum LiveCaddieRouteAuthority {
     ) -> [CaddiePlanSequence] {
         // Source-specific roster checks keep stale routes out before the single-route selection;
         // `selectedRoute` repeats the check for the chosen sequence after completion filtering.
-        let onlineCandidates = online.map { CaddiePlanSequence.sequences(from: $0) } ?? []
-        let offlineCandidates = offline.map { CaddiePlanSequence.sequences(from: $0) } ?? []
-        let _ = onlineCandidates.filter { authority.rosterAllows($0.steps.map(\.clubName)) }
-        let _ = offlineCandidates.filter { authority.rosterAllows($0.steps.map(\.clubName)) }
+        // Offline evaluator snapshots are also stored in `caddieDecision` while a request is
+        // pending or has failed. They belong in the fallback tier even when the caller has not
+        // yet split the response into the dedicated offline argument.
+        let authoritativeOnline = online?.isOfflineFallback == true ? nil : online
         // A bare Par 4/5 tee card is filtered below; a measured CoursePrep prefix remains useful
         // while its next lie is being re-planned.
         let installedRoute: CaddiePlanSequence? = {
@@ -44,7 +50,7 @@ enum LiveCaddieRouteAuthority {
         if scope == .prep {
             return prepRoutes(
                 installed: installedRoute,
-                online: online,
+                online: authoritativeOnline,
                 offline: offline,
                 par: par,
                 shotType: shotType,
@@ -54,7 +60,7 @@ enum LiveCaddieRouteAuthority {
         // A selected online sequence is the authoritative route. An online response with no
         // selected sequence is a sparse card and falls through to installed, then local.
         if let selected = selectedRoute(
-            from: online,
+            from: authoritativeOnline,
             par: par,
             shotType: shotType,
             authority: authority,
@@ -322,7 +328,9 @@ enum LiveCaddieRouteAuthority {
         retained: CaddiePlanSequence?,
         explicitSelectionKey: String?,
         vetoInstalled: Bool,
-        authority: ClubBagAuthority = .current
+        authority: ClubBagAuthority = .current,
+        incomingSource: RouteSource = .online,
+        retainedSource: RouteSource? = nil
     ) -> (first: CaddiePlanSequence, merged: [CaddiePlanSequence])? {
         func allowed(_ route: CaddiePlanSequence) -> Bool {
             guard !vetoInstalled || route.id != installedRouteId else { return false }
@@ -330,10 +338,20 @@ enum LiveCaddieRouteAuthority {
         }
         let incoming = incoming.filter(allowed)
         guard !incoming.isEmpty else { return nil }
-        _ = existing.filter(allowed)
-        _ = installed.flatMap { allowed($0) ? $0 : nil }
-        _ = retained.flatMap { allowed($0) ? $0 : nil }
-        _ = explicitSelectionKey
+        let validExisting = existing.filter(allowed)
+        let validInstalled = installed.flatMap { allowed($0) ? $0 : nil }
+        let validRetained = retained.flatMap { allowed($0) ? $0 : nil }
+        let selectedExisting = explicitSelectionKey.flatMap { key in
+            selected(routes: validExisting, preferredToken: key, fallbackToken: nil)
+        }
+        // A transient offline result is lower priority than a route already published from an
+        // online response or CoursePrep. Preserve that physical chain until a new authoritative
+        // result arrives; an initial offline result still publishes normally.
+        if incomingSource == .offline,
+           retainedSource != .offline,
+           let stable = validRetained ?? selectedExisting ?? validExisting.first ?? validInstalled {
+            return (stable, [stable])
+        }
         // `resolve` already applied source priority. The new source replaces the retained route
         // atomically, including when an online sequence arrives after the installed chain.
         let first = incoming[0]

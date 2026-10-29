@@ -1771,6 +1771,20 @@
       "kind": "native-unit",
       "target": "AICaddieTests/LivePlanPagingTests/testLiveHoleUsesOneRouteWhilePrepRetainsAlternatives",
       "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-27-offline-source-priority",
+      "patch": "tests/product/faults/C164/27-offline-source-priority.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LivePlanPagingTests/testOfflineFallbackInDecisionSlotCannotDisplaceInstalledRoute",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-28-offline-retained-route",
+      "patch": "tests/product/faults/C164/28-offline-retained-route.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LivePlanPagingTests/testOfflineRefreshRetainsAuthoritativeRoute",
+      "promise": "5.11"
     }
   ]
 }

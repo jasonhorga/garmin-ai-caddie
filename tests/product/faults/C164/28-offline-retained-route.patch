@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift b/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
+index 013488a..02e3f7f 100644
+--- a/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
++++ b/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
+@@ -348,7 +348,7 @@ enum LiveCaddieRouteAuthority {
+         // online response or CoursePrep. Preserve that physical chain until a new authoritative
+         // result arrives; an initial offline result still publishes normally.
+         if incomingSource == .offline,
+-           retainedSource != .offline,
++           retainedSource == .offline,
+            let stable = validRetained ?? selectedExisting ?? validExisting.first ?? validInstalled {
+             return (stable, [stable])
+         }

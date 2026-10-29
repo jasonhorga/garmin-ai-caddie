@@ -4113,7 +4113,9 @@ class MobileContractTests(unittest.TestCase):
         # the hole (2026-10-10: a tee shot was planned from the clubhouse).
         self.assertIn("coordinate: isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole", current_hole)
         self.assertIn("distanceToPinM: caddiePlanningDistanceMetres", current_hole)
-        self.assertIn("guard isTeeShotOffTheHole else { return effectiveDistanceToPinMetres }", current_hole)
+        self.assertNotIn("guard isTeeShotOffTheHole else { return effectiveDistanceToPinMetres }", current_hole)
+        self.assertIn("scope: isPrepMode ? .prep : .liveHole", current_hole)
+        self.assertIn("pinM: greenPinDistanceMetres", current_hole)
         self.assertIn("static let offHoleMetres = 75.0", current_hole)
         self.assertIn("requestedOptionId: caddieOptionId(forStrategyMode: requestStrategyMode)", current_hole)
         # B1c: the main map publishes the Touch Target through the same coordinate / pixel handlers.
@@ -4133,8 +4135,9 @@ class MobileContractTests(unittest.TestCase):
         # the caddie route is drawn on the map and 打法 (left column) steps through the routes.
         self.assertNotIn("LiveCaddiePlanPanel(", current_hole)
         self.assertIn("let routes = liveCaddieRoutes", current_hole)
-        self.assertIn("planPosition: livePlanPosition", current_hole)
-        self.assertIn("onNextPlan: selectNextPlan", current_hole)
+        self.assertNotIn("planPosition: livePlanPosition", current_hole)
+        self.assertNotIn("onNextPlan: selectNextPlan", current_hole)
+        self.assertIn("live-prep-route-selector", current_hole)
         self.assertIn("heroSection\n                .ignoresSafeArea()", current_hole)
         self.assertIn("private var liveMapChrome: some View", current_hole)
         self.assertNotIn("liveHoleScrollView", current_hole)
@@ -4173,10 +4176,8 @@ class MobileContractTests(unittest.TestCase):
         )
         # 打法 selects the paged route itself, not the first route sharing its strategy token
         # (2026-10-10: two routes shared a token and "3/3" could never be reached).
-        self.assertIn(
-            "selectStrategyMode(CaddiePlanPresentation.selectionToken(for: next), route: next)",
-            current_hole,
-        )
+        self.assertNotIn("selectStrategyMode(CaddiePlanPresentation.selectionToken(for: next), route: next)", current_hole)
+        self.assertIn("selectPrepRoute(route)", current_hole)
         self.assertNotIn("onSelectStep:", current_hole)
         self.assertNotIn("showCaddieDetail", current_hole)
         self.assertIn("strategyMode: requestStrategyMode", current_hole)
@@ -5141,7 +5142,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("private func nextShotPrompt(selected: [String: JSONValue]?, offlineOption: OfflineCaddieOption?) -> String?", bridge)
         self.assertIn("public let holePlanSummary: String?", bridge)
         self.assertIn("public let expectedRemainingM: Double?", bridge)
-        self.assertIn("let selectedSequence = selectedSequence(from: decision)", bridge)
+        self.assertIn("let selectedSequence = selectedRoute.map(Self.sequencePayload) ?? selectedSequence(from: decision)", bridge)
         self.assertIn("holePlanSummary: sequenceSummary(from: selectedSequence)", bridge)
         self.assertIn('expectedRemainingM: number(selectedSequence?["expectedRemaining_m"])', bridge)
         self.assertIn("public func makeWatchCaddieOptions", bridge)
@@ -5699,7 +5700,9 @@ class EffectiveClubProfileContractTests(unittest.TestCase):
         self.assertIn("authority.planMatches(prepLegs) ? canonicalSteps(", builder)
         authority = (IOS_DIR / "Services" / "LiveCaddieRouteAuthority.swift").read_text(encoding="utf-8")
         self.assertIn("guard authority.planMatches(prepLegs) else { return nil }", authority)
-        self.assertEqual(authority.count("authority.rosterAllows($0.steps.map(\\.clubName))"), 2)
+        self.assertGreaterEqual(authority.count("authority.rosterAllows(route.steps.map(\\.clubName))"), 2)
+        self.assertNotIn("let _ = onlineCandidates.filter", authority)
+        self.assertNotIn("let _ = offlineCandidates.filter", authority)
         current_hole = (IOS_DIR / "Views" / "CurrentHoleView.swift").read_text(encoding="utf-8")
         self.assertIn("NotificationCenter.default.publisher(for: ClubBagStore.didChange)", current_hole)
         # The real request composition and the retained live route obey the same authority.
