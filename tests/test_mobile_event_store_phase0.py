@@ -426,6 +426,26 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
                 call()
         self.assertFalse(index.exists(), "a corrupt log must not produce a trusted sidecar")
 
+    def test_j59_indexed_round_read_rejects_same_size_committed_row_tamper(self) -> None:
+        """J5.9: a committed row changed in place is rejected by a per-round read."""
+        store = FileEventStore(self.root)
+        store.append_batch(
+            ROUND_A,
+            [{**_event("tamper-read-1"), "hole": 3}, {**_event("tamper-read-2"), "hole": 3}],
+            request_key="tamper-read",
+        )
+        raw = store.log.read_bytes()
+        match = re.search(rb'"hole":\s*3', raw)
+        self.assertIsNotNone(match)
+        assert match is not None
+        tampered = raw[: match.end() - 1] + b"9" + raw[match.end():]
+        self.assertEqual(len(tampered), len(raw))
+        store.log.write_bytes(tampered)
+        with self.assertRaisesRegex(ValueError, "^event_commit_store_corrupt$"):
+            FileEventStore(self.root).read_rows(ROUND_A)
+        with self.assertRaisesRegex(ValueError, "^event_commit_store_corrupt$"):
+            FileEventStore(self.root).read_rows_and_ack(ROUND_A, "ios")
+
     def test_prefix_cache_rechecks_recent_timestamps_but_reuses_stable_signatures(self) -> None:
         """J5.9: the prefix trust cache observes a racy-index safety window."""
         store = FileEventStore(self.root)

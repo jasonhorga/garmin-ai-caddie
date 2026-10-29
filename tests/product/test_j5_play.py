@@ -272,13 +272,12 @@ class EventAppendTests(unittest.TestCase):
         }}
         log.write_bytes((json.dumps(unrelated, sort_keys=True) + "\n").encode() * 2600)
         self.assertGreaterEqual(log.stat().st_size, 7_000_000)
-        # Age the injected file clock beyond the racy-index safety window so this performance
-        # probe measures the indexed append path rather than the deliberate first-tick recheck.
-        with patch.object(mobile_event_store, "_PREFIX_CACHE_CLOCK", lambda: time.time_ns() + 100_000_000):
-            FileEventStore(self.root).append_batch(
-                ROUND_A, [{**self._event("seed"), "hole": 1}], request_key="seed",
-                validate_append=require_possible_appended_scores,
-            )
+        # Use the real clock: the append writer itself knows the digest it just persisted and must
+        # be able to seed the prefix cache even while the filesystem timestamp is still fresh.
+        FileEventStore(self.root).append_batch(
+            ROUND_A, [{**self._event("seed"), "hole": 1}], request_key="seed",
+            validate_append=require_possible_appended_scores,
+        )
         before = log.read_bytes()
         timing = RequestTiming("append-probe")
         started = time.perf_counter()

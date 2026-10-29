@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 import json
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -125,6 +127,56 @@ class C90TimingPersistenceTests(unittest.TestCase):
 
 
 class C90TimingEndpointTests(unittest.TestCase):
+    def test_client_timing_templates_non_numeric_route_ids(self) -> None:
+        """J7.3: client timing uses the server route template for opaque identifiers."""
+        records = [
+            {
+                "request_id": "client-player",
+                "path": "/api/v2/players/p_1a2b3c4d/clubs/bag",
+                "client_total_ms": 12,
+                "status": 200,
+                "started_at": "2026-10-27T08:00:00Z",
+            },
+            {
+                "request_id": "client-round",
+                "path": "/api/v2/history/rounds/r_ab12cd",
+                "client_total_ms": 13,
+                "status": 200,
+                "started_at": "2026-10-27T08:00:00Z",
+            },
+        ]
+        sanitized = [sanitize_client_record(record) for record in records]
+        self.assertEqual(
+            [row["path"] for row in sanitized if row is not None],
+            ["/api/v2/players/{player_id}/clubs/bag", "/api/v2/history/rounds/{round_ref}"],
+        )
+        serialized = json.dumps(sanitized)
+        self.assertNotIn("p_1a2b3c4d", serialized)
+        self.assertNotIn("r_ab12cd", serialized)
+
+    def test_exception_timing_keeps_matched_route_template(self) -> None:
+        """J7.3: a 500 timing record keeps the matched route for diagnosis."""
+        from server_v2 import main
+        from starlette.requests import Request
+
+        request = Request({
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v2/history/rounds/r_ab12cd",
+            "headers": [],
+        })
+        request.scope["route"] = SimpleNamespace(path="/api/v2/history/rounds/{round_ref}")
+
+        async def call_next(_request):
+            raise RuntimeError("fixture failure")
+
+        with self.assertLogs("server_v2.timing", level="INFO") as captured:
+            with self.assertRaisesRegex(RuntimeError, "fixture failure"):
+                asyncio.run(main.request_timing_middleware(request, call_next))
+        output = "\n".join(captured.output)
+        self.assertIn("path=/api/v2/history/rounds/{round_ref}", output)
+        self.assertNotIn("r_ab12cd", output)
+
     def test_admin_timing_requires_configured_token(self) -> None:
         with tempfile.TemporaryDirectory() as raw, patch.object(request_timing, "TIMING_ROOT", Path(raw)), patch.dict(
             "os.environ", {"AI_CADDIE_ADMIN_TOKEN": "secret-c90"}, clear=False
