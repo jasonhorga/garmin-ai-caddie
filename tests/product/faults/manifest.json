@@ -1813,6 +1813,27 @@
       "kind": "native-unit",
       "target": "AICaddieTests/TemplateAcquisitionTests/testStartPrepIntentContinuesAsWholeCourseOfflineDownload",
       "promise": "N5①"
+    },
+    {
+      "id": "tests-product-faults-C134-r11-topo-status-retries",
+      "patch": "tests/product/faults/C134/r11-topo-status-retries.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testPrepDownloadWaitsForServerTopoReadyBeforeFetchingTopoBytes",
+      "promise": "C134-r11"
+    },
+    {
+      "id": "tests-product-faults-C134-r11-prep-queue-handoff",
+      "patch": "tests/product/faults/C134/r11-prep-queue-handoff.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/TemplateAcquisitionTests/testStartPrepIntentContinuesAsWholeCourseOfflineDownload",
+      "promise": "C134-r11"
+    },
+    {
+      "id": "tests-product-faults-C134-r11-tee-identity",
+      "patch": "tests/product/faults/C134/r11-tee-identity-not-bound.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/TemplateAcquisitionTests/testDownloadWhileMapOnlyIntentIsInFlightUsesAnIndependentFullPackage",
+      "promise": "C134-r11"
     }
   ]
 }
