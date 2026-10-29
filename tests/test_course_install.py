@@ -118,6 +118,90 @@ class CourseInstallRouteContractTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 409)
 
 
+class CurrentRoundInstallPriorityTests(unittest.TestCase):
+    """J4/4.2: only a player's latest playing round owns selected-course work."""
+
+    def setUp(self):
+        from server_v2 import main, course_install as ci
+
+        self.main, self.ci = main, ci
+        directory = self.enterContext(TemporaryDirectory())
+        self.enterContext(patch.dict(os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}))
+        self.enterContext(patch.object(main, "_ACTIVE_ROUNDS", {}))
+        self.enterContext(patch.object(main, "_ACTIVE_COURSES", {}))
+        self.enterContext(patch.object(ci, "_CURRENT_COURSE_IDS", type(ci._CURRENT_COURSE_IDS)()))
+        self.enterContext(patch.object(ci, "_ACTIVE", set()))
+        self.submitted = []
+        self.enterContext(patch.object(ci._WORKER, "submit", side_effect=self._submitted))
+        self.enterContext(patch.object(ci, "_reprioritize_topo_queue"))
+
+    def _submitted(self, _fn, identifier, *, priority):
+        state = self.ci._read(identifier)
+        self.submitted.append((state["globalId"], priority))
+
+    def package(self, gid, rid, *, player="fixture", background=True, cursor=True):
+        package = SimpleNamespace(
+            course={"globalId": gid, "teeBox": "blue"},
+            holes=[{"number": 1, "sourceGlobalId": gid, "sourceLocalHole": 1,
+                    "geometryCoverage": "partial"}], eventCursor={},
+        )
+        with patch.object(self.main, "build_mobile_course_package_response", return_value=package):
+            return self.main.mobile_course_package(
+                gid, BackgroundTasks(), round_id=rid, loops=f"{gid}:all", player_id=player,
+                background_geometry=background, include_event_cursor=cursor,
+            )
+
+    def priority(self, gid, *, player="fixture"):
+        identifier = self.ci.job_id(global_id=gid, tee_box="blue", loop_key=f"{gid}:all", player_id=player)
+        return self.ci._read(identifier)["priority"]
+
+    def test_live_and_preview_packages_use_real_enqueue_and_launch_priorities(self):
+        self.package(123, "live-a")
+        self.package(999, "prep-library-999")
+        self.assertEqual(self.submitted, [(123, 10), (999, 20)])
+        self.assertEqual(self.priority(123), 10)
+        self.assertEqual(self.priority(999), 20)
+
+    def test_new_round_demotes_old_job_and_old_package_cannot_reclaim_current(self):
+        self.package(123, "live-a")
+        self.assertEqual(self.priority(123), 10)
+        self.package(999, "live-b")
+        self.assertEqual(self.priority(123), 20)  # Old in-flight work yields on the new start.
+        self.assertEqual(self.priority(999), 10)
+        # A stale ready journal with legacy priority 10 must be overwritten, not min-merged.
+        identifier = self.ci.job_id(global_id=123, tee_box="blue", loop_key="123:all", player_id="fixture")
+        state = self.ci._read(identifier)
+        state.update(priority=10, phase="ready")
+        self.ci._write(state)
+        self.ci._ACTIVE.discard(identifier)
+        self.package(123, "live-a")
+        self.assertEqual(self.priority(123), 20)
+        self.assertEqual(self.priority(999), 10)
+        self.assertEqual(self.submitted[-1], (123, 20))
+
+    def test_home_suggested_live_id_does_not_activate_or_replace_play(self):
+        self.package(999, "live-999", background=False, cursor=False)
+        self.assertFalse(self.main.nearby_work_blocked())
+        self.package(123, "live-a")
+        self.package(999, "live-999", background=False, cursor=False)
+        self.assertEqual(self.priority(123), 10)
+        self.package(999, "prep-library-999")
+        self.assertEqual(self.priority(999), 20)
+        self.assertEqual(set(self.main._ACTIVE_ROUNDS), {("fixture", "live-a")})
+
+    def test_current_course_is_scoped_to_player_on_resume(self):
+        self.package(123, "live-a", player="alice")
+        bob = self.package(123, "prep-library-123", player="bob").courseInstallJob
+        identifier = bob["jobId"]
+        state = self.ci._read(identifier)
+        state["priority"] = 10
+        self.ci._write(state)
+        self.ci._ACTIVE.discard(identifier)
+        self.ci._launch(identifier)  # Alice's live course cannot exempt Bob's old job.
+        self.assertEqual(self.submitted[-1], (123, 20))
+        self.assertEqual(self.priority(123, player="alice"), 10)
+
+
 class CourseInstallJournalTests(unittest.TestCase):
     def test_old_other_course_resume_is_demoted_while_live_course_is_active(self) -> None:
         """J4/4.2: a recovered install for another course yields to live play."""
@@ -180,7 +264,7 @@ class CourseInstallJournalTests(unittest.TestCase):
         )
 
     def test_package_route_attaches_job_and_no_longer_uses_background_tasks(self) -> None:
-        """J4/4.2: even a live course's full install is background work after package delivery."""
+        """J4/4.2: the playing course retains selected-install priority after package delivery."""
         from server_v2 import main as server_main
 
         package = SimpleNamespace(
@@ -223,7 +307,7 @@ class CourseInstallJournalTests(unittest.TestCase):
         self.assertEqual(enqueue.call_args.kwargs["ready"], {123: [2]})
         self.assertEqual(enqueue.call_args.kwargs["refs"][1]["geometryRevision"], "revision-2")
         self.assertEqual(enqueue.call_args.kwargs["loop_key"], "123:all")
-        self.assertEqual(enqueue.call_args.kwargs.get("priority", server_main.SELECTED_COURSE), server_main.NEARBY)
+        self.assertEqual(enqueue.call_args.kwargs.get("priority", server_main.SELECTED_COURSE), server_main.SELECTED_COURSE)
 
     def test_enqueue_is_idempotent_and_public_state_has_no_player_identity(self) -> None:
         from server_v2 import course_install

@@ -628,6 +628,17 @@ class TopoRenderProcessPoolTests(unittest.TestCase):
         with patch.dict("os.environ", {env: "x"}), patch.object(topo_render.Path, "read_text", return_value="200000 100000"):
             self.assertEqual(topo_render._render_process_count(), 1, "x")
 
+    def test_missing_cgroup_quota_falls_back_to_cpu_affinity(self) -> None:
+        """J4/4.2: a v1/unreadable quota must respect the API's taskset budget."""
+        import os
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(topo_render._RENDER_PROCESSES_ENV, None)
+            with (patch.object(topo_render.Path, "read_text", side_effect=FileNotFoundError),
+                  patch.object(os, "sched_getaffinity", return_value={0, 1}),
+                  patch.object(os, "cpu_count", return_value=16)):
+                self.assertEqual(topo_render._render_process_count(), 1)
+
     def test_real_worker_has_background_nice_priority(self) -> None:
         """J4/4.2: a real background map process yields to the API, with an explicit override."""
         import os
