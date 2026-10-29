@@ -1826,6 +1826,13 @@
       "kind": "native-unit",
       "target": "AICaddieTests/GarminRasterTests/testProductSpec45RasterFailureStopsVisibleSpinner",
       "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C136-11",
+      "patch": "tests/product/faults/C136/10-tee-distance-inverted.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LivePlanPagingTests/testTheTeeShotIsPlannedFromTheTeeWhileThePlayerIsOffTheHole",
+      "promise": "J5.4"
     }
   ]
 }
