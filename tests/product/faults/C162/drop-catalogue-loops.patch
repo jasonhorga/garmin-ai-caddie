@@ -1,0 +1,7 @@
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -1905,3 +1905,3 @@
+         let candidates = reconciledCourseOptions(
+-            primary: [recent] + catalogue + cachedNearby + downloaded,
++            primary: [recent] + cachedNearby + downloaded,
+             catalogue: catalogue, downloaded: downloaded

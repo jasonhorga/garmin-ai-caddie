@@ -1,0 +1,7 @@
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -544,3 +544,3 @@
+         // A remembered Tee is a default selection, not a completed catalogue lookup.
+-        setLoading(true)
++        setLoading(false)
+         let rows = await request(globalId)

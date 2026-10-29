@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C162-gid-cutoff",
+      "patch": "tests/product/faults/C162/gid-cutoff.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.CourseHTTPTests.test_j4_1_recent_catalogue_keeps_whole_venues_and_unplayed_loops",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-recent-tee-authority",
+      "patch": "tests/product/faults/C162/recent-tee-authority.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testRememberedTeeIsOnlyADefaultSelection",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-unbounded-tees",
+      "patch": "tests/product/faults/C162/unbounded-tees.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/SyncClientTests/testTeeLookupStopsAtItsTotalForegroundBudget",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-drop-cached-loops",
+      "patch": "tests/product/faults/C162/drop-cached-loops.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testRecentVenueIncludesCachedNearbyNinesWithoutAddingOtherVenues",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-hide-tee-loading",
+      "patch": "tests/product/faults/C162/hide-tee-loading.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testTeeLookupShowsLoadingThenFourRowsKeepingLastSelection",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-hide-recent-retry",
+      "patch": "tests/product/faults/C162/hide-recent-retry.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testRecentTeeLookupFailureOffersRetry",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-drop-catalogue-loops",
+      "patch": "tests/product/faults/C162/drop-catalogue-loops.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testRecentVenueIncludesAllCatalogueNines",
+      "promise": "4.1"
+    }
+  ]
+}
