@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 import fcntl
 import hashlib
@@ -149,6 +150,98 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         start, length, _, _ = repaired["offsets"][ROUND_A][0]
         row = json.loads(store.log.read_bytes()[start:start + length])
         self.assertEqual((row["roundId"], row["event"]["eventId"]), (ROUND_A, "a1"))
+
+    def test_indexed_round_reads_do_not_scan_unrelated_six_mb_history(self) -> None:
+        """J5.9: per-round reads materialize only the indexed target rows."""
+        big_round = "big-history"
+        small_round = "small-history"
+        store = FileEventStore(self.root)
+        store.append_batch(
+            big_round,
+            [
+                {
+                    **_event(f"big-{index}", round_id=big_round),
+                    "payload": {"diagnosticRows": ["x" * 2600]},
+                }
+                for index in range(2500)
+            ],
+            request_key="big-history",
+        )
+        store.append_batch(small_round, [_event("small", round_id=small_round)], request_key="small-history")
+        reopened = FileEventStore(self.root)
+        read_bytes = 0
+        original = reopened._read_log_range
+
+        def counted(start: int, end: int, *, handle=None) -> bytes:
+            nonlocal read_bytes
+            read_bytes += end - start
+            return original(start, end, handle=handle)
+
+        with mock.patch.object(reopened, "_read_log_range", side_effect=counted):
+            small = reopened.read_rows(small_round)
+        self.assertEqual([row["event"]["eventId"] for row in small], ["small"])
+        self.assertGreater(read_bytes, 0)
+        self.assertLess(read_bytes, 64 * 1024)
+
+        started = time.perf_counter()
+        large = reopened.read_rows(big_round)
+        self.assertLess(time.perf_counter() - started, 1.0)
+        self.assertEqual(len(large), 2500)
+
+    def test_indexed_round_read_matches_legacy_sanitized_rows(self) -> None:
+        """J5.9: indexed reads preserve the old sanitize/order/high-water result per round."""
+        store = FileEventStore(self.root)
+        interleaved = [
+            {**_event("a-1", round_id=ROUND_A), "payload": {"note": "token=a-secret"}},
+            {**_event("b-1", round_id=ROUND_B), "payload": {"note": "token=b-secret"}},
+            {**_event("a-2", round_id=ROUND_A), "payload": {"note": "password=a-pass"}},
+        ]
+        store.append_batch(ROUND_A, [interleaved[0]], request_key="a-1")
+        store.append_batch(ROUND_B, [interleaved[1]], request_key="b-1")
+        store.append_batch(ROUND_A, [interleaved[2]], request_key="a-2")
+        legacy = store._stored_log()
+        for round_id in (ROUND_A, ROUND_B):
+            expected = [
+                deepcopy(row.row)
+                for row in legacy.rows
+                if FileEventStore._is_legacy_compatible_stored_row(row.row)
+                and str(row.row.get("roundId") or "") == round_id
+            ]
+            self.assertEqual(store.read_rows(round_id), expected)
+
+    def test_oversized_decision_is_stored_as_bounded_summary(self) -> None:
+        """J5.9: a large decision is accepted after deterministic bounded summarisation."""
+        store = FileEventStore(self.root)
+        event = {
+            **_event("large-decision"),
+            "kind": "club",
+            "payload": {
+                "club": "7I",
+                "target": "green",
+                "distance": 143.2,
+                "decision": {"club": "7I", "target": "green", "distance": 143.2, "detail": "x" * (65 * 1024)},
+            },
+        }
+        result = store.append_batch(ROUND_A, [event], request_key="large-decision")
+        self.assertEqual(result[0].status, "accepted")
+        stored = store.read_rows(ROUND_A)[0]["event"]
+        decision = stored["payload"]["decision"]
+        self.assertEqual(decision["club"], "7I")
+        self.assertEqual(decision["target"], "green")
+        self.assertEqual(decision["distance"], 143.2)
+        self.assertTrue(decision["truncated"])
+        self.assertGreater(decision["originalBytes"], 65 * 1024)
+        self.assertLessEqual(
+            len(json.dumps(stored, ensure_ascii=False, sort_keys=True).encode("utf-8")),
+            64 * 1024,
+        )
+
+    def test_oversized_non_decision_event_has_explicit_error_code(self) -> None:
+        """J5.9: an event still over the bound after decision trimming is rejected clearly."""
+        store = FileEventStore(self.root)
+        event = {**_event("too-large"), "payload": {"note": "x" * (65 * 1024)}}
+        with self.assertRaisesRegex(ValueError, "^event_payload_too_large"):
+            store.append_batch(ROUND_A, [event], request_key="too-large")
 
     def test_round_index_rebuild_refuses_a_tampered_committed_prefix(self) -> None:
         # The light scan must still verify the committed prefix before labelling a rebuilt
