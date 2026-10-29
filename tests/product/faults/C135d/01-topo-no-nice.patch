@@ -1,6 +1,6 @@
 --- a/ai_caddie/geometry/topo_render.py
 +++ b/ai_caddie/geometry/topo_render.py
-@@ -1052,7 +1052,7 @@
+@@ -1052,6 +1052,6 @@
  def _render_worker_initializer(priority: int) -> None:
      """Lower background render priority so API and foreground install work gets CPU first."""
      try:
@@ -8,4 +8,3 @@
 +        pass  # mutant: keep foreground scheduling priority
      except (OSError, ValueError):
          pass
- 
