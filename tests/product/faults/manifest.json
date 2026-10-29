@@ -30,6 +30,13 @@
       "promise": "4.2"
     },
     {
+      "id": "tests-product-faults-C163-14-history-green-requests-personal-profile",
+      "patch": "tests/product/faults/C163/14-history-green-requests-personal-profile.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.HistoryReentryTests.test_J42_historical_green_facts_do_not_load_personal_profiles",
+      "promise": "4.2"
+    },
+    {
       "id": "tests-product-faults-C163-13-background-reserves-geometry-worker",
       "patch": "tests/product/faults/C163/13-background-reserves-geometry-worker.patch",
       "kind": "python",

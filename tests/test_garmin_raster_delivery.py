@@ -526,7 +526,11 @@ class PrefetchTests(unittest.TestCase):
         from server_v2 import map_startup
 
         running: Future = Future()
-        with patch.object(map_startup, "_STARTING", {("start", 1): running}):
+        from ai_caddie.caddie import mobile_live
+        with patch.object(map_startup, "_STARTING", {}), \
+             patch.object(map_startup, "_STARTING_HOLES", {}), \
+             patch.object(mobile_live._GEOMETRY_INSTALL_POOL, "submit", return_value=running):
+            map_startup.prepare_priority_hole([(7, "front")], wait=False)
             self.assertTrue(should_yield())
             running.set_result({})
             self.assertFalse(should_yield())

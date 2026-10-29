@@ -165,6 +165,7 @@ class PackageLaneTests(unittest.IsolatedAsyncioTestCase):
         package = CourseInstallJournalTests._real_package()
         self.results = []
         prepare = map_startup.prepare_priority_hole
+        self.prepare = prepare
         def observed_prepare(*args, **kwargs):
             # Synchronize the test at completion; production's builder remains real and chooses
             # the lane/parameters itself. No test-side reimplementation of its branching.
@@ -190,6 +191,8 @@ class PackageLaneTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(map_only=map_only):
                 self.seed.reset_mock()
                 self.process.reset_mock()
+                for name in ("_ACTIVE_ROUNDS", "_ACTIVE_COURSES", "_ACTIVE_SELECTIONS"):
+                    getattr(self.main, name).clear()
                 # Separate cold authority for each new round.
                 with TemporaryDirectory() as directory, patch.object(self.vp, "_CACHE_DIR", Path(directory)):
                     response = await self.request(f"live-new-{map_only}", map_only)
@@ -243,7 +246,8 @@ class PackageLaneTests(unittest.IsolatedAsyncioTestCase):
                     if len(checkpoints) >= 2:
                         waiting.set()
                 def wait(timeout):
-                    checkpoint()
+                    if phase == "gate":
+                        checkpoint()
                     return old_wait(timeout)
                 def compute(*args, **kwargs):
                     checkpoint()
@@ -254,22 +258,25 @@ class PackageLaneTests(unittest.IsolatedAsyncioTestCase):
                      patch.object(self.vp, "precise_route_seed_hole_in_process", side_effect=compute), \
                      patch.object(self.gate._condition, "wait", side_effect=wait):
                     from contextlib import nullcontext
-                    tasks = []
+                    futures = []
                     try:
                         with (self.gate.foreground() if phase == "gate" else nullcontext()):
-                            tasks = [asyncio.create_task(self.client.get(
-                                f"/api/v2/mobile/courses/123/package?round_id=prep-library-123&loops=123:front&tee_box=blue&background_geometry=true&priority_hole={h}")) for h in (1, 2)]
+                            for hole in (1, 2):
+                                self.prepare([(123, "front")], priority_hole=hole,
+                                             tee_box="blue", wait=False, background=True)
+                            with self.ms._LOCK:
+                                futures = list(self.ms._STARTING.values())
                             try:
                                 self.assertTrue(await asyncio.to_thread(waiting.wait, 1))
                                 result = await asyncio.wait_for(asyncio.to_thread(
-                                    self.ms.prepare_priority_hole, [(123, "front")],
+                                    self.prepare, [(123, "front")],
                                     priority_hole=3, tee_box="blue", background=False), .5)
                                 self.assertTrue(result["drawable"])
                             finally:
                                 release.set()
                     finally:
                         release.set()
-                        await asyncio.gather(*tasks)
+                        await asyncio.gather(*(asyncio.to_thread(f.result, 3) for f in futures))
                         pool.shutdown()
 
 
@@ -310,6 +317,18 @@ class HistoryReentryTests(unittest.TestCase):
             self.fail("same-thread corrected-history/profile flight deadlocked (5s)")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("finished all three entries", result.stdout)
+
+    def test_J42_historical_green_facts_do_not_load_personal_profiles(self):
+        """J4.2: the other history→lightweight entry needs only CourseView facts."""
+        from ai_caddie.history import hole_history_shots as hs
+        with patch.object(hs.hole_render, "load_mesh", side_effect=FileNotFoundError), \
+             patch.object(hs.course_prep, "effective_club_ladder", side_effect=AssertionError("personal history reentry")) as profile, \
+             patch.object(hs.course_prep.course_reference, "load_course_par", return_value={}), \
+             patch.object(hs.course_prep, "_lightweight_prep_hole", return_value={
+                 "greenDistances": {"middleLat": 0.01, "middleLon": 0.02}}):
+            self.assertEqual(hs.hole_green_centre(123, 1), {
+                "available": True, "lat": .01, "lon": .02, "source": "courseData"})
+            profile.assert_not_called()
 
 
 class ReleaseBackoffTests(unittest.TestCase):
