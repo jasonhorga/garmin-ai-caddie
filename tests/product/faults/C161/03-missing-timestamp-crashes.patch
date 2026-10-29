@@ -1,9 +1,7 @@
-diff --git a/server_v2/main.py b/server_v2/main.py
-index a45b51f4..bd1516bb 100644
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2558,7 +2558,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
-                     current_timestamp is not None and event_timestamp >= current_timestamp
+@@ -2579,7 +2579,7 @@
+                     same_device and current_timestamp is not None and event_timestamp >= current_timestamp
                  )
              elif event_timestamp_valid is False:
 -                logger.warning("active round event timestamp unavailable; using arrival order")

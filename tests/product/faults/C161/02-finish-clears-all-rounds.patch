@@ -1,15 +1,18 @@
-diff --git a/server_v2/main.py b/server_v2/main.py
-index a45b51f4..3df612b5 100644
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2537,13 +2537,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
+@@ -2547,18 +2547,7 @@
              own_timestamp = _ACTIVE_EVENT_TIMES.get(key)
              own = [old for old in _ACTIVE_ROUNDS if old[0] == key[0]]
              if key in own:
 -                if own_timestamp is not None:
+-                    own_device = _ACTIVE_EVENT_DEVICES.get(key)
 -                    retired = [old for old in own
--                               if old == key or _ACTIVE_EVENT_TIMES.get(old) is not None
--                               and _ACTIVE_EVENT_TIMES[old] < own_timestamp]
+-                               if old == key or (
+-                                   own_device is not None
+-                                   and _ACTIVE_EVENT_DEVICES.get(old) == own_device
+-                                   and _ACTIVE_EVENT_TIMES.get(old) is not None
+-                                   and _ACTIVE_EVENT_TIMES[old] < own_timestamp
+-                               )]
 -                else:
 -                    # Legacy rounds without event timestamps retain the former registration order.
 -                    retired = own[:own.index(key) + 1]

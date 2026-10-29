@@ -1,8 +1,6 @@
-diff --git a/server_v2/main.py b/server_v2/main.py
-index a45b51f4..2fe61ec3 100644
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2422,11 +2422,7 @@ def _package_course_ids(package) -> list[int]:
+@@ -2423,11 +2423,7 @@
          return value.get(name) if isinstance(value, dict) else getattr(value, name, None)
  
      def rows(value):
