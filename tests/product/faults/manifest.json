@@ -1944,7 +1944,7 @@
       "id": "tests-product-faults-C179-R2",
       "patch": "tests/product/faults/C179/own-mutants/R2-prep-yield-inside-hole-singleflight.patch",
       "kind": "python",
-      "target": "tests.product.test_c163.PackageLaneTests.test_J42_package_route_does_not_wait_on_nearby_checkpoint_lock",
+      "target": "tests.product.test_c163.PackageLaneTests.test_J42_package_route_does_not_wait_on_prep_singleflight_checkpoint_lock",
       "promise": "4.2"
     },
     {

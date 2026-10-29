@@ -268,6 +268,62 @@ class PackageLaneTests(unittest.IsolatedAsyncioTestCase):
             worker.join(2)
         self.assertFalse(worker.is_alive())
 
+    async def test_J42_package_route_does_not_wait_on_prep_singleflight_checkpoint_lock(self):
+        """J4.2: package startup can use a hole while cold /prep pauses between holes."""
+        import asyncio
+        from ai_caddie.core import priority_work
+        from ai_caddie.courses import prep_cache
+
+        first = threading.Event()
+        release = threading.Event()
+        waiting = threading.Event()
+        original_wait = self.gate._condition.wait
+
+        def gate_wait(timeout):
+            waiting.set()
+            return original_wait(timeout)
+
+        def build_hole(hole):
+            if int(hole) == 1:
+                first.set()
+                release.wait(2)
+            return {"hole": int(hole)}
+
+        def background_prep():
+            with priority_work.background_work(unit_type="prep"):
+                prep_cache.cached_hole_preps(
+                    global_id=123, holes=[1, 2], render=False, include_shots=False,
+                    player_id="r2", variant="r2-package", build_hole=build_hole,
+                )
+
+        worker = threading.Thread(target=background_prep, daemon=True)
+        worker.start()
+        self.assertTrue(first.wait(1))
+
+        real_prepare = self.prepare
+
+        def package_prepare(*args, **kwargs):
+            # The package's real prepare route needs the same physical hole.  If the mutant puts
+            # its checkpoint inside the hole single-flight leader, this follower waits on that
+            # lock while the background unit is paused by the live package.
+            prep_cache.cached_hole_preps(
+                global_id=123, holes=[2], render=False, include_shots=False,
+                player_id="r2", variant="r2-package", build_hole=lambda hole: {"hole": hole},
+            )
+            return real_prepare(*args, **kwargs)
+
+        with patch.object(priority_work, "FOREGROUND_GATE", self.gate), \
+             patch.object(self.ms, "prepare_priority_hole", side_effect=package_prepare), \
+             patch.object(self.gate._condition, "wait", side_effect=gate_wait):
+            with self.gate.foreground():
+                release.set()
+                self.assertTrue(await asyncio.to_thread(waiting.wait, 1),
+                                "cold prep did not pause at its hole boundary")
+                response = await asyncio.wait_for(self.request("live-r2"), 1.5)
+                self.assertEqual(response.status_code, 200, response.text)
+        worker.join(2)
+        self.assertFalse(worker.is_alive())
+
     async def test_J42_background_package_reaches_process_lane(self):
         response = await self.request("prep-library-123")
         self.assertEqual(response.status_code, 200, response.text)
