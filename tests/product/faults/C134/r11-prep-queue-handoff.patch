@@ -1,8 +1,11 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -1734,4 +1734,4 @@
+@@ -1734,7 +1734,7 @@ public final class LiveRoundAppModel: ObservableObject {
          // failed, release the prep-library queue instead of leaving durable jobs paused.
          if deferredOfflineCourseDownloadRevalidation == nil,
             offlineCourseDownloadTask == nil {
 -            startPrepCourseDownloadQueueIfNeeded(userRequested: handoffID)
 +            // mutant: the queue handoff is omitted
+         } else if let handoffID {
+             // Preserve the explicit Start selection while the live course's own asset pass still
+             // owns the connection. Its completion or fresh-entry release starts the queue again.
