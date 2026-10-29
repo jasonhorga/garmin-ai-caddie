@@ -329,6 +329,31 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
                 self.assertEqual([(z["carryToFront_m"],z["carryToClear_m"]) for z in route["avoidZones"]], expected)
 
 
+class ReleaseGeometryDecisionTests(unittest.TestCase):
+    """J4.6/J5.11: a real release dogleg finishes on the selected physical green."""
+
+    def test_j5_11_real_dogleg_finishes_on_selected_green(self):
+        # 31834/2 investigation: 320.9 m route, water 50.5–84.2 m; synthetic bag
+        # Driver197 + 8I121 = station318, inside the factual 306.2–320.9 m green window.
+        root = Path(__file__).parent / "fixtures/geometry/31834-hole2"
+        process = subprocess.run([sys.executable, str(Path(__file__).with_name("_real_route_probe.py"))],
+            input=json.dumps({"root":str(root),"warm_requests":1}), capture_output=True, text=True, timeout=60)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        result = json.loads(process.stdout)
+        self.assertTrue(result["chains"], "the real dogleg must not be rejected by its diagonal lake shortcut")
+        self.assertTrue(result["rootMatched"])
+        self.assertEqual(result["coverage"]["authorityObservation"], "current")
+        self.assertEqual(result["geometry"], "ready")
+        self.assertEqual(result["routeLength_m"], 320.9)
+        self.assertEqual([(z["carryToFront_m"],z["carryToClear_m"]) for z in result["water"]], [(50.5,84.2)])
+        finish = next(chain for chain in result["chains"] if chain["clubs"] == ["Driver","8I"])
+        self.assertEqual(finish["carries_m"], [197,121])
+        self.assertEqual(finish["offsets_m"], [197,318])
+        self.assertTrue(finish["lastLandingInsideGreen"], finish)
+        driver = next(option for option in result["options"] if option["club"] == "Driver")
+        self.assertEqual(driver["targetLocal"], [118.0,119.2])
+
+
 class DecisionGoldenTests(unittest.TestCase):
     def test_j5_11_decisions_equal_hand_routes(self):
         for row in vectors("caddie_golden.json")["cases"]:

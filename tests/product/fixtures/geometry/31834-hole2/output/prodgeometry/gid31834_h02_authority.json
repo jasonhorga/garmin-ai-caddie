@@ -1,0 +1,38 @@
+{
+  "schema": "garmin-prodgeometry-authority-v1",
+  "globalId": 31834,
+  "localHole": 2,
+  "releaseVersion": 290,
+  "releaseId": "006-D7351-27",
+  "courseGenVersion": 29,
+  "geometryAssetPath": "/golf/coursegenout/prodgeometry/4000/gd31500/gid031834/hole02/hole02_2902510.zip",
+  "geometryAssetVersion": "2902510",
+  "rasterAssetPath": "/birdseye/golf/raster3d/4000/gd31500/gid031834/hole02/gid031834_hole02_1_2902510.jpg",
+  "routeIdentity": null,
+  "geometryZipSha256": "ce8fbb818c4ea9e43523c8600a2fa9722151099ad3fddb52b4b090ecd2ddcd2a",
+  "meshReady": true,
+  "releaseSource": "cache:fresh",
+  "boundAt": "2026-10-26T09:19:02.818732Z",
+  "cachedCourseDataRoute": [
+    [
+      22.542079919949174,
+      113.95856497809291
+    ],
+    [
+      22.542447969317436,
+      113.95700099878013
+    ],
+    [
+      22.54247495904565,
+      113.95661794580519
+    ],
+    [
+      22.542444951832294,
+      113.95624394528568
+    ],
+    [
+      22.54170097410679,
+      113.95558194257319
+    ]
+  ]
+}
