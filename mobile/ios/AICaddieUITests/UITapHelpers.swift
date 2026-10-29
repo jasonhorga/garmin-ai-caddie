@@ -4,11 +4,9 @@ import XCTest
 /// accessibility tap.  A disappearing source or an appearing destination acknowledges the first
 /// tap; only an unacknowledged source is tapped a second time.
 enum UITapHelpers {
-    /// Prefer a tap after the element has stayed hittable at the same non-empty frame for two
-    /// accessibility polls.  SwiftUI can publish the new button before its transition has
-    /// committed an activation point.  The wait only improves timing: if a busy app exhausts the
-    /// budget while the element still exists, fall back to XCTest's own tap (which waits for idle
-    /// and scrolls), so these helpers never do less than the plain `.tap()` they replaced.
+    /// Wait within a budget for stable geometry, dismissal of covering sheets, and a real hit
+    /// point, then tap the visible centre. On timeout return false; callers must reveal/scroll an
+    /// off-screen source first. There is no coordinate fallback through a still-present sheet.
     @discardableResult
     static func tapWhenHittable(
         _ source: XCUIElement,
@@ -28,14 +26,10 @@ enum UITapHelpers {
         timeout: TimeInterval,
         diagnosticName: String
     ) -> Bool {
-        if waitForStableHittability(source, app: app, timeout: timeout) {
-            return tapUsingStableCoordinate(source, app: app, diagnosticName: diagnosticName)
-        }
-        guard source.exists else {
+        guard waitForStableHittability(source, app: app, timeout: timeout) else {
             print("UI_TAP source-not-ready \(diagnosticName)")
             return false
         }
-        print("UI_TAP fallback \(diagnosticName)")
         return tapUsingStableCoordinate(source, app: app, diagnosticName: diagnosticName)
     }
 
@@ -54,7 +48,7 @@ enum UITapHelpers {
             print("UI_TYPE field-not-ready \(diagnosticName)")
             return false
         }
-        // A fallback tap may have used the whole stability budget; still give focus a short window.
+        // A readiness wait may have used the whole stability budget; still give focus a short window.
         if waitForCondition({ hasKeyboardFocus(field, app: app) }, timeout: max(2, deadline.timeIntervalSinceNow)) {
             field.typeText(text)
             return true
@@ -126,8 +120,7 @@ enum UITapHelpers {
         return keyboardVisible && (fieldHasFocus || app.textFields.allElementsBoundByIndex.filter { $0.exists }.count == 1)
     }
 
-    /// Check geometry and the activation point directly so transient accessibility snapshots are
-    /// only treated as "not ready" and never become a test failure.
+    /// Preserve hit-testing semantics for assertions and UITestViewport's sheet occlusion rule.
     static func isSafelyHittable(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
         guard element.exists else { return false }
         let frame = element.frame
@@ -135,8 +128,32 @@ enum UITapHelpers {
         guard frame.width > 0, frame.height > 0,
               windowFrame.width > 0, windowFrame.height > 0,
               frame.intersects(windowFrame) else { return false }
-        let point = element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).screenPoint
-        return windowFrame.contains(point)
+        return element.isHittable
+    }
+
+    /// Geometry is only a prerequisite for a tap, never proof that an element is uncovered.
+    private static func isTapGeometryReady(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        guard element.exists else { return false }
+        let frame = element.frame
+        let window = app.windows.firstMatch.frame
+        return !frame.isEmpty && !window.isEmpty && window.contains(
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).screenPoint
+        )
+    }
+
+    private static func isCoveredBySheet(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        // The live chrome does not move while the score sheet dismisses. SwiftUI may expose that
+        // sheet as an Other rather than a Sheet, so wait for its controls before probing the
+        // underlying scorecard's activation point (the original live-open-scorecard failure).
+        if element.identifier == "live-open-scorecard",
+           app.buttons.matching(NSPredicate(format: "identifier IN %@", ["score-save", "score-cancel"]))
+               .firstMatch.exists {
+            return true
+        }
+        let centre = element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).screenPoint
+        return app.sheets.allElementsBoundByIndex.contains { sheet in
+            sheet.exists && sheet.frame.contains(centre) && !UITestViewport.isDescendant(element, of: sheet)
+        }
     }
 
     @discardableResult
@@ -145,7 +162,8 @@ enum UITapHelpers {
         app: XCUIApplication,
         diagnosticName: String
     ) -> Bool {
-        guard isSafelyHittable(element, in: app) else {
+        guard isTapGeometryReady(element, in: app), !isCoveredBySheet(element, in: app),
+              isSafelyHittable(element, in: app) else {
             print("UI_TAP activation-point-not-ready \(diagnosticName)")
             return false
         }
@@ -160,7 +178,8 @@ enum UITapHelpers {
     ) -> Bool {
         var previousFrame: CGRect?
         return waitForCondition({
-            guard isSafelyHittable(element, in: app) else {
+            guard isTapGeometryReady(element, in: app), element.isEnabled,
+                  !isCoveredBySheet(element, in: app) else {
                 previousFrame = nil
                 return false
             }
@@ -178,7 +197,9 @@ enum UITapHelpers {
                 && abs(frame.width - oldFrame.width) < 0.5
                 && abs(frame.height - oldFrame.height) < 0.5
             previousFrame = frame
-            return stable
+            // Only ask XCTest for a hit point after the geometry and presentation have settled.
+            // A stable underlying button alone is insufficient while a sheet is still moving.
+            return stable && isSafelyHittable(element, in: app)
         }, timeout: timeout)
     }
 
