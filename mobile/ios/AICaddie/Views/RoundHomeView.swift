@@ -1841,8 +1841,11 @@ public struct RoundHomeView: View {
     /// Recovery adds information; the current live round always retains its navigation entry.
     var showsInProgressPlayCard: Bool { liveRoundState != nil }
 
+    /// A delayed Watch start for the sealed round itself is already represented by that round's
+    /// recovery card; showing both would list one round twice.
     var showsPendingWatchPlayCard: Bool {
-        !showsInProgressPlayCard && pendingWatchRoundStart != nil
+        guard !showsInProgressPlayCard, let pendingWatchRoundStart else { return false }
+        return pendingWatchRoundStart.roundId != deferredFinishRecovery?.roundId
     }
 
     var showsNewRoundPlayCard: Bool {
@@ -1850,7 +1853,12 @@ public struct RoundHomeView: View {
             && deferredFinishRecovery == nil && liveFinishRecovery == nil
     }
 
-    var hubLiveFinishRecovery: DeferredFinishRecovery? { liveFinishRecovery }
+    /// The Hub's live discard ends the round, so it appears only after the player tried to finish
+    /// this round. The finish sheet uses `removedFinishRejectionAction`, which does not wait.
+    var hubLiveFinishRecovery: DeferredFinishRecovery? {
+        guard let liveFinishRecovery, finishAttemptRoundId == liveFinishRecovery.roundId else { return nil }
+        return liveFinishRecovery
+    }
 
     @ViewBuilder private var playSection: some View {
         VStack(alignment: .leading, spacing: 10) {
