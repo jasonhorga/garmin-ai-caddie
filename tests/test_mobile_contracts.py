@@ -4116,6 +4116,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("guard isTeeShotOffTheHole else { return effectiveDistanceToPinMetres }", current_hole)
         self.assertIn("scope: Self.caddieRouteScope(isPrepMode: isPrepMode)", current_hole)
         self.assertIn("pinM: greenPinDistanceMetres", current_hole)
+        self.assertIn("targetMetres: currentClubTargetDistanceMetres", current_hole)
         self.assertIn("static let offHoleMetres = 75.0", current_hole)
         self.assertIn("requestedOptionId: caddieOptionId(forStrategyMode: requestStrategyMode)", current_hole)
         # B1c: the main map publishes the Touch Target through the same coordinate / pixel handlers.

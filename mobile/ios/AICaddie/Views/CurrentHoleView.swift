@@ -5160,7 +5160,7 @@ public struct CurrentHoleView: View {
             profiles: caddieClubProfiles,
             recommended: recommendedClub,
             selected: selectedClub,
-            targetMetres: effectiveDistanceToPinMetres
+            targetMetres: currentClubTargetDistanceMetres
         )
     }
 
@@ -6363,8 +6363,8 @@ public struct CurrentHoleView: View {
         return metres <= GeoDistance.maximumUsefulGreenMetres ? metres : nil
     }
 
-    /// One distance source for club relevance, backend planning, and Watch state. A player's manual
-    /// target wins; otherwise use live GPS→green-middle, then the downloaded tee→middle fallback.
+    /// The backend/event distance remains GPS/manual distance to the flag. A Touch Target is a
+    /// display-only aim point; it never changes this wire value or the whole-hole tee plan.
     private var effectiveDistanceToPinMetres: Double? {
         LiveCaddieDistance.resolve(
             manualM: distanceToPinMetres ?? greenPinDistanceMetres,
@@ -6372,6 +6372,13 @@ public struct CurrentHoleView: View {
             staticMiddleM: liveGreenDistances?.middleM,
             holeYards: hole.yards
         )
+    }
+
+    private var currentClubTargetDistanceMetres: Double? {
+        if lastTargetEditKind == "target", let mapTargetDistanceMetres {
+            return mapTargetDistanceMetres
+        }
+        return effectiveDistanceToPinMetres
     }
 
     /// The distance the caddie plans from. Map aim/flag distances stay display-only; before the tee
