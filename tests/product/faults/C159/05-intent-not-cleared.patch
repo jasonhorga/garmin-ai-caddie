@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
+index d6f08a8f..14f8a65a 100644
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -1021,7 +1021,6 @@ class FileEventStore:
+                         raise ValueError("migration_identity_or_row_count_changed")
+                 report["backup"] = str(backup)
+                 report["index"] = str(self.round_index)
+-                self._clear_migration_intent()
+                 return report
+             except BaseException:
+                 if apply:

@@ -9,6 +9,8 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -349,6 +351,7 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         backup = self.root.joinpath("events.jsonl.bak-20261029T000000Z")
         self.assertEqual(applied["changed"], 1)
         self.assertTrue(backup.exists())
+        self.assertFalse(self.root.joinpath("events.jsonl.migration.json").exists())
         self.assertTrue(self.root.joinpath("round_event_index.json").exists())
         cold_store = FileEventStore(self.root)
         rows = cold_store.read_rows(ROUND_A)
@@ -419,7 +422,7 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         marker = FileEventStore(self.root)._load_commit_marker()
         self.assertIsNotNone(marker)
         assert marker is not None
-        self.assertLess(marker.legacy_baseline_byte_length, marker.committed_byte_length)
+        self.assertEqual(marker.legacy_baseline_byte_length, marker.committed_byte_length)
 
     def test_event_payload_migration_failure_removes_transient_backup_and_success_backup_is_private(self) -> None:
         """J5.9: failed migration removes its backup while a committed backup is mode 0600."""
@@ -476,7 +479,8 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
             if calls == 2:
                 raise SystemExit("simulated process death")
 
-        with mock.patch.object(FileEventStore, "_replace_bytes_preserving_metadata", replace_then_crash):
+        with mock.patch.object(FileEventStore, "_replace_bytes_preserving_metadata", replace_then_crash), \
+             mock.patch.object(FileEventStore, "_restore_file_snapshot", side_effect=SystemExit("simulated process death")):
             with self.assertRaisesRegex(SystemExit, "simulated process death"):
                 migrate(self.root, apply=True, timestamp="20261029T000013Z")
 
@@ -492,12 +496,29 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         event = {
             **_event("cross-boundary-token"),
             "kind": "club",
-            "payload": {"decision": {"detail": "x" * 252 + " token=secret-cross-boundary-value"}},
+            "payload": {"decision": {"detail": "x" * 252 + " token=secret-cross-boundary-value" + "y" * (65 * 1024)}},
         }
         store.append_batch(ROUND_A, [event], request_key="cross-boundary-token")
         rendered = json.dumps(store.read_rows(ROUND_A), ensure_ascii=False)
+        detail = store.read_rows(ROUND_A)[0]["event"]["payload"]["decision"]["detail"]
         self.assertNotIn("secret-cross-boundary-value", rendered)
         self.assertNotIn("token=secret", rendered)
+        self.assertNotIn("tok", detail)
+
+    def test_production_ops_migration_entrypoint_runs_without_scripts_package(self) -> None:
+        """J5.9: the migration entrypoint available in the production image performs a dry-run."""
+        entrypoint = Path(__file__).resolve().parents[1] / "ops" / "migrate_mobile_event_payloads.py"
+        result = subprocess.run(
+            [sys.executable, str(entrypoint), str(self.root)],
+            cwd=entrypoint.parents[1],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertFalse(report["apply"])
+        self.assertEqual(report["changed"], 0)
 
     def test_legacy_oversized_non_decision_rows_remain_readable(self) -> None:
         """J5.9: read paths preserve an irreducibly large legacy event instead of raising."""

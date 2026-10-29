@@ -47,6 +47,27 @@ gh pr view <PR> --repo jasonhorga/garmin-ai-caddie --json headRefOid,mergeable,s
 
 `agenthub-native-mutant.yml`（AgentHub 的对抗变异门）不再是必需检查。
 
+### 1.1 事件库 payload 迁移（C159）
+
+新镜像里的入口是 `ops/migrate_mobile_event_payloads.py`。部署新代码并确认健康后，先对所有有日志的分区 dry-run：
+
+```bash
+C=aicaddie-release-<新rev>
+for R in /var/lib/ai-caddie/data/mobile_events /var/lib/ai-caddie/data/players/*/mobile_events; do
+  [ -f "$R/events.jsonl" ] || continue
+  docker exec "$C" python /app/ops/migrate_mobile_event_payloads.py "$R"
+done
+```
+
+只对 dry-run 报告 `changed` 大于 0 的分区 apply；报告必须包含 `backup`。最后对同一批分区再 apply 一次，确认 `changed` 为 0：
+
+```bash
+docker exec "$C" python /app/ops/migrate_mobile_event_payloads.py "$R" --apply
+docker exec "$C" python /app/ops/migrate_mobile_event_payloads.py "$R" --apply
+```
+
+apply 持有该分区的事件锁；同一分区的追加、读和 ACK 会等待锁完成。备份只留在原目录，权限为 0600。
+
 **native PR 要看截图**：拉同一次 `native-mobile` run 的两份产物，交子代理逐张看，
 在 PR 里写每份产物看到了什么、和卡的验收对不对得上；看完删目录。
 

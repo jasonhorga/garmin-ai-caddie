@@ -1,0 +1,27 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
+index 4a11ac9b..e93cd9dd 100644
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -508,12 +508,7 @@ def bound_mobile_event(event: dict[str, Any]) -> dict[str, Any]:
+                     # the preview boundary cannot leave a usable fragment behind.  Avoid the
+                     # recursive redactor for ordinary large diagnostic strings.
+                     lowered = value.lower()
+-                    preview_value = (
+-                        _redact_mobile_text(value)
+-                        if any(marker in lowered for marker in ("token", "secret", "password", "cookie", "authorization", "csrf", "api_key", "api-key"))
+-                        else value
+-                    )
+-                    encoded_value = preview_value.encode("utf-8")
++                    encoded_value = value.encode("utf-8")
+                     bounded_preview = encoded_value[:256].decode("utf-8", errors="ignore")
+                     if "[REDACTED]" in preview_value:
+                         credential = re.search(
+@@ -523,7 +518,7 @@ def bound_mobile_event(event: dict[str, Any]) -> dict[str, Any]:
+                         if credential is not None and len(preview_value[:credential.end()].encode("utf-8")) > 256:
+                             bounded_preview = preview_value[:credential.start()].rstrip()
+                     summary[str(key)] = (
+-                        preview_value
++                        value
+                         if len(encoded_value) <= 256
+                         else bounded_preview
+                     )
