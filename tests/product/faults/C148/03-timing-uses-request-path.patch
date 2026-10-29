@@ -1,0 +1,10 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -306,6 +306,6 @@
+     response.headers["X-AI-Caddie-Request-ID"] = timing.request_id
+     response.headers["Server-Timing"] = timing.server_timing()
+     route = request.scope.get("route")
+-    route_path = getattr(route, "path", None) or "<unmatched>"
++    route_path = request.url.path
+     timing.finish(
+         method=request.method,

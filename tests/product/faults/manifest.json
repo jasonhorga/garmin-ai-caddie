@@ -1148,6 +1148,27 @@
       "kind": "python",
       "target": "tests.product.test_c154b.GateAgeTests.test_J42_deadline_uses_remaining_foreground_age_and_records_wait",
       "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C148-02",
+      "patch": "tests/product/faults/C148/02-timing-log-uses-safe-path.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.C90TimingPersistenceTests.test_finish_logs_the_route_template_without_resource_ids",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C148-03",
+      "patch": "tests/product/faults/C148/03-timing-uses-request-path.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.C90TimingPersistenceTests.test_server_timing_uses_fastapi_route_templates_for_non_numeric_ids_and_404",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C152-01",
+      "patch": "tests/product/faults/C152/01-prefix-cache-skips-racy-window.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_prefix_cache_rechecks_recent_timestamps_but_reuses_stable_signatures",
+      "promise": "5.9"
     }
   ]
 }
