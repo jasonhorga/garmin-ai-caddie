@@ -16,7 +16,8 @@ from time import perf_counter
 from unittest.mock import patch
 
 
-def run(root: Path, *, warm_requests: int = 1, mode: str = "fixture") -> dict:
+def run(root: Path, *, warm_requests: int = 1, mode: str = "fixture", position: list | None = None,
+        distance: float | None = 284.3) -> dict:
     with TemporaryDirectory() as directory:
         isolated = Path(directory)
         shutil.copytree(root, isolated, dirs_exist_ok=True)
@@ -31,7 +32,8 @@ def run(root: Path, *, warm_requests: int = 1, mode: str = "fixture") -> dict:
         from server_v2 import caddie
         from server_v2.main import app
 
-        lat, lon = shot_projection.local_to_world(311.75, 89.625, ref_lat=22.541387, ref_lon=113.955258)
+        local = position if position is not None else [311.75,89.625]
+        lat, lon = shot_projection.local_to_world(*local, ref_lat=22.541387, ref_lon=113.955258)
         context = {"source":"ios_live", "sourceRef":"fixture-course:31834:2", "globalId":31834,
                    "hole":2, "localHole":2, "teeBox":"blue", "par":4, "yards":310,
                    "distanceToPin_m":284.3, "lie":"tee", "currentLocation":{"latitude":lat,"longitude":lon},
@@ -41,6 +43,10 @@ def run(root: Path, *, warm_requests: int = 1, mode: str = "fixture") -> dict:
                    "clubProfiles":{name:{"clubName":name,"median_m":carry,"p10_m":carry-5,
                                          "p90_m":carry+5,"sampleSize":20}
                                    for name,carry in [("Driver",197),("8I",121)]}}
+        if distance is None:
+            context.pop("distanceToPin_m")
+        else:
+            context["distanceToPin_m"] = distance
         hydrated = {}
         real_hydrate = caddie.hydrate_live_caddie_geometry_context
 
@@ -58,7 +64,7 @@ def run(root: Path, *, warm_requests: int = 1, mode: str = "fixture") -> dict:
               closing(TestClient(app)) as client):
             for _ in range(1 + warm_requests):
                 start = perf_counter()
-                response = client.post("/api/v2/caddie/decision", json={"shotType":"tee", "context":context,
+                response = client.post("/api/v2/caddie/decision", json={"shotType":"tee" if position is None else "approach", "context":context,
                                                                         "includeExplanation":False})
                 samples.append((perf_counter() - start) * 1000)
                 if response.status_code != 200:
@@ -95,6 +101,8 @@ def run(root: Path, *, warm_requests: int = 1, mode: str = "fixture") -> dict:
         from ai_caddie.core import data
         return {"rootMatched":data.ROOT == isolated,
                 "coverage":geometry_coverage_for_hole(31834,2,require_current_authority=True),
+                "holeRemaining_m":hydrated.get("holeRemaining_m"),
+                "carries_m":[o["carry_m"] for o in plan["options"]],
                 "cold_ms":samples[0],"warm_ms":samples[1:],"chains":chains,
                 "routeLength_m":route.get("routeLength_m"),"routeLocal":route.get("routeLocal"),
                 "water":[z for z in route.get("avoidZones",[]) if z["kind"] == "water"],
@@ -106,4 +114,5 @@ def run(root: Path, *, warm_requests: int = 1, mode: str = "fixture") -> dict:
 if __name__ == "__main__":
     args = json.loads(sys.stdin.read())
     print(json.dumps(run(Path(args["root"]), warm_requests=args.get("warm_requests",1),
-                         mode=args.get("mode","fixture")), ensure_ascii=False))
+                         mode=args.get("mode","fixture"), position=args.get("position"),
+                         distance=args.get("distance",284.3)), ensure_ascii=False))
