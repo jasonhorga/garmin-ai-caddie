@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import Future, TimeoutError, ThreadPoolExecutor
 from contextlib import nullcontext
+from functools import partial
 import logging
 import threading
 import time
@@ -21,6 +22,8 @@ _STARTING: dict[tuple, Future] = {}
 # Gate and child-pool waits never reserve the two foreground geometry workers.
 _BACKGROUND_PREP_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="background-vector")
 _BACKGROUND_PREP_LIMIT = 16
+# At most one background prepare download occupies a shared geometry worker (see _background_geometry).
+_BACKGROUND_GEOMETRY = threading.Semaphore(1)
 _REGION_ENQUEUED: dict[int, float] = {}
 _REGION_PLAYER = "__nearby_public_assets__"
 # Release prefetch attempts by gid: (monotonic time, release obtained). An obtained release is not
@@ -197,6 +200,17 @@ def _register_hole_plan_provider() -> None:
 _register_hole_plan_provider()
 
 
+def _background_geometry(pool, ensure, gid: int, hole: int) -> dict:
+    """A background prepare's download: on the shared geometry pool, one at a time.
+
+    Garmin geometry downloads/decodes keep the pool's original bound of two. Queued behind any
+    foreground prepare, and never holding both workers, so a stalled background download leaves a
+    worker for the playing hole. The gate/child-process waits stay on the background threads.
+    """
+    with _BACKGROUND_GEOMETRY:
+        return pool.submit(ensure, gid, hole, priority=NEARBY).result()
+
+
 def prepare_priority_hole(
     loops: list[tuple[int, str]], *, priority_hole: int = 1, tee_box: str | None = None,
     wait: bool = True, background: bool = False,
@@ -211,6 +225,8 @@ def prepare_priority_hole(
     from ai_caddie.geometry.geometry_sync import ensure_prodgeometry
     from ai_caddie.courses.vector_prep import cached_vector_hole
 
+    if background:
+        ensure_prodgeometry = partial(_background_geometry, _GEOMETRY_INSTALL_POOL, ensure_prodgeometry)
     index = (int(priority_hole) - 1) // 9
     if not 0 <= index < len(loops):
         raise ValueError("priority_hole is outside the selected round")
@@ -291,29 +307,32 @@ def prepare_priority_hole(
         return {"globalId": gid, "localHole": hole, "drawable": False}
 
 
-# At most one running discovery batch and one latest pending batch. The request callback only
-# publishes metadata; gate/network waits belong to this process-owned thread, not BackgroundTasks.
+# At most one running discovery batch, and one latest pending batch per player (oldest player
+# first): a newer discovery replaces only its own player's waiting batch, never another player's.
+# The request callback only publishes metadata; gate/network waits belong to this process-owned
+# thread, not BackgroundTasks.
 _NEARBY_DISPATCH_LOCK = threading.Lock()
-_NEARBY_PENDING = None
+_NEARBY_PENDING: dict[str, list] = {}
 _NEARBY_DISPATCH_THREAD = None
 
 
-def schedule_nearby(matches) -> None:
-    global _NEARBY_PENDING, _NEARBY_DISPATCH_THREAD
+def schedule_nearby(matches, player_id: str | None = None) -> None:
+    global _NEARBY_DISPATCH_THREAD
     with _NEARBY_DISPATCH_LOCK:
-        _NEARBY_PENDING = list(matches)
+        player = str(player_id or "")
+        _NEARBY_PENDING.pop(player, None)  # re-queue at the end with the latest discovery
+        _NEARBY_PENDING[player] = list(matches)
         if _NEARBY_DISPATCH_THREAD is not None:
             return
 
         def drain():
-            global _NEARBY_PENDING, _NEARBY_DISPATCH_THREAD
+            global _NEARBY_DISPATCH_THREAD
             while True:
                 with _NEARBY_DISPATCH_LOCK:
-                    batch = _NEARBY_PENDING
-                    _NEARBY_PENDING = None
-                    if batch is None:
+                    if not _NEARBY_PENDING:
                         _NEARBY_DISPATCH_THREAD = None
                         return
+                    batch = _NEARBY_PENDING.pop(next(iter(_NEARBY_PENDING)))
                 try:
                     enqueue_nearby(batch)
                     prefetch_nearby_releases(batch)

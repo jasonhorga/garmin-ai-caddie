@@ -1918,7 +1918,7 @@ def course_nearby_endpoint(
         from server_v2.map_startup import schedule_nearby
 
         # Submit only; never wait for package admission in this connection's ASGI task.
-        background_tasks.add_task(schedule_nearby, matches)
+        background_tasks.add_task(schedule_nearby, matches, player_id)
     # Only the nearest three rows, the courses that prefetch warms, carry Tee rows: each costs a
     # release decode and a geometry pass, and a 50 km answer may list hundreds of courses.
     from server_v2.map_startup import _nearest_three
@@ -3235,10 +3235,6 @@ def mobile_course_package(
         package.get("course") if isinstance(package, dict)
         else getattr(package, "course", None)
     ) or {}
-    package_tee_box = (
-        package_course.get("teeBox") if isinstance(package_course, dict)
-        else getattr(package_course, "teeBox", None)
-    )
     package_global_id = (
         package_course.get("globalId") if isinstance(package_course, dict)
         else getattr(package_course, "globalId", None)
@@ -3280,9 +3276,11 @@ def mobile_course_package(
 
     if not refs:
         return package
+    # One Tee rule for the lease, the install identity and its priority: the requested Tee (Blue
+    # when omitted). The package's own teeBox is a response fact, not the registered selection.
     job = course_install.enqueue(
         global_id=int(global_id),
-        tee_box=str(tee_box or package_tee_box or "blue"),
+        tee_box=requested_tee_box,
         loop_key=round_loop_key(round_loops),
         player_id=player_id,
         refs=refs,
@@ -3294,7 +3292,7 @@ def mobile_course_package(
                 player_id,
                 global_id,
                 loop_key=round_loop_key(round_loops),
-                tee_box=str(tee_box or package_tee_box or "blue"),
+                tee_box=requested_tee_box,
             )
             else NEARBY
         ),
