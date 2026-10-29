@@ -3477,7 +3477,7 @@ public struct CurrentHoleView: View {
     }
 
     private var liveHasRoute: Bool {
-        guard let route = holePrep?.resolvedMapOverlay?.route else { return false }
+        guard let route = (holePrep ?? packagePrepForCurrentHole)?.resolvedMapOverlay?.route else { return false }
         return route.count >= 2 && route.allSatisfy { $0.count >= 2 }
     }
 
@@ -4398,6 +4398,11 @@ public struct CurrentHoleView: View {
     }
 
     @MainActor
+    func clearHolePrepForTesting() {
+        holePrep = nil
+    }
+
+    @MainActor
     func loadGarminRasterForTesting() async {
         await loadGarminRaster()
     }
@@ -5002,7 +5007,7 @@ public struct CurrentHoleView: View {
     /// round-13 LIVE: 本洞前/中/后果岭(F/M/B)prep 数据,仅在 prep 几何可用时。distances 是 tee→green
     /// 静态值;B1 起它还带 F/M/B 的经纬度,供下面的 `liveGreenYards` 做实时测距。
     private var liveGreenDistances: CoursePrepGreenDistances? {
-        guard let gd = holePrep?.greenDistances, gd.available else { return nil }
+        guard let gd = (holePrep ?? packagePrepForCurrentHole)?.greenDistances, gd.available else { return nil }
         return gd
     }
 

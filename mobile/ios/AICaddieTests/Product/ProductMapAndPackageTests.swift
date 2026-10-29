@@ -290,7 +290,7 @@ final class ProductMapAndPackageTests: XCTestCase {
     /// C136/J4.5: the real hole loader keeps the partial route and F/M/B facts visible while
     /// `/prep` is in flight. The task is intentionally held after the view has started it.
     func test_j4_5_real_hole_loader_keeps_surface_visible_during_prep() async throws {
-        let package = try c136Package(pendingHole: 1, includePrep: false)
+        let package = try c136Package(pendingHole: 1)
         let hole = try XCTUnwrap(package.holes.first)
         let host = "c136-hole-loader.example.test"
         let configuration = URLSessionConfiguration.ephemeral
@@ -326,26 +326,29 @@ final class ProductMapAndPackageTests: XCTestCase {
                 proto.reply(404)
             }
         })
-        let initialFinished = expectation(description: "initial hole facts published")
         let view = CurrentHoleView(
             package: package, hole: hole,
             caddieBaseURL: URL(string: "https://\(host)")!,
             networkSession: session,
-            onLiveHoleInitialLoadDidFinish: { initialFinished.fulfill() }
+            isSelected: false
         )
-        let loading = Task { @MainActor in await view.loadCurrentHoleForTesting() }
+        let hosted = hostCurrentHole(view)
+        let controller = hosted.controller
+        defer { hosted.window.isHidden = true; hosted.window.rootViewController = nil }
+        controller.rootView.clearHolePrepForTesting()
+        let loading = Task { @MainActor in await controller.rootView.loadCurrentHoleForTesting() }
         defer {
             Task { await gate.release() }
             loading.cancel()
         }
-        await fulfillment(of: [started, initialFinished], timeout: productEventWait)
-        let secondAttempt = Task { @MainActor in await view.retryHoleMapForTesting() }
+        await fulfillment(of: [started], timeout: productEventWait)
+        let secondAttempt = Task { @MainActor in await controller.rootView.retryHoleMapForTesting() }
         _ = await secondAttempt.value
-        XCTAssertFalse(view.mapPreparingSurfaceFailedForTesting(),
+        XCTAssertFalse(controller.rootView.mapPreparingSurfaceFailedForTesting(),
                        "a retry joining an in-flight prep cannot mark the map as failed")
-        XCTAssertEqual(view.liveMapDisplayStateForTesting(), .factual,
+        XCTAssertEqual(controller.rootView.liveMapDisplayStateForTesting(), .factual,
                        "partial route remains actionable while prep is held")
-        let visible = view.displayedGreenRangeYardsForTesting()
+        let visible = controller.rootView.displayedGreenRangeYardsForTesting()
         XCTAssertNotNil(visible.middle, "numeric middle remains visible during prep")
         await gate.release()
         await loading.value
