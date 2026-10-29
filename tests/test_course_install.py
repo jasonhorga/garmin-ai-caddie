@@ -271,10 +271,90 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
                                ready={}, priority=20)
 
     @staticmethod
-    def _event(rid, event_id, *, payload=None):
+    def _event(rid, event_id, *, payload=None, timestamp="2026-10-29T08:00:00Z"):
         return {"schema": "ai-caddie-live-round-event-v1", "eventId": event_id,
-                "roundId": rid, "timestamp": "2026-10-29T08:00:00Z", "hole": 1,
+                "roundId": rid, "timestamp": timestamp, "hole": 1,
                 "kind": "score", "payload": payload or {"strokes": 4}, "clientId": "apple-watch"}
+
+    def _identity(self, rid, gid):
+        from ai_caddie.caddie.mobile_round_identity import save_mobile_round_identity
+
+        save_mobile_round_identity(
+            rid,
+            [{"globalId": gid, "half": "all", "roundStartHole": 1,
+              "sourceStartHole": 1, "holeCount": 9}],
+            f"{gid}:all",
+            [{"number": h, "sourceGlobalId": gid, "sourceLocalHole": h,
+              "courseHoleNumber": h} for h in range(1, 10)],
+            root=self.root,
+            player_id="fixture",
+        )
+
+    def _post_events(self, rid, event_id, *, timestamp, payload=None):
+        from server_v2.models import LiveRoundEventBatchRequest
+
+        body = LiveRoundEventBatchRequest(
+            roundId=rid,
+            events=[self._event(rid, event_id, timestamp=timestamp, payload=payload)],
+        )
+        return self.main.mobile_round_events(rid, body, event_id, acting_player_id="fixture")
+
+    def test_timestamp_n1_courseless_live_round_survives_old_deferred_finish(self):
+        """J4.2 active-round admission: event time beats deferred-finish arrival order."""
+        self._post_events("watch-live", "live-1", timestamp="2026-10-29T10:00:00Z")
+        self._post_events("saved-old", "old-1", timestamp="2026-10-29T09:00:00Z")
+        with patch.object(self.main, "finish_mobile_round_response", return_value=SimpleNamespace()):
+            self.main.mobile_round_finish("saved-old", SimpleNamespace(), acting_player_id="fixture")
+        self.assertIn(("fixture", "watch-live"), self.main._ACTIVE_ROUNDS)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_timestamp_n2_restart_old_upload_cannot_promote_older_round(self):
+        """J4.2 active-round admission: restart recovery orders rounds by event timestamp."""
+        self._background_job(123)
+        self._background_job(456)
+        self._identity("watch-live", 123)
+        self._identity("saved-old", 456)
+        self._post_events("saved-old", "old-1", timestamp="2026-10-29T09:00:00Z")
+        self._post_events("watch-live", "live-1", timestamp="2026-10-29T10:00:00Z")
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+        self.assertEqual(self.priority(123), 10)
+        self.assertEqual(self.priority(456), 20)
+
+    def test_timestamp_n2b_expired_lease_old_upload_cannot_promote_older_round(self):
+        """J4.2 active-round admission: an expired lease still uses client event time."""
+        self.package(123, "watch-live")
+        self._identity("saved-old", 456)
+        base = time.monotonic()
+        with patch.object(self.main.time, "monotonic", return_value=base + 31 * 60):
+            self._post_events("saved-old", "old-1", timestamp="2026-10-29T09:00:00Z")
+            self._post_events("watch-live", "live-1", timestamp="2026-10-29T10:00:00Z")
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+        self.assertEqual(self.priority(123), 10)
+        self.assertEqual(self.priority(456), 20)
+
+    def test_old_event_payload_container_type_error_does_not_turn_event_receipt_into_500(self):
+        """J4.2 active-round recovery skips malformed legacy identity fields after append."""
+        from ai_caddie.caddie.mobile_live import append_event_batch
+        from server_v2.models import LiveRoundEventBatchRequest
+
+        append_event_batch(
+            "legacy-round",
+            [self._event(
+                "legacy-round", "legacy-1", timestamp="2026-10-29T08:00:00Z",
+                payload={"strokes": 4, "holes": 5},
+            )],
+            idempotency_key="legacy-1",
+            root=self.root,
+            player_id="fixture",
+        )
+        body = LiveRoundEventBatchRequest(
+            roundId="legacy-round",
+            events=[self._event("legacy-round", "legacy-2", timestamp="2026-10-29T10:00:00Z")],
+        )
+        result = self.main.mobile_round_events(
+            "legacy-round", body, "legacy-2", acting_player_id="fixture"
+        )
+        self.assertEqual(result.accepted, 1)
 
     def test_events_restore_current_courses_from_accepted_round_log(self):
         from ai_caddie.caddie.mobile_live import append_event_batch
