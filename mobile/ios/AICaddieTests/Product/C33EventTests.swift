@@ -1570,6 +1570,16 @@ final class C33EventTests: XCTestCase {
             XCTAssertEqual(model.sealedFinishRecovery?.hole, 10)
             XCTAssertTrue(model.syncStatus.hasPrefix("结束已暂停 · "))
             XCTAssertTrue(model.syncStatus.contains("第 11 洞"), "B follow-up must preserve B's rejected-hole instruction")
+            // A now has an unacknowledged tail. Its failing HTTP upload overwrites syncStatus
+            // before B's follow-up; B's durable quarantine/finish error must still take priority.
+            try store.appendEvent(LiveRoundEvent(eventId: "a-late-tail", roundId: packageA.roundId,
+                timestamp: "2026-01-01T00:03:00Z", hole: 1, kind: .club,
+                payload: ["clubName": .string("7I")]))
+            model.syncOnForeground()
+            await model.waitForDeferredRoundFinishesForTesting()
+            XCTAssertTrue(model.syncStatus.hasPrefix("结束已暂停 · "))
+            XCTAssertTrue(model.syncStatus.contains("第 11 洞"), "A transport failure must not shorten B's paused finish")
+            XCTAssertEqual(try store.loadPendingEvents(roundId: packageA.roundId).map(\.eventId), ["a-late-tail"])
             let home = self.recoveryHome(model)
             XCTAssertTrue(home.showsInProgressPlayCard)
             XCTAssertEqual(home.removedFinishRejectionAction?.recovery.roundId, packageB.roundId)

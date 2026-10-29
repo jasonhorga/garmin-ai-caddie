@@ -5318,7 +5318,10 @@ public final class LiveRoundAppModel: ObservableObject {
     ) async {
         // The upload badge can change to syncing/retry, but a blocked finish keeps its actionable
         // rejected-hole status until that quarantine is actually resolved.
-        let preservesRejection = preservingFinishRejection ?? syncStatus.hasPrefix("结束已暂停 · ")
+        // A different sealed round's transport failure can temporarily replace syncStatus before
+        // this live follow-up starts. Its unresolved finish error still owns the instruction.
+        let preservesRejection = preservingFinishRejection
+            ?? (finishErrorMessage != nil || syncStatus.hasPrefix("结束已暂停 · "))
         func finishStatus(or fallback: String) -> String {
             guard preservesRejection, let roundId = package?.roundId,
                   let rejected = try? preferredQuarantineRecord(roundId: roundId) else { return fallback }

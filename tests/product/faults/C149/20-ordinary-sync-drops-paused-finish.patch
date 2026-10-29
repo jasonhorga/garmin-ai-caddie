@@ -1,10 +1,11 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -5318,7 +5318,7 @@
-     ) async {
-         // The upload badge can change to syncing/retry, but a blocked finish keeps its actionable
+@@ -5320,8 +5320,7 @@
          // rejected-hole status until that quarantine is actually resolved.
--        let preservesRejection = preservingFinishRejection ?? syncStatus.hasPrefix("结束已暂停 · ")
+         // A different sealed round's transport failure can temporarily replace syncStatus before
+         // this live follow-up starts. Its unresolved finish error still owns the instruction.
+-        let preservesRejection = preservingFinishRejection
+-            ?? (finishErrorMessage != nil || syncStatus.hasPrefix("结束已暂停 · "))
 +        let preservesRejection = preservingFinishRejection ?? false
          func finishStatus(or fallback: String) -> String {
              guard preservesRejection, let roundId = package?.roundId,
