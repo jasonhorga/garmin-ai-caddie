@@ -25,9 +25,9 @@ public enum LiveCaddieDistance {
         return nil
     }
 
-    /// The live view's opening-shot planning source. Before the first shot (or when the fix is
-    /// explicitly off-hole), manual input may win but a GPS middle distance never replaces the
-    /// selected Tee's static prep middle. This is shared with product tests and request builders.
+    /// The live view's opening-shot planning source. Before the first shot, a fix still at the
+    /// selected Tee uses the static prep middle; once the fix has left that Tee, GPS becomes live.
+    /// Manual input remains authoritative. This is shared with product tests and request builders.
     public static func planningDistance(
         recordedShotCount: Int,
         isTeeShotOffTheHole: Bool,
