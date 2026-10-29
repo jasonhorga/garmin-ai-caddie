@@ -597,31 +597,71 @@ final class RoundStartTwoStageTests: XCTestCase {
 
     /// J4.2: Save & End keeps the current course's whole-course download alive until its request ends.
     func testFinishKeepsWholeCourseDownloadRunning() async throws {
-        let (fixture, package, held) = try await startRoundWithHeldBackgroundWork(
-            host: "c90-finish-offline.example.test", roundId: "c90-finish-offline"
+        // OfflineStore intentionally skips fixture-mode packages and partial physical courses.
+        // Model a complete nine-hole course so this test can observe the installer's durable write.
+        let roundPackage = try package(
+            roundId: "c90-finish-offline", mapOnly: false,
+            garminRasterVersion: "c90-r6", standalone: true
         )
+        let prepData = try offlinePrepResponseData(for: roundPackage)
+        let installData = installStatusResponseData(for: roundPackage)
+        do {
+            // These are the same DTOs/JSONDecoder calls used by SyncClient's response readers.
+            let prep = try JSONDecoder().decode(CoursePrepResponse.self, from: prepData)
+            let install = try JSONDecoder().decode(CourseInstallStatus.self, from: installData)
+            XCTAssertEqual(prep.holes.count, roundPackage.holes.count)
+            XCTAssertEqual(install.holes.count, roundPackage.holes.count)
+        } catch {
+            XCTFail("whole-course fixture failed product response decoding: \(error)")
+            throw error
+        }
+        let (fixture, package, held) = try await startRoundWithHeldBackgroundWork(
+            host: "c90-finish-offline.example.test", roundId: "c90-finish-offline",
+            roundPackage: roundPackage
+        )
+        XCTAssertNil(package.coursePrep, "ready prep must come from the released download")
+        XCTAssertNil(try fixture.store.loadCourseTemplate(globalId: c85CourseId, teeBox: "blue")?.coursePrep)
         let result = await fixture.model.finishActiveRound()
         XCTAssertTrue(result)
         XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
-        let prepData = try offlinePrepResponseData(for: package)
-        let installData = installStatusResponseData(for: package)
+        let responses = C90ResponseLog()
+        let diagnostics = {
+            "ownership=\(String(describing: fixture.model.offlineCourseDownloadRoundIdForTesting)) "
+                + "interrupted=\(String(describing: fixture.model.interruptedOfflineCourseDownloadRoundIdForTesting)) "
+                + "dataMode=\(package.dataMode) loopKey=\(package.loopKey) "
+                + "syncStatus=\(fixture.model.syncStatus) requests=\(responses.all)"
+        }
         held.releaseAllAndReplyFuture { request in
+            let response: (status: Int, data: Data)
+            let usedDefault: Bool
             switch request.url?.path {
             case "/api/v2/courses/\(c85CourseId)/install/status":
-                return (200, installData)
+                response = (200, installData)
+                usedDefault = false
             case "/api/v2/courses/\(c85CourseId)/prep":
-                return (200, prepData)
+                response = (200, prepData)
+                usedDefault = false
             case let path where path?.hasSuffix("/topo.png") == true:
-                return (200, validOnePixelPNGData())
+                response = (200, validOnePixelPNGData())
+                usedDefault = false
             default:
-                return (404, Data())
+                response = (404, Data())
+                usedDefault = true
             }
+            responses.append(request, status: response.status, usedDefault: usedDefault)
+            return response
         }
-        try await waitForOfflineCourseDownloadWithin(fixture.model)
+        do {
+            try await waitForOfflineCourseDownloadWithin(fixture.model)
+        } catch {
+            XCTFail("whole-course download exceeded its 3-second wait: \(error); \(diagnostics())")
+            throw error
+        }
         XCTAssertNil(fixture.model.offlineCourseDownloadRoundIdForTesting)
-        let template = try XCTUnwrap(
-            try fixture.store.loadCourseTemplate(globalId: c85CourseId, teeBox: "blue")
-        )
+        guard let template = try fixture.store.loadCourseTemplate(globalId: c85CourseId, teeBox: "blue") else {
+            XCTFail("missing whole-course template (globalId=\(c85CourseId), teeBox=blue); \(diagnostics())")
+            return
+        }
         XCTAssertEqual(template.coursePrep?.holes.count, package.holes.count)
         XCTAssertTrue(template.coursePrep?.holes.allSatisfy {
             $0.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
@@ -736,9 +776,10 @@ final class RoundStartTwoStageTests: XCTestCase {
     private func startRoundWithHeldBackgroundWork(
         host: String,
         roundId: String,
-        rasterGate: C90RequestGate? = nil
+        rasterGate: C90RequestGate? = nil,
+        roundPackage: LiveRoundPackage? = nil
     ) async throws -> (fixture: ModelFixture, package: LiveRoundPackage, held: C85HeldRequests) {
-        let package = try package(roundId: roundId, mapOnly: false, garminRasterVersion: "c90-r6")
+        let package = try roundPackage ?? package(roundId: roundId, mapOnly: false, garminRasterVersion: "c90-r6")
         let data = try JSONEncoder().encode(package)
         let held = C85HeldRequests()
         let prepPath = "/api/v2/courses/\(c85CourseId)/prep"
@@ -805,19 +846,15 @@ final class RoundStartTwoStageTests: XCTestCase {
 
     private func waitForOfflineCourseDownloadWithin(
         _ model: LiveRoundAppModel,
-        timeoutNanoseconds: UInt64 = 3_000_000_000
+        timeout: TimeInterval = 3
     ) async throws {
         enum Timeout: Error { case exceeded }
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
-                await model.waitForOfflineCourseDownloadForTesting()
-            }
-            group.addTask {
-                try await Task.sleep(nanoseconds: timeoutNanoseconds)
-                throw Timeout.exceeded
-            }
-            defer { group.cancelAll() }
-            try await group.next()
+        // A task-group race still joins its losing child: awaiting an unstructured model task's
+        // value ignores that child's cancellation. Poll the completion marker with a real deadline.
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while model.offlineCourseDownloadRoundIdForTesting != nil {
+            guard ProcessInfo.processInfo.systemUptime < deadline else { throw Timeout.exceeded }
+            try await Task.sleep(nanoseconds: 10_000_000)
         }
     }
 
@@ -932,6 +969,24 @@ private final class C85RequestLog {
     var all: [URLRequest] {
         lock.lock(); defer { lock.unlock() }
         return requests
+    }
+}
+
+/// Responder evidence survives URLProtocol callbacks on different queues, including fallback 404s.
+private final class C90ResponseLog {
+    private let lock = NSLock()
+    private var entries: [String] = []
+
+    func append(_ request: URLRequest, status: Int, usedDefault: Bool) {
+        let url = request.url
+        let pathAndQuery = (url?.path ?? "<missing URL>") + (url?.query.map { "?\($0)" } ?? "")
+        let entry = "\(request.httpMethod ?? "GET") \(pathAndQuery) -> \(status)\(usedDefault ? " (default)" : "")"
+        lock.lock(); entries.append(entry); lock.unlock()
+    }
+
+    var all: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return entries
     }
 }
 
