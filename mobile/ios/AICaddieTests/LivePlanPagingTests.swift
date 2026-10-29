@@ -2,8 +2,8 @@ import CoreLocation
 import XCTest
 @testable import AICaddie
 
-/// 打法 pager on the live hole (2026-10-10 field report: "1/3" and "2/3" but never "3/3"), and the
-/// tee shot planned from the tee rather than from a player still walking up to it.
+/// J5.11 live-hole recommendation: one authoritative route, with the tee shot planned from the
+/// tee rather than from a player still walking up to it.
 @MainActor
 final class LivePlanPagingTests: XCTestCase {
     private func route(_ id: String, _ clubs: [(String, Double)]) -> CaddiePlanSequence {
@@ -32,45 +32,78 @@ final class LivePlanPagingTests: XCTestCase {
     private lazy var safe = route("safe", [("3W", 160), ("8I", 125)])
     private lazy var layup = route("layup", [("3H", 150), ("7I", 130), ("54", 45)])
 
-    /// Selecting a route already shown keeps every route's place.
-    func testSelectingALaterRouteKeepsThePagerOrder() {
-        let shown = [driver, safe, layup]
-        let merged = LiveCaddieRouteAuthority.mergedRoutes(first: safe, existing: shown, incoming: shown)
-        XCTAssertEqual(merged.map(\.id), ["installed-course-plan", "safe", "layup"])
+    private func decision(selected route: CaddiePlanSequence?) -> CaddieDecisionResponse {
+        let rows = route.map { route in
+            [[String: JSONValue](dictionaryLiteral:
+                ("id", .string(route.id)),
+                ("label", .string(route.label)),
+                ("clubs", .array(route.steps.map { step in
+                    .object([
+                        "clubName": .string(step.clubName),
+                        "role": .string(step.role),
+                        "targetCarry_m": step.targetCarryM.map(JSONValue.number) ?? .null,
+                        "routeOffset_m": step.routeOffsetM.map(JSONValue.number) ?? .null,
+                    ])
+                }))
+            )]
+        } ?? []
+        return CaddieDecisionResponse(
+            schema: "ai-caddie-decision-v2", decisionId: nil, sourceRef: nil,
+            evidenceRefs: nil, shotType: "tee", phase: "Tee", context: [:],
+            options: [], selected: nil, selectedOptionId: route?.id, selectedOption: nil,
+            sequences: rows, selectedSequence: rows.first,
+            avoidZones: [], forbiddenZones: [], acceptableMiss: [:], evidence: [], confidence: [:],
+            missingData: [], auditCriteria: []
+        )
     }
 
-    /// Paging the way the live view does (select next, reconcile with the explicit selection
-    /// leading) reaches every route and comes back round. Moving the selection to the front
-    /// alternated between the first two and never reached the third.
-    func testPagingReachesEveryRoute() {
-        var routes = [driver, safe, layup]
-        var selected = LiveCaddieRouteAuthority.routeSignature(driver)
-        var visited: [String] = []
-        for _ in 0..<3 {
-            let index = routes.firstIndex { LiveCaddieRouteAuthority.routeSignature($0) == selected } ?? 0
-            let next = routes[(index + 1) % routes.count]
-            selected = LiveCaddieRouteAuthority.routeSignature(next)
-            let first = LiveCaddieRouteAuthority.leadingRoute(
-                incoming: routes, existing: routes, installed: driver, retained: driver,
-                explicitSelectionKey: selected
-            )
-            routes = LiveCaddieRouteAuthority.mergedRoutes(first: first, existing: routes, incoming: routes)
-            let position = routes.firstIndex { LiveCaddieRouteAuthority.routeSignature($0) == selected }
-            visited.append("\((position ?? -1) + 1)/\(routes.count)")
-        }
-        XCTAssertEqual(visited, ["2/3", "3/3", "1/3"])
+    /// J5.11: a non-empty online selectedSequence is the only visible recommendation.
+    func testOnlineSelectedSequenceReplacesInstalledAndOfflineRoutes() {
+        let routes = LiveCaddieRouteAuthority.resolve(
+            installed: driver,
+            online: decision(selected: safe),
+            offline: decision(selected: layup),
+            par: 4,
+            shotType: "tee"
+        )
+        XCTAssertEqual(routes.map(\.id), ["safe"])
     }
 
-    /// A new leading route (a fresh hole, or a route not shown before) still comes first.
-    func testANewLeadingRouteStillComesFirst() {
-        XCTAssertEqual(
-            LiveCaddieRouteAuthority.mergedRoutes(first: safe, existing: [], incoming: [driver, safe]).map(\.id),
-            ["safe", "installed-course-plan"]
+    /// J5.11: an empty online response falls through to the installed CoursePrep chain.
+    func testInstalledRouteIsTheOnlyFallbackWhenOnlineIsEmpty() {
+        let routes = LiveCaddieRouteAuthority.resolve(
+            installed: driver,
+            online: decision(selected: nil),
+            offline: decision(selected: layup),
+            par: 4,
+            shotType: "tee"
         )
-        XCTAssertEqual(
-            LiveCaddieRouteAuthority.mergedRoutes(first: layup, existing: [driver], incoming: [layup, safe]).map(\.id),
-            ["layup", "installed-course-plan", "safe"]
+        XCTAssertEqual(routes.map(\.id), ["installed-course-plan"])
+    }
+
+    /// J5.11: when both authoritative sources are empty, local evaluation supplies one route.
+    func testLocalRouteIsTheOnlyFinalFallback() {
+        let routes = LiveCaddieRouteAuthority.resolve(
+            installed: nil,
+            online: decision(selected: nil),
+            offline: decision(selected: layup),
+            par: 4,
+            shotType: "tee"
         )
+        XCTAssertEqual(routes.map(\.id), ["layup"])
+    }
+
+    /// Refreshing the same hole replaces the route in place and never recreates a pager.
+    func testRefreshingARecommendationNeverAccumulatesRoutes() {
+        let first = LiveCaddieRouteAuthority.reconciled(
+            incoming: [driver], existing: [], installed: driver, retained: nil,
+            explicitSelectionKey: nil, vetoInstalled: false
+        )
+        let second = LiveCaddieRouteAuthority.reconciled(
+            incoming: [safe], existing: first?.merged ?? [], installed: driver,
+            retained: first?.first, explicitSelectionKey: nil, vetoInstalled: false
+        )
+        XCTAssertEqual(second?.merged.map(\.id), ["safe"])
     }
 
     /// Before the tee shot the caddie plans from the tee while the player is off the hole: a player
