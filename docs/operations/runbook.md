@@ -48,8 +48,12 @@ kept on persistent storage instead of inside the image.
 ### Failure and restart behavior
 
 The Compose API uses a bounded `on-failure:3` policy and Postgres uses
-`on-failure:5`; neither service is allowed to retry forever. The API entrypoint
-waits for a PostgreSQL readiness probe before running migrations, serializes
+`on-failure:5`; neither service is allowed to retry forever. The homeserver
+release containers follow the same bound: only the live release is
+`on-failure:3`, all other release containers are `no` (see "agenthub executor
+deploy" below). The API entrypoint
+waits for a PostgreSQL readiness probe (12 probes 5 s apart, about 60 s, set by
+`AI_CADDIE_DB_READY_ATTEMPTS`/`AI_CADDIE_DB_READY_DELAY_SECONDS`, then exit 1) before running migrations, serializes
 schema/identity initialization with a lock on the private volume, and applies a
 bounded migration timeout. This matters after a database outage or host reboot:
 starting a broken dependency must produce a stopped, inspectable container rather
@@ -286,9 +290,14 @@ ops/agenthub_deploy.py rollback <40-lowercase-hex-sha>
    a private tmpfs directory immediately before `docker run` and deleted right
    after it. The switch is refused if less time is left before
    `AICADDIE_DEPLOY_DEADLINE_SECONDS` than a switch plus a restore can take.
-5. Before each switch, all `aicaddie-release-*` containers (running or stopped)
-   are normalized with `docker update --restart=no`. The current container is
-   stopped with `docker stop --time 30`, then `<prefix><sha8>` starts with
+5. Before each switch, restart policies are normalized: the current container
+   gets `docker update --restart=on-failure:3`, every other
+   `aicaddie-release-*` container (running or stopped) `--restart=no`. Only the
+   live release may restart on its own: a crash of the running API is retried
+   up to three times, but Docker also starts a *stopped* on-failure container
+   when the daemon restarts, so a replaced release left on-failure would come
+   back and race for the port (C13). The current container is set to `no` and
+   then stopped with `docker stop --time 30`, then `<prefix><sha8>` starts with
    `--init`, `--restart no`, capped json-file
    logs, `--pull never`, the revision label, the same network, CPU/memory limits (defaults
    when the old container had none), `127.0.0.1:<port>:9000` and the private
@@ -314,7 +323,11 @@ ops/agenthub_deploy.py rollback <40-lowercase-hex-sha>
 9. After health and every post-switch gate succeeds, the selected revision is
    atomically recorded (0600, temporary file plus rename) at
    `AICADDIE_DEPLOY_RELEASE_STATE`. Failed switches leave the previous record
-   unchanged. Still under the lock, keeps the newest `AICADDIE_DEPLOY_KEEP_STOPPED` stopped
+   unchanged. Only after the record (and the cleanup below) is the new release
+   switched to `--restart=on-failure:3`, so a release that fails its checks is
+   always stopped as `no`. A restored previous release is switched back to
+   `on-failure:3` once it is healthy again.
+   Still under the lock, keeps the newest `AICADDIE_DEPLOY_KEEP_STOPPED` stopped
    prefix containers, removes older ones with `docker rm -v`, and removes
    their `garmin-ai-caddie-api`/`aicaddie-sync` image tags only when no
    remaining container (of any name) uses the image or its revision and the
@@ -330,11 +343,13 @@ ops/agenthub_deploy.py rollback <40-lowercase-hex-sha>
 
 `rollback <sha>` picks the most recently stopped prefix container labelled
 `<sha>`, requires its layout and port to match and `aicaddie-sync:<sha>` to
-exist, takes the sync lock, normalizes release restart policies, stops the
-current container, repairs the target's configured network attachment when
-needed, starts the target and waits for health. A successful rollback writes
-the same release record. On failure it stops the target and restarts the
-previous container (repairing its network first). It never builds and never
+exist, takes the sync lock, normalizes release restart policies (current
+`on-failure:3`, others `no`), sets the current container to `no` and stops it,
+repairs the target's configured network attachment when needed, starts the
+target and waits for health. A successful rollback writes the same release
+record and then switches the target to `on-failure:3`. On failure it stops the
+target (still `no`) and restarts the previous container (repairing its network
+first), which is switched back to `on-failure:3` once healthy. It never builds and never
 removes anything.
 
 A run killed with `SIGKILL` mid-switch cannot restore anything. If the new
@@ -425,7 +440,12 @@ started first, repairs a missing configured network attachment, and starts the
 recorded container. If the record is missing, unreadable, or its container is
 missing/invalid, it logs the fallback and uses the existing newest-stopped
 selection. Recovery waits for the Docker daemon, the database, and the sync lock
-before starting a stopped API. If `HOME` is unavailable or the default path
+before starting a stopped API. At boot Docker itself may already have started
+the live release (it is `on-failure:3`); `up` then keeps it running, does not
+start it again, and only corrects restart policies (selected release
+`on-failure:3`, every other release `no`, the replaced one before it is
+stopped). If the database came up too late and the release used up its three
+restarts, `up` starts it once the database is healthy. If `HOME` is unavailable or the default path
 cannot be written, deploy and rollback log the condition and continue; `up`
 uses the legacy selection.
 Read the boot recovery log with:
