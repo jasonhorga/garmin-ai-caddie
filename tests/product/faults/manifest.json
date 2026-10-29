@@ -1759,6 +1759,13 @@
       "promise": "5e"
     },
     {
+      "id": "tests-product-faults-C134-5e-prep-asset-status",
+      "patch": "tests/product/faults/C134/5e-prep-asset-status.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testPrepStatusProbeFailsThreeTimesThenCanRetryAndClearFailure",
+      "promise": "5e-asset-status"
+    },
+    {
       "id": "tests-product-faults-C134-5f-progress-source",
       "patch": "tests/product/faults/C134/5f-progress-reset.patch",
       "kind": "native-unit",

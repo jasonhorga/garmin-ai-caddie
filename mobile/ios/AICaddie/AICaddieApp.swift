@@ -2858,6 +2858,16 @@ public final class LiveRoundAppModel: ObservableObject {
         finishRoundPreparation(token)
     }
 
+    var prepQueueDebugSummaryForTesting: String {
+        let rows = prepCourseDownloads.map {
+            "\($0.id):\($0.phase.rawValue):intent=\($0.isIntentPrefetch)"
+        }.joined(separator: ",")
+        let active = activePrepCourseDownloadID ?? "-"
+        let worker = prepCourseDownloadTask == nil ? "none" : "present"
+        let intents = intentPrefetchTasks.keys.sorted().joined(separator: ",")
+        return "active=\(active) worker=\(worker) intents=[\(intents)] rows=[\(rows)]"
+    }
+
     func cancelPrepCourseDownloadForTesting() async {
         let task = prepCourseDownloadTask
         pausePrepCourseDownload()
@@ -3625,7 +3635,9 @@ public final class LiveRoundAppModel: ObservableObject {
             serverGeometryReadyKeys = geometryKeys
             serverTopoReadyKeys = topoKeys
         }
-        await refreshServerInstallStatus()
+        if prepDownloadID == nil {
+            await refreshServerInstallStatus()
+        }
         // A lightweight package deliberately embeds the first hole as a fast partial seed even
         // when that hole's Garmin geometry is already installed. The authoritative per-hole
         // revision on `snapshot.holes` is the stronger readiness fact. Promote those keys before
@@ -3760,7 +3772,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
             }
             guard !unresolvedByGlobalId.isEmpty, attempt < retryDelays.count else { break }
-            await refreshServerInstallStatus()
+            if prepDownloadID == nil {
+                await refreshServerInstallStatus()
+            }
             do {
                 try await Task.sleep(nanoseconds: retryDelays[attempt])
             } catch {
@@ -3831,7 +3845,7 @@ public final class LiveRoundAppModel: ObservableObject {
             : retryDelays
         for attempt in 0...topoRetryDelays.count {
             guard !Task.isCancelled else { return false }
-            if prepDownloadID != nil {
+            if prepDownloadID == nil {
                 await refreshServerInstallStatus()
             }
             let missingTopoHoles = snapshot.holes.compactMap { roundHole -> (globalId: Int, localHole: Int, geometryRevision: String?)? in

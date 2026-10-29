@@ -1,0 +1,13 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -3373,9 +3373,7 @@
+             serverGeometryReadyKeys = geometryKeys
+             serverTopoReadyKeys = topoKeys
+         }
+-        if prepDownloadID == nil {
+-            await refreshServerInstallStatus()
+-        }
++        await refreshServerInstallStatus()
+         // A lightweight package deliberately embeds the first hole as a fast partial seed even
+         // when that hole's Garmin geometry is already installed. The authoritative per-hole
+         // revision on `snapshot.holes` is the stronger readiness fact. Promote those keys before

@@ -1,19 +1,52 @@
+import Foundation
 @testable import AICaddie
 import XCTest
 
 /// Every package request (`loops=` and `tee_box=`), in order (filled from the URLProtocol thread).
 private final class LoopRequests: @unchecked Sendable {
     private let lock = NSLock()
-    private var entries: [(loops: String, tee: String, mapOnly: String?)] = []
+    private var entries: [(
+        path: String, query: String, loops: String, tee: String, mapOnly: String?, status: Int?
+    )] = []
     func append(loops: String, tee: String, mapOnly: String? = nil) {
-        lock.withLock { entries.append((loops, tee, mapOnly)) }
+        lock.withLock {
+            entries.append(("/api/v2/mobile/courses/.../package", "", loops, tee, mapOnly, nil))
+        }
     }
-    var mapOnlyValues: [String?] { lock.withLock { entries.map(\.mapOnly) } }
-    var all: [String] { lock.withLock { entries.map(\.loops) } }
+    func append(request: URLRequest, status: Int) {
+        let url = request.url
+        let components = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        let query = components?.queryItems?.map {
+            "\($0.name)=\($0.value ?? "")"
+        }.joined(separator: "&") ?? ""
+        let loops = components?.queryItems?.first { $0.name == "loops" }?.value ?? ""
+        let tee = components?.queryItems?.first { $0.name == "tee_box" }?.value ?? ""
+        let mapOnly = components?.queryItems?.first { $0.name == "map_only" }?.value
+        lock.withLock {
+            entries.append((url?.path ?? "<nil>", query, loops, tee, mapOnly, status))
+        }
+    }
+    var mapOnlyValues: [String?] {
+        lock.withLock { entries.filter { $0.path.hasSuffix("/package") }.map(\.mapOnly) }
+    }
+    var all: [String] {
+        lock.withLock { entries.filter { $0.path.hasSuffix("/package") }.map(\.loops) }
+    }
     func contains(loops: String, tee: String) -> Bool {
-        lock.withLock { entries.contains { $0.loops == loops && $0.tee == tee } }
+        lock.withLock {
+            entries.contains { $0.path.hasSuffix("/package") && $0.loops == loops && $0.tee == tee }
+        }
     }
-    func contains(tee: String) -> Bool { lock.withLock { entries.contains { $0.tee == tee } } }
+    func contains(tee: String) -> Bool {
+        lock.withLock { entries.contains { $0.path.hasSuffix("/package") && $0.tee == tee } }
+    }
+    var diagnosticSummary: String {
+        lock.withLock {
+            entries.map {
+                "path=\($0.path) query=\($0.query) status=\($0.status.map { String($0) } ?? "?") map_only=\($0.mapOnly ?? "full")"
+            }.joined(separator: " | ")
+        }
+    }
 
     func waitFor(loops: String? = nil, tee: String? = nil) async -> Bool {
         for _ in 0..<500 {
@@ -152,21 +185,23 @@ final class TemplateAcquisitionTests: XCTestCase {
         protocolScope = CapturingURLProtocolScope { request in
             let url = try XCTUnwrap(request.url)
             guard url.path == "/api/v2/mobile/courses/\(gid)/package" else {
+                requests.append(request: request, status: 404)
                 return try Self.response(request, status: 404, body: Data(#"{"detail":"not found"}"#.utf8))
             }
             let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
             let loops = queryItems.first { $0.name == "loops" }?.value ?? ""
-            let tee = queryItems.first { $0.name == "tee_box" }?.value ?? ""
-            requests.append(loops: loops, tee: tee, mapOnly: queryItems.first { $0.name == "map_only" }?.value)
             guard let body = oracle.responses[loops] else {
+                requests.append(request: request, status: 422)
                 return try Self.response(request, status: 422, body: Data(#"{"detail":"loops"}"#.utf8))
             }
             guard let requestedRoundId = queryItems.first(where: { $0.name == "round_id" })?.value,
                   !requestedRoundId.isEmpty else {
+                requests.append(request: request, status: 200)
                 return try Self.response(request, status: 200, body: body)
             }
             var object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
             object["roundId"] = requestedRoundId
+            requests.append(request: request, status: 200)
             return try Self.response(request, status: 200, body: try JSONSerialization.data(withJSONObject: object))
         }
     }
@@ -681,12 +716,25 @@ final class TemplateAcquisitionTests: XCTestCase {
         model.liveHoleInitialLoadDidFinish()
         await settleDownloads(model)
         XCTAssertTrue(requests.mapOnlyValues.contains("true"), "the opening request is map-only")
+        if !requests.mapOnlyValues.contains(nil) {
+            XCTFail(
+                "missing full package; requests=\(requests.diagnosticSummary) "
+                    + "queue=\(model.prepQueueDebugSummaryForTesting)"
+            )
+        }
         XCTAssertTrue(requests.mapOnlyValues.contains(nil), "the same selection must later request the full package")
         XCTAssertEqual(requests.mapOnlyValues.filter { $0 == "true" }.count, 1)
         let row = try XCTUnwrap(model.prepCourseDownloads.first { !$0.isIntentPrefetch && $0.course.globalId == gid })
         XCTAssertFalse(row.isIntentPrefetch)
         XCTAssertNotEqual(row.phase, .ready, "this oracle has no per-hole prep/topo responses")
-        XCTAssertTrue(try XCTUnwrap(model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white")).isWholeCourseTemplate)
+        let template = model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white")
+        if template == nil {
+            XCTFail(
+                "missing whole-course template; requests=\(requests.diagnosticSummary) "
+                    + "queue=\(model.prepQueueDebugSummaryForTesting)"
+            )
+        }
+        XCTAssertTrue(template?.isWholeCourseTemplate == true)
     }
 
     /// C134/挡3: a user download gets its own full-course row while the selected-course map intent
@@ -717,8 +765,10 @@ final class TemplateAcquisitionTests: XCTestCase {
                 if fullStartedOnce.claim() { fullStarted.fulfill() }
             }
             guard let body = oracle.responses[loops] else {
+                requests.append(request: request, status: 404)
                 return try Self.response(request, status: 404, body: Data())
             }
+            requests.append(request: request, status: 200)
             return try Self.response(request, status: 200, body: body)
         }
         let model = acquisitionModel(
@@ -738,7 +788,14 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(lock.withLock { full }, 1)
         let row = try XCTUnwrap(model.prepCourseDownloads.first { !$0.isIntentPrefetch && $0.course.globalId == gid })
         XCTAssertNotEqual(row.phase, .ready, "this oracle has no per-hole prep/topo responses")
-        XCTAssertTrue(try XCTUnwrap(model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white")).isWholeCourseTemplate)
+        let template = model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white")
+        if template == nil {
+            XCTFail(
+                "missing whole-course template; requests=\(requests.diagnosticSummary) "
+                    + "queue=\(model.prepQueueDebugSummaryForTesting)"
+            )
+        }
+        XCTAssertTrue(template?.isWholeCourseTemplate == true)
     }
 
     /// Tapping through the list: a newer intent drops the older one's unfinished row, so only the
