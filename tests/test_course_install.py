@@ -126,6 +126,9 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
 
         self.main, self.ci = main, ci
         directory = self.enterContext(TemporaryDirectory())
+        self.root = Path(directory)
+        from server_v2 import mobile
+        self.enterContext(patch.object(mobile, "MOBILE_ROOT", self.root))
         self.enterContext(patch.dict(os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}))
         self.enterContext(patch.object(main, "_ACTIVE_ROUNDS", {}))
         self.enterContext(patch.object(main, "_ACTIVE_COURSES", {}))
@@ -206,18 +209,111 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self.assertEqual(job["phase"], "ready")
         self.assertEqual(self.priority(123), 20)
 
-    def test_new_events_move_latest_round_but_finish_does_not_revive_older_play(self):
+    def test_late_events_keep_latest_round_and_finish_does_not_revive_older_play(self):
         self.package(123, "live-a")
         self.package(999, "live-b")
         with patch.object(self.main, "append_mobile_events_response", return_value=SimpleNamespace()):
             self.main.mobile_round_events("live-a", SimpleNamespace(events=[{}]), "fixture-key",
                                           acting_player_id="fixture")
-        self.assertEqual(self.priority(123), 10)
-        self.assertEqual(self.priority(999), 20)
-        self.main._record_round_activity("fixture", "live-a", finished=True)
+        self.assertEqual(self.priority(123), 20)
+        self.assertEqual(self.priority(999), 10)
+        self.main._record_round_activity("fixture", "live-b", finished=True)
         self.assertFalse(self.main._ACTIVE_ROUNDS)
         self.assertEqual(self.priority(123), 20)
         self.assertEqual(self.priority(999), 20)
+
+    def test_watch_sibling_template_cannot_replace_or_renew_playing_round(self):
+        self.package(123, "8F2C-live-uuid")
+        registered = dict(self.main._ACTIVE_ROUNDS)
+        self.package(456, "watch-template-456-AB12")  # Watch: background=true, cursor default=true.
+        self.assertEqual(self.priority(123), 10)
+        self.assertEqual(self.priority(456), 20)
+        self.assertEqual(self.main._ACTIVE_ROUNDS, registered)
+        self.package(123, "8F2C-live-uuid")  # The active upgrade poll stays selected.
+        self.assertEqual(self.priority(123), 10)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_late_unregistered_event_upload_keeps_bound_current_round(self):
+        self.package(999, "live-b")
+        with patch.object(self.main, "append_mobile_events_response", return_value=SimpleNamespace()):
+            self.main.mobile_round_events("old-round-a", SimpleNamespace(events=[{}]), "old-upload",
+                                          acting_player_id="fixture")
+        self.assertEqual(self.priority(999), 10)
+        self.assertEqual(self.main._current_course_ids("fixture"), (999,))
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_watch_deferred_events_then_finish_cannot_remove_later_play(self):
+        self.package(999, "live-b")
+        with (patch.object(self.main, "append_mobile_events_response", return_value=SimpleNamespace()),
+              patch.object(self.main, "finish_mobile_round_response", return_value=SimpleNamespace())):
+            self.main.mobile_round_events("saved-old-a", SimpleNamespace(events=[{}]), "old-upload",
+                                          acting_player_id="fixture")
+            self.main.mobile_round_finish("saved-old-a", SimpleNamespace(), acting_player_id="fixture")
+        self.assertIn(("fixture", "live-b"), self.main._ACTIVE_ROUNDS)
+        self.assertEqual(self.priority(999), 10)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_finish_earlier_registered_round_preserves_later_round(self):
+        self.package(123, "live-a")
+        self.package(999, "live-b")
+        with (patch.object(self.main, "append_mobile_events_response", return_value=SimpleNamespace()),
+              patch.object(self.main, "finish_mobile_round_response", return_value=SimpleNamespace())):
+            self.main.mobile_round_events("live-a", SimpleNamespace(events=[{}]), "old-upload",
+                                          acting_player_id="fixture")
+            self.main.mobile_round_finish("live-a", SimpleNamespace(), acting_player_id="fixture")
+        self.assertNotIn(("fixture", "live-a"), self.main._ACTIVE_ROUNDS)
+        self.assertEqual(self.priority(999), 10)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def _background_job(self, gid):
+        return self.ci.enqueue(global_id=gid, tee_box="blue", loop_key=f"{gid}:all", player_id="fixture",
+                               refs=[{"globalId": gid, "localHole": 1}], requested={gid: [1]},
+                               ready={}, priority=20)
+
+    @staticmethod
+    def _event(rid, event_id, *, payload=None):
+        return {"schema": "ai-caddie-live-round-event-v1", "eventId": event_id,
+                "roundId": rid, "timestamp": "2026-10-29T08:00:00Z", "hole": 1,
+                "kind": "score", "payload": payload or {"strokes": 4}, "clientId": "apple-watch"}
+
+    def test_events_restore_current_courses_from_accepted_round_log(self):
+        from ai_caddie.caddie.mobile_live import append_event_batch
+        from server_v2.models import LiveRoundEventBatchRequest
+
+        self._background_job(123)
+        append_event_batch("live-a", [self._event("live-a", "first", payload={"strokes": 4, "courseGlobalId": 123})],
+                           idempotency_key="first", root=self.root, player_id="fixture")
+        body = LiveRoundEventBatchRequest(roundId="live-a", events=[self._event("live-a", "second")])
+        self.main.mobile_round_events("live-a", body, "second", acting_player_id="fixture")
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+        self.assertEqual(self.priority(123), 10)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_watch_events_restore_courses_from_durable_package_identity(self):
+        from ai_caddie.caddie.mobile_round_identity import save_mobile_round_identity
+        from server_v2.models import LiveRoundEventBatchRequest
+
+        self._background_job(123)
+        save_mobile_round_identity("watch-live", [{"globalId": 123, "half": "all", "roundStartHole": 1,
+                                    "sourceStartHole": 1, "holeCount": 9}], "123:all",
+                                   [{"number": h, "sourceGlobalId": 123, "sourceLocalHole": h,
+                                     "courseHoleNumber": h} for h in range(1, 10)],
+                                   root=self.root, player_id="fixture")
+        body = LiveRoundEventBatchRequest(roundId="watch-live", events=[self._event("watch-live", "first")])
+        self.main.mobile_round_events("watch-live", body, "first", acting_player_id="fixture")
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+        self.assertEqual(self.priority(123), 10)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_round_package_restores_all_source_courses_without_empty_latest(self):
+        self._background_job(123)
+        package = SimpleNamespace(course={"globalId": 123}, roundLoops=[{"globalId": 123}, {"globalId": 456}],
+                                  holes=[{"sourceGlobalId": 123}, {"sourceGlobalId": 456}], eventCursor={})
+        with patch.object(self.main, "build_mobile_round_package_response", return_value=package):
+            self.main.mobile_round_package("live-a", player_id="fixture")
+        self.assertEqual(set(self.main._current_course_ids("fixture")), {123, 456})
+        self.assertEqual(self.priority(123), 10)
+        self.assertTrue(self.main.nearby_work_blocked())
 
     def test_current_course_is_scoped_to_player_on_resume(self):
         self.package(123, "live-a", player="alice")
