@@ -1510,7 +1510,10 @@ def first_hole_lightweight_course_prep(
                         tee_sets[source_global_id] = resolve_selected_tee_set(
                             hazards, requested_box or "blue", global_id=source_global_id
                         )
-                        tee_facts_bound[source_global_id] = tee_sets[source_global_id] is not None
+                        tee_facts_bound[source_global_id] = (
+                            requested_box in {"", "unknown"}
+                            or tee_sets[source_global_id] is not None
+                        )
                     selected_set = tee_sets.get(source_global_id)
                     vector = cached_vector_hole(
                         source_global_id, source_local_hole, tee_set=selected_set,
