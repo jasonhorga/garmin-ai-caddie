@@ -1,0 +1,7 @@
+--- a/scripts/migrate_mobile_event_payloads.py
++++ b/scripts/migrate_mobile_event_payloads.py
+@@ -123,4 +123,3 @@
+     if backup.exists():
+         raise FileExistsError(backup)
+-    backup.write_bytes(raw)
+     try:

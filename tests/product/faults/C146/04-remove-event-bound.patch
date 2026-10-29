@@ -1,0 +1,7 @@
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -1462,3 +1462,3 @@
+     def _sanitize_event(self, event: dict[str, Any]) -> dict[str, Any]:
+-        source = bound_mobile_event(event)
++        source = deepcopy(event)
+         candidate = (

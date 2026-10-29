@@ -1,0 +1,8 @@
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -697,4 +697,4 @@
+         rows = []
+-        for start, length, position, line in index.offsets.get(round_id, ()):
++        for start, length, position, line in sum(index.offsets.values(), []):
+             try:
+                 parsed = json.loads(self._read_log_range(start, start + length, handle=handle).decode("utf-8"))
