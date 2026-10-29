@@ -727,7 +727,7 @@ final class TemplateAcquisitionTests: XCTestCase {
         let row = try XCTUnwrap(model.prepCourseDownloads.first { !$0.isIntentPrefetch && $0.course.globalId == gid })
         XCTAssertFalse(row.isIntentPrefetch)
         XCTAssertNotEqual(row.phase, .ready, "this oracle has no per-hole prep/topo responses")
-        let template = model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white")
+        let template = try model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white")
         if template == nil {
             XCTFail(
                 "missing whole-course template; requests=\(requests.diagnosticSummary) "
@@ -751,6 +751,7 @@ final class TemplateAcquisitionTests: XCTestCase {
         var mapOnly = 0
         var full = 0
         let fullStartedOnce = C33FirstMatch()
+        let requests = LoopRequests()
         protocolScope = CapturingURLProtocolScope { request in
             let url = try XCTUnwrap(request.url)
             let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
@@ -788,7 +789,7 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(lock.withLock { full }, 1)
         let row = try XCTUnwrap(model.prepCourseDownloads.first { !$0.isIntentPrefetch && $0.course.globalId == gid })
         XCTAssertNotEqual(row.phase, .ready, "this oracle has no per-hole prep/topo responses")
-        let template = model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white")
+        let template = try model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white")
         if template == nil {
             XCTFail(
                 "missing whole-course template; requests=\(requests.diagnosticSummary) "
