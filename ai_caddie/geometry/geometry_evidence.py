@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from functools import lru_cache
 import math
 from typing import Any, Iterable, Literal
 
@@ -660,7 +659,7 @@ def route_with_stations(points: Iterable[Any]) -> list[list[float]]:
 
 
 def remaining_route(points: Iterable[Any], position: Any) -> tuple[list[list[float]], float]:
-    """Start at the nearest projection and discard vertices/intervals already behind the ball."""
+    """Use the projection to choose the next vertex, then measure from the actual ball."""
     route = route_with_stations(points)
     point = _position_to_local(position, None, None)
     if point is None or not all(math.isfinite(value) for value in point) or len(route) < 2:
@@ -674,7 +673,7 @@ def remaining_route(points: Iterable[Any], position: Any) -> tuple[list[list[flo
         station = start[2] + fraction * (end[2] - start[2])
         candidates.append((math.dist(point, projected), -station, index, projected))
     _gap, negative_station, index, projected = min(candidates)
-    return route_with_stations([projected, *route[index + 1:]]), -negative_station
+    return route_with_stations([point, *route[index + 1:]]), -negative_station
 
 
 def route_target_at_distance(evidence: dict[str, Any], distance_m: float) -> list[float] | None:
@@ -698,25 +697,6 @@ def route_target_at_distance(evidence: dict[str, Any], distance_m: float) -> lis
         landing = evidence.get("landingWindowLocal") or {}
         return _position_to_local(landing.get("center"), None, None) or target
     return [round(start[i] + (target[i] - start[i]) * distance_m / length, 1) for i in (0, 1)]
-
-
-class _ReadOnlyMeshKey:
-    """Identity of a decoded mesh; load_mesh replaces the object when its file revision changes."""
-
-    def __init__(self, mesh: dict[str, Any]):
-        self.mesh = mesh
-
-    def __hash__(self):
-        return id(self.mesh)
-
-    def __eq__(self, other):
-        return isinstance(other, _ReadOnlyMeshKey) and self.mesh is other.mesh
-
-
-@lru_cache(maxsize=16)
-def _route_mesh_components(key: _ReadOnlyMeshKey):
-    from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components
-    return mesh_components(key.mesh)
 
 
 def _segment_mesh_spans(start, end, component):
@@ -862,18 +842,6 @@ def build_route_geometry_evidence(
     target_local = _position_to_local(target_position, ref_lat_float, ref_lon_float)
     polyline = route_with_stations(route) if route is not None else []
     origin_offset = 0.0
-    if route is None and _meshes.get("hole"):
-        from ai_caddie.courses.course_prep import derive_route
-
-        tee_set = None
-        for row in hazards.get("tees") or []:
-            gap = _point_distance(start_local, _position_to_local(row.get("position"), None, None))
-            if row.get("sets") and gap is not None and gap <= 0.75:
-                tee_set = int(row["sets"][0])
-                break
-        canonical, _length = derive_route(_meshes, tee_set)
-        if canonical and (target is None or (target_local is not None and math.dist(target_local, canonical[-1]) <= 0.75)):
-            polyline, origin_offset = remaining_route(canonical, start_local)
     if polyline:
         start_local, target_local = polyline[0][:2], polyline[-1][:2]
     missing_data = list(coverage["missingData"])
@@ -917,7 +885,8 @@ def build_route_geometry_evidence(
                 if source and hazard.get("component") is not None:
                     if source not in components_by_mesh:
                         mesh = next((row for row in _meshes.get("meshes") or [] if row.get("name") == source), None)
-                        components_by_mesh[source] = _route_mesh_components(_ReadOnlyMeshKey(mesh)) if mesh else []
+                        from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components
+                        components_by_mesh[source] = mesh_components(mesh) if mesh else []
                     component_index = int(hazard["component"]) - 1
                     components = components_by_mesh[source]
                     if 0 <= component_index < len(components):

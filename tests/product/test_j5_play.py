@@ -312,16 +312,16 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
 
     def test_j5_11_live_position_uses_only_the_route_after_its_projection(self):
         self.install_route_geometry()
-        # Ten metres beside the route at station 150: the remaining polyline is 50+200=250 m.
+        # Ten metres beside station 150: ball->corner is sqrt(10²+50²), then 200 m.
         from ai_caddie.geometry.shot_projection import local_to_world
         lat, lon = local_to_world(10,150,ref_lat=0,ref_lon=0)
         self.route_context["currentLocation"] = {"latitude": lat, "longitude": lon}
         seed = mobile_live.hydrate_live_caddie_geometry_context(self.route_context)
         route = seed["routeEvidence"]
-        self.assertEqual(route["routeStartLocal"], [0,150])
-        self.assertEqual(route["routeLength_m"], 250)
-        self.assertEqual(seed["holeRemaining_m"], 250)
-        self.assertEqual((seed["greenDistances"]["frontRouteM"],seed["greenDistances"]["backRouteM"]), (240,250))
+        self.assertEqual(route["routeStartLocal"], [10,150])
+        self.assertEqual(route["routeLength_m"], 251)
+        self.assertEqual(seed["holeRemaining_m"], 251)
+        self.assertEqual((seed["greenDistances"]["frontRouteM"],seed["greenDistances"]["backRouteM"]), (241,251))
         self.assertEqual(route["avoidZones"], [], "the 60–100 m crossing is behind the current station")
 
     def test_j5_11_route_end_has_no_remaining_tee_distance(self):
