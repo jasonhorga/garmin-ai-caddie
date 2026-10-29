@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 
 def run(root: Path, *, warm_requests: int = 1, mode: str = "fixture", position: list | None = None,
-        distance: float | None = 284.3) -> dict:
+        distance: float | None = 284.3, distance_source: str | None = None) -> dict:
     with TemporaryDirectory() as directory:
         isolated = Path(directory)
         shutil.copytree(root, isolated, dirs_exist_ok=True)
@@ -47,6 +47,8 @@ def run(root: Path, *, warm_requests: int = 1, mode: str = "fixture", position: 
             context.pop("distanceToPin_m")
         else:
             context["distanceToPin_m"] = distance
+        if distance_source is not None:
+            context["distanceToPinSource"] = distance_source
         hydrated = {}
         real_hydrate = caddie.hydrate_live_caddie_geometry_context
 
@@ -99,7 +101,9 @@ def run(root: Path, *, warm_requests: int = 1, mode: str = "fixture", position: 
         route = hydrated.get("routeEvidence") or {}
         from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
         from ai_caddie.core import data
+        from ai_caddie.caddie.decision import _sequence_distance
         return {"rootMatched":data.ROOT == isolated,
+                "planningDistance_m":_sequence_distance(hydrated),
                 "coverage":geometry_coverage_for_hole(31834,2,require_current_authority=True),
                 "holeRemaining_m":hydrated.get("holeRemaining_m"),
                 "carries_m":[o["carry_m"] for o in plan["options"]],
@@ -115,4 +119,4 @@ if __name__ == "__main__":
     args = json.loads(sys.stdin.read())
     print(json.dumps(run(Path(args["root"]), warm_requests=args.get("warm_requests",1),
                          mode=args.get("mode","fixture"), position=args.get("position"),
-                         distance=args.get("distance",284.3)), ensure_ascii=False))
+                         distance=args.get("distance",284.3), distance_source=args.get("distance_source")), ensure_ascii=False))

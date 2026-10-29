@@ -223,6 +223,7 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
         self.route_context = {"source": "ios_live", "sourceRef": "fixture-polyline:1", "globalId": 90101,
             "hole": 1, "localHole": 1, "teeBox": "blue", "par": 4, "yards": 437,
             "distanceToPin_m": 400 if straight else 282.8,
+            "distanceToPinSource":"gps_auto",
             "greenDistances": {"frontM": 390 if straight else 270, "middleM": 400 if straight else 282.8,
                                "backM": 410 if straight else 300, "frontRouteM": 390, "backRouteM": 400},
             "clubProfiles": {name: {"clubName": name, "median_m": carry, "p10_m": carry-5,
@@ -257,6 +258,8 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
         from server_v2 import caddie
         lat, lon = local_to_world(*local, ref_lat=0, ref_lon=0)
         context = {**self.route_context, "currentLocation":{"latitude":lat,"longitude":lon}, **extras}
+        if "distanceToPinSource" not in extras:
+            context.pop("distanceToPinSource", None)
         context.pop("distanceToPin_m", None)
         if distance is not None:
             context["distanceToPin_m"] = distance
@@ -286,6 +289,7 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
                 "carries":[o["carry_m"] for o in plan["options"]]})
         print("GREEN_POSITION_PROBE=" + json.dumps(observations))
         self.assertEqual([r["holeRemaining"] for r in observations], [20,26.9,15])
+
     def test_j5_11_supplied_pin_distance_is_preserved_near_green(self):
         self.install_route_geometry()
         carries = []
@@ -293,6 +297,32 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
             _seed, plan = self.position_decision(local,phone)
             carries.append([o["carry_m"] for o in plan["options"]])
         self.assertEqual(carries, [[10,20,28],[17,27,35],[5,15,23]])
+
+    def test_j5_11_distance_sources_choose_phone_or_remaining_polyline(self):
+        self.install_route_geometry()
+        from ai_caddie.caddie.decision import _sequence_distance
+        # Ball on the final leg, 100 m from (200,200); caller says 70 m.
+        for source, expected in [(None,70),("manual",70),("map_target",70),
+                                 ("gps_auto",100),("fallback",100),("future_source",100)]:
+            with self.subTest(source=source):
+                extra = {} if source is None else {"distanceToPinSource":source}
+                seed, plan = self.position_decision((100,200),70,**extra)
+                self.assertEqual(seed["holeRemaining_m"],100)
+                self.assertEqual(_sequence_distance(seed),expected)
+                self.assertEqual([o["carry_m"] for o in plan["options"]],
+                                 [expected-10,expected,expected+8])
+
+    def test_j5_11_distance_sources_fall_back_when_route_is_missing(self):
+        from ai_caddie.caddie.decision import _sequence_distance, recommend_approach
+        # With no geometry, every source must retain the usable number; no invented route.
+        for source in [None,"manual","map_target","gps_auto","fallback","future_source"]:
+            with self.subTest(source=source):
+                context = {"source":"fixture","sourceRef":"fixture-distance:1","shotType":"approach",
+                           "distanceToPin_m":70,"lie":"fairway"}
+                if source is not None:
+                    context["distanceToPinSource"] = source
+                self.assertEqual(_sequence_distance(context),70)
+                self.assertEqual([o["carry_m"] for o in recommend_approach(context)["options"]],[60,70,78])
 
     def test_j5_11_explicit_distance_wins_over_dogleg_route(self):
         self.install_route_geometry()
@@ -409,10 +439,10 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
 class ReleaseGeometryDecisionTests(unittest.TestCase):
     """J4.6/J5.11: a real release dogleg finishes on the selected physical green."""
 
-    def probe_position(self, position, distance):
+    def probe_position(self, position, distance, source=None):
         root = Path(__file__).parent / "fixtures/geometry/31834-hole2"
         process = subprocess.run([sys.executable,str(Path(__file__).with_name("_real_route_probe.py"))],
-            input=json.dumps({"root":str(root),"warm_requests":0,"position":position,"distance":distance}),
+            input=json.dumps({"root":str(root),"warm_requests":0,"position":position,"distance":distance,"distance_source":source}),
             capture_output=True,text=True,timeout=60)
         self.assertEqual(process.returncode,0,process.stderr)
         return json.loads(process.stdout)
@@ -425,18 +455,30 @@ class ReleaseGeometryDecisionTests(unittest.TestCase):
         self.assertEqual(result["holeRemaining_m"],86.3)
         self.assertEqual(result["carries_m"],[76.3,86.3,94.3])
 
+    def test_j5_11_real_mid_hole_distinguishes_legacy_and_automatic_distance(self):
+        # Same factual ball/route; a distinct 70 m supplied value proves source priority.
+        for source, expected in [(None,70),("gps_auto",86.3)]:
+            with self.subTest(source=source):
+                result = self.probe_position([90,100],70,source)
+                print("REAL_SOURCE_PROBE=" + json.dumps({"source":source,**result}))
+                self.assertEqual(result["holeRemaining_m"],86.3)
+                self.assertEqual(result["planningDistance_m"],expected)
+                self.assertEqual(result["carries_m"],[expected-10,expected,expected+8])
+
     def test_j5_11_real_green_side_gps_keeps_twenty_metre_shot(self):
-        result = self.probe_position([53.25,35],20)
-        print("REAL_SIDE_PROBE=" + json.dumps(result))
-        self.assertEqual(result["holeRemaining_m"],20)
-        self.assertEqual(result["carries_m"],[10,20,28])
+        for source in [None,"gps_auto"]:
+            with self.subTest(source=source):
+                result = self.probe_position([53.25,35],20,source)
+                print("REAL_SIDE_PROBE=" + json.dumps({"source":source,**result}))
+                self.assertEqual(result["holeRemaining_m"],20)
+                self.assertEqual(result["carries_m"],[10,20,28])
 
     def test_j5_11_real_dogleg_finishes_on_selected_green(self):
         # 31834/2 investigation: 320.9 m route, water 50.5–84.2 m; synthetic bag
         # Driver197 + 8I121 = station318, inside the factual 306.2–320.9 m green window.
         root = Path(__file__).parent / "fixtures/geometry/31834-hole2"
         process = subprocess.run([sys.executable, str(Path(__file__).with_name("_real_route_probe.py"))],
-            input=json.dumps({"root":str(root),"warm_requests":1}), capture_output=True, text=True, timeout=60)
+            input=json.dumps({"root":str(root),"warm_requests":1,"distance_source":"gps_auto"}), capture_output=True, text=True, timeout=60)
         self.assertEqual(process.returncode, 0, process.stderr)
         result = json.loads(process.stdout)
         self.assertTrue(result["chains"], "the real dogleg must not be rejected by its diagonal lake shortcut")
