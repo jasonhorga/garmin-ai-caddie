@@ -70,6 +70,16 @@ class CourseHTTPTests(HTTPFixture, unittest.TestCase):
             self.assertIsNotNone(c, "a never-played sibling is still selectable")
             self.assertEqual((c["segmentLabel"], c["segmentHoles"], c["roundCount"]), ("C", 9, 0))
             self.assertEqual(c["sourceRefs"], [])
+            # The durable CourseView venue index also works without catalogue-name sidecars.
+            for path in cache.glob("*_catalogue_name.json"):
+                path.unlink()
+            (cache / "venue_loops.json").write_text(json.dumps({"venues": [{
+                "venueName": "沙河测试球会", "loops": [
+                    {"globalId": gid, "name": names[gid], "segmentLabel": label, "holeCount": 9}
+                    for gid, label in [(31832, "A"), (31833, "B"), (31834, "C")]]}]}))
+            indexed = options([r for r in rounds if r["globalId"] != 31834])
+            self.assertEqual({c["globalId"] for c in indexed if c["globalId"] < 40000},
+                             {31832, 31833, 31834})
 
     def catalogue(self):
         """Fake only cached provider facts, never a package or a hole mapping."""

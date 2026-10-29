@@ -74,7 +74,7 @@ MANUAL_NOTE_KINDS = {"strategy_note", "hole_note", "round_note", "weather_contex
 PLAYER_PROFILE_SOURCE_REF_LIMIT = 30
 PLAYER_PROFILE_SIGNAL_REF_LIMIT = 12
 DIAGNOSTIC_SOURCE_REF_LIMIT = 12
-COURSE_OPTION_LIMIT = 24
+COURSE_OPTION_LIMIT = 24  # Physical venues; all sibling gids survive together.
 OFFLINE_OPTION_STRONG_SAMPLE = 10
 OFFLINE_OPTION_SAMPLE_REF_LIMIT = 6
 DECISION_CLUB_REF_LIMIT = 6
@@ -596,22 +596,53 @@ def build_mobile_course_options(
             continue
         grouped.setdefault(global_id, []).append(row)
 
-    # Resolving a course reads its CourseView release twice (segment + tees). The final order is
-    # (latest date, round count, name) and only the top COURSE_OPTION_LIMIT survive, so resolve
-    # just the groups that can make the cut: the top ranks by (date, count) plus every group tied
-    # with the last one, whose names decide the tie exactly as before.
-    def _rank(item: tuple[int, list[dict[str, Any]]]) -> tuple[str, int]:
-        return (max(str(row.get("date") or "") for row in item[1]), len(item[1]))
+    # Establish physical venues before truncating. Segment reads are cache-only; Tee enrichment
+    # below runs only for retained venues. A venue consumes one slot regardless of loop count.
+    from ai_caddie.courses.course_reference import courseview_catalogue_name, courseview_venue_loops
 
-    ranked = sorted(grouped.items(), key=_rank, reverse=True)
-    if len(ranked) > COURSE_OPTION_LIMIT:
-        cutoff = _rank(ranked[COURSE_OPTION_LIMIT - 1])
-        ranked = [item for item in ranked if _rank(item) >= cutoff]
+    segments: dict[int, tuple[str | None, int | None] | None] = {}
+    for gid in grouped:
+        try:
+            segments[gid] = resolve_segment(gid)
+        except Exception:
+            segments[gid] = None
+
+    def venue_key(name: str, rows: list[dict[str, Any]]) -> str:
+        identity = select_garmin_name_identity(rows)
+        trusted = identity if is_trusted_garmin_identity(identity) else None
+        return canonical_course_identity(name, trusted).venue.casefold()
+
+    known_venues: set[str] = set()
+    sibling_facts: dict[int, tuple[str, int | None]] = {}
+    for gid, rows in grouped.items():
+        name = (segments[gid] or (None, None))[0] or str(rows[0].get("course") or rows[0].get("courseName") or f"Course {gid}")
+        known_venues.add(venue_key(name, rows))
+        for loop in courseview_venue_loops(gid, venue_key(name, rows), root=ROOT):
+            sibling_id = _safe_int(loop.get("globalId"))
+            if sibling_id and sibling_id > 0 and loop.get("name"):
+                sibling_facts[sibling_id] = (str(loop["name"]), _safe_int(loop.get("holeCount")) or 9)
+    # Catalogue sidecars include never-played loops, even when no nearby query ran this launch.
+    for path in (Path(ROOT) / "data" / "courseview").glob("*_catalogue_name.json"):
+        gid = _safe_int(path.name.split("_", 1)[0])
+        name = courseview_catalogue_name(gid, root=ROOT) if gid and gid > 0 else None
+        if name and venue_key(name, []) in known_venues:
+            label = _segment_label_from_courseview_name(name)
+            if label and not is_composite_segment(label):
+                sibling_facts.setdefault(gid, (name, 9))
+    for gid, fallback in sibling_facts.items():
+        if gid in grouped:
+            continue
+        try:
+            segment = resolve_segment(gid)
+        except Exception:
+            segment = None
+        segments[gid] = segment if segment and segment[1] else fallback
+        grouped[gid] = []  # Provider facts, never fabricated played history.
 
     courses: list[dict[str, Any]] = []
-    for global_id, rows in ranked:
+    for global_id, rows in grouped.items():
         rows_sorted = sorted(rows, key=lambda row: str(row.get("date") or ""), reverse=True)
-        latest = rows_sorted[0]
+        latest = rows_sorted[0] if rows_sorted else {}
         template_round_id = str(latest.get("id") or "")
         source_refs = _dedupe_strings([row.get("id") for row in rows_sorted])
         geometry_rows = [
@@ -637,11 +668,7 @@ def build_mobile_course_options(
         longitude = next((_safe_float(row.get("lon")) for row in rows_sorted if _safe_float(row.get("lon")) is not None), None)
         # Authoritative loop structure from CourseView (the round-derived name is a played combo
         # like '~ C/A'; CourseView gives the clean per-gid loop name '~ C' + true 9/18 hole count).
-        segment = None
-        try:
-            segment = resolve_segment(global_id)
-        except Exception:
-            segment = None
+        segment = segments.get(global_id)
         clean_name, segment_holes = segment if segment else (None, None)
         courseview_label = _segment_label_from_courseview_name(clean_name)
         fallback_name = normalize_course_text(latest.get("course") or latest.get("courseName") or f"Course {global_id}")
@@ -655,10 +682,6 @@ def build_mobile_course_options(
         venue_name = canonical.venue
         segment_label = canonical.segment
         display_name = canonical.name
-        try:
-            course_tees = resolve_tees(global_id)
-        except Exception:
-            course_tees = []
         courses.append(
             {
                 "globalId": global_id,
@@ -672,13 +695,13 @@ def build_mobile_course_options(
                 "segmentHoles": int(segment_holes) if segment_holes else played_holes,
                 "latitude": latitude,
                 "longitude": longitude,
-                "tees": course_tees,
+                "tees": [],
                 "roundCount": len(rows),
                 "latestRoundId": template_round_id,
                 "latestRoundDate": str(latest.get("date") or ""),
                 "templateRoundId": template_round_id,
                 "suggestedLiveRoundId": f"live-{global_id}",
-                "holes": played_holes,
+                "holes": played_holes if rows else (segment_holes or 9),
                 "teeBox": str(latest.get("teeBox") or latest.get("tee") or "unknown"),
                 "geometryCoverage": geometry_coverage,
                 "sourceRefs": source_refs,
@@ -689,7 +712,21 @@ def build_mobile_course_options(
         courses,
         key=lambda row: (str(row.get("latestRoundDate") or ""), int(row.get("roundCount") or 0), str(row.get("name") or "")),
         reverse=True,
-    )[:COURSE_OPTION_LIMIT]
+    )
+    retained_venues: set[str] = set()
+    retained: list[dict[str, Any]] = []
+    for course in courses:
+        key = str(course["venueName"]).casefold()
+        if key not in retained_venues and len(retained_venues) >= COURSE_OPTION_LIMIT:
+            continue
+        retained_venues.add(key)
+        retained.append(course)
+    courses = retained
+    for course in courses:
+        try:
+            course["tees"] = resolve_tees(course["globalId"])
+        except Exception:
+            course["tees"] = []
     return {
         "schema": "ai-caddie-mobile-course-options-v1",
         "dataMode": data_mode,

@@ -7647,8 +7647,8 @@ public final class LiveRoundAppModel: ObservableObject {
 
     /// Load the course's selectable tee boxes (GET /courses/{id}/tees) for the 开始一场 picker —
     /// colour + total yards + default. Returns [] offline / on error: known/downloaded courses can
-    /// retain their bundled Tee names, while a newly searched course stays gated and exposes an
-    /// explicit retry rather than starting with invented Tee authority.
+    /// retain their bundled names. The picker treats [] as a failed refresh and offers retry,
+    /// including recent courses whose teeBox only records the last-used selection.
     public func loadCourseTees(globalId: Int) async -> [CourseTee] {
         beginForegroundCourseRequest()
         defer { endForegroundCourseRequest() }
@@ -7949,7 +7949,6 @@ public final class LiveRoundAppModel: ObservableObject {
         let anchor = package.holes.first {
             $0.teeLatitude != nil && $0.teeLongitude != nil
         }
-        let tee = package.course.teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
         let option = MobileCourseOption(
             globalId: package.course.globalId,
             courseKey: package.recentHistory.course.courseKey,
@@ -7966,7 +7965,7 @@ public final class LiveRoundAppModel: ObservableObject {
             segmentHoles: package.holes.count,
             latitude: anchor?.teeLatitude,
             longitude: anchor?.teeLongitude,
-            tees: tee.isEmpty || tee.caseInsensitiveCompare("unknown") == .orderedSame ? nil : [tee]
+            tees: nil // The last-used colour lives in teeBox; it is not a complete Tee list.
         )
         guard option.globalId > 0 else { return }
         recentCourseOption = option

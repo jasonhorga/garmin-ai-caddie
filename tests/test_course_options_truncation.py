@@ -1,4 +1,4 @@
-"""build_mobile_course_options resolves CourseView only for courses that can make the cut."""
+"""Catalogue venue selection bounds expensive Tee enrichment to retained venues."""
 from __future__ import annotations
 
 import unittest
@@ -20,18 +20,22 @@ def _history() -> HistoryData:
 
 
 class CourseOptionTruncationTests(unittest.TestCase):
-    def test_matches_resolving_every_course_and_resolves_fewer(self) -> None:
+    def test_matches_unbounded_catalogue_and_enriches_only_retained_venues(self) -> None:
         data = _history()
         calls: list[int] = []
+        tee_calls: list[int] = []
 
         def segment(gid: int):
             calls.append(gid)
-            return (f"Venue {(gid * 7) % 13}", 18)
+            return (f"Venue {gid}", 18)
 
-        tees = lambda gid: []  # noqa: E731
+        def tees(gid):
+            tee_calls.append(gid)
+            return []
 
         optimized = mobile_live.build_mobile_course_options(data, segment_resolver=segment, tee_resolver=tees)
-        optimized_calls = len(calls)
+        self.assertEqual(len(calls), 40, "J4.1: venue membership is known before truncation")
+        self.assertEqual(len(tee_calls), 24)
         calls.clear()
         with patch.object(mobile_live, "COURSE_OPTION_LIMIT", 10_000):
             everything = mobile_live.build_mobile_course_options(data, segment_resolver=segment, tee_resolver=tees)
@@ -39,7 +43,7 @@ class CourseOptionTruncationTests(unittest.TestCase):
 
         self.assertEqual(optimized["courses"], expected)
         self.assertEqual(len(calls), 40)
-        self.assertLess(optimized_calls, 40)
+        self.assertEqual(len(tee_calls), 64)
 
 
 if __name__ == "__main__":

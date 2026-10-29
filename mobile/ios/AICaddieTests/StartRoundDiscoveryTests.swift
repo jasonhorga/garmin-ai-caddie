@@ -8,12 +8,33 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let recent = loop(31832, venue: "沙河测试球会", label: "A")
         let catalogue = [loop(31833, venue: "沙河测试球会", label: "B"),
                          loop(31834, venue: "沙河测试球会", label: "C")]
-        let loops = StartRoundView.sameVenueStartableCourses(selected: recent, candidates: [recent] + catalogue)
+        let loops = StartRoundView.recentVenueOptions(recent: recent, catalogue: catalogue, downloaded: [], cachedNearby: [])
         XCTAssertEqual(loops.map(\.globalId), [31832, 31833, 31834])
         XCTAssertEqual(loops.map(\.segmentLabel), ["A", "B", "C"])
         let rows = StartRoundPresentation.mergedCourseRows(nearby: [], recent: loops, downloaded: [])
         let row = try XCTUnwrap(rows.first)
         XCTAssertEqual(StartRoundView.holeCaption(for: row, downloaded: [], catalogue: catalogue, recent: recent), "27 洞")
+    }
+
+    /// J4.1/J5.1: a transient discovery reset must not discard the last known sibling C.
+    func testRecentVenueIncludesCachedNearbyNinesWithoutAddingOtherVenues() {
+        let recent = loop(31832, venue: "沙河测试球会", label: "A")
+        let b = loop(31833, venue: "沙河测试球会", label: "B")
+        let c = loop(31834, venue: "沙河测试球会", label: "C")
+        let other = loop(99999, venue: "另一测试球会", label: "C")
+        let loops = StartRoundView.recentVenueOptions(
+            recent: recent, catalogue: [b], downloaded: [], cachedNearby: [c, other])
+        XCTAssertEqual(loops.map(\.globalId), [31832, 31833, 31834])
+    }
+
+    /// J4.2: legacy recent rows with one colour must still fetch the complete Tee authority.
+    func testRememberedTeeIsOnlyADefaultSelection() {
+        let recent = MobileCourseOption(globalId: 31832, name: "沙河测试球会", teeBox: "blue", tees: ["blue"])
+        let names = StartRoundView.courseTeeNames(selected: recent, recent: recent, catalogue: [], downloaded: [])
+        XCTAssertEqual(names, [])
+        let catalogue = MobileCourseOption(globalId: 31832, name: "沙河测试球会", tees: ["black", "blue", "white", "red"])
+        XCTAssertEqual(StartRoundView.courseTeeNames(
+            selected: recent, recent: recent, catalogue: [catalogue], downloaded: []), ["black", "blue", "white", "red"])
     }
 
     /// J4.2: even with a remembered blue selection, an in-flight lookup has a visible loading state.
@@ -882,7 +903,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
             teeBox: selection.teeBox
         ))
 
-        // No retry before a failure, or once real Tee rows exist (fetched, or carried by the row).
+        // No retry before a failure, or once a fresh Tee response exists. Cached names cannot hide failure.
         XCTAssertFalse(StartRoundView.showsTeeRetry(
             requiresRemoteTees: true, teeLoadFailed: false, fetchedTees: [], courseTees: courseTees
         ))
@@ -890,7 +911,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertFalse(StartRoundView.showsTeeRetry(
             requiresRemoteTees: true, teeLoadFailed: true, fetchedTees: rows, courseTees: courseTees
         ))
-        XCTAssertFalse(StartRoundView.showsTeeRetry(
+        XCTAssertTrue(StartRoundView.showsTeeRetry(
             requiresRemoteTees: true, teeLoadFailed: true, fetchedTees: [], courseTees: ["blue"]
         ))
     }

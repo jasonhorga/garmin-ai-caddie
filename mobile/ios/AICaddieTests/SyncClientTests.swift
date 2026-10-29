@@ -1041,7 +1041,8 @@ final class SyncClientTests: XCTestCase {
             let queryItems = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems
             XCTAssertEqual(queryItems?.first { $0.name == "ensure_release" }?.value, "true")
             XCTAssertNil(queryItems?.first { $0.name == "ensure_geometry" })
-            XCTAssertEqual(request.timeoutInterval, SyncClient.courseReleaseTimeoutInterval)
+            XCTAssertGreaterThan(request.timeoutInterval, 24)
+            XCTAssertLessThanOrEqual(request.timeoutInterval, 25)
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
                 statusCode: 200,

@@ -1236,12 +1236,11 @@ public final class SyncClient {
         components.queryItems = [URLQueryItem(name: "ensure_release", value: "true")]
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
-        // On the first use of an un-cached course the server may need to fetch and validate Garmin's
-        // CourseView release. Give that explicit download action longer than URLSession's 60 s
-        // default, and retry only failures that are safe for this idempotent GET.
-        request.timeoutInterval = Self.courseReleaseTimeoutInterval
+        // The picker remains usable on the remembered/default Tee. Bound the full refresh,
+        // including transient retries, so a cold release promptly offers an explicit retry.
+        request.timeoutInterval = 25
         applyAuth(to: &request)
-        let data = try await fetchRetriableGetData(request)
+        let data = try await fetchRetriableGetData(request, totalTimeoutInterval: 25)
         return try decoder.decode(CourseTeesResponse.self, from: data)
     }
 

@@ -76,6 +76,8 @@ public struct StartRoundView: View {
     /// The chosen half when the course is a single 18-hole course ("front" / "back", B4b-2).
     /// 所选球场的发球台列表(含码数/默认),来自 GET /courses/{id}/tees;为空则用球场自带 Tee 名。
     @State private var fetchedTees: [CourseTee] = []
+    /// Preserve sibling facts when a later nearby request clears its live result rows.
+    @State private var lastNearbyCourseOptions: [MobileCourseOption] = []
     /// Tee rows nearby/search rows carried (the server's cached /tees answer), by global id.
     @State private var carriedCourseTees: [Int: [CourseTee]] = [:]
     @State private var nearbyCourseOptions: [MobileCourseOption] = []
@@ -146,6 +148,7 @@ public struct StartRoundView: View {
             self._isLoadingNearby = State(initialValue: true)
         case .answered(let options):
             self._nearbyCourseOptions = State(initialValue: options)
+            self._lastNearbyCourseOptions = State(initialValue: options)
         case .failed:
             self._nearbyDiscoveryFailed = State(initialValue: true)
         case nil:
@@ -538,36 +541,24 @@ public struct StartRoundView: View {
             setLoading(false)
             return rows
         }
-        // Only carried authority may release the gate before the async lookup.
+        // A remembered Tee is a default selection, not a completed catalogue lookup.
+        setLoading(true)
         let rows = await request(globalId)
         setLoading(false)
         return rows
     }
 
     /// GET /tees for the selected course. Nil when the answer is stale (course changed, task
-    /// cancelled) or empty; an empty answer for a course with no other Tee authority is a failure.
+    /// cancelled) or empty. An empty refresh enters retry state even with a remembered colour.
     private func requestTees(globalId: Int, requestToken: UUID) async -> [CourseTee]? {
-        let requiresRemoteTees = selectedCourseRequiresRemoteTees
-        let hasCatalogueTeeAuthority = selectedSegment?.tees?.isEmpty == false
-        // A recent row was produced from a successfully activated package and already carries
-        // the accepted Tee authority. Do not make the recovery action wait behind a second Tee
-        // request; still fetch the course's full tee list (colours + yards) in the background so
-        // the player can change tee on the recent course.
-        let recentHasTeeAuthority = recentResolvedCourseOption?.globalId == globalId
-            && recentResolvedCourseOption?.tees?.isEmpty == false
         fetchedTees = []
-        // A cached/history course may already have factual Tee names, but this request still
-        // enriches them with Garmin yardage/default authority. A concrete colour does not race that
-        // request: URLSession can otherwise queue the course-package behind a cold CourseView
-        // release. The course default (`unknown`) may start meanwhile (`isStartAllowed`). A failed
-        // refresh still falls back to the known Tee list.
-        isLoadingTees = !recentHasTeeAuthority
+        isLoadingTees = true
         let tees = await onLoadCourseTees(globalId)
         guard !Task.isCancelled,
               teeRequestToken == requestToken,
               courseGlobalId == globalId else { return nil }
         guard !tees.isEmpty else {
-            if requiresRemoteTees && !hasCatalogueTeeAuthority && !recentHasTeeAuthority { teeLoadFailed = true }
+            teeLoadFailed = true
             return nil
         }
         return tees
@@ -1362,11 +1353,16 @@ public struct StartRoundView: View {
             Text("发球台")
                 .font(.footnote.weight(.bold))
                 .foregroundStyle(.secondary)
+            if isLoadingTees {
+                ProgressView("正在获取发球台…")
+                    .controlSize(.small)
+                    .accessibilityIdentifier("start-round-loading-course-tees")
+            }
             if Self.showsTeeRetry(
                 requiresRemoteTees: selectedCourseRequiresRemoteTees,
                 teeLoadFailed: teeLoadFailed,
                 fetchedTees: fetchedTees,
-                courseTees: selectedSegment?.tees ?? []
+                courseTees: selectedCourseTeeNames
             ) {
                 // Tee authority failed: the course default still starts; retry is an icon.
                 HStack(spacing: 12) {
@@ -1410,16 +1406,15 @@ public struct StartRoundView: View {
         }
     }
 
-    /// `/tees` failed and the course has no Tee rows from anywhere else (fetched, carried by its
-    /// nearby row, or bundled): offer a retry next to the course default, which still starts. The
-    /// Tee list itself is not the gate, because the course default (`unknown`) is always in it.
+    /// A failed refresh is visible even when local names or a last-used colour remain available.
+    /// The course default still starts while the player can explicitly retry the full Tee lookup.
     static func showsTeeRetry(
         requiresRemoteTees: Bool,
         teeLoadFailed: Bool,
         fetchedTees: [CourseTee],
         courseTees: [String]
     ) -> Bool {
-        requiresRemoteTees && teeLoadFailed && fetchedTees.isEmpty && courseTees.isEmpty
+        teeLoadFailed && fetchedTees.isEmpty
     }
 
     private func teeChip(_ tee: String) -> some View {
@@ -1472,10 +1467,33 @@ public struct StartRoundView: View {
     /// 内部保留原始 key(传给后端),仅显示中文。
     private var teeOptions: [String] {
         Self.resolvedTeeOptions(
-            fetchedTees: fetchedTees, courseTees: selectedSegment?.tees ?? [], teeBox: teeBox,
+            fetchedTees: fetchedTees, courseTees: selectedCourseTeeNames, teeBox: teeBox,
             requiresRemoteTees: selectedCourseRequiresRemoteTees,
             wasManualSearch: selectedCourseWasManualSearch
         )
+    }
+
+    private var selectedCourseTeeNames: [String] {
+        Self.courseTeeNames(
+            selected: selectedSegment, recent: recentCourseOption,
+            catalogue: courseOptions, downloaded: downloadedCourseOptions
+        )
+    }
+
+    /// Recent selections (including older persisted singleton lists) only remember a default.
+    /// Independent catalogue/downloaded rows may still provide a complete local colour list.
+    static func courseTeeNames(
+        selected: MobileCourseOption?, recent: MobileCourseOption?,
+        catalogue: [MobileCourseOption], downloaded: [MobileCourseOption]
+    ) -> [String] {
+        guard let selected else { return [] }
+        if recent?.globalId == selected.globalId {
+            return firstNonEmptyList([
+                catalogue.first { $0.globalId == selected.globalId }?.tees,
+                downloaded.first { $0.globalId == selected.globalId }?.tees,
+            ]) ?? []
+        }
+        return selected.tees ?? []
     }
 
     static func resolvedTeeOptions(
@@ -1871,13 +1889,24 @@ public struct StartRoundView: View {
         }
         if recentCourseOption?.globalId == selectedID,
            let recent = recentResolvedCourseOption {
-            return Self.reconciledCourseOptions(
-                primary: [recent] + courseOptions + downloadedCourseOptions,
-                catalogue: courseOptions,
-                downloaded: downloadedCourseOptions
+            return Self.recentVenueOptions(
+                recent: recent, catalogue: courseOptions,
+                downloaded: downloadedCourseOptions, cachedNearby: lastNearbyCourseOptions
             )
         }
         return explicitCourseOptions.filter { Self.samePhysicalVenue($0, selectedSegment) }
+    }
+
+    /// Recent recovery joins every known sibling, including the last successful nearby response.
+    static func recentVenueOptions(
+        recent: MobileCourseOption, catalogue: [MobileCourseOption],
+        downloaded: [MobileCourseOption], cachedNearby: [MobileCourseOption]
+    ) -> [MobileCourseOption] {
+        let candidates = reconciledCourseOptions(
+            primary: [recent] + catalogue + cachedNearby + downloaded,
+            catalogue: catalogue, downloaded: downloaded
+        )
+        return sameVenueStartableCourses(selected: recent, candidates: candidates)
     }
 
     /// Nearby/search metadata determines which rows are in range, while the latest mobile catalogue
@@ -2055,6 +2084,9 @@ public struct StartRoundView: View {
 
     private var selectedCourseRequiresRemoteTees: Bool {
         guard let courseGlobalId else { return false }
+        if recentCourseOption?.globalId == courseGlobalId {
+            return selectedCourseTeeNames.isEmpty
+        }
         return !courseOptions.contains { $0.globalId == courseGlobalId }
             && !downloadedCourseOptions.contains { $0.globalId == courseGlobalId }
             && recentResolvedCourseOption?.globalId != courseGlobalId
@@ -2377,6 +2409,7 @@ public struct StartRoundView: View {
         ) else { return }
         carriedCourseTees.merge(outcome.carriedTees) { _, latest in latest }
         nearbyCourseOptions = outcome.providerOptions
+        if !outcome.providerOptions.isEmpty { lastNearbyCourseOptions = outcome.providerOptions }
         let providerIDs = Set(outcome.providerOptions.map(\.globalId))
         offlineCourseOptions = resolvedOfflineOptions(localNearby).filter {
             !providerIDs.contains($0.globalId)
