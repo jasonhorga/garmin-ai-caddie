@@ -114,9 +114,14 @@ async def _sample(client: httpx.AsyncClient, args: argparse.Namespace, index: in
     if args.self_host:
         # Measure full personal-package delivery with a fresh identity and already-warm map inputs.
         paths["package_cold"] = _package_path(args, f"live-{args.global_id}-{uuid.uuid4()}", map_only=False)
+        if getattr(args, "serial_idle", False):
+            paths["package_personal_cached"] = _package_path(args, args.round_id, map_only=False)
     if args.prefetch:
         paths["prefetch"] = _package_path(args, f"prep-library-{args.global_id}-{index}", map_only=False)
-    rows = await asyncio.gather(*(_request(client, name, path) for name, path in paths.items()))
+    if getattr(args, "serial_idle", False):
+        rows = [await _request(client, name, path) for name, path in paths.items()]
+    else:
+        rows = await asyncio.gather(*(_request(client, name, path) for name, path in paths.items()))
     if topo_task is not None:
         _, elapsed, status, detail = await topo_task
         pressure.update(coldTopoMs=round(elapsed, 1), coldTopoStatus=status)
@@ -382,6 +387,8 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         raise SystemExit("fixture preparation and install pressure require --self-host")
     if args.warm_personal and not args.self_host:
         raise SystemExit("personal stats warmup requires --self-host")
+    if args.serial_idle and (not args.self_host or args.install_pressure):
+        raise SystemExit("serial idle measurements require --self-host without install pressure")
     args.round_id = args.round_id or f"live-{args.global_id}-{uuid.uuid4()}"
     fixture_temp = tempfile.TemporaryDirectory(prefix="caddie-c135-") if args.fixture_root is None else None
     fixture_root = Path(args.fixture_root).resolve() if args.fixture_root is not None else Path(fixture_temp.name)
@@ -430,6 +437,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         "renderProcessesEnv": os.environ.get("AI_CADDIE_TOPO_RENDER_PROCESSES"),
         "fixturePrepared": bool(args.prepare_fixture), "remoteReadOnly": not args.self_host,
         "personalStatsWarmed": bool(args.warm_personal),
+        "serialIdle": bool(args.serial_idle),
         "warmStatuses": warm_statuses, "metrics": _summarize(samples),
         "pressure": [sample.pressure for sample in samples],
     }
@@ -467,6 +475,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--server-repo", default=str(REPO_ROOT), help="Self-host API source revision (same probe for before/after)")
     parser.add_argument("--install-pressure", action="store_true", help="Local synthetic whole-course install plus cold topo for every sample")
     parser.add_argument("--warm-personal", action="store_true", help="Prime personal stats (default for self-host probes without install pressure)")
+    parser.add_argument("--serial-idle", action="store_true", help="Self-host idle only: send one request at a time, including the existing personal package")
     parser.add_argument("--round-id", help="Existing round id for remote low-side-effect probes")
     parser.add_argument(
         "--prepare-fixture", action="store_true",
