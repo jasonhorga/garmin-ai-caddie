@@ -15,7 +15,13 @@ import time
 import unittest
 from unittest import mock
 
-from ai_caddie.caddie.mobile_event_store import FileEventStore
+from ai_caddie.caddie.mobile_event_store import (
+    FileEventStore,
+    _CommitMarker,
+    _normalized_event_for_hash,
+    _sha256,
+)
+from tests.event_log_io import count_log_reads
 
 
 ROUND_A = "11111111-1111-4111-8111-111111111111"
@@ -176,26 +182,21 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
                 store._recover_event_log_unlocked(handle=handle)
         store.ensure_round_event_index()
         reopened = FileEventStore(self.root)
-        read_bytes = 0
-        original = reopened._read_log_range
-
-        def counted(start: int, end: int, *, handle=None) -> bytes:
-            nonlocal read_bytes
-            read_bytes += end - start
-            return original(start, end, handle=handle)
-
-        with mock.patch.object(reopened, "_read_log_range", side_effect=counted):
+        with count_log_reads(reopened.log) as meter:
             small = reopened.read_rows(small_round)
         self.assertEqual([row["event"]["eventId"] for row in small], ["small"])
-        self.assertGreater(read_bytes, 0)
-        self.assertLess(read_bytes, 64 * 1024)
-        read_bytes = 0
-        with mock.patch.object(reopened, "_read_log_range", side_effect=counted):
+        self.assertLess(meter["bytes"], 64 * 1024)
+        with count_log_reads(reopened.log) as meter:
             rows, acked = reopened.read_rows_and_ack(small_round, "ios")
         self.assertEqual([row["event"]["eventId"] for row in rows], ["small"])
         self.assertEqual(acked, 0)
-        self.assertGreater(read_bytes, 0)
-        self.assertLess(read_bytes, 64 * 1024)
+        self.assertLess(meter["bytes"], 64 * 1024)
+        with count_log_reads(reopened.log) as meter:
+            self.assertEqual(reopened.read_ack(small_round, "ios"), 0)
+        self.assertLess(meter["bytes"], 64 * 1024)
+        with count_log_reads(reopened.log) as meter:
+            self.assertEqual(reopened.ack(small_round, "ios", 0), 0)
+        self.assertLess(meter["bytes"], 64 * 1024)
 
         started = time.perf_counter()
         large = reopened.read_rows(big_round)
@@ -261,13 +262,34 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         """J5.9: migration is dry-run by default and applies with backup plus a usable index."""
         from scripts.migrate_mobile_event_payloads import migrate
 
+        store = FileEventStore(self.root)
         event = {
             **_event("legacy-large"),
             "kind": "club",
-            "payload": {"decision": {"club": "7I", "target": "green", "distance": 143.2, "detail": "x" * (65 * 1024)}},
+            "payload": {
+                "decision": {
+                    "decisionId": "11111111:1:tee",
+                    "schema": "ai-caddie-decision-v2",
+                    "phase": "tee_shot",
+                    "shotType": "tee",
+                    "selectedOptionId": "stock",
+                    "sourceRef": "11111111:1",
+                    "selectedOption": {"id": "stock", "detail": "x" * (65 * 1024)},
+                },
+            },
         }
-        row = {"roundId": ROUND_A, "serverSequence": 1, "event": event}
-        self.root.joinpath("events.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+        store.append_batch(ROUND_A, [event], request_key="legacy-large")
+        raw_row = json.loads(self.root.joinpath("events.jsonl").read_text(encoding="utf-8").splitlines()[0])
+        raw_row["event"]["payload"]["decision"]["selectedOption"] = {"id": "stock", "detail": "x" * (65 * 1024)}
+        raw_row["eventHash"] = _sha256(_normalized_event_for_hash(raw_row["event"]))
+        rewritten = (json.dumps(raw_row, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+        self.root.joinpath("events.jsonl").write_bytes(rewritten)
+        marker = store._load_commit_marker()
+        self.assertIsNotNone(marker)
+        store._write_committed_length(
+            _CommitMarker(len(rewritten), hashlib.sha256(rewritten).hexdigest(), marker.legacy_baseline_byte_length)
+        )
+        self.root.joinpath("round_event_index.json").unlink()
         before = self.root.joinpath("events.jsonl").read_bytes()
         dry = migrate(self.root, timestamp="20261029T000000Z")
         self.assertEqual(dry["changed"], 1)
@@ -280,9 +302,62 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertEqual(applied["changed"], 1)
         self.assertTrue(backup.exists())
         self.assertTrue(self.root.joinpath("round_event_index.json").exists())
-        rows = FileEventStore(self.root).read_rows(ROUND_A)
+        cold_store = FileEventStore(self.root)
+        rows = cold_store.read_rows(ROUND_A)
         self.assertEqual([row["event"]["eventId"] for row in rows], ["legacy-large"])
-        self.assertTrue(rows[0]["event"]["payload"]["decision"]["truncated"])
+        decision = rows[0]["event"]["payload"]["decision"]
+        self.assertEqual(decision["decisionId"], "11111111:1:tee")
+        self.assertEqual(decision["phase"], "tee_shot")
+        self.assertEqual(decision["selectedOptionId"], "stock")
+        self.assertEqual(decision["sourceRef"], "11111111:1")
+        self.assertTrue(decision["truncated"])
+        self.assertEqual(cold_store.high_water(), 1)
+        self.assertEqual(cold_store.read_round_cursor(ROUND_A, "ios"), (1, 1, 0))
+
+    def test_event_payload_migration_failure_restores_store_atomically(self) -> None:
+        """J5.9: marker/index failure restores the original committed event store."""
+        from scripts.migrate_mobile_event_payloads import migrate
+
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [{**_event("rollback"), "kind": "club", "payload": {
+            "decision": {"decisionId": "rollback:1", "phase": "tee_shot", "detail": "x" * (65 * 1024)},
+        }}], request_key="rollback")
+        row = json.loads(self.root.joinpath("events.jsonl").read_text(encoding="utf-8").splitlines()[0])
+        row["event"]["payload"]["decision"]["detail"] = "x" * (65 * 1024)
+        row["eventHash"] = _sha256(_normalized_event_for_hash(row["event"]))
+        rewritten = (json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+        self.root.joinpath("events.jsonl").write_bytes(rewritten)
+        marker = store._load_commit_marker()
+        self.assertIsNotNone(marker)
+        store._write_committed_length(_CommitMarker(len(rewritten), hashlib.sha256(rewritten).hexdigest(), marker.legacy_baseline_byte_length))
+        store.ensure_round_event_index()
+        before = {
+            path.name: path.read_bytes()
+            for path in (store.log, store.commit_marker, store.round_index)
+        }
+        with mock.patch.object(FileEventStore, "_write_committed_length", side_effect=OSError("injected marker failure")):
+            with self.assertRaisesRegex(OSError, "injected marker failure"):
+                migrate(self.root, apply=True, timestamp="20261029T000001Z")
+        self.assertEqual(store.log.read_bytes(), before["events.jsonl"])
+        self.assertEqual(store.commit_marker.read_bytes(), before["events.jsonl.commit.json"])
+        self.assertEqual(store.round_index.read_bytes(), before["round_event_index.json"])
+        self.assertEqual(FileEventStore(self.root).read_rows(ROUND_A)[0]["event"]["eventId"], "rollback")
+
+    def test_legacy_oversized_non_decision_rows_remain_readable(self) -> None:
+        """J5.9: read paths preserve an irreducibly large legacy event instead of raising."""
+        store = FileEventStore(self.root)
+        event = {**_event("legacy-note"), "payload": {"note": "x" * (70 * 1024)}}
+        row = {"roundId": ROUND_A, "serverSequence": 1, "event": event}
+        self.root.joinpath("events.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+        with store._locked(store.event_lock):
+            with store.log.open("r+b") as handle:
+                store._recover_event_log_unlocked(handle=handle)
+        store.ensure_round_event_index()
+        self.assertEqual(len(store.read_rows(ROUND_A)), 1)
+        self.assertEqual(len(store.read_rows()), 1)
+        self.assertEqual(store.high_water(), 1)
+        store.append_batch(ROUND_A, [{**_event("new-score"), "payload": {"strokes": 4}}], request_key="new-score")
+        self.assertEqual({row["event"]["eventId"] for row in store.read_rows(ROUND_A)}, {"legacy-note", "new-score"})
 
     def test_round_index_rebuild_refuses_a_tampered_committed_prefix(self) -> None:
         # The light scan must still verify the committed prefix before labelling a rebuilt

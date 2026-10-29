@@ -793,7 +793,7 @@ def _store_caddie_feedback_audit(
         return None
     decision = event_payload.get("decision")
     decision_id = str(payload.get("decisionId") or suggestion.get("targetId") or "")
-    if not isinstance(decision, dict):
+    if not isinstance(decision, dict) or decision.get("truncated") is True:
         record = latest_decision_record(
             decision_id,
             root=decision_ledger_root,

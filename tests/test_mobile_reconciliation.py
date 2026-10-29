@@ -1413,6 +1413,50 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(audits[0]["selectedOptionId"], "stock")
         self.assertEqual(audits[0]["actualShotRefs"], ["900001:3:1"])
 
+    def test_apply_reconciliation_uses_ledger_for_truncated_decision_summary(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_decision(
+                {
+                    "decisionId": "900001:3:truncated",
+                    "sourceRef": "900001:3",
+                    "shotType": "tee",
+                    "phase": "tee_shot",
+                    "selectedOptionId": "stock",
+                    "selectedOption": {"id": "stock", "carry_m": 145.0},
+                    "options": [{"id": "stock", "carry_m": 145.0}],
+                    "confidence": {"level": "high"},
+                },
+                root=root,
+            )
+            append_event_batch(
+                "900001",
+                [{
+                    "eventId": "truncated-shot",
+                    "roundId": "900001",
+                    "hole": 3,
+                    "kind": "club",
+                    "payload": {
+                        "clubName": "9I",
+                        "decisionId": "900001:3:truncated",
+                        "decision": {"decisionId": "900001:3:truncated", "truncated": True, "originalBytes": 1000000},
+                        "actualShot": {"roundId": "900001", "hole": 3, "shotOrder": 1, "clubName": "9I", "meters": 146.0, "end": {"lie": "fairway"}},
+                    },
+                }],
+                idempotency_key="truncated-shot",
+                root=root,
+            )
+            result = apply_mobile_reconciliation_suggestions(
+                "900001", fixture_history_data(),
+                suggestion_ids=["truncated-shot:caddie-feedback"],
+                root=root, annotations_root=root, decision_audit_root=root, decision_ledger_root=root,
+            )
+            audits = list_decision_audits(root=root)
+
+        self.assertEqual(result["decisionAuditCount"], 1)
+        self.assertEqual(audits[0]["decisionId"], "900001:3:truncated")
+        self.assertEqual(audits[0]["selectedOptionId"], "stock")
+
     def test_apply_reconciliation_writes_mobile_note_as_hole_note_idempotently(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

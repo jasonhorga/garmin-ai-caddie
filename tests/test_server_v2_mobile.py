@@ -3997,6 +3997,30 @@ class ServerV2MobileTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
+    def test_mobile_event_batch_maps_irreducibly_large_payload_to_explicit_error(self) -> None:
+        client = TestClient(app)
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "too-large-http",
+            "roundId": "live-round-1",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+            "kind": "note",
+            "payload": {"note": "x" * (65 * 1024)},
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                response = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "too-large-http"},
+                    json={"roundId": "live-round-1", "events": [event]},
+                )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"]["code"], "event_payload_too_large")
+
     def test_mobile_event_batch_rejects_non_canonical_payload_keys_without_writing(self) -> None:
         client = TestClient(app)
         event = {
