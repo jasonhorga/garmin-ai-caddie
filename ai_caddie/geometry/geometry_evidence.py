@@ -7,6 +7,7 @@ from typing import Any, Iterable, Literal
 from ai_caddie.core.data import ROOT, hazard_path, local_to_wgs84, mesh_path, read_json, wgs84_to_local
 from ai_caddie.geometry.measure_prodgeometry_distances import (
     bind_selected_green_target,
+    mesh_components,
     mesh_point_to_local,
     point_in_triangle,
 )
@@ -885,7 +886,6 @@ def build_route_geometry_evidence(
                 if source and hazard.get("component") is not None:
                     if source not in components_by_mesh:
                         mesh = next((row for row in _meshes.get("meshes") or [] if row.get("name") == source), None)
-                        from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components
                         components_by_mesh[source] = mesh_components(mesh) if mesh else []
                     component_index = int(hazard["component"]) - 1
                     components = components_by_mesh[source]

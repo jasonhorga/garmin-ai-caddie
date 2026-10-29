@@ -1,8 +1,8 @@
 --- a/ai_caddie/geometry/geometry_evidence.py
 +++ b/ai_caddie/geometry/geometry_evidence.py
-@@ -661,6 +661,7 @@
+@@ -662,6 +662,7 @@
  def remaining_route(points: Iterable[Any], position: Any) -> tuple[list[list[float]], float]:
-     """Start at the nearest projection and discard vertices/intervals already behind the ball."""
+     """Use the projection to choose the next vertex, then measure from the actual ball."""
      route = route_with_stations(points)
 +    return route, 0.0
      point = _position_to_local(position, None, None)

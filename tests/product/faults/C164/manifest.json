@@ -49,6 +49,13 @@
       "kind": "python",
       "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j5_11_rounded_compact_bounds_cannot_hide_a_real_crossing",
       "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164-08",
+      "patch": "tests/product/faults/C164/08-project-away-ball-offset.patch",
+      "kind": "python",
+      "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j5_11_gps_remaining_starts_at_ball_beside_and_past_green",
+      "promise": "5.11"
     }
   ]
 }

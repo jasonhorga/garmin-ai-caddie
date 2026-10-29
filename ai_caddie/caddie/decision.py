@@ -820,6 +820,15 @@ def _club_profile_rows(profiles: Any) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: (-row["median_m"], -row["sampleSize"], row["clubName"]))
 
 
+def _route_distance(context: dict[str, Any]) -> float | None:
+    route = context.get("routeEvidence")
+    if isinstance(route, dict) and route.get("routeLocal"):
+        length = _float(route.get("routeLength_m"), math.nan)
+        if math.isfinite(length) and 0 <= length <= MAX_PIN_DISTANCE_M:
+            return length
+    return None
+
+
 def _sequence_distance(context: dict[str, Any]) -> float:
     route = context.get("routeEvidence")
     if isinstance(route, dict) and route.get("routeLocal"):
@@ -4703,7 +4712,7 @@ def _apply_live_location(context: dict[str, Any]) -> dict[str, Any]:
     analysis = dict(context)
     current = _coordinate(analysis.get("currentLocation"))
     target = _coordinate(_target_location(analysis))
-    if current is None or target is None or _has_pin_distance(analysis):
+    if current is None or target is None or _has_pin_distance({"distanceToPin_m": analysis.get("distanceToPin_m")}):
         return analysis
 
     distance_m = round(_haversine_m(current, target), 1)
@@ -5227,7 +5236,10 @@ def _pin_distance(context: dict[str, Any]) -> float:
 def _has_pin_distance(context: dict[str, Any]) -> bool:
     """Only a finite distance within golf range supports pin-distance decisions and evidence."""
     distance_m = _float(context.get("distanceToPin_m"), math.nan)
-    return math.isfinite(distance_m) and 0.0 < distance_m <= MAX_PIN_DISTANCE_M
+    if math.isfinite(distance_m) and 0.0 < distance_m <= MAX_PIN_DISTANCE_M:
+        return True
+    route_m = _route_distance(context)
+    return route_m is not None and route_m > 0
 
 
 def _shot_option(
@@ -5482,7 +5494,11 @@ def _recovery_options(context: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _shot_context(analysis: dict[str, Any], shot_type: str) -> dict[str, Any]:
     source_ref = _source_ref(analysis, shot_type)
-    distance_to_pin_m = analysis.get("distanceToPin_m") if _has_pin_distance(analysis) else None
+    distance_to_pin_m = analysis.get("distanceToPin_m")
+    if distance_to_pin_m is None and _has_pin_distance(analysis):
+        distance_to_pin_m = _pin_distance(analysis)
+    elif not _has_pin_distance(analysis):
+        distance_to_pin_m = None
     context = {
         "roundId": analysis.get("roundId"),
         "source": analysis.get("source"),
@@ -5518,9 +5534,9 @@ def _shot_evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) ->
             else "prodgeometry mesh data is missing"
         ),
     }]
-    distance_m = analysis.get("distanceToPin_m")
     if _has_pin_distance(analysis):
-        rows.append({"kind": "green", "text": f"distance to pin={round(_float(distance_m), 1)}m"})
+        distance_m = _pin_distance(analysis)
+        rows.append({"kind": "green", "text": f"distance to pin={round(distance_m, 1)}m"})
     live_distance = analysis.get("_liveDistanceEvidence")
     if isinstance(live_distance, dict):
         rows.append(

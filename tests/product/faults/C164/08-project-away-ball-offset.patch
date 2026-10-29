@@ -1,0 +1,11 @@
+--- a/ai_caddie/geometry/geometry_evidence.py
++++ b/ai_caddie/geometry/geometry_evidence.py
+@@ -674,7 +674,7 @@
+         station = start[2] + fraction * (end[2] - start[2])
+         candidates.append((math.dist(point, projected), -station, index, projected))
+     _gap, negative_station, index, projected = min(candidates)
+-    return route_with_stations([point, *route[index + 1:]]), -negative_station
++    return route_with_stations([projected, *route[index + 1:]]), -negative_station
+ 
+ 
+ def route_target_at_distance(evidence: dict[str, Any], distance_m: float) -> list[float] | None:
