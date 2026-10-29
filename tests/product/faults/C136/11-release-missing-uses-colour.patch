@@ -1,0 +1,15 @@
+--- a/ai_caddie/caddie/analysis.py
++++ b/ai_caddie/caddie/analysis.py
+@@ -198,11 +198,11 @@
+             from ai_caddie.courses.course_reference import courseview_tees
+ 
+             release_tees = list(courseview_tees(int(resolved_global_id), allow_fetch=False) or [])
+         except Exception:
+             release_tees = []
+-    if requested is None and release_tees:
++    if False and release_tees:
+         used: set[str] = set()
+         release_rows = [
+             (_release_tee_box_key(row.get("name"), row.get("index"), used), row)
+             for row in release_tees
+             if isinstance(row, dict)

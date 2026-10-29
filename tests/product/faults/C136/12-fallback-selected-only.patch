@@ -1,0 +1,21 @@
+--- a/ai_caddie/caddie/mobile_live.py
++++ b/ai_caddie/caddie/mobile_live.py
+@@ -1427,18 +1427,10 @@
+         # inspect; all displayed Tee facts still come from the selected resolver.
+         blue_set = tee_set_for_box(global_id, "blue", colour_fallback=True)
+     for value in (selected_set, blue_set):
+         if value is not None and value not in candidates:
+             candidates.append(value)
+-    for row in (hazards or {}).get("tees") or []:
+-        for raw in row.get("sets") or [] if isinstance(row, dict) else ():
+-            try:
+-                value = int(raw)
+-            except (TypeError, ValueError):
+-                continue
+-            if value not in candidates:
+-                candidates.append(value)
+     for tee_set in candidates:
+         try:
+             vector = cached_vector_hole(
+                 int(global_id), int(local_hole), tee_set=tee_set, build_if_missing=False
+             )

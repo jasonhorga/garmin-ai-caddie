@@ -1792,6 +1792,34 @@
       "kind": "python",
       "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_package_and_prep_use_same_selected_gold_tee_when_blue_cache_is_only_map",
       "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-10",
+      "patch": "tests/product/faults/C136/10-prep-drops-tee-box.patch",
+      "kind": "python",
+      "target": "tests.test_course_prep_api.CoursePrepApiTests.test_prep_endpoint_measures_playing_facts_from_the_requested_tee",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-11",
+      "patch": "tests/product/faults/C136/11-release-missing-uses-colour.patch",
+      "kind": "python",
+      "target": "tests.test_course_tees.CourseTeeOptionsTests.test_missing_release_tee_uses_release_blue_instead_of_colour_table",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-12",
+      "patch": "tests/product/faults/C136/12-fallback-selected-only.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_selected_tee_cache_miss_borrows_any_cached_geometry_before_blank_map",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-13",
+      "patch": "tests/product/faults/C136/13-course-prep-drops-tee.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_package_and_prep_use_same_selected_gold_tee_when_blue_cache_is_only_map",
+      "promise": "J4.4"
     }
   ]
 }
