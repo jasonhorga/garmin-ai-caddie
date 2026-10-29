@@ -46,7 +46,6 @@ def _corrected_profile_history(player_id: str = OWNER_ID):
 
         return corrected_history_data(
             cached_load_history_data(player_id), player_id=player_id, annotations_root=history.ROOT,
-            ladder=[],
         )
     except Exception:
         logger.warning("failed to load corrected profile history for %s", player_id, exc_info=True)

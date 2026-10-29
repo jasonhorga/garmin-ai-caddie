@@ -153,7 +153,7 @@ def _lightweight_map_frame(
     """
     try:
         prep = course_prep.lightweight_prep_hole(
-            int(global_id), int(local_hole), ladder=ladder,
+            int(global_id), int(local_hole), ladder=[] if ladder is None else ladder,
         )
         route = prep.get("route") if isinstance(prep, dict) else None
         projection = prep.get("holeImageProjection") if isinstance(prep, dict) else None

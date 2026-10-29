@@ -45,6 +45,7 @@ RENDER_RETRY_BACKOFF_SECONDS = 5.0
 RENDER_INTERRUPT_LIMIT = 3
 WRITER_RETRY_SECONDS = 30.0
 WRITER_RETRY_MAX_SECONDS = 600.0
+GARMIN_403_MAX_ATTEMPTS = 3
 
 _FOREGROUND_LOCK = threading.Lock()
 _FOREGROUND_REQUESTS = 0
@@ -183,7 +184,8 @@ class RenderBackfill:
         state = {"schema": _SCHEMA, "styleVersion": str(payload.get("styleVersion") or ""),
                  "matteVersion": str(payload.get("matteVersion") or ""),
                  "updatedAt": str(payload.get("updatedAt") or ""), "tasks": tasks,
-                 "journalSequence": int(payload.get("journalSequence") or 0)}
+                 "journalSequence": int(payload.get("journalSequence") or 0),
+                 "garminForbiddenReleases": payload.get("garminForbiddenReleases") or {}}
         # The small write-ahead log makes submission intent durable without rewriting every
         # hole on every attempt. A snapshot sequence makes checkpoint + log truncation crash safe.
         try:
@@ -230,7 +232,7 @@ class RenderBackfill:
                 if task[unit] != state:
                     self._counts[task[unit]] -= 1
                     self._counts[state] += 1
-                if state == "failed":
+                if state == "failed" or (unit == "garmin" and error and "HTTP 403" in error):
                     self._failures[key, unit] = dict(globalId=task["globalId"], localHole=task["localHole"],
                                                      unit=unit, error=error)
                 else:
@@ -469,7 +471,7 @@ class RenderBackfill:
                 source_path.unlink(missing_ok=True)
                 source = None
         if source is None:
-            # Resolve only the cached release; never refresh release authority in backfill.
+            # Use cached authority normally; a 403 gets exactly one forced signature refresh.
             info = garmin_raster.courseview_release_info(gid, allow_fetch=False) or {}
             row = next((r for r in info.get("holes", []) if int(r.get("hole", 0)) == hole), None)
             if not row or not row.get("raster_url"):
@@ -479,13 +481,23 @@ class RenderBackfill:
                 time.sleep(self._wait_seconds)
             self._wait_for_foreground()
             self._last_network = time.monotonic()
-            reasons: list[str] = []
-            source = garmin_raster.fetch_raster(gid, dict(row, geometryAssetVersion=version), on_error=reasons.append)
-            if not source:
+            forbidden_release = str(info.get("release_version") or version)
+            for refresh in (False, True):
+                if refresh:
+                    info = garmin_raster.courseview_release_info(gid, allow_fetch=True, force_refresh=True) or info
+                    row = next((r for r in info.get("holes", []) if int(r.get("hole", 0)) == hole), None)
+                    if not row or garmin_raster._geometry_asset_version(info, row, hole) != version:
+                        # Never write new-release bytes under an old asset identity.
+                        raise GarminRasterForbidden(gid, hole, forbidden_release)
+                reasons: list[str] = []
+                source = garmin_raster.fetch_raster(gid, dict(row, geometryAssetVersion=version), on_error=reasons.append)
+                if source:
+                    break
                 reason = reasons[-1] if reasons else "source unavailable"
-                if str(reason).strip().upper() == "HTTP 403":
-                    raise GarminRasterForbidden(gid, hole, str(version))
-                raise RuntimeError(f"garmin download failed: {reason}")
+                if str(reason).strip().upper() != "HTTP 403":
+                    raise RuntimeError(f"garmin download failed: {reason}")
+                if refresh:
+                    raise GarminRasterForbidden(gid, hole, forbidden_release)
         if not source:
             raise RuntimeError("garmin download failed: empty local JPEG")
         try:
@@ -551,8 +563,11 @@ class RenderBackfill:
             return set()
 
     def _sources(self, rows: list[tuple[int, int]]) -> dict[tuple[int, int], str | None]:
+        self._release_by_hole = {}
         if self._raster_version is not None:
-            return {(gid, hole): self._raster_version(gid, hole) for gid, hole in rows}
+            sources = {(gid, hole): self._raster_version(gid, hole) for gid, hole in rows}
+            self._release_by_hole = dict(sources)
+            return sources
         sources = {}
         grouped: dict[int, list[int]] = {}
         for gid, hole in rows:
@@ -566,6 +581,7 @@ class RenderBackfill:
                 version = garmin_raster._geometry_asset_version(info, row, hole) if row else None
                 local = version and garmin_raster._raster_path(gid, hole, version).is_file()
                 sources[gid, hole] = version if row and (row.get("raster_url") or local) else None
+                self._release_by_hole[gid, hole] = str(info.get("release_version") or version or "")
         return sources
 
     def _index_state(self) -> None:
@@ -577,9 +593,14 @@ class RenderBackfill:
                 if value in ("done", "pending", "failed"):
                     self._counts["total"] += 1
                     self._counts[value] += 1
-                if value == "failed":
+                if value == "failed" or (unit == "garmin" and "HTTP 403" in str(task.get("errors", {}).get(unit))):
                     self._failures[key, unit] = {"globalId": task["globalId"], "localHole": task["localHole"],
                                                  "unit": unit, "error": task.get("errors", {}).get(unit) or task.get("error")}
+
+    def _garmin_release_blocked(self, task: dict) -> bool:
+        entry = self._state["garminForbiddenReleases"].get(f"{task['globalId']}:{task.get('garminRelease')}")
+        return bool(entry and (entry["attempts"] >= GARMIN_403_MAX_ATTEMPTS
+                              or entry["retryAfter"] > time.time()))
 
     def enqueue_all(self, *, recent: set[tuple[int, int]] | None = None,
                     downloaded: set[tuple[int, int]] | None = None, force: bool = False) -> dict[str, Any]:
@@ -600,10 +621,13 @@ class RenderBackfill:
                 key, source = _key(gid, hole), sources[gid, hole]
                 previous = old["tasks"].get(key, {})
                 task = dict(previous, globalId=gid, localHole=hole,
-                            priority=self._priority(gid, hole, recent, downloaded), assetVersion=source)
+                            priority=self._priority(gid, hole, recent, downloaded), assetVersion=source,
+                            garminRelease=self._release_by_hole.get((gid, hole), source))
                 if previous.get("assetVersion") != source:
                     for field in ("garmin403BackoffSeconds", "garmin403RetryAfter", "garmin403LoggedRelease"):
                         task.pop(field, None)
+                backoff = old["garminForbiddenReleases"].get(f"{gid}:{task['garminRelease']}")
+                blocked = self._garmin_release_blocked(task)
                 errors = dict(previous.get("errors") or {})
                 interrupts = dict(previous.get("interrupts") or {})
                 submitted = dict(previous.get("submitted") or {})
@@ -620,6 +644,11 @@ class RenderBackfill:
                     elif task.get(unit) == "pending" and ready():
                         task[unit] = "done"
                         errors.pop(unit, None)
+                    if unit == "garmin" and backoff:
+                        # A manual force scan also honours the release circuit breaker. New
+                        # release authority resets the lane; stale signed URLs are never spun.
+                        task[unit] = "failed" if backoff["attempts"] >= GARMIN_403_MAX_ATTEMPTS else "pending"
+                        errors[unit] = backoff["error"]
                     if task.get(unit) != "pending":
                         interrupts[unit], submitted[unit] = 0, False
                     else:
@@ -630,8 +659,7 @@ class RenderBackfill:
                         errors.setdefault(unit, previous["error"])
                     if task.get(unit) == "pending":
                         network = int(unit == "garmin" and not garmin_raster._raster_path(gid, hole, source).is_file())
-                        retry_after = float(task.get("garmin403RetryAfter") or 0.0) if unit == "garmin" else 0.0
-                        if retry_after <= time.time() or force:
+                        if unit != "garmin" or not blocked:
                             queue.append((task["priority"], network, key, unit))
                 task.pop("error", None)
                 task["errors"] = errors
@@ -665,6 +693,9 @@ class RenderBackfill:
                 selected = heapq.heappop(self._queue)
                 priority, _order, key, unit = selected
                 task = self._state["tasks"][key]
+                # A previous hole may have tripped this entire release after the scan.
+                if task.get(unit) != "pending" or (unit == "garmin" and self._garmin_release_blocked(task)):
+                    return True
                 self._current_unit = (key, unit)
             error = None
             try:
@@ -696,35 +727,31 @@ class RenderBackfill:
                 self._stopping.set()
                 return False
             except GarminRasterForbidden as exc:
-                task = self._state["tasks"][key]
-                previous = float(task.get("garmin403BackoffSeconds") or 0.0)
-                delay = min(3600.0, max(60.0, previous * 2.0 if previous else 60.0))
-                retry_after = time.time() + delay
-                self._record_unit(
-                    key,
-                    unit,
-                    state="pending",
-                    error=f"garmin download failed: {exc}",
-                )
+                release_key = f"{exc.global_id}:{exc.release}"
                 with self._lock:
-                    updated = dict(self._state["tasks"][key])
-                    updated.update(
-                        garmin403BackoffSeconds=delay,
-                        garmin403RetryAfter=retry_after,
-                    )
-                    if updated.get("garmin403LoggedRelease") != exc.release:
-                        updated["garmin403LoggedRelease"] = exc.release
-                        log_once = True
-                    else:
-                        log_once = False
-                    self._state["tasks"][key] = updated
+                    previous = self._state["garminForbiddenReleases"].get(release_key, {})
+                    attempts = int(previous.get("attempts") or 0) + 1
+                    delay = min(3600.0, 60.0 * 2 ** min(attempts - 1, 6))
+                    retry_after = time.time() + delay
+                    error = f"garmin download failed: {exc}"
+                    self._state["garminForbiddenReleases"][release_key] = dict(
+                        globalId=exc.global_id, release=exc.release, attempts=attempts,
+                        retryAfter=retry_after, backoffSeconds=delay, error=error,
+                        state="blocked" if attempts >= GARMIN_403_MAX_ATTEMPTS else "backoff")
+                    affected = [k for k, row in self._state["tasks"].items()
+                                if row["globalId"] == exc.global_id
+                                and str(row.get("garminRelease")) == exc.release
+                                and row.get("garmin") != "done"]
                     self._dirty += 1
-                if log_once:
+                for affected_key in affected:
+                    self._record_unit(affected_key, "garmin",
+                                      state="failed" if attempts >= GARMIN_403_MAX_ATTEMPTS else "pending", error=error)
+                if not previous:
                     logger.warning(
                         "render_backfill garmin raster HTTP 403; backing off gid=%s release=%s retry_after=%s",
                         exc.global_id, exc.release, round(retry_after),
                     )
-                self._save()
+                self._save(force=True)
                 return True
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"[:500]
@@ -749,7 +776,8 @@ class RenderBackfill:
                       "matteVersion": self._state["matteVersion"] or self.matte_version,
                       **self._counts, "updatedAt": self._state["updatedAt"],
                       "writerState": self._writer_state, "lastError": self._writer_error,
-                      "failures": [dict(row) for _, row in zip(range(50), self._failures.values())]}
+                      "failures": [dict(row) for _, row in zip(range(50), self._failures.values())],
+                      "garminReleaseBackoff": [dict(row) for row in self._state["garminForbiddenReleases"].values()]}
             if detail:
                 result["tasks"] = {key: dict(task, errors=dict(task.get("errors") or {}),
                                              interrupts=dict(task.get("interrupts") or {}),

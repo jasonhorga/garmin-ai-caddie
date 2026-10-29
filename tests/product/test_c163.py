@@ -15,6 +15,7 @@ class C163VectorAndWarmTests(unittest.TestCase):
     def test_J42_non_current_vector_uses_process_lane(self):
         """J4.2: a non-current package's CPU seed runs in a bounded child lane."""
         from ai_caddie.courses import vector_prep
+        from ai_caddie.geometry import topo_render
 
         ready = {"coverage": "ready", "geometryRevision": "r1"}
         result = {"globalId": 123, "localHole": 1}
@@ -24,7 +25,8 @@ class C163VectorAndWarmTests(unittest.TestCase):
         pool.submit.return_value = future
         with TemporaryDirectory() as directory:
             with (
-                patch.object(vector_prep, "_get_vector_pool", return_value=pool),
+                patch.object(topo_render, "_get_render_pool", return_value=pool),
+                patch.object(topo_render, "_render_process_count", return_value=1),
                 patch.object(vector_prep.prep_cache, "_requested_geometry_sig", return_value="g"),
                 patch.object(vector_prep.prep_cache, "_course_data_sig", return_value="c"),
                 patch.object(vector_prep.course_prep, "precise_route_seed_hole", return_value=result) as seed,
@@ -95,7 +97,7 @@ class C163RenderAndHistoryTests(unittest.TestCase):
                     status = worker.status(detail=True)
                 task = status["tasks"]["1:1"]
                 self.assertEqual(task["garmin"], "pending")
-                self.assertGreater(task["garmin403RetryAfter"], time.time())
+                self.assertGreater(status["garminReleaseBackoff"][0]["retryAfter"], time.time())
                 warning.assert_called_once()
             finally:
                 worker.close()
@@ -123,10 +125,6 @@ class C163RenderAndHistoryTests(unittest.TestCase):
         ) as prep:
             round_shot_map._lightweight_map_frame(123, 1, ladder=ladder)
         self.assertIs(prep.call_args.kwargs["ladder"], ladder)
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class PackageLaneTests(unittest.IsolatedAsyncioTestCase):
@@ -162,14 +160,25 @@ class PackageLaneTests(unittest.IsolatedAsyncioTestCase):
         self.enterContext(patch.object(analysis, "tee_set_for_box", return_value=2))
         self.seed = self.enterContext(patch.object(vector_prep.course_prep, "precise_route_seed_hole", return_value={"fixture": True}))
         self.process = self.enterContext(patch.object(vector_prep, "precise_route_seed_hole_in_process", return_value={"fixture": True}))
+        from server_v2 import mobile
+        from ai_caddie.history.history import HistoryData
         package = CourseInstallJournalTests._real_package()
         self.results = []
-        def build(gid, **kwargs):
-            self.results.append(map_startup.prepare_priority_hole(
-                kwargs["loops"], tee_box=kwargs["tee_box"], priority_hole=kwargs["priority_hole"],
-                background=kwargs.get("background_vector", False)))
-            return package.model_copy(deep=True)
-        self.enterContext(patch.object(main, "build_mobile_course_package_response", side_effect=build))
+        prepare = map_startup.prepare_priority_hole
+        def observed_prepare(*args, **kwargs):
+            # Synchronize the test at completion; production's builder remains real and chooses
+            # the lane/parameters itself. No test-side reimplementation of its branching.
+            result = prepare(*args, **dict(kwargs, wait=True))
+            self.results.append(result)
+            return result
+        self.enterContext(patch.object(map_startup, "prepare_priority_hole", side_effect=observed_prepare))
+        self.enterContext(patch.object(main, "build_mobile_course_package_response", wraps=mobile.build_mobile_course_package_response))
+        self.enterContext(patch.object(mobile, "load_history_data_for_mode", return_value=(HistoryData(
+            raw_rounds=[], rounds=[], shots=[], corrected=True), "fixture")))
+        self.enterContext(patch.object(mobile, "_build_course_package_with_cold_releases", side_effect=lambda _: package.model_copy(deep=True)))
+        self.enterContext(patch.object(mobile, "_rebind_course_package_round_identity", side_effect=lambda p, *a, **kw: p))
+        self.enterContext(patch.object(mobile, "_persist_mobile_package_identity"))
+        self.enterContext(patch.object(mobile, "_bind_package_event_cursor", side_effect=lambda p, **kw: p))
         self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url="http://fixture")
         self.addAsyncCleanup(self.client.aclose)
 
@@ -180,6 +189,7 @@ class PackageLaneTests(unittest.IsolatedAsyncioTestCase):
         for map_only in (True, False):
             with self.subTest(map_only=map_only):
                 self.seed.reset_mock()
+                self.process.reset_mock()
                 # Separate cold authority for each new round.
                 with TemporaryDirectory() as directory, patch.object(self.vp, "_CACHE_DIR", Path(directory)):
                     response = await self.request(f"live-new-{map_only}", map_only)
@@ -243,19 +253,24 @@ class PackageLaneTests(unittest.IsolatedAsyncioTestCase):
                      patch.object(self.vp, "precise_route_seed_hole_in_process", side_effect=compute), \
                      patch.object(self.gate._condition, "wait", side_effect=wait):
                     from contextlib import nullcontext
-                    with (self.gate.foreground() if phase == "gate" else nullcontext()):
-                        tasks = [asyncio.create_task(self.client.get(
-                            f"/api/v2/mobile/courses/123/package?round_id=prep-library-123&loops=123:front&tee_box=blue&background_geometry=true&priority_hole={h}")) for h in (1, 2)]
-                        # The route fixture forwards priority_hole below via its builder.
-                        try:
-                            self.assertTrue(await asyncio.to_thread(waiting.wait, 1))
-                            # An actual foreground priority-hole job must get a shared worker.
-                            f = pool.submit(lambda: "foreground-ready", priority=0)
-                            self.assertEqual(await asyncio.to_thread(f.result, .3), "foreground-ready")
-                        finally:
-                            release.set()
-                    await asyncio.gather(*tasks)
-                pool.shutdown()
+                    tasks = []
+                    try:
+                        with (self.gate.foreground() if phase == "gate" else nullcontext()):
+                            tasks = [asyncio.create_task(self.client.get(
+                                f"/api/v2/mobile/courses/123/package?round_id=prep-library-123&loops=123:front&tee_box=blue&background_geometry=true&priority_hole={h}")) for h in (1, 2)]
+                            try:
+                                self.assertTrue(await asyncio.to_thread(waiting.wait, 1))
+                                result = await asyncio.wait_for(asyncio.to_thread(
+                                    self.ms.prepare_priority_hole, [(123, "front")],
+                                    priority_hole=3, tee_box="blue", background=False), .5)
+                                self.assertTrue(result["drawable"])
+                            finally:
+                                release.set()
+                    finally:
+                        release.set()
+                        await asyncio.gather(*tasks)
+                        pool.shutdown()
+
 
 
 class HistoryReentryTests(unittest.TestCase):
@@ -330,17 +345,21 @@ class ReleaseBackoffTests(unittest.TestCase):
                 try:
                     w.enqueue_all(downloaded=set())
                     self.assertFalse(w.run_once())
-                    # Old release cannot cause infinite retries even after the maximum delay.
-                    with patch.object(rb.time, "time", return_value=time.time() + 7200):
-                        w.enqueue_all(downloaded=set())
-                        self.assertFalse(w.run_once())
-                    self.assertEqual(download.call_count, 1)
+                    # Exponential retry is finite: three release attempts, then only new authority.
+                    clock = time.time()
+                    for offset, attempts in ((61, 2), (182, 3), (7200, 3)):
+                        with patch.object(rb.time, "time", return_value=clock + offset):
+                            w.enqueue_all(downloaded=set())
+                            while w.run_once():
+                                pass
+                        self.assertEqual(download.call_count, attempts)
+                    self.assertEqual(w.status()["garminReleaseBackoff"][0]["state"], "blocked")
                     # New release opens exactly one fresh attempt.
                     w._raster_version = lambda *_: "release-2"
                     w.enqueue_all(downloaded=set())
                     while w.run_once():
                         pass
-                    self.assertEqual(download.call_count, 2)
+                    self.assertEqual(download.call_count, 4)
                 finally:
                     w.close()
 
@@ -361,7 +380,8 @@ class WarmCompletionTests(unittest.TestCase):
                 second.set()
             return True
         with patch.object(main, "_history_input_signature", side_effect=lambda _: (revision[0],)), \
-             patch.object(hs, "warm_stats_cache", side_effect=warm):
+             patch.object(hs, "warm_stats_cache", side_effect=warm), \
+             patch.object(hs, "history_input_signature", side_effect=lambda _: (revision[0],)):
             monitor = main._start_history_signature_monitor(stop_event=stop, interval_s=.01, player_id="fixture-monitor")
             try:
                 revision[0] = "first"
@@ -392,11 +412,7 @@ class SharedCpuPoolTests(unittest.TestCase):
         from ai_caddie.courses import vector_prep as vp
         pool = Mock()
         pool.submit.side_effect = BrokenProcessPool("fixture killed worker")
-        old = Mock()
-        old_future = Future()
-        old_future.set_result({"fixture": True})
-        old.submit.return_value = old_future
-        with patch.object(vp, "_get_vector_pool", return_value=old, create=True), patch.object(tr, "_render_process_count", return_value=1), \
+        with patch.object(tr, "_render_process_count", return_value=1), \
              patch.object(tr, "_get_render_pool", return_value=pool) as get, \
              patch.object(tr, "_discard_render_pool") as discard, \
              patch.object(vp.course_prep, "precise_route_seed_hole", return_value={"fixture": True}), \
@@ -421,11 +437,106 @@ class SharedCpuPoolTests(unittest.TestCase):
         pool = Mock()
         pool.submit.return_value = f
         pool.shutdown.side_effect = lambda **kwargs: released.set()
-        with patch.object(vp, "_get_vector_pool", return_value=pool, create=True), \
-             patch.object(tr, "_render_pool", None), \
+        with patch.object(tr, "_render_pool", None), \
              patch.object(tr, "_RENDER_POOL_IDLE_SECONDS", .02, create=True), \
              patch.object(tr, "ProcessPoolExecutor", return_value=pool), \
              patch.object(tr, "_render_process_count", return_value=1):
             vp.precise_route_seed_hole_in_process(123, 1)
             self.assertTrue(released.wait(1), "idle shared CPU children stayed resident")
             self.assertIsNone(tr._render_pool)
+
+
+class SignatureRefreshTests(unittest.TestCase):
+    def test_J42_forbidden_raster_refreshes_signatures_once_before_backoff(self):
+        """J4.2: a refreshable signed URL is retried once, with the same asset authority."""
+        from server_v2 import render_backfill as rb
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            worker = rb.RenderBackfill(state_path=root / "state.json", mesh_root=root / "meshes",
+                                       should_yield=lambda: False)
+            self.addCleanup(worker.close)
+            info = {"release_version": 7, "holes": [{"hole": 1, "raster_url": "https://fixture.invalid/old"}]}
+            refreshed = {"release_version": 7, "holes": [{"hole": 1, "raster_url": "https://fixture.invalid/new"}]}
+            for succeeds in (True, False):
+                with self.subTest(succeeds=succeeds):
+                    urls = []
+                    def fetch(gid, row, *, on_error):
+                        urls.append(row["raster_url"])
+                        if len(urls) == 1 or not succeeds:
+                            on_error("HTTP 403")
+                            return None
+                        return b"fixture-jpeg"
+                    with patch.object(rb.topo_render, "_render_process_count", return_value=1), \
+                         patch.object(rb.garmin_raster, "_matte_path", return_value=root / f"matte-{succeeds}"), \
+                         patch.object(rb.garmin_raster, "_raster_path", return_value=root / "missing"), \
+                         patch.object(rb.garmin_raster, "_geometry_asset_version", return_value="v1"), \
+                         patch.object(rb.garmin_raster, "courseview_release_info", side_effect=[info, refreshed]) as release, \
+                         patch.object(rb.garmin_raster, "fetch_raster", side_effect=fetch), \
+                         patch.object(worker, "_render_in_pool", return_value=b"matte"), \
+                         patch.object(rb, "NETWORK_RASTER_INTERVAL_SECONDS", 0):
+                        if succeeds:
+                            self.assertTrue(worker._default_render_garmin(1, 1, "v1"))
+                        else:
+                            with self.assertRaises(rb.GarminRasterForbidden) as error:
+                                worker._default_render_garmin(1, 1, "v1")
+                            self.assertEqual(error.exception.release, "7")
+                        self.assertEqual(urls, ["https://fixture.invalid/old", "https://fixture.invalid/new"])
+                        self.assertEqual(release.call_args.kwargs, {"allow_fetch": True, "force_refresh": True})
+
+    def test_J42_forced_release_refresh_bypasses_fresh_cache(self):
+        """J4.2: signed URL renewal must fetch even while geometry authority is still fresh."""
+        from ai_caddie.courses import course_reference as cr
+        from tests.perf.c135_concurrency import _synthetic_package_release
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            pb = _synthetic_package_release(123)
+            cr.save_release_pb(123, pb, root=root)
+            with patch.object(cr, "load_release_pb", return_value=pb) as fetch:
+                cr.courseview_release_info(123, allow_fetch=True, root=root, force_refresh=True)
+                fetch.assert_called_once()
+
+
+class MonitorLifecycleTests(unittest.TestCase):
+    def test_J42_monitor_stops_with_application_lifespan(self):
+        """J4.2: repeated lifespan entry cannot accumulate signature watcher threads."""
+        from server_v2 import main
+        import asyncio
+        async def run():
+            stop = threading.Event()
+            thread = main._start_history_signature_monitor(stop_event=stop, interval_s=.01)
+            with patch.object(main, "_start_boot_background_work"), \
+                 patch.object(main, "stop_render_backfill"), \
+                 patch.object(main, "_HISTORY_MONITOR_STOP", stop, create=True), \
+                 patch.object(main, "_HISTORY_MONITOR_THREAD", thread, create=True):
+                async with main._lifespan(main.app):
+                    self.assertTrue(thread.is_alive())
+                thread.join(.5)
+                self.assertFalse(thread.is_alive())
+        asyncio.run(run())
+
+    def test_J42_failed_warm_does_not_acknowledge_signature(self):
+        """J4.2: a failed best-effort warm remains eligible on the next monitor tick."""
+        from server_v2 import main, history_stats as hs
+        revision = ["old"]
+        stop, retried = threading.Event(), threading.Event()
+        calls = []
+        def warm(*, player_id):
+            calls.append(1)
+            if len(calls) > 1:
+                retried.set()
+            return len(calls) > 1
+        with patch.object(main, "_history_input_signature", side_effect=lambda _: (revision[0],)), \
+             patch.object(hs, "history_input_signature", side_effect=lambda _: (revision[0],)), \
+             patch.object(hs, "warm_stats_cache", side_effect=warm):
+            thread = main._start_history_signature_monitor(stop_event=stop, interval_s=.01, player_id="fixture-retry")
+            try:
+                revision[0] = "new"
+                self.assertTrue(retried.wait(1))
+            finally:
+                stop.set()
+                thread.join(1)
+        self.assertEqual(len(calls), 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

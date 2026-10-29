@@ -240,6 +240,22 @@ def configure_request_timing_logging() -> None:
         access_log.addFilter(request_timing.URLRedactionFilter())
 
 
+_HISTORY_MONITOR_LOCK = threading.Lock()
+_HISTORY_MONITOR_STOP: threading.Event | None = None
+_HISTORY_MONITOR_THREAD: threading.Thread | None = None
+
+
+def _stop_history_signature_monitor() -> None:
+    global _HISTORY_MONITOR_STOP, _HISTORY_MONITOR_THREAD
+    with _HISTORY_MONITOR_LOCK:
+        stop, thread = _HISTORY_MONITOR_STOP, _HISTORY_MONITOR_THREAD
+        _HISTORY_MONITOR_STOP = _HISTORY_MONITOR_THREAD = None
+    if stop is not None:
+        stop.set()
+    if thread is not None:
+        thread.join(timeout=1)
+
+
 def _start_boot_background_work() -> None:
     """Start the process-owned warmers and recovery workers once the API can boot."""
     from ai_caddie.caddie.mobile_event_store import start_round_event_index_migration
@@ -262,25 +278,38 @@ def _start_boot_background_work() -> None:
         name="prepare-recent-boot",
         daemon=True,
     ).start()
-    _start_history_signature_monitor()
+    global _HISTORY_MONITOR_STOP, _HISTORY_MONITOR_THREAD
+    _stop_history_signature_monitor()
+    with _HISTORY_MONITOR_LOCK:
+        _HISTORY_MONITOR_STOP = threading.Event()
+        _HISTORY_MONITOR_THREAD = _start_history_signature_monitor(stop_event=_HISTORY_MONITOR_STOP)
 
 
 def _start_history_signature_monitor(
     *, stop_event: threading.Event | None = None, interval_s: float = 60.0,
     player_id: str = OWNER_ID,
 ) -> threading.Thread:
-    """Watch the sync-owned history files and warm changed projections off request threads."""
+    """Watch one player's sync-owned files; boot watches owner, member syncs warm explicitly.
+
+    A completed shared warm acknowledges its starting signature. Changes during its build
+    remain different and get another pass, including when this monitor joined an existing warm.
+    """
     stop = stop_event or threading.Event()
 
     def monitor() -> None:
         previous = _history_input_signature(player_id)
+        pending = None
         while not stop.wait(max(0.01, float(interval_s))):
-            current = _history_input_signature(player_id)
-            if current == previous:
-                continue
-            previous = current
             try:
-                warm_stats_cache_in_background(player_id=player_id)
+                if pending is not None:
+                    if not pending.is_alive():
+                        if pending.warm_succeeded:
+                            previous = pending.history_signature
+                        pending = None
+                current = _history_input_signature(player_id)
+                if current == previous or pending is not None:
+                    continue
+                pending = warm_stats_cache_in_background(player_id=player_id)
             except Exception:
                 logger.warning("history signature warm-up deferred player=%s", player_id, exc_info=True)
 
@@ -316,6 +345,7 @@ async def _lifespan(_app: FastAPI):
     try:
         yield
     finally:
+        _stop_history_signature_monitor()
         stop_render_backfill()
 
 
@@ -3027,6 +3057,19 @@ def mobile_course_package(
         raise HTTPException(status_code=422, detail="priority_hole is outside the selected round")
     requested_loop_key = round_loop_key(round_loops)
     requested_tee_box = str(tee_box or "blue").strip().lower()
+    # Home bootstrap can use suggestedLiveRoundId (live-<gid>), so the ID prefix alone is
+    # insufficient. Its existing read-only request disables all three options; playing/download
+    # paths request background geometry. A home read never starts or refreshes a playing lease.
+    if include_event_cursor or background_geometry or ensure_geometry:
+        _record_round_activity(
+            player_id,
+            round_id,
+            global_ids=[gid for gid, _half in round_loops],
+            selection=(
+                round_loop_key(round_loops),
+                requested_tee_box,
+            ),
+        )
     # A package without an active round lease is a download/preview warm-up.  Keep a real
     # playing round's first-screen path on the foreground lane, while same-gid previews with a
     # different ordered loop or Tee are explicitly background work.
@@ -3036,15 +3079,7 @@ def mobile_course_package(
         loop_key=requested_loop_key,
         tee_box=requested_tee_box,
     )
-    background_vector = bool(
-        (background_geometry or map_only)
-        and (
-            map_only
-            or round_id is None
-            or str(round_id).startswith(("home-", "prep-library-", "watch-template-"))
-            or not active_selection
-        )
-    )
+    background_vector = bool((background_geometry or map_only) and not active_selection)
     package_kwargs = {
         "round_id": round_id,
         "tee_box": tee_box,
@@ -3079,19 +3114,6 @@ def mobile_course_package(
         package_course.get("globalId") if isinstance(package_course, dict)
         else getattr(package_course, "globalId", None)
     )
-    # Home bootstrap can use suggestedLiveRoundId (live-<gid>), so the ID prefix alone is
-    # insufficient. Its existing read-only request disables all three options; playing/download
-    # paths request background geometry. A home read never starts or refreshes a playing lease.
-    if include_event_cursor or background_geometry or ensure_geometry:
-        _record_round_activity(
-            player_id,
-            round_id,
-            global_ids=[gid for gid, _half in round_loops],
-            selection=(
-                round_loop_key(round_loops),
-                str(tee_box or package_tee_box or "blue"),
-            ),
-        )
     mark_request_stage("package_route")
     if not background_geometry or ensure_geometry:
         return package

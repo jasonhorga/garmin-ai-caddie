@@ -1027,7 +1027,68 @@ _RENDER_PROCESSES_ENV = "AI_CADDIE_TOPO_RENDER_PROCESSES"
 _DEFAULT_RENDER_NICE = 10
 # Recycle a worker after this many renders so allocator growth in a long-lived child is returned.
 _RENDER_TASKS_PER_PROCESS = 64
-_render_pool: ProcessPoolExecutor | None = None
+# Retire the shared CPU children after a quiet minute. Submission/completion tracking also
+# covers backfill's direct pool users; a busy render/vector can never be retired underneath it.
+_RENDER_POOL_IDLE_SECONDS = 60.0
+
+
+class _IdleCpuPool:
+    def __init__(self, **kwargs):
+        self._executor = ProcessPoolExecutor(**kwargs)
+        self._lock = threading.Lock()
+        self._active = 0
+        self._timer = None
+        self._closed = False
+
+    def submit(self, fn, /, *args, **kwargs):
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("cannot schedule new futures after shutdown")
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
+            self._active += 1
+        try:
+            future = self._executor.submit(fn, *args, **kwargs)
+        except BaseException:
+            self._completed(None)
+            raise
+        future.add_done_callback(self._completed)
+        return future
+
+    def _completed(self, _future):
+        with self._lock:
+            self._active -= 1
+            if self._active or self._closed:
+                return
+            timer = threading.Timer(_RENDER_POOL_IDLE_SECONDS, self._retire)
+            timer.daemon = True
+            self._timer = timer
+            timer.start()
+
+    def _retire(self):
+        global _render_pool
+        with _render_pool_lock:
+            with self._lock:
+                # A cancelled timer may already have woken: only the current idle epoch wins.
+                if self._active or self._closed or self._timer is not threading.current_thread():
+                    return
+                self._closed = True
+                self._timer = None
+                if _render_pool is self:
+                    _render_pool = None
+        self._executor.shutdown(wait=False, cancel_futures=True)
+
+    def shutdown(self, *, wait=True, cancel_futures=False):
+        with self._lock:
+            self._closed = True
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
+        self._executor.shutdown(wait=wait, cancel_futures=cancel_futures)
+
+
+_render_pool: _IdleCpuPool | None = None
 _render_pool_lock = threading.Lock()
 
 
@@ -1062,7 +1123,7 @@ def _render_worker_initializer(priority: int) -> None:
         pass
 
 
-def _get_render_pool(processes: int) -> ProcessPoolExecutor:
+def _get_render_pool(processes: int) -> _IdleCpuPool:
     global _render_pool
     with _render_pool_lock:
         if _render_pool is None:
@@ -1077,7 +1138,7 @@ def _get_render_pool(processes: int) -> ProcessPoolExecutor:
                 # Import the renderer (NumPy, PIL, geometry) once in the fork server, so a new or
                 # recycled worker does not pay it inside a request.
                 context.set_forkserver_preload([__name__])
-            _render_pool = ProcessPoolExecutor(
+            _render_pool = _IdleCpuPool(
                 max_workers=processes,
                 mp_context=context,
                 max_tasks_per_child=_RENDER_TASKS_PER_PROCESS,
@@ -1169,6 +1230,7 @@ def _run_render_cpu(compute: Callable[..., _RenderResult], *args, **kwargs) -> _
         _discard_render_pool(pool)
         return _compute_in_render_worker(compute, *args, **kwargs)
     except RuntimeError:  # another request shut down this pool before submit
+        _discard_render_pool(pool)
         return _compute_in_render_worker(compute, *args, **kwargs)
     try:
         return future.result()
