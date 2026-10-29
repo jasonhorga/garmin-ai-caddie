@@ -3519,7 +3519,7 @@ public final class LiveRoundAppModel: ObservableObject {
         // the geometry scheduler instead of repeatedly rebuilding partial prep payloads while the
         // server is still decoding Garmin ZIPs. Older servers simply fall back to the existing
         // coverage probe path.
-        func refreshServerInstallStatus() async {
+        func refreshServerInstallStatus(useTransportRetries: Bool = true) async {
             guard !Task.isCancelled else { return }
             #if DEBUG
             guard !roundBackgroundWorkStoppedForTesting else { return }
@@ -3564,11 +3564,21 @@ public final class LiveRoundAppModel: ObservableObject {
                 guard !roundBackgroundWorkStoppedForTesting else { return }
                 #endif
                 do {
-                    guard let candidate = try await syncClient.fetchCourseInstallStatus(
-                        globalId: primaryGlobalId,
-                        teeBox: tee,
-                        loops: snapshot.loopEntries
-                    ) else { continue }
+                    let candidate: CourseInstallStatus?
+                    if useTransportRetries {
+                        candidate = try await syncClient.fetchCourseInstallStatus(
+                            globalId: primaryGlobalId,
+                            teeBox: tee,
+                            loops: snapshot.loopEntries
+                        )
+                    } else {
+                        candidate = try await syncClient.fetchCourseInstallStatusForPolling(
+                            globalId: primaryGlobalId,
+                            teeBox: tee,
+                            loops: snapshot.loopEntries
+                        )
+                    }
+                    guard let candidate else { continue }
                     let hasMatchingHole = candidate.holes.contains { row in
                         let exact = row.globalId > 0 && row.localHole > 0
                             ? offlinePrepKey(globalId: row.globalId, localHole: row.localHole)
@@ -3637,6 +3647,10 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         if prepDownloadID == nil {
             await refreshServerInstallStatus()
+        } else if !deferTemplateReplacement {
+            // Prep downloads use the single-request polling endpoint. The worker owns the
+            // retry ladder; transport retries here would multiply each server-status step.
+            await refreshServerInstallStatus(useTransportRetries: false)
         }
         // A lightweight package deliberately embeds the first hole as a fast partial seed even
         // when that hole's Garmin geometry is already installed. The authoritative per-hole
@@ -3774,6 +3788,8 @@ public final class LiveRoundAppModel: ObservableObject {
             guard !unresolvedByGlobalId.isEmpty, attempt < retryDelays.count else { break }
             if prepDownloadID == nil {
                 await refreshServerInstallStatus()
+            } else if !deferTemplateReplacement {
+                await refreshServerInstallStatus(useTransportRetries: false)
             }
             do {
                 try await Task.sleep(nanoseconds: retryDelays[attempt])
@@ -4850,6 +4866,12 @@ public final class LiveRoundAppModel: ObservableObject {
             self.isOpeningPrepCourse = false
             self.finishRoundPreparation(preparationToken)
             preparationFinished = true
+            // The foreground map release can cancel the durable full-course row while Start owns
+            // the connection. Hand the same selected course back to the queue after the token is
+            // cleared so the independent whole-course worker cannot remain stranded as queued.
+            self.startPrepCourseDownloadQueueIfNeeded(
+                userRequested: PrepCourseDownloadRecord.key(globalId: course.globalId, teeBox: teeBox)
+            )
             self.beginPrepEnrichmentIfNeeded()
             let tees = await self.loadCourseTees(globalId: course.globalId)
             guard generation == self.prepOpenGeneration, !tees.isEmpty else { return }
@@ -7234,7 +7256,10 @@ public final class LiveRoundAppModel: ObservableObject {
                     requestKind: .userDownload
                 )
             }
-            let canonicalFetched = fetched
+            // The request's Tee owns the offline template key. Legacy/fixture responses may carry
+            // the venue default Tee in `course`; normalize that identity before caching or using
+            // the package for the independent whole-course row.
+            let canonicalFetched = fetched.replacingCourseTeeBox(record.teeBox)
             let isIntentPrefetch = record.isIntentPrefetch
             if isIntentPrefetch {
                 prefetchFirstHoleTopo(in: canonicalFetched)
