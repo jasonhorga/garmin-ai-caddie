@@ -206,18 +206,19 @@ class PackageLaneTests(unittest.IsolatedAsyncioTestCase):
             waiting.set()
             return original(timeout)
         with patch.object(self.gate._condition, "wait", side_effect=wait):
-            with self.gate.foreground():
-                pending = asyncio.create_task(self.request("prep-library-123"))
-                try:
+            pending = None
+            try:
+                with self.gate.foreground():
+                    pending = asyncio.create_task(self.request("prep-library-123"))
                     self.assertTrue(await asyncio.to_thread(waiting.wait, 1))
                     response = await self.request("live-now")
                     self.assertEqual(response.status_code, 200, response.text)
                     self.seed.assert_called_once()
                     self.process.assert_not_called()
-                finally:
-                    # Release admission even when a regression assertion fails.
-                    pass
-            self.assertEqual((await pending).status_code, 200)
+            finally:
+                if pending is not None:
+                    background = await pending
+            self.assertEqual(background.status_code, 200)
         self.seed.assert_called_once()
         self.process.assert_not_called()  # background observes the foreground's persisted vector
 

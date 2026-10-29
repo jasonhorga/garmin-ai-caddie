@@ -644,7 +644,7 @@ class RenderBackfill:
                     elif task.get(unit) == "pending" and ready():
                         task[unit] = "done"
                         errors.pop(unit, None)
-                    if unit == "garmin" and backoff:
+                    if unit == "garmin" and backoff and task.get(unit) != "done":
                         # A manual force scan also honours the release circuit breaker. New
                         # release authority resets the lane; stale signed URLs are never spun.
                         task[unit] = "failed" if backoff["attempts"] >= GARMIN_403_MAX_ATTEMPTS else "pending"
