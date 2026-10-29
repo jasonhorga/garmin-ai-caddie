@@ -951,112 +951,112 @@
       "patch": "tests/product/faults/C143/01-deferred-rejection-no-recovery.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testDeferredFinishNeverReachesServerWhileAScoreIsQuarantined",
-      "promise": "C143-1"
+      "promise": "5.9"
     },
     {
       "id": "tests-product-faults-C143-02",
       "patch": "tests/product/faults/C143/02-recovery-does-not-reopen-round.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testDeferredFinishNeverReachesServerWhileAScoreIsQuarantined",
-      "promise": "C143-2"
+      "promise": "5.9"
     },
     {
       "id": "tests-product-faults-C143-03",
       "patch": "tests/product/faults/C143/03-recovery-keeps-card.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testDeferredFinishNeverReachesServerWhileAScoreIsQuarantined",
-      "promise": "C143-3"
+      "promise": "5.9"
     },
     {
       "id": "tests-product-faults-C143-04",
       "patch": "tests/product/faults/C143/04-offline-finish-invents-recovery.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59DeferredFinishRecoveryRequiresServerRejection",
-      "promise": "C143-4"
+      "promise": "5.9"
     },
     {
       "id": "tests-product-faults-C143-05",
       "patch": "tests/product/faults/C143/05-first-upload-reorders-events.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59InitialUploadPreservesEventLogOrder",
-      "promise": "C145-1"
+      "promise": "5.9"
     },
     {
       "id": "tests-product-faults-C143-06",
       "patch": "tests/product/faults/C143/06-finish-picks-first-rejection.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59FinishTargetsRejectedHoleWithoutPendingReplacement",
-      "promise": "C145-2"
+      "promise": "5.9"
     },
     {
       "id": "tests-product-faults-C143-07",
       "patch": "tests/product/faults/C143/07-mixed-network-rejection-copy.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59BlockedFinishReportsWaitingForSyncWhenOffline",
-      "promise": "C145-3"
+      "promise": "5.9"
     },
     {
       "id": "tests-product-faults-C143-08",
       "patch": "tests/product/faults/C143/08-scoring-fixture-uses-event-id.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testReplacementPuttClearsQuarantineAndAllowsFinish",
-      "promise": "C145-4"
+      "promise": "5.9"
     },
     {
       "id": "tests-product-faults-C143-09",
       "patch": "tests/product/faults/C143/09-removed-hole-silently-reenters.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59RemovedRejectedHoleShowsRecoveryInstruction",
-      "promise": "C145-5"
+      "promise": "5.9"
     },
     {
       "id": "tests-product-faults-C143-10",
       "patch": "tests/product/faults/C143/10-recovery-overwrites-active-round.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59DeferredRecoveryDoesNotOverwriteAnotherLiveRound",
-      "promise": "C143-2"
+      "promise": "5.9"
     },
     {
       "id": "tests-product-faults-C143-11",
       "patch": "tests/product/faults/C143/11-resume-hole-pointer.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testDeferredFinishNeverReachesServerWhileAScoreIsQuarantined",
-      "promise": "C143-2"
+      "promise": "5.9"
     },
     {
       "id": "tests-product-faults-C143-12",
       "patch": "tests/product/faults/C143/12-discard-writes-marker.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59DiscardRemovedRecoveryUploadsLatePendingEvent",
-      "promise": "C145-5a"
+      "promise": "5.9"
     },
     {
       "id": "tests-product-faults-C143-13",
       "patch": "tests/product/faults/C143/13-deferred-transport-invents-recovery.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59DeferredFinishRecoveryRequiresServerRejection",
-      "promise": "C143-4"
+      "promise": "5.9"
     },
     {
       "id": "tests-product-faults-C143-14",
       "patch": "tests/product/faults/C143/14-blocked-finish-skips-replacement-sync.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59BlockedFinishUploadsPendingReplacementOnline",
-      "promise": "C145-3"
+      "promise": "5.9"
     },
     {
       "id": "tests-product-faults-C143-15",
       "patch": "tests/product/faults/C143/15-watch-direct-overwrites-rejection.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59WatchClosureWithoutPendingPreservesRejectedHolePrompt",
-      "promise": "C145-5b"
+      "promise": "5.9"
     },
     {
       "id": "tests-product-faults-C143-16",
       "patch": "tests/product/faults/C143/16-watch-reconcile-overwrites-rejection.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59WatchReconciliationPreservesRejectedHolePrompt",
-      "promise": "C145-5b"
+      "promise": "5.9"
     },
     {
       "id": "tests-product-faults-C154b-01",
@@ -1288,6 +1288,90 @@
       "kind": "python",
       "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j5_11_legacy_tee_route_precedes_phone_distance",
       "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C149-01",
+      "patch": "tests/product/faults/C149/01-replacement-overwrites-rejected-status.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59BlockedFinishReportsWaitingForSyncWhenOffline",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-02",
+      "patch": "tests/product/faults/C149/02-live-removed-hole-has-no-discard.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59RemovedRejectedHoleShowsRecoveryInstruction",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-03",
+      "patch": "tests/product/faults/C149/03-successful-deferred-finish-keeps-card.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59DeferredFinishSuccessClearsRecoveryCard",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-04",
+      "patch": "tests/product/faults/C149/04-failed-resume-cancels-deferred-task.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59RemovedHoleResumeLeavesDeferredTaskRunning",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-05",
+      "patch": "tests/product/faults/C149/05-removed-hole-copy-demands-restore.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59DiscardRemovedRecoveryUploadsLatePendingEvent",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-06",
+      "patch": "tests/product/faults/C149/06-recovery-ignores-pending-watch-start.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59DeferredRecoveryDoesNotOverwritePendingWatchRound",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-07",
+      "patch": "tests/product/faults/C149/07-resume-skips-durable-hole-cursor.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testDeferredFinishNeverReachesServerWhileAScoreIsQuarantined",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-08",
+      "patch": "tests/product/faults/C149/08-resume-leaves-old-task-alive.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59ResumeCancelsStaleFinishAndKeepsEditStatus",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-09",
+      "patch": "tests/product/faults/C149/09-cancelled-finish-overwrites-edit-status.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59ResumeCancelsStaleFinishAndKeepsEditStatus",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-10",
+      "patch": "tests/product/faults/C149/10-inflight-replacement-drops-rejection.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59BlockedFinishUploadsPendingReplacementOnline",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-11",
+      "patch": "tests/product/faults/C149/11-refused-resume-writes-current-pointer.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59DeferredRecoveryDoesNotOverwriteAnotherLiveRound",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-12",
+      "patch": "tests/product/faults/C149/12-refused-resume-sends-watch-seed.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59DeferredRecoveryDoesNotOverwriteAnotherLiveRound",
+      "promise": "5.9"
     }
   ]
 }

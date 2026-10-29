@@ -1,10 +1,29 @@
 import SwiftUI
 
+/// The root owns the recovery action; sheets inherit it without coupling hole/map views to finish
+/// recovery. No value is installed for an unrelated sealed round's Hub card.
+struct RemovedFinishRejectionAction {
+    let recovery: DeferredFinishRecovery
+    let discard: () -> Bool
+}
+
+private struct RemovedFinishRejectionActionKey: EnvironmentKey {
+    static let defaultValue: RemovedFinishRejectionAction? = nil
+}
+
+extension EnvironmentValues {
+    var removedFinishRejectionAction: RemovedFinishRejectionAction? {
+        get { self[RemovedFinishRejectionActionKey.self] }
+        set { self[RemovedFinishRejectionActionKey.self] = newValue }
+    }
+}
+
 /// 本场汇总 (README §2, `score.html` screen 3): the same layout as the post-round review — the big
 /// score, the scorecard, then 球道命中 / GIR (按推杆推算) / 推杆 / 罚杆 — so saving it simply becomes
 /// the review. No sync status: saving lands locally first and uploads in the background. Nothing
 /// is deleted by opening or dismissing it; 放弃本场 asks first.
 struct LiveRoundFinishSummaryView: View {
+    @Environment(\.removedFinishRejectionAction) private var removedFinishRejectionAction
     /// The scored holes of a live round, for the summary on the live map or on the home.
     static func completedScores(
         holes: [Hole],
@@ -56,7 +75,13 @@ struct LiveRoundFinishSummaryView: View {
                     scoreHero
                     scorecard
                     tiles
-                    if let finishErrorMessage {
+                    if let action = removedFinishRejectionAction {
+                        HubDeferredFinishRecoveryCard(
+                            recovery: action.recovery, canResume: false,
+                            onResume: { false }, onDiscardRemoved: action.discard
+                        )
+                        .environment(\.colorScheme, .light)
+                    } else if let finishErrorMessage {
                         Label(finishErrorMessage, systemImage: "exclamationmark.triangle.fill")
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(LivePlayStyle.hazard)

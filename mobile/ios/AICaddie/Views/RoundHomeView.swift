@@ -1041,6 +1041,7 @@ public struct RoundHomeView: View {
         }
         // The NavigationStack owns the system status bar, so the immersive hole destination cannot
         // hide it reliably from inside CurrentHoleView. Keep normal chrome on every non-live route.
+        .environment(\.removedFinishRejectionAction, removedFinishRejectionAction)
         .statusBarHidden(Self.isLiveHoleRoute(path.last))
         .onChange(of: pendingLiveHole) { _, hole in
             #if DEBUG
@@ -1824,12 +1825,19 @@ public struct RoundHomeView: View {
 
     /// An active or Watch-created round owns this card. Starting a second round would orphan the
     /// durable score/shot state, so the new-round entry only exists when neither state does.
+    private var removedFinishRejectionAction: RemovedFinishRejectionAction? {
+        guard let recovery = deferredFinishRecovery, !recovery.holeAvailable,
+              liveRoundState?.roundId == recovery.roundId else { return nil }
+        return RemovedFinishRejectionAction(recovery: recovery, discard: onDiscardRemovedDeferredFinish)
+    }
+
     @ViewBuilder private var playSection: some View {
         if let deferredFinishRecovery {
             VStack(alignment: .leading, spacing: 10) {
                 HubDeferredFinishRecoveryCard(
                     recovery: deferredFinishRecovery,
-                    canResume: liveRoundState == nil || liveRoundState?.roundId == deferredFinishRecovery.roundId,
+                    canResume: (liveRoundState == nil || liveRoundState?.roundId == deferredFinishRecovery.roundId)
+                        && (pendingWatchRoundStart == nil || pendingWatchRoundStart?.roundId == deferredFinishRecovery.roundId),
                     onResume: onResumeDeferredFinish,
                     onDiscardRemoved: onDiscardRemovedDeferredFinish
                 )
@@ -1838,6 +1846,12 @@ public struct RoundHomeView: View {
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.secondary)
                     inProgressPlayCard
+                }
+                if let pendingWatchRoundStart, pendingWatchRoundStart.roundId != deferredFinishRecovery.roundId {
+                    HubPendingWatchCard(
+                        courseName: pendingWatchRoundStart.courseName,
+                        activeHole: pendingWatchRoundStart.activeHole
+                    )
                 }
             }
         } else {

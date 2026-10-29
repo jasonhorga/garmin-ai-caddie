@@ -1,11 +1,15 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -477,8 +477,3 @@
+@@ -476,12 +476,6 @@
+     @discardableResult
      public func resumeDeferredFinishForEditing() -> Bool {
          guard let recovery = deferredFinishRecovery else { return false }
--        if let active = liveRoundState, active.roundId != recovery.roundId {
+-        if (liveRoundState.map { $0.roundId != recovery.roundId } ?? false)
+-            || (pendingWatchRoundStart.map { $0.roundId != recovery.roundId } ?? false) {
 -            finishErrorMessage = "当前还有另一场进行中的球局，请先结束后再重录"
 -            syncStatus = finishErrorMessage ?? "请先结束当前球局"
 -            return false
 -        }
-         deferredRoundFinishRetryRequested = false
+         do {
+             guard let sealed = try offlineStore.loadRoundPackage(roundId: recovery.roundId) else {
+                 throw URLError(.fileDoesNotExist)

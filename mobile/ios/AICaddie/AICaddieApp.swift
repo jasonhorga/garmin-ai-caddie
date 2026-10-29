@@ -462,8 +462,8 @@ public final class LiveRoundAppModel: ObservableObject {
     /// When a NEW round is freshly prepared, the hole to jump straight into (so 开始记分 enters
     /// the live screen directly instead of bouncing back to the Hub). UI consumes + clears it.
     @Published public private(set) var pendingLiveHole: Int?
-    /// A sealed round whose deferred `/finish` was stopped by a server-rejected scoring event.
-    /// This remains nil until that rejection is durably quarantined.
+    /// A durably rejected deferred finish, or a live finish whose rejected hole was removed.
+    /// Both surfaces use the same confirmation-gated discard action.
     @Published public private(set) var deferredFinishRecovery: DeferredFinishRecovery? = nil
 
     public func consumePendingLiveHole() {
@@ -476,15 +476,12 @@ public final class LiveRoundAppModel: ObservableObject {
     @discardableResult
     public func resumeDeferredFinishForEditing() -> Bool {
         guard let recovery = deferredFinishRecovery else { return false }
-        if let active = liveRoundState, active.roundId != recovery.roundId {
+        if (liveRoundState.map { $0.roundId != recovery.roundId } ?? false)
+            || (pendingWatchRoundStart.map { $0.roundId != recovery.roundId } ?? false) {
             finishErrorMessage = "当前还有另一场进行中的球局，请先结束后再重录"
             syncStatus = finishErrorMessage ?? "请先结束当前球局"
             return false
         }
-        deferredRoundFinishRetryRequested = false
-        deferredRoundFinishTask?.cancel()
-        deferredRoundFinishTask = nil
-        deferredRoundFinishGeneration = UUID()
         do {
             guard let sealed = try offlineStore.loadRoundPackage(roundId: recovery.roundId) else {
                 throw URLError(.fileDoesNotExist)
@@ -512,7 +509,15 @@ public final class LiveRoundAppModel: ObservableObject {
                 roundId: recovery.roundId,
                 package: restored
             )
+            // These operations are synchronous on MainActor: no suspended uploader can resume
+            // between the preflight and the durable cursor restoration. Cancel only after all
+            // throwing recovery work succeeds, so a false result leaves other finishes running.
+            deferredRoundFinishRetryRequested = false
+            deferredRoundFinishTask?.cancel()
+            deferredRoundFinishTask = nil
+            deferredRoundFinishGeneration = UUID()
             deferredFinishRecovery = nil
+            retryDeferredRoundFinishes()
             return true
         } catch {
             AICaddieLog.storage.error("Deferred finish recovery failed: \(String(describing: error), privacy: .public)")
@@ -529,6 +534,8 @@ public final class LiveRoundAppModel: ObservableObject {
     public func discardRemovedDeferredFinishRejection() -> Bool {
         guard let recovery = deferredFinishRecovery, !recovery.holeAvailable else { return false }
         do {
+            let isDeferred = try offlineStore.isRoundPendingFinish(recovery.roundId)
+            guard isDeferred || liveRoundState?.roundId == recovery.roundId else { return false }
             let records = try offlineStore.loadQuarantinedEvents(roundId: recovery.roundId)
             let ids = Set(records.filter { $0.event.hole == recovery.hole }.map { $0.event.eventId })
             guard !ids.isEmpty else { return false }
@@ -539,8 +546,11 @@ public final class LiveRoundAppModel: ObservableObject {
             deferredFinishRecovery = nil
             finishErrorMessage = nil
             syncStatus = "已丢弃第 \(recovery.hole) 洞被拒记录，正在结束球局"
-            retryDeferredRoundFinishes()
-            return true
+            if isDeferred {
+                retryDeferredRoundFinishes()
+                return true
+            }
+            return finishActiveRoundLocally()
         } catch {
             finishErrorMessage = "被拒记录暂时无法丢弃，请稍后重试"
             return false
@@ -3806,6 +3816,12 @@ public final class LiveRoundAppModel: ObservableObject {
     /// reachability must never become a prison around the player.
     @discardableResult
     public func finishActiveRound() async -> Bool {
+        finishActiveRoundLocally()
+    }
+
+    /// The local seal has no network await. The confirmed live-hole discard uses the same
+    /// transaction, then leaves delivery to the existing deferred outbox.
+    private func finishActiveRoundLocally() -> Bool {
         guard !isFinishingRound, let package else { return false }
         isFinishingRound = true
         finishErrorMessage = nil
@@ -3836,6 +3852,12 @@ public final class LiveRoundAppModel: ObservableObject {
                 let suffix = try quarantineFinishSuffix(for: blocked, roundId: package.roundId)
                 finishErrorMessage = "\(prompt)\(suffix)"
                 syncStatus = "结束已暂停 · \(prompt)\(suffix)"
+                if !package.holes.contains(where: { $0.number == blocked.event.hole }) {
+                    deferredFinishRecovery = DeferredFinishRecovery(
+                        roundId: package.roundId, hole: blocked.event.hole,
+                        prompt: prompt, holeAvailable: false
+                    )
+                }
                 schedulePendingReplacementSync(roundId: package.roundId)
                 return false
             }
@@ -4003,6 +4025,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
                 syncStatus = "已同步结束的球局"
             } catch {
+                guard !Task.isCancelled, boundPlayerId == playerScope else { return }
                 AICaddieLog.network.info(
                     "Deferred round finish retained for retry \(record.roundId, privacy: .public): \(String(describing: error), privacy: .public)"
                 )
@@ -4115,8 +4138,9 @@ public final class LiveRoundAppModel: ObservableObject {
         if hasPendingReplacement {
             return networkState.isSatisfied ? "，正在同步后再结束球局" : "，等待联网后再结束球局"
         }
-        guard let package, package.holes.contains(where: { $0.number == record.event.hole }) else {
-            return "，第 \(record.event.hole) 洞已从当前球局移除，请恢复该九洞后再处理"
+        guard let roundPackage = try offlineStore.loadRoundPackage(roundId: roundId),
+              roundPackage.holes.contains(where: { $0.number == record.event.hole }) else {
+            return "，第 \(record.event.hole) 洞已从当前球局移除，该洞成绩不会上传"
         }
         return "，请重新录入后再结束球局"
     }
@@ -4126,11 +4150,12 @@ public final class LiveRoundAppModel: ObservableObject {
     private func schedulePendingReplacementSync(roundId: String) {
         guard (try? offlineStore.loadPendingEvents(roundId: roundId).isEmpty) == false else { return }
         let status = networkState.isSatisfied ? "正在同步" : "等待联网"
-        syncStatus = status
         localEventUploadStatus = status
         let task = Task { @MainActor [weak self] in
             await Task.yield()
-            await self?.syncPendingEvents()
+            await self?.syncPendingEvents(
+                wakeDeferredAfterCompletion: true, preservingFinishRejection: true
+            )
         }
         pendingReplacementSyncTask = task
     }
@@ -5258,7 +5283,18 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    private func syncPendingEvents(wakeDeferredAfterCompletion: Bool) async {
+    private func syncPendingEvents(
+        wakeDeferredAfterCompletion: Bool, preservingFinishRejection: Bool = false
+    ) async {
+        // The upload badge can change to syncing/retry, but a blocked finish keeps its actionable
+        // rejected-hole status until that quarantine is actually resolved.
+        func finishStatus(or fallback: String) -> String {
+            guard preservingFinishRejection, let roundId = package?.roundId,
+                  let rejected = try? preferredQuarantineRecord(roundId: roundId) else { return fallback }
+            let suffix = (try? quarantineFinishSuffix(for: rejected, roundId: roundId)) ?? ""
+            return "结束已暂停 · \(Self.scoringRejectionPrompt(for: rejected))\(suffix)"
+        }
+
         guard !isFinishingRound,
               !isSyncingPendingEvents,
               deferredRoundFinishTask == nil else { return }
@@ -5292,7 +5328,7 @@ public final class LiveRoundAppModel: ObservableObject {
             if events.isEmpty {
                 if let rejected = try preferredQuarantineRecord(roundId: package.roundId) {
                     let prompt = Self.scoringRejectionPrompt(for: rejected)
-                    syncStatus = prompt
+                    syncStatus = finishStatus(or: prompt)
                     localEventUploadStatus = prompt
                 } else {
                     syncStatus = uploadedMediaCount > 0 ? "已同步 \(uploadedMediaCount) 张照片/视频" : "已是最新"
@@ -5303,7 +5339,7 @@ public final class LiveRoundAppModel: ObservableObject {
                             : "本机记录已上传")
                 }
             } else {
-                syncStatus = "同步中…"
+                syncStatus = finishStatus(or: "同步中…")
                 let result = try await postPendingEventsAndRequireFullAcknowledgement(
                     events,
                     roundId: package.roundId,
@@ -5315,7 +5351,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 let mediaSuffix = uploadedMediaCount > 0 ? " · \(uploadedMediaCount) 张照片/视频" : ""
                 let rejected = try preferredQuarantineRecord(roundId: package.roundId)
                 if let rejected {
-                    syncStatus = Self.scoringRejectionPrompt(for: rejected)
+                    syncStatus = finishStatus(or: Self.scoringRejectionPrompt(for: rejected))
                 } else {
                     syncStatus = result.duplicate ? "已同步" : "已同步\(mediaSuffix)"
                 }
@@ -5328,8 +5364,9 @@ public final class LiveRoundAppModel: ObservableObject {
             // local pending events) so a round edited on the watch/web shows up here.
             await pullAndApplyRemoteEvents(roundId: package.roundId)
         } catch {
+            guard !Task.isCancelled, boundPlayerId == playerScope else { return }
             AICaddieLog.network.error("Pending-event sync failed: \(String(describing: error), privacy: .public)")
-            syncStatus = "同步失败,稍后重试"
+            syncStatus = finishStatus(or: "同步失败,稍后重试")
             localEventUploadStatus = pendingEventCount > 0
                 ? "\(pendingEventCount) 条记录等待重试"
                 : "本机记录上传失败，稍后重试"

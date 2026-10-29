@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -504,7 +504,6 @@
+             watchBridge?.clearRoundSeed(roundId: recovery.roundId)
+             finishErrorMessage = nil
+             pendingLiveHole = recovery.hole
+-            try offlineStore.saveActiveHole(roundId: recovery.roundId, hole: recovery.hole)
+             liveRoundState = try offlineStore.restoreLiveRoundState(
+                 roundId: recovery.roundId,
+                 package: restored
