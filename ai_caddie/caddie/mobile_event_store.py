@@ -1343,11 +1343,12 @@ class FileEventStore:
     ) -> Any:
         """Return an extendable SHA256 state after verifying the marker and file identity.
 
-        Only an unchanged device/inode/size/mtime/ctime tuple can reuse a prior byte validation,
-        and entries are cached only after both file timestamps are outside a short safety window.
-        Same-size edits normally miss; a recently touched signature is always re-read so coarse
-        filesystem timestamps cannot make an edit look unchanged. Pending intents and suffix
-        recovery still establish their own durability barriers.
+        Only an unchanged device/inode/size/mtime/ctime tuple can reuse a prior byte validation.
+        Normal validation entries are cached only after both file timestamps are outside a short
+        safety window; the append writer is the deliberate exception because it just fsynced the
+        exact bytes represented by its digest. A same-tick same-size edit can therefore be noticed
+        at the next forced rebuild or process restart without making every append re-read history.
+        Pending intents and suffix recovery still establish their own durability barriers.
         """
         if (
             marker.committed_byte_length > actual_size
