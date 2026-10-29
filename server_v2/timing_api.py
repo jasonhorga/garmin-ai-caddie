@@ -96,7 +96,7 @@ def sanitize_client_record(value: Any) -> dict[str, Any] | None:
     try:
         templated_path = request_timing.template_path(
             path,
-            route_path=_client_route_template(path),
+            route_path=_client_route_template(path) or "<unmatched>",
         )
     except Exception:
         return None

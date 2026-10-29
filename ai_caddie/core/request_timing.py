@@ -102,9 +102,10 @@ def timing_path(day: date, *, client: bool = False, root: Path | str | None = No
 def template_path(path: str, *, route_path: str | None = None) -> str:
     """Return a privacy-safe path using a matched FastAPI route when available.
 
-    Client supplied paths have no trusted route scope, so they retain the numeric identifier
-    fallback. Server request timing passes ``route_path`` from FastAPI; an unmatched request uses
-    the fixed ``<unmatched>`` marker instead of recording arbitrary path segments.
+    Server request timing passes ``route_path`` from FastAPI's matched route; client timing
+    resolves the client path against the same route table first. Either caller passes the fixed
+    ``<unmatched>`` marker when no route matches, so arbitrary path segments (opaque player or
+    round ids) are never recorded. Without ``route_path`` the numeric identifier fallback applies.
     """
     if route_path is not None:
         return redact_url(route_path).split("?", 1)[0].split("#", 1)[0] or "/"
