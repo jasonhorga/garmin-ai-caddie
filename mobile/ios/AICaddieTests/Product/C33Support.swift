@@ -11,7 +11,7 @@ final class C33URLProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool {
         ensureC156TopoBundleStub()
         // A later global registration must not steal the shared downloader's topo from its scope.
-        request.url?.host?.hasSuffix(".example.test") == true
+        return request.url?.host?.hasSuffix(".example.test") == true
             && request.url?.path.hasSuffix("/topo.png") != true
     }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }

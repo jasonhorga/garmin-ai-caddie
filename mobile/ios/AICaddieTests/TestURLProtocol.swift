@@ -233,7 +233,7 @@ final class CapturingURLProtocol: URLProtocol {
 
     override class func canInit(with request: URLRequest) -> Bool {
         ensureC156TopoBundleStub()
-        true
+        return true
     }
 
     override class func canonicalRequest(for request: URLRequest) -> URLRequest {
