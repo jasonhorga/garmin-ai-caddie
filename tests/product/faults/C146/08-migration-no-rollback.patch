@@ -1,0 +1,14 @@
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -955,10 +955,7 @@
+                 return report
+             except BaseException:
+                 if apply:
+-                    for path in (self.log, self.commit_marker, self.pending_commit, self.round_index):
+-                        self._restore_file_snapshot(path, snapshots[path])
+-                    with _PREFIX_CACHE_LOCK:
+-                        _PREFIX_CACHE.pop(str(self.log.resolve()), None)
++                    pass
+                 raise
+             finally:
+                 if temporary_path is not None and temporary_path.exists():

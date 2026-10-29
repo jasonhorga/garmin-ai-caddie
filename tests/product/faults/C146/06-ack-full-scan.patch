@@ -1,0 +1,12 @@
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -2268,7 +2268,7 @@
+     def read_ack(self, round_id: str, consumer_id: str) -> int:
+         with self._locked(self.event_lock, shared=True):
+-            committed_high_water = self._indexed_high_water_unlocked()
++            committed_high_water = self._high_water_unlocked()
+@@ -2304,7 +2304,7 @@
+         requested = max(0, int(position))
+         with self._locked(self.event_lock, shared=True):
+-            committed_high_water = self._indexed_high_water_unlocked()
++            committed_high_water = self._high_water_unlocked()

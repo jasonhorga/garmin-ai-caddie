@@ -686,6 +686,34 @@
       "kind": "python",
       "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_dry_run_and_apply_preserve_identity",
       "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C146-06",
+      "patch": "tests/product/faults/C146/06-ack-full-scan.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_indexed_round_reads_do_not_scan_unrelated_six_mb_history",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C146-07",
+      "patch": "tests/product/faults/C146/07-migration-no-marker-update.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_dry_run_and_apply_preserve_identity",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C146-08",
+      "patch": "tests/product/faults/C146/08-migration-no-rollback.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_failure_restores_store_atomically",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C146-09",
+      "patch": "tests/product/faults/C146/09-reconciliation-uses-summary.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_apply_reconciliation_uses_ledger_for_truncated_decision_summary",
+      "promise": "5.9"
     }
   ]
 }
