@@ -188,12 +188,12 @@ final class LivePlanPagingTests: XCTestCase {
     /// whole-hole plan still uses the downloaded tee-to-green fact.
     func testMapTargetDoesNotChangeWholeHolePlanningDistance() {
         let before = CurrentHoleView.caddiePlanningDistanceMetres(
-            manualM: nil, isTeeShotOffTheHole: false,
+            manualM: nil, mapTargetM: nil, isTeeShotOffTheHole: false,
             routeRemainingM: 320.9,
             liveMiddleM: 284.3, staticMiddleM: 284.3, holeYards: 351
         )
         let after = CurrentHoleView.caddiePlanningDistanceMetres(
-            manualM: nil, isTeeShotOffTheHole: false,
+            manualM: nil, mapTargetM: 169, isTeeShotOffTheHole: false,
             routeRemainingM: 320.9,
             liveMiddleM: 284.3, staticMiddleM: 284.3, holeYards: 351
         )

@@ -3043,6 +3043,7 @@ public struct CurrentHoleView: View {
     /// current-club surfaces. This pure helper keeps that distinction testable without SwiftUI.
     static func caddiePlanningDistanceMetres(
         manualM: Double?,
+        mapTargetM: Double? = nil,
         isTeeShotOffTheHole: Bool,
         routeRemainingM: Double?,
         liveMiddleM: Double?,
@@ -3051,6 +3052,7 @@ public struct CurrentHoleView: View {
         pinM: Double? = nil,
         shotType: String = "tee"
     ) -> Double? {
+        guard mapTargetM?.isFinite != false else { return nil }
         let endpointM = manualM ?? (shotType.caseInsensitiveCompare("tee") == .orderedSame ? nil : pinM)
         return LiveCaddieDistance.resolve(
             manualM: endpointM,
