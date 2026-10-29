@@ -1,6 +1,6 @@
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2423,11 +2423,7 @@
+@@ -2441,11 +2441,7 @@
          return value.get(name) if isinstance(value, dict) else getattr(value, name, None)
  
      def rows(value):

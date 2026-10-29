@@ -1,12 +1,13 @@
 diff --git a/server_v2/main.py b/server_v2/main.py
+index 73a3aea4..84bb713b 100644
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -3053,7 +3053,7 @@
+@@ -3189,7 +3189,7 @@ def mobile_course_package(
              global_ids=[gid for gid, _half in round_loops],
              selection=(
                  round_loop_key(round_loops),
 -                requested_tee_box,
 +                "blue",
              ),
+             package_registration=True,
          )
-     # A package without an active round lease is a download/preview warm-up.  Keep a real

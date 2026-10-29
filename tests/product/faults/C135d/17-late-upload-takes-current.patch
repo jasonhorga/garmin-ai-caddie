@@ -1,11 +1,13 @@
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2575,9 +2575,7 @@
-                 and _ACTIVE_EVENT_DEVICES.get(latest) == event_device
-             )
+@@ -2603,11 +2603,7 @@
+             current_timestamp = _ACTIVE_EVENT_TIMES.get(latest) if latest is not None else None
              if event_timestamp_valid is True and event_timestamp is not None:
+                 current_is_packaged = latest in _ACTIVE_PACKAGED_ROUNDS if latest is not None else False
 -                may_restore = latest is None or latest == key or (
--                    same_device and current_timestamp is not None and event_timestamp >= current_timestamp
+-                    not current_is_packaged
+-                    and current_timestamp is not None
+-                    and event_timestamp >= current_timestamp
 -                )
 +                may_restore = True
              elif event_timestamp_valid is False:
