@@ -1,7 +1,11 @@
---- a/scripts/migrate_mobile_event_payloads.py
-+++ b/scripts/migrate_mobile_event_payloads.py
-@@ -123,4 +123,3 @@
-     if backup.exists():
-         raise FileExistsError(backup)
--    backup.write_bytes(raw)
-     try:
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -925,7 +925,7 @@
+                 backup = self.log.with_name(f"{self.log.name}.bak-{stamp}")
+                 if backup.exists():
+                     raise FileExistsError(backup)
+-                self._replace_bytes_preserving_metadata(backup, raw, snapshots[self.log][1])
++                # mutant: omit the rollback backup
+                 new_raw = b"".join(output)
+                 self._replace_bytes_preserving_metadata(self.log, new_raw, snapshots[self.log][1])
+                 old_marker = self._load_commit_marker()
