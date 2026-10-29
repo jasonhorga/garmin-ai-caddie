@@ -238,7 +238,7 @@ final class RoundReviewDiskCacheTests: XCTestCase {
         defer { release.release() }
         let paths = Paths()
         _ = heldClient(release: release, paths: paths, asGlobalHandler: true)
-        SharedNonTopoCapturingURLProtocol.registerForSharedSession()
+        SharedNonTopoCapturingURLProtocol.registerForSharedSession(host: "review-cache.example.test")
         defer { URLProtocol.unregisterClass(SharedNonTopoCapturingURLProtocol.self) }
         let repository = RoundShotMapRepository(roundRef: ref, apiBaseURL: URL(string: "https://review-cache.example.test")!, adminToken: nil)
 
@@ -259,7 +259,7 @@ final class RoundReviewDiskCacheTests: XCTestCase {
         defer { release.release() }
         let paths = Paths()
         _ = heldClient(release: release, paths: paths, asGlobalHandler: true)
-        SharedNonTopoCapturingURLProtocol.registerForSharedSession()
+        SharedNonTopoCapturingURLProtocol.registerForSharedSession(host: "review-cache.example.test")
         defer { URLProtocol.unregisterClass(SharedNonTopoCapturingURLProtocol.self) }
         let repository = RoundShotMapRepository(roundRef: ref, apiBaseURL: URL(string: "https://review-cache.example.test")!, adminToken: nil)
 

@@ -41,7 +41,7 @@ final class C33StartTests: XCTestCase {
         })
         let session = C33URLProtocol.session()
         // Reproduce a store test registering its global capture after the bundle topo stub.
-        SharedNonTopoCapturingURLProtocol.registerForSharedSession()
+        SharedNonTopoCapturingURLProtocol.registerForSharedSession(host: "session-routing.example.test")
         defer {
             URLProtocol.unregisterClass(SharedNonTopoCapturingURLProtocol.self)
             session.invalidateAndCancel()

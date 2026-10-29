@@ -192,6 +192,11 @@ private func capturedRequestBodyData(from request: URLRequest) throws -> Data {
 
 @MainActor
 final class LiveRoundAppModelTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        ensureC156TopoBundleStub()
+    }
+
     func testManualGarminSyncRefreshesSharedDataAndKeepsLocalUploadStatusSeparate() async throws {
         SessionStore.shared.signOut()
         let directory = FileManager.default.temporaryDirectory

@@ -11,7 +11,7 @@ final class C33URLProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool {
         ensureC156TopoBundleStub()
         // This protocol is installed only on injected sessions: their handler owns topo too.
-        return request.url?.host?.hasSuffix(".example.test") == true
+        return TestFixtureHosts.contains(request.url)
     }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {

@@ -2,6 +2,11 @@ import XCTest
 @testable import AICaddie
 
 final class WatchEventBridgeTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        ensureC156TopoBundleStub()
+    }
+
     func testWatchCanActivelyRequestLatestConfigAfterMissingPhonePush() throws {
         let bridge = WatchEventBridge()
         bridge.sendConfigToWatch(

@@ -1183,7 +1183,7 @@ final class GarminRasterTests: XCTestCase {
             )!
             return (response, webp)
         }
-        SharedNonTopoCapturingURLProtocol.registerForSharedSession()
+        SharedNonTopoCapturingURLProtocol.registerForSharedSession(host: "garmin-webp.example.test")
         defer {
             URLProtocol.unregisterClass(SharedNonTopoCapturingURLProtocol.self)
             CapturingURLProtocol.requestHandler = nil

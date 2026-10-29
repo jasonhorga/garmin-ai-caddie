@@ -10,6 +10,11 @@ import XCTest
 /// collects `Documents/design-snapshots/*.png` from the simulator container and
 /// uploads them as the `design-snapshots` artifact.
 final class DesignSnapshotTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        ensureC156TopoBundleStub()
+    }
+
     func testLiveCaddieClubIdentityIsStableAcrossRenderPasses() {
         let first = LiveCaddieStrip.Club(name: "三号木", sub: "192 码", on: true)
         let second = LiveCaddieStrip.Club(name: "三号木", sub: "192 码", on: true)
