@@ -1,0 +1,11 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2624,7 +2624,7 @@
+                 may_restore = not (new_events or restore_only)
+             # The current round renews its lease, course binding and selection on every package or
+             # event; an older registration is renewed only when its event time takes over.
+-            if may_restore and (key not in _ACTIVE_ROUNDS or latest in (None, key) or timed):
++            if may_restore and key not in _ACTIVE_ROUNDS:
+                 _ACTIVE_ROUNDS[key] = now + 30 * 60
+                 if global_ids:
+                     _ACTIVE_COURSES[key] = tuple(sorted({int(value) for value in global_ids if int(value) > 0}))

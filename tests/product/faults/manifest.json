@@ -1760,23 +1760,51 @@
     },
     {
       "id": "tests-product-faults-C161-05",
-      "patch": "tests/product/faults/C161/05-current-ignores-player-clock.patch",
+      "patch": "tests/product/faults/C161/05-package-switch-loses-to-older-time.patch",
       "kind": "python",
-      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_timestamp_order_beats_round_registration_order",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_new_round_package_demotes_round_with_mixed_client_events",
       "promise": "4.2"
     },
     {
       "id": "tests-product-faults-C161-06",
-      "patch": "tests/product/faults/C161/06-finish-ignores-time-domain.patch",
+      "patch": "tests/product/faults/C161/06-timed-finish-retires-only-itself.patch",
       "kind": "python",
-      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_rv161_p2_finish_later_retires_earlier_mixed",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_finish_later_mixed_client_round_retires_earlier_timed_round",
       "promise": "4.2"
     },
     {
       "id": "tests-product-faults-C161-07",
       "patch": "tests/product/faults/C161/07-event-ignores-current-guard.patch",
       "kind": "python",
-      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_rv161_p8_old_round_score_edit_does_not_take_current",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_late_unregistered_event_upload_mixed_client_ids_keeps_bound_current_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C161-08",
+      "patch": "tests/product/faults/C161/08-old-score-edit-takes-packaged-round.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_old_round_late_score_edit_cannot_take_packaged_current_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C161-09",
+      "patch": "tests/product/faults/C161/09-current-round-not-renewed.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_current_round_events_renew_lease",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C161-10",
+      "patch": "tests/product/faults/C161/10-note-advances-play-clock.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_old_round_late_note_cannot_take_event_recovered_current_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C161-11",
+      "patch": "tests/product/faults/C161/11-prep-uses-own-round-rule.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_prep_exemption_uses_current_round_selector",
       "promise": "4.2"
     }
   ]
