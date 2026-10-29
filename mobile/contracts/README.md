@@ -7,7 +7,7 @@ closed enum, so older clients and future source strings remain accepted.
 
 | `distanceToPinSource` | Planning distance |
 |---|---|
-| Omitted or `null` | Trust the supplied valid `distanceToPin_m` (legacy behaviour). |
+| Omitted or `null` | Trust the supplied valid `distanceToPin_m` (legacy behaviour), except a tee request with a CoursePrep `canonicalShotPlan`: use its installed route before the phone number. |
 | `manual` | Trust the supplied valid number. |
 | `map_target` | Trust the supplied valid number to the chosen target/flag. |
 | `gps_auto` | Prefer the valid remaining route measured from the actual ball. |

@@ -824,9 +824,17 @@ def _route_distance(context: dict[str, Any]) -> float | None:
     route = context.get("routeEvidence")
     if isinstance(route, dict) and route.get("routeLocal"):
         length = _float(route.get("routeLength_m"), math.nan)
-        if math.isfinite(length) and 0 <= length <= MAX_PIN_DISTANCE_M:
+        if math.isfinite(length) and 0 < length <= MAX_PIN_DISTANCE_M:
             return length
     return None
+
+
+def _route_at_endpoint(context: dict[str, Any]) -> bool:
+    route = context.get("routeEvidence")
+    if not isinstance(route, dict) or not route.get("routeLocal"):
+        return False
+    length = _float(route.get("routeLength_m"), math.nan)
+    return math.isfinite(length) and length == 0.0
 
 
 def _planning_distance(context: dict[str, Any]) -> float | None:
@@ -839,19 +847,28 @@ def _planning_distance(context: dict[str, Any]) -> float | None:
     route_m = _route_distance(context)
     if route_m is not None:
         return route_m
+    # A GPS/fallback request at the projected route endpoint is a factual zero remaining
+    # distance. Keep the existing one-metre pin lower bound without reviving the stale phone value.
+    if source not in (None, "manual", "map_target") and _route_at_endpoint(context):
+        return 0.0
     return supplied if has_supplied else None
 
 
 def _sequence_distance(context: dict[str, Any]) -> float:
+    shot_type = str(context.get("shotType") or context.get("shot_type") or "tee").strip().lower()
+    canonical = _float(context.get("canonicalPlanRouteLength_m"), 0.0)
+    has_canonical_plan = isinstance(context.get("canonicalShotPlan") or context.get("canonicalPlan"), list)
+    has_canonical = shot_type == "tee" and has_canonical_plan and math.isfinite(canonical) and 0.0 < canonical <= MAX_PIN_DISTANCE_M
+    # Legacy tee requests omit provenance. Preserve main's CoursePrep authority before the
+    # phone number and remaining-polyline fallbacks; explicit source values use _planning_distance.
+    if context.get("distanceToPinSource") is None and has_canonical:
+        return canonical
     distance = _planning_distance(context)
     if distance is not None:
         return distance
     # With neither a supplied distance nor a usable polyline, keep the installed opening
     # plan before the older remaining-distance aliases and hole-yardage fallbacks.
-    shot_type = str(context.get("shotType") or context.get("shot_type") or "tee").strip().lower()
-    canonical = _float(context.get("canonicalPlanRouteLength_m"), 0.0)
-    has_canonical_plan = isinstance(context.get("canonicalShotPlan") or context.get("canonicalPlan"), list)
-    if shot_type == "tee" and has_canonical_plan and math.isfinite(canonical) and 0.0 < canonical <= MAX_PIN_DISTANCE_M:
+    if has_canonical:
         return canonical
     # A live/manual distance is more current than the package's tee-distance fallback.
     for key in ("distanceToPin_m", "remainingToPin_m", "holeRemaining_m"):
@@ -5500,10 +5517,12 @@ def _recovery_options(context: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _shot_context(analysis: dict[str, Any], shot_type: str) -> dict[str, Any]:
     source_ref = _source_ref(analysis, shot_type)
-    distance_to_pin_m = analysis.get("distanceToPin_m")
-    if distance_to_pin_m is None and _has_pin_distance(analysis):
+    supplied_distance = analysis.get("distanceToPin_m")
+    if _has_pin_distance({"distanceToPin_m": supplied_distance}):
+        distance_to_pin_m = supplied_distance
+    elif _has_pin_distance(analysis):
         distance_to_pin_m = _pin_distance(analysis)
-    elif not _has_pin_distance(analysis):
+    else:
         distance_to_pin_m = None
     context = {
         "roundId": analysis.get("roundId"),

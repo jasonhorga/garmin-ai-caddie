@@ -313,6 +313,25 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
                 self.assertEqual([o["carry_m"] for o in plan["options"]],
                                  [expected-10,expected,expected+8])
 
+    def test_j5_11_legacy_tee_route_precedes_phone_distance(self):
+        from ai_caddie.caddie.decision import _route_distance, _sequence_distance, _shot_context
+
+        canonical = [{"clubName": "1W", "routeOffset_m": 199.2},
+                     {"clubName": "3H", "routeOffset_m": 363.8},
+                     {"clubName": "58", "routeOffset_m": 396.0}]
+        legacy = {"shotType": "tee", "distanceToPin_m": 344.7,
+                  "canonicalShotPlan": canonical, "canonicalPlanRouteLength_m": 396.0}
+        # A legacy tee request has no provenance; the installed 396 m route is authoritative
+        # before its shorter phone reading. An explicit fallback uses the measured route instead.
+        self.assertEqual(_sequence_distance(legacy), 396.0)
+        fallback = {**legacy, "distanceToPinSource": "fallback",
+                    "routeEvidence": {"routeLocal": [[0, 0, 0], [0, 396, 396]], "routeLength_m": 396.0}}
+        self.assertEqual(_sequence_distance(fallback), 396.0)
+        # Invalid phone distance is not echoed when a usable route remains; a zero route is unusable.
+        invalid = {"distanceToPin_m": 0.0, "routeEvidence": fallback["routeEvidence"]}
+        self.assertEqual(_shot_context(invalid, "approach")["distanceToPin_m"], 396.0)
+        self.assertIsNone(_route_distance({"routeEvidence": {"routeLocal": [[0, 0, 0]], "routeLength_m": 0.0}}))
+
     def test_j5_11_distance_sources_fall_back_when_route_is_missing(self):
         from ai_caddie.caddie.decision import _sequence_distance, recommend_approach
         # With no geometry, every source must retain the usable number; no invented route.
