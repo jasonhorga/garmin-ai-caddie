@@ -49,6 +49,13 @@
       "kind": "python",
       "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_missing_asset_waits_for_source_without_rendering_none",
       "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C240-08-due-enqueues-missing-asset",
+      "patch": "tests/product/faults/C240/08-due-enqueues-missing-asset.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_due_release_renders_only_holes_with_available_assets",
+      "promise": "4.2"
     }
   ]
 }
