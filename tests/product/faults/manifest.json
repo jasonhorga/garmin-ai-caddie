@@ -1808,6 +1808,90 @@
       "promise": "4.2"
     },
     {
+      "id": "tests-product-faults-C205-01-up-uses-stale-selection",
+      "patch": "tests/product/faults/C205/01-up-uses-stale-selection.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_up_running_policy_correction_rechecks_release_record_under_sync_lock",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C206-01-restore-does-not-record-previous",
+      "patch": "tests/product/faults/C206/01-restore-does-not-record-previous.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_failed_verify_restore_records_previous_for_next_up",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C207-22-up-health-ignores-kept-release",
+      "patch": "tests/product/faults/C207/22-up-health-ignores-kept-release.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_up_failed_health_restores_previous_release_as_on_failure",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C208-01-dead-refusal-is-withheld",
+      "patch": "tests/product/faults/C208/01-dead-refusal-is-withheld.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_dead_release_refusing_update_does_not_withhold_current_release",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C175-01-access-filter-token-only",
+      "patch": "tests/product/faults/C175/01-access-filter-token-only.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.C90TimingPersistenceTests.test_uvicorn_access_filter_uses_method_route_templates_and_unmatched_marker",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C175-02-unmatched-raw-path",
+      "patch": "tests/product/faults/C175/02-unmatched-raw-path.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.C90TimingPersistenceTests.test_uvicorn_access_filter_exception_uses_unmatched_marker",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C175-03-access-filter-not-mounted",
+      "patch": "tests/product/faults/C175/03-access-filter-not-mounted.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_startup_access_logger_writes_route_template_without_ids_or_query",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C175-04-websocket-filter-not-mounted",
+      "patch": "tests/product/faults/C175/04-websocket-filter-not-mounted.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_startup_error_logger_drops_websocket_handshake_target",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C175-05-cache-keys-raw-url",
+      "patch": "tests/product/faults/C175/05-cache-keys-raw-url.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_route_cache_ignores_query_and_keeps_no_raw_path",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C175-06-access-ignores-method",
+      "patch": "tests/product/faults/C175/06-access-ignores-method.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_access_template_follows_starlette_method_dispatch",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C175-07-partial-counts-as-match",
+      "patch": "tests/product/faults/C175/07-partial-counts-as-match.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_access_template_follows_starlette_method_dispatch",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C175-08-broken-route-aborts-resolution",
+      "patch": "tests/product/faults/C175/08-broken-route-aborts-resolution.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_broken_route_matcher_skips_only_that_route",
+      "promise": "7.3"
+    },
+    {
       "id": "tests-product-faults-C179-01",
       "patch": "tests/product/faults/C179/01-background-count-not-admission.patch",
       "kind": "python",

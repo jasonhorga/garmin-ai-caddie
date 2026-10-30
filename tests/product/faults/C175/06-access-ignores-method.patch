@@ -1,0 +1,9 @@
+--- a/ai_caddie/core/request_timing.py
++++ b/ai_caddie/core/request_timing.py
+@@ -120,5 +120,5 @@
+ def _safe_access_path(path: str, method: str) -> str:
+     try:
+-        return route_template(path, method) or "<unmatched>"
++        return route_template(path) or "<unmatched>"
+     except Exception:
+         return "<unmatched>"

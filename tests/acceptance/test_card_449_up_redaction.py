@@ -149,6 +149,8 @@ if args[:1] == ["update"] and len(args) == 3 and args[1].startswith("--restart="
     container = by_ref(state, args[2])
     if container is None:
         fail("canary-docker-stderr-449 missing update target")
+    if args[2] in scenario.get("refuse_update", []):
+        fail("canary-docker-stderr-449 update refused")
     policy, _, count = args[1].split("=", 1)[1].partition(":")
     container["HostConfig"]["RestartPolicy"] = {"Name": policy, "MaximumRetryCount": int(count or 0)}
     print("canary-docker-stdout-449 " + container["Name"][1:])
@@ -284,7 +286,8 @@ class UpRedactionTest(unittest.TestCase):
                 elif key == "reason":
                     self.assertIn(value, {"docker_unavailable", "database_missing", "database_unhealthy",
                                           "no_release_candidate", "release_tie", "api_unhealthy", "lock_timeout", "unexpected",
-                                          "release_record_missing", "release_record_invalid", "release_record_unavailable"}, line)
+                                          "release_record_missing", "release_record_invalid", "release_record_unavailable",
+                                          "restart_policy_failed", "restart_policy_withheld"}, line)
                 elif key == "selection":
                     self.assertIn(value, {"record", "legacy"}, line)
                 elif key == "candidates":
@@ -363,6 +366,17 @@ class UpRedactionTest(unittest.TestCase):
             proc = self.run_up()
             fcntl.flock(handle, fcntl.LOCK_UN)
         self.assert_failed(proc, "api", "lock_timeout")
+
+    def test_update_refusal_uses_the_fixed_restart_policy_reason(self) -> None:
+        # G6/C207: update failures stay within the redacted up grammar.
+        self.write_state(db=database(running=True), api=release(2, running=True),
+                         additional=(release(3, running=False,
+                                             revision="3c" * 20,
+                                             name=PREFIX + "3c3c3c3c-production-20261021"),),
+                         refuse_update=[PREFIX + "3c3c3c3c-production-20261021"], stderr=True)
+        proc = self.run_up()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("reason=restart_policy_failed", proc.stdout)
 
     def test_undecodable_docker_output_maps_to_unexpected_in_each_phase(self) -> None:
         cases = {

@@ -240,6 +240,9 @@ def configure_request_timing_logging() -> None:
     access_log = logging.getLogger("uvicorn.access")
     if not any(isinstance(item, request_timing.URLRedactionFilter) for item in access_log.filters):
         access_log.addFilter(request_timing.URLRedactionFilter())
+    error_log = logging.getLogger("uvicorn.error")
+    if not any(isinstance(item, request_timing.WebSocketHandshakeFilter) for item in error_log.filters):
+        error_log.addFilter(request_timing.WebSocketHandshakeFilter())
 
 
 _HISTORY_MONITOR_LOCK = threading.Lock()

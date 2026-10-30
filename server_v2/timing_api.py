@@ -6,7 +6,6 @@ from datetime import datetime
 import math
 import re
 from typing import Any
-from urllib.parse import urlsplit
 
 from ai_caddie.core import request_timing
 
@@ -19,35 +18,9 @@ _MAX_BATCH = 50
 def _client_route_template(path: str) -> str | None:
     """Resolve a client path against the server's route table before persisting it."""
     try:
-        from starlette.routing import Match
-        from server_v2.main import app
-
-        parsed = urlsplit(path)
-        route_path = parsed.path or "/"
-        scope_base = {
-            "type": "http",
-            "path": route_path,
-            "root_path": "",
-            "scheme": "http",
-            "query_string": parsed.query.encode("ascii", "ignore"),
-            "headers": [],
-            "client": None,
-            "server": None,
-        }
-        for method in ("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"):
-            scope = {**scope_base, "method": method}
-            for route in app.routes:
-                try:
-                    match, _child_scope = route.matches(scope)
-                except Exception:
-                    continue
-                if match is Match.FULL:
-                    template = getattr(route, "path", None)
-                    if isinstance(template, str) and template:
-                        return template
+        return request_timing.route_template(path)
     except Exception:
         return None
-    return None
 
 
 def _parse_iso(value: Any) -> str | None:

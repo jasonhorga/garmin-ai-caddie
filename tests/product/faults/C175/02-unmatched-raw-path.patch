@@ -1,0 +1,14 @@
+--- a/ai_caddie/core/request_timing.py
++++ b/ai_caddie/core/request_timing.py
+@@ -97,9 +97,9 @@
+ 
+ def _safe_access_path(path: str, method: str) -> str:
+     try:
+-        return route_template(path, method) or "<unmatched>"
++        return route_template(path, method) or path
+     except Exception:
+-        return "<unmatched>"
++        return path
+ 
+ 
+ class URLRedactionFilter(logging.Filter):
