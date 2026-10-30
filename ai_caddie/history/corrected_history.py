@@ -182,10 +182,11 @@ def restore_hole_par(
 ) -> int | None:
     """Return the one par source that makes a missing score safe to materialize.
 
-    The scorecard's own hole/par wins.  A partial nine-hole card can then name the physical
-    course loop and hole in the restore payload; the persisted course-reference store supplies
-    that loop's nine-hole par.  Both reconciliation suggestions and corrected history call this
-    function, so an unavailable par cannot produce an annotation that later has no effect.
+    The scorecard's own hole/par wins when the restore stays on its front loop. A partial card
+    can name another physical course loop and hole in the restore payload; the persisted
+    course-reference store supplies that loop's par. Both reconciliation suggestions and corrected
+    history call this function, so an unavailable par cannot produce an annotation that later has
+    no effect.
     """
     payload = payload if isinstance(payload, dict) else {}
     gid = _int(payload.get("restoreGlobalId"))
