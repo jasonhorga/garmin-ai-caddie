@@ -38,6 +38,114 @@ def _save_identity(root: Path, round_id: str, loops: list[tuple[int, str]], play
 
 
 class MobileReconciliationTests(unittest.TestCase):
+    def test_j1_3_missing_garmin_card_restores_scores_end_to_end(self) -> None:
+        # J1.3: a saved physical identity lets missing Garmin holes be restored from mobile scores.
+        # The hand-written oracle is 18 holes of five strokes; the Garmin card contains only 1..9.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "restore", [(55555, "front"), (55555, "back")])
+            append_event_batch("restore", [{
+                "eventId": f"score-{n}", "roundId": "restore", "hole": n,
+                "kind": "score", "payload": {"strokes": 5},
+            } for n in range(1, 19)], idempotency_key="restore", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "restore", "globalId": 55555,
+                "holes": [{"number": n, "strokes": 5} for n in range(1, 10)],
+            }], shots=[])
+
+            result = reconcile_mobile_round_events("restore", data, root=root)
+            missing = [row for row in result["annotationSuggestions"]
+                       if row["kind"] == "score_correction"]
+            self.assertEqual([row["targetId"] for row in missing],
+                             [f"restore:{n}" for n in range(10, 19)])
+            applied = apply_mobile_reconciliation_suggestions(
+                "restore", data,
+                suggestion_ids=[row["id"] for row in missing],
+                root=root, annotations_root=root, data_loader=lambda: data,
+            )
+            self.assertEqual(applied["appliedCount"], len(missing))
+            corrected = corrected_history_data(data, annotations_root=root).rounds[0]
+            self.assertEqual(len(corrected["holes"]), 18)
+            self.assertEqual([(hole["number"], hole["strokes"]) for hole in corrected["holes"]],
+                             [(n, 5) for n in range(1, 19)])
+            after = reconcile_mobile_round_events(
+                "restore", data, root=root, annotations_root=root,
+            )
+            self.assertEqual(after["annotationSuggestions"], [])
+            self.assertEqual(after["summary"]["annotationSuggestionCount"], 0)
+
+    def test_j1_3_rotated_missing_front_restores_to_physical_front(self) -> None:
+        # J1.3: a back-start phone round must map phone 1..9 to Garmin 10..18;
+        # missing front holes are phone 10..18 and may only target Garmin 1..9.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "rotated-restore", [(55555, "back"), (55555, "front")])
+            append_event_batch("rotated-restore", [{
+                "eventId": f"score-{n}", "roundId": "rotated-restore", "hole": n,
+                "kind": "score", "payload": {"strokes": 5},
+            } for n in range(1, 19)], idempotency_key="rotated-restore", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "rotated-restore", "globalId": 55555,
+                "holes": [{"number": n, "strokes": 5} for n in range(10, 19)],
+            }], shots=[])
+            result = reconcile_mobile_round_events("rotated-restore", data, root=root)
+
+        missing = [row for row in result["annotationSuggestions"]
+                   if row["kind"] == "score_correction"]
+        self.assertEqual([row["targetId"] for row in missing],
+                         [f"rotated-restore:{n}" for n in range(1, 10)])
+        self.assertNotIn("rotated-restore:10", [row["targetId"] for row in missing])
+
+    def test_j1_3_legacy_without_identity_does_not_offer_ineffective_missing_scores(self) -> None:
+        # J1.3: old streams without saved physical identity keep missing holes as evidence only.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch("legacy-missing", [{
+                "eventId": f"score-{n}", "roundId": "legacy-missing", "hole": n,
+                "kind": "score", "payload": {"strokes": 5},
+            } for n in range(1, 19)], idempotency_key="legacy-missing", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "legacy-missing", "holes": [{"number": n, "strokes": 5} for n in range(1, 10)],
+            }], shots=[])
+            result = reconcile_mobile_round_events("legacy-missing", data, root=root)
+
+        self.assertEqual(result["annotationSuggestions"], [])
+        self.assertEqual([row["hole"] for row in result["localOnly"]], list(range(10, 19)))
+        self.assertTrue(all(row["unmapped"] for row in result["localOnly"]))
+
+    def test_j1_3_unnumbered_missing_card_preserves_non_score_evidence_and_feedback(self) -> None:
+        # J1.3/J7.2: d18's missing display holes keep putt, penalty, note and decision evidence;
+        # only the decision audit remains actionable.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "d18-events", [(55555, "back"), (55555, "front")])
+            events = [{
+                "eventId": f"score-{n}", "roundId": "d18-events", "hole": n,
+                "kind": "score", "payload": {"strokes": 4 if n <= 9 else 7},
+            } for n in range(1, 19)]
+            events.extend([
+                {"eventId": "putt-12", "roundId": "d18-events", "hole": 12,
+                 "kind": "putt", "payload": {"putts": 2}},
+                {"eventId": "penalty-13", "roundId": "d18-events", "hole": 13,
+                 "kind": "penalty", "payload": {"penalties": 1}},
+                {"eventId": "note-14", "roundId": "d18-events", "hole": 14,
+                 "kind": "note", "payload": {"text": "wind"}},
+                {"eventId": "club-15", "roundId": "d18-events", "hole": 15,
+                 "kind": "club", "payload": {"clubName": "9I", "decisionId": "decision-15",
+                                                  "actualShot": {"club": "9I"}}},
+            ])
+            append_event_batch("d18-events", events, idempotency_key="d18-events", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "d18-events", "globalId": 55555,
+                "holes": [{"strokes": 4} for _ in range(9)],
+            }], shots=[])
+            result = reconcile_mobile_round_events("d18-events", data, root=root)
+
+        self.assertEqual([(row["kind"], row["hole"]) for row in result["localOnly"] if row["hole"] >= 12],
+                         [("putt", 12), ("penalty", 13), ("note", 14), ("club", 15)])
+        self.assertEqual([(row["kind"], row["targetId"]) for row in result["annotationSuggestions"]],
+                         [("caddie_feedback", "decision-15")])
+
     def test_j1_3_missing_garmin_card_keeps_phone_evidence_without_score_suggestions(self) -> None:
         # J1.3: an 18-hole phone round and a nine-hole Garmin upload share exactly holes 1..9;
         # the missing back-nine phone scores remain evidence only (restoration belongs to C219).
