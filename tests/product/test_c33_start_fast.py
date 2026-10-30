@@ -15,6 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from ai_caddie.core.priority_work import FOREGROUND, NEARBY, PriorityExecutor
+from tests.service_logging import ServiceLoggingIsolationMixin
 
 
 @contextmanager
@@ -325,9 +326,7 @@ class ObservabilityTests(ServiceLoggingIsolationMixin, unittest.TestCase):
             self.assertGreater(observed[0]["retryAfterEpoch"], time.time())  # Card 7: pending polls also know when to retry.
 
     def test_event_422_logs_only_field_path_and_error_type(self):
-        from tests.service_logging import ServiceLoggingIsolationMixin
-
-from fastapi.exceptions import RequestValidationError
+        from fastapi.exceptions import RequestValidationError
         from starlette.requests import Request
         from server_v2 import main
         secret = "private-event-content-sentinel"
