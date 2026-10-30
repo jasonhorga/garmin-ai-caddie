@@ -520,6 +520,20 @@ class C187ManualGirBackfillTests(unittest.TestCase):
         }})
         return events
 
+    def test_j2_5_default_fairway_putter_uses_observed_landing(self) -> None:
+        """J2.5/B1: a putter with the iOS default fairway lie may be the first putt."""
+        events = [
+            *self._position((22.5400, 113.9540), {"clubName": "1D", "lie": "TeeBox"}),
+            *self._position((22.5410, 113.9550), {"clubName": "8I", "lie": "Fairway"}),
+            *self._position((22.541708951284377, 113.95557545718002),
+                            {"clubName": "Putter", "lie": "Fairway", "shotType": "approach"}),
+            *self._position((22.541708951284377, 113.95557545718002),
+                            {"clubName": "Putter", "lie": "Green", "shotType": "putt"}),
+            {"hole": 2, "kind": "score", "payload": {"strokes": 4}},
+        ]
+        self._assert_ingest_and_backfill_gir(events, {"courseGlobalId": 31834, "holePars": "44"},
+                                           ingest_gir=True, backfill_gir=True)
+
     def test_j2_5_unrecognized_first_putt_uses_observed_landing(self) -> None:
         """J2.5/B1: par4 4 strokes, first putt has no club; 4-2=2 is GIR, never a miss."""
         events = [
@@ -576,6 +590,23 @@ class C187ManualGirBackfillTests(unittest.TestCase):
             {"hole": 2, "kind": "score", "payload": {"strokes": 4}},
         ]
         # The actual approach reached green in 2 strokes, but taps cannot identify its index.
+        self._assert_ingest_and_backfill_gir(events, {"courseGlobalId": 31834, "holePars": "44"},
+                                           ingest_gir=None, backfill_gir=None)
+
+    def test_j2_5_penalty_exact_position_count_keeps_landing_unknown(self) -> None:
+        """J2.5/N2: penalties make an exact-length position log unsafe for indexing."""
+        self._make_landing_classifiable()
+        events = [
+            *self._position((22.5400, 113.9540), {"clubName": "1D", "lie": "TeeBox"}),
+            {"hole": 2, "kind": "penalty", "payload": {"penalties": 1}},
+            *self._position((22.5405, 113.9545),
+                            {"clubName": "Putter", "lie": "Fairway", "shotType": "putt"}),
+            *self._position((22.5410, 113.9550), {"clubName": "8I", "lie": "Fairway"}),
+            *self._position((22.541708951284377, 113.95557545718002),
+                            {"clubName": "Putter", "lie": "Green", "shotType": "putt"}),
+            *self._position((22.541708951284377, 113.95557545718002)),
+            {"hole": 2, "kind": "score", "payload": {"strokes": 5}},
+        ]
         self._assert_ingest_and_backfill_gir(events, {"courseGlobalId": 31834, "holePars": "44"},
                                            ingest_gir=None, backfill_gir=None)
 
