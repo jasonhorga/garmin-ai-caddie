@@ -27,7 +27,11 @@ MANIFEST = ROOT / "tests/product/faults/manifest.json"
 RUN_TESTS = os.environ.get("CADDIE_RUNTESTS", "")
 SHARED_PYTHON = Path(os.environ.get("CADDIE_SHARED_PYTHON", sys.executable))
 # Injectable batch budget; isolated retries retain their own full load budget.
-PYTHON_BATCH_TIMEOUT = 60.0
+# The batch imports every Python target in one interpreter: ~20-60 s on a quiet
+# host but past 60 s at load 12-15 on 6 cores, and a timed-out batch falls back to
+# one interpreter per target (233 targets, 1.5 h+; C226/C162 pushes hit the 2 h cap,
+# C266). The budget only guards against a hanging import, so give it real headroom.
+PYTHON_BATCH_TIMEOUT = 900.0
 
 
 # Use a result file: imported test modules may write arbitrary stdout/stderr.
