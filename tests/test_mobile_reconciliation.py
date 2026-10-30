@@ -91,6 +91,50 @@ class MobileReconciliationTests(unittest.TestCase):
             self.assertEqual(after["annotationSuggestions"], [])
             self.assertEqual(after["summary"]["annotationSuggestionCount"], 0)
 
+    def test_j1_3_plain_18_missing_back_hole_keeps_physical_back_nine(self) -> None:
+        # J1.3: a plain 18-hole course (one gid, no back gid) restoring hole 12 must keep the
+        # Garmin 10..18 identity: no backNineGlobalCourseId, loops and hole-12 geometry as on the full card.
+        from ai_caddie.history.history_round_detail import _hole_geometry_target
+        from ai_caddie.rounds.round_shot_map import _geometry_target
+
+        pars = "443454344534443545"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "plain18", [(55555, "front"), (55555, "back")])
+            append_event_batch("plain18", [{
+                "eventId": f"score-{n}", "roundId": "plain18", "hole": n,
+                "kind": "score", "payload": {"strokes": int(pars[n - 1]) + 1},
+            } for n in range(1, 19)], idempotency_key="plain18", root=root)
+
+            def card(numbers: list[int]) -> dict:
+                holes = [{"number": n, "strokes": int(pars[n - 1]) + 1, "par": int(pars[n - 1])}
+                         for n in numbers]
+                return {"id": "plain18", "date": "2026-10-01 08:00", "course": "Plain18",
+                        "globalId": 55555, "courseId": 55555, "frontNineGlobalCourseId": 55555,
+                        "backNineGlobalCourseId": None, "holePars": pars, "holes": holes,
+                        "holesCompleted": len(holes), "strokes": sum(h["strokes"] for h in holes),
+                        "par": sum(h["par"] for h in holes)}
+
+            truth = card(list(range(1, 19)))
+            data = HistoryData(raw_rounds=[], rounds=[card([n for n in range(1, 19) if n != 12])], shots=[])
+            result = reconcile_mobile_round_events("plain18", data, root=root, annotations_root=root)
+            missing = [row for row in result["annotationSuggestions"] if row["kind"] == "score_correction"]
+            self.assertEqual([row["targetId"] for row in missing], ["plain18:12"])
+            apply_mobile_reconciliation_suggestions(
+                "plain18", data, suggestion_ids=[row["id"] for row in missing],
+                root=root, annotations_root=root, data_loader=lambda: data,
+            )
+            corrected = corrected_history_data(data, annotations_root=root, course_root=root).rounds[0]
+
+        def loops(row: dict) -> list:
+            table = _round_breakdowns(HistoryData(raw_rounds=[], rounds=[row], shots=[]))["loops"]
+            return [(loop.get("loopKey"), [hole.get("hole") for hole in loop.get("holes", [])]) for loop in table]
+
+        self.assertIsNone(corrected.get("backNineGlobalCourseId"))
+        self.assertEqual(loops(corrected), loops(truth))
+        self.assertEqual(_geometry_target(corrected, 12), (55555, 12))
+        self.assertEqual(_hole_geometry_target(corrected, 12), {"globalId": 55555, "localHole": 12})
+
     def test_j1_3_rotated_missing_front_restores_to_physical_front(self) -> None:
         # J1.3: a back-start phone round must map phone 1..9 to Garmin 10..18;
         # missing front holes are phone 10..18 and may only target Garmin 1..9.
