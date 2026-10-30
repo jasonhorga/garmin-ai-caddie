@@ -1028,8 +1028,6 @@ def warm_mobile_readiness_in_background(stats_snapshot: dict[str, Any]) -> threa
         existing = _MOBILE_READINESS_THREADS.get("me")
         if current is not None and current.get("revision") == revision and existing is not None and existing.is_alive():
             return existing
-        if current is not None and current.get("revision") == revision and current.get("state") in {"ready", "degraded"}:
-            return None
         _MOBILE_READINESS["me"] = {
             "state": "warming",
             "revision": revision,
