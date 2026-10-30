@@ -2504,6 +2504,10 @@ _ACTIVE_START_TIMES: dict[tuple[str, str], datetime] = {}
 # on every late event.
 _ROUND_START_CACHE: dict[tuple[str, str], datetime | None] = {}
 _ROUND_START_CACHE_LOCK = threading.Lock()
+# One finish-index snapshot per player, bound to its root and on-disk generation. Event appends
+# already inspect the index for history refresh; unchanged generations need no second full read.
+_FINISH_INDEX_CACHE: dict[str, tuple[str, tuple[int, ...] | None, dict[str, Any]]] = {}
+_FINISH_INDEX_CACHE_LOCK = threading.Lock()
 # Kept for diagnostics only. Timestamp ordering is per player; a phone batch may contain both
 # ios-phone and relayed apple-watch events, so clientId never creates separate clock domains.
 _ACTIVE_EVENT_DEVICES: dict[tuple[str, str], str] = {}
@@ -2641,10 +2645,6 @@ def _cached_round_start_timestamp(player_id: str, round_id: str) -> datetime | N
     # Keep the potentially large event-log read outside _ACTIVE_ROUNDS_LOCK.  A concurrent first
     # read may duplicate the I/O, but the second writer observes the same cached value.
     value = _round_start_timestamp(key[0], key[1])
-    if value is None:
-        # A package can arrive before the first play event. Do not turn that temporary miss into
-        # durable state: a later event must be allowed to discover its opening time.
-        return None
     with _ROUND_START_CACHE_LOCK:
         return _ROUND_START_CACHE.setdefault(key, value)
 
@@ -2654,7 +2654,22 @@ def _durable_round_is_finished(player_id: str, round_id: str) -> bool:
     from . import mobile
 
     try:
-        index = round_ingest._load_index(player_id, mobile.MOBILE_ROOT)
+        path = round_ingest._index_path(player_id, mobile.MOBILE_ROOT)
+        try:
+            stat = path.stat()
+            generation = (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
+        except FileNotFoundError:
+            generation = None
+        with _FINISH_INDEX_CACHE_LOCK:
+            cached = _FINISH_INDEX_CACHE.get(player_id)
+        if cached is not None and cached[:2] == (str(path), generation):
+            index = cached[2]
+        else:
+            # I/O stays outside both selector and cache locks. If a writer races this read, the
+            # next request observes its new generation; failures never populate the cache.
+            index = round_ingest._load_index(player_id, mobile.MOBILE_ROOT)
+            with _FINISH_INDEX_CACHE_LOCK:
+                _FINISH_INDEX_CACHE[player_id] = (str(path), generation, index)
     except Exception as exc:
         # The event append must remain usable if an old/corrupt optional index cannot be read.
         logger.warning("round finish index unavailable; treating round as unfinished (%s)",
@@ -2719,8 +2734,8 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
     durable_starts: dict[tuple[str, str], datetime | None] = {}
     if not finished and (timed_request or package_registration):
         # Snapshot keys before taking the global selector lock, then perform all journal reads here.
-        # The active dictionaries are process-local coordination state; a stale snapshot only costs
-        # an extra cache lookup and never changes the admission decision's safety.
+        # This is a best-effort snapshot: a concurrently registered round may be absent, so its
+        # durable opening time may remain unknown for this admission decision.
         keys_to_read = {key}
         keys_to_read.update(
             existing for existing in list(_ACTIVE_ROUNDS)
@@ -2825,7 +2840,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                     _ACTIVE_START_TIMES[key] = durable_starts[key]
                 if event_timestamp is not None:
                     if key not in _ACTIVE_START_TIMES:
-                        _ACTIVE_START_TIMES[key] = durable_starts.get(key) or event_timestamp
+                        _ACTIVE_START_TIMES[key] = event_timestamp
                     else:
                         _ACTIVE_START_TIMES[key] = min(_ACTIVE_START_TIMES[key], event_timestamp)
                     _ACTIVE_EVENT_TIMES[key] = max(
