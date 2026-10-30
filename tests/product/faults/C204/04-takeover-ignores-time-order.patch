@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 43919d5c..df1ea65d 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2783,7 +2783,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
+                 elif latest in _ACTIVE_PACKAGED_ROUNDS:
+                     may_restore = current_start is not None and candidate_start > current_start
+                 else:
+-                    may_restore = current_timestamp is not None and event_timestamp >= current_timestamp
++                    may_restore = current_timestamp is not None
+             else:
+                 # No usable play time (legacy/invalid timestamps, note-only batches, packages):
+                 # arrival order, so uploads and round refreshes cannot displace the current round.

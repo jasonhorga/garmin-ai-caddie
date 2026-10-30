@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from concurrent.futures import Future
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import threading
@@ -134,6 +135,8 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self.enterContext(patch.object(main, "_ACTIVE_COURSES", {}))
         self.enterContext(patch.object(main, "_ACTIVE_EVENT_TIMES", {}))
         self.enterContext(patch.object(main, "_ACTIVE_EVENT_DEVICES", {}))
+        self.enterContext(patch.object(main, "_ACTIVE_START_TIMES", {}))
+        self.enterContext(patch.object(main, "_ROUND_START_CACHE", {}, create=True))
         self.enterContext(patch.object(main, "_ACTIVE_PACKAGED_ROUNDS", set()))
         self.enterContext(patch.object(main, "_ACTIVE_SELECTIONS", {}))
         self.enterContext(patch.object(ci, "_CURRENT_COURSE_IDS", type(ci._CURRENT_COURSE_IDS)()))
@@ -157,6 +160,12 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
                 gid, BackgroundTasks(), round_id=rid, loops=f"{gid}:all", player_id=player,
                 background_geometry=background, include_event_cursor=cursor,
             )
+
+    def round_package(self, rid, gid, *, player="fixture"):
+        package = SimpleNamespace(course={"globalId": gid}, roundLoops=[{"globalId": gid}],
+                                  holes=[{"sourceGlobalId": gid}], eventCursor={})
+        with patch.object(self.main, "build_mobile_round_package_response", return_value=package):
+            return self.main.mobile_round_package(rid, player_id=player)
 
     def priority(self, gid, *, player="fixture"):
         identifier = self.ci.job_id(global_id=gid, tee_box="blue", loop_key=f"{gid}:all", player_id=player)
@@ -342,6 +351,19 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
     def _finish(self, rid):
         with patch.object(self.main, "finish_mobile_round_response", return_value=SimpleNamespace()):
             self.main.mobile_round_finish(rid, SimpleNamespace(), acting_player_id="fixture")
+
+    def _finish_persisted(self, rid, gid):
+        from ai_caddie.caddie.mobile_live import round_events
+        from ai_caddie.rounds.round_ingest import ingest_round
+
+        ingest_round(
+            "fixture",
+            round_events(rid, root=self.root, player_id="fixture"),
+            {"courseGlobalId": gid, "courseName": "fixture"},
+            idempotency_key=f"mobile-finish:{rid}",
+            root=self.root,
+        )
+        self._finish(rid)
 
     def test_timestamp_n1_courseless_live_round_survives_old_deferred_finish(self):
         """J4.2 active-round admission: event time beats deferred-finish arrival order."""
@@ -531,11 +553,225 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
     def test_old_round_late_score_edit_cannot_take_packaged_current_round(self):
         """J4.2: an old round's later score edit cannot steal the packaged current round."""
         self._identity("saved-old", 456)
+        # The durable log carries the old round's opening event; the later score is an edit.
+        self._post_events("saved-old", "o-start", timestamp="2026-10-29T08:00:00Z")
         self.package(123, "live-l")
         self._post_events("live-l", "l1", timestamp="2026-10-29T10:00:00Z")
         self._post_events("saved-old", "o-edit", timestamp="2026-10-29T10:30:00Z")
         self.assertEqual(self.main._current_course_ids("fixture"), (123,))
         self.assertEqual(self.priority(123), 10)
+
+    def test_finished_round_nonopening_requests_never_register_or_renew(self):
+        """J4.2: after finish, score, note, and photo edits stay out of active-play leases."""
+        for kind, payload in (
+            ("score", {"strokes": 4}),
+            ("note", {"note": "late memo"}),
+            ("photo", {"assetLocalId": "photo-1", "mediaType": "photo"}),
+        ):
+            with self.subTest(kind=kind, active=False):
+                for name in ("_ACTIVE_ROUNDS", "_ACTIVE_COURSES", "_ACTIVE_EVENT_TIMES",
+                             "_ACTIVE_EVENT_DEVICES", "_ACTIVE_START_TIMES", "_ROUND_START_CACHE",
+                             "_ACTIVE_SELECTIONS"):
+                    getattr(self.main, name).clear()
+                self.main._ACTIVE_PACKAGED_ROUNDS.clear()
+                rid = f"finished-idle-{kind}"
+                self._identity(rid, 456)
+                self._post_events(rid, "start", timestamp="2026-10-29T08:00:00Z")
+                self._finish_persisted(rid, 456)
+                self._post_events(rid, kind, timestamp="2026-10-29T12:00:00Z",
+                                  kind=kind, payload=payload)
+                self.assertNotIn(("fixture", rid), self.main._ACTIVE_ROUNDS)
+                self.assertFalse(self.main.nearby_work_blocked())
+
+            with self.subTest(kind=kind, active=True):
+                for name in ("_ACTIVE_ROUNDS", "_ACTIVE_COURSES", "_ACTIVE_EVENT_TIMES",
+                             "_ACTIVE_EVENT_DEVICES", "_ACTIVE_START_TIMES", "_ROUND_START_CACHE",
+                             "_ACTIVE_SELECTIONS"):
+                    getattr(self.main, name).clear()
+                self.main._ACTIVE_PACKAGED_ROUNDS.clear()
+                self.package(123, f"live-round-{kind}")
+                self._post_events(f"live-round-{kind}", "live", timestamp="2026-10-29T10:00:00Z")
+                rid = f"finished-active-{kind}"
+                self._identity(rid, 456)
+                self._post_events(rid, "start", timestamp="2026-10-29T08:00:00Z")
+                self._finish_persisted(rid, 456)
+                self._post_events(rid, kind, timestamp="2026-10-29T12:00:00Z",
+                                  kind=kind, payload=payload)
+                self.assertNotIn(("fixture", rid), self.main._ACTIVE_ROUNDS)
+                self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
+    def test_restart_packaged_old_round_yields_to_newer_offline_start(self):
+        """J4.2: package takeover compares the candidate and current opening times from the log."""
+        self._identity("round-old", 456)
+        self._post_events("round-old", "old-start", timestamp="2026-10-29T09:00:00Z")
+        for name in ("_ACTIVE_ROUNDS", "_ACTIVE_COURSES", "_ACTIVE_EVENT_TIMES", "_ACTIVE_EVENT_DEVICES",
+                     "_ACTIVE_SELECTIONS", "_ACTIVE_START_TIMES", "_ROUND_START_CACHE"):
+            getattr(self.main, name).clear()
+        self.main._ACTIVE_PACKAGED_ROUNDS.clear()
+        self.package(456, "round-old")
+        self._identity("round-new", 123)
+        self._post_events("round-new", "new-start", timestamp="2026-10-29T10:00:00Z")
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
+    def test_restart_live_round_refresh_then_unfinished_old_upload_older_time(self):
+        """J4.2: durable opening time keeps an older upload behind a recovered live round."""
+        self._identity("old-unfinished", 456)
+        self._post_events("old-unfinished", "o1", timestamp="2026-10-29T08:00:00Z")
+        self._identity("live-round", 123)
+        self._post_events("live-round", "l1", timestamp="2026-10-29T10:00:00Z")
+        self._post_events("live-round", "l2", timestamp="2026-10-29T10:40:00Z")
+        for name in ("_ACTIVE_ROUNDS", "_ACTIVE_COURSES", "_ACTIVE_EVENT_TIMES", "_ACTIVE_EVENT_DEVICES",
+                     "_ACTIVE_SELECTIONS", "_ACTIVE_START_TIMES", "_ROUND_START_CACHE"):
+            getattr(self.main, name).clear()
+        self.main._ACTIVE_PACKAGED_ROUNDS.clear()
+        self.round_package("live-round", 123)
+        self._post_events("old-unfinished", "o2", timestamp="2026-10-29T08:30:00Z")
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
+    def test_restart_packaged_round_without_start_conservatively_blocks_new_event(self):
+        """J4.2: a packaged recovery with no durable start keeps the conservative guard."""
+        self.package(456, "round-without-start")
+        self._post_events("offline-new", "new-start", timestamp="2026-10-29T10:00:00Z")
+        self.assertEqual(self.main._current_course_ids("fixture"), (456,))
+
+    def test_restart_live_round_history_blocks_finished_old_edit(self):
+        """J4.2: a recovered live round's durable opening time beats an unfinished old edit."""
+        self._identity("finished-old", 456)
+        self._post_events("finished-old", "old-start", timestamp="2026-10-29T08:00:00Z")
+        self._post_events("finished-old", "old-late-progress", timestamp="2026-10-29T12:00:00Z")
+        self.main._ROUND_START_CACHE.clear()
+        self._identity("live-round", 123)
+        self._post_events("live-round", "live-start", timestamp="2026-10-29T10:00:00Z")
+        for name in ("_ACTIVE_ROUNDS", "_ACTIVE_COURSES", "_ACTIVE_EVENT_TIMES", "_ACTIVE_EVENT_DEVICES",
+                     "_ACTIVE_SELECTIONS", "_ACTIVE_START_TIMES", "_ROUND_START_CACHE"):
+            getattr(self.main, name).clear()
+        self.main._ACTIVE_PACKAGED_ROUNDS.clear()
+        package = SimpleNamespace(course={"globalId": 123}, roundLoops=[{"globalId": 123}],
+                                  holes=[{"sourceGlobalId": 123}], eventCursor={})
+        with patch.object(self.main, "build_mobile_round_package_response", return_value=package):
+            self.main.mobile_round_package("live-round", player_id="fixture")
+        self._post_events("finished-old", "old-edit", timestamp="2026-10-29T10:30:00Z")
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
+    def test_finished_old_edit_uses_durable_opening_time_for_guard(self):
+        """J4.2: a finished old round is rejected using its persisted minimum play time."""
+        self._identity("finished-old", 456)
+        self._post_events("finished-old", "old-start", timestamp="2026-10-29T08:00:00Z")
+        self._post_events("finished-old", "old-late-progress", timestamp="2026-10-29T12:00:00Z")
+        self.main._ROUND_START_CACHE.clear()
+        self._finish_persisted("finished-old", 456)
+        self.assertEqual(
+            self.main._cached_round_start_timestamp("fixture", "finished-old"),
+            datetime.fromisoformat("2026-10-29T08:00:00+00:00"),
+        )
+        self.package(123, "live-round")
+        self._post_events("live-round", "live-start", timestamp="2026-10-29T10:00:00Z")
+        self._post_events("finished-old", "old-edit", timestamp="2026-10-29T10:30:00Z")
+        self.assertNotIn(("fixture", "finished-old"), self.main._ACTIVE_ROUNDS)
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
+    def test_unfinished_old_round_durable_minimum_guards_packaged_round(self):
+        """J4.2: an unfinished round's durable minimum opening time guards a packaged round."""
+        self._identity("old-unfinished", 456)
+        self._post_events("old-unfinished", "o1", timestamp="2026-10-29T08:00:00Z")
+        self._post_events("old-unfinished", "o2", timestamp="2026-10-29T12:00:00Z")
+        for name in ("_ACTIVE_ROUNDS", "_ACTIVE_COURSES", "_ACTIVE_EVENT_TIMES", "_ACTIVE_EVENT_DEVICES",
+                     "_ACTIVE_SELECTIONS", "_ACTIVE_START_TIMES", "_ROUND_START_CACHE"):
+            getattr(self.main, name).clear()
+        self.main._ACTIVE_PACKAGED_ROUNDS.clear()
+        self.package(123, "live-round")
+        self._post_events("live-round", "l1", timestamp="2026-10-29T10:00:00Z")
+        self._post_events("old-unfinished", "o3", timestamp="2026-10-29T10:30:00Z")
+        self.assertNotIn(("fixture", "old-unfinished"), self.main._ACTIVE_ROUNDS)
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
+    def test_expiry_clears_cached_round_start(self):
+        """J4.2: expiring a lease removes its cached opening-time state as well."""
+        key = ("fixture", "expired-round")
+        self.main._ACTIVE_ROUNDS[key] = time.monotonic() - 1
+        self.main._ACTIVE_START_TIMES[key] = datetime.fromisoformat("2026-10-29T08:00:00+00:00")
+        self.main._ROUND_START_CACHE[key] = self.main._ACTIVE_START_TIMES[key]
+        self.main._record_round_activity("fixture", "new-round", restore_only=True)
+        self.assertNotIn(key, self.main._ACTIVE_START_TIMES)
+        self.assertNotIn(key, self.main._ROUND_START_CACHE)
+
+    def test_nearby_gate_expiry_clears_start_time_and_cache(self):
+        """J4.2: nearby expiry removes both in-memory opening-time states."""
+        self._identity("nearby-expired", 123)
+        self._post_events("nearby-expired", "start", timestamp="2026-10-29T08:00:00Z")
+        key = ("fixture", "nearby-expired")
+        self.main._ACTIVE_ROUNDS[key] = time.monotonic() - 1
+        self.assertFalse(self.main.nearby_work_blocked())
+        self.assertNotIn(key, self.main._ACTIVE_START_TIMES)
+        self.assertNotIn(key, self.main._ROUND_START_CACHE)
+
+    def test_cached_missing_start_is_refreshed_after_finish_and_reopen(self):
+        """J4.2: a pre-event package miss cannot hide a later durable opening time."""
+        self.round_package("round-l", 123)
+        self._identity("round-l", 123)
+        self._post_events("round-l", "l1", timestamp="2026-10-29T10:00:00Z")
+        self._finish_persisted("round-l", 123)
+        self.round_package("round-l", 123)
+        self._identity("round-n", 456)
+        self._post_events("round-n", "n1", timestamp="2026-10-29T11:00:00Z")
+        self.assertEqual(self.main._current_course_ids("fixture"), (456,))
+
+    def test_finished_round_package_can_restore_explicitly(self):
+        """J4.2: an explicit package request may restore a finished round."""
+        self._identity("finished-package", 456)
+        self._post_events("finished-package", "start", timestamp="2026-10-29T08:00:00Z")
+        self._finish_persisted("finished-package", 456)
+        self.round_package("finished-package", 456)
+        self.assertIn(("fixture", "finished-package"), self.main._ACTIVE_ROUNDS)
+
+    def test_durable_start_ignores_note_timestamp(self):
+        """J4.2: note timestamps do not become durable opening times."""
+        self._identity("note-old", 456)
+        self._post_events("note-old", "memo", timestamp="2026-10-29T08:00:00Z",
+                          kind="note", payload={"note": "late memo"})
+        for name in ("_ACTIVE_ROUNDS", "_ACTIVE_COURSES", "_ACTIVE_EVENT_TIMES", "_ACTIVE_EVENT_DEVICES",
+                     "_ACTIVE_SELECTIONS", "_ACTIVE_START_TIMES", "_ROUND_START_CACHE"):
+            getattr(self.main, name).clear()
+        self.main._ACTIVE_PACKAGED_ROUNDS.clear()
+        self.package(123, "live-round")
+        self._post_events("live-round", "live", timestamp="2026-10-29T10:00:00Z")
+        self._post_events("note-old", "score-edit", timestamp="2026-10-29T10:30:00Z")
+        self.assertEqual(self.main._current_course_ids("fixture"), (456,))
+
+    def test_finish_index_read_error_keeps_round_eligible(self):
+        """J4.2: an unreadable finish index is treated as unfinished and logged safely."""
+        from server_v2 import main as server_main
+        self._identity("index-error", 456)
+        with (
+            patch.object(server_main.round_ingest, "_load_index", side_effect=OSError("index unavailable")),
+            self.assertLogs(server_main.logger, level="WARNING") as logs,
+        ):
+            self._post_events("index-error", "start", timestamp="2026-10-29T08:00:00Z")
+        self.assertTrue(any("finish index unavailable" in line for line in logs.output))
+        self.assertIn(("fixture", "index-error"), self.main._ACTIVE_ROUNDS)
+
+    def test_finish_clears_round_start_cache(self):
+        """J4.2: finishing a round retires its durable opening-time cache entry."""
+        self._identity("finish-cache", 456)
+        self._post_events("finish-cache", "start", timestamp="2026-10-29T08:00:00Z")
+        key = ("fixture", "finish-cache")
+        self.assertIn(key, self.main._ROUND_START_CACHE)
+        self._finish_persisted("finish-cache", 456)
+        self.assertNotIn(key, self.main._ROUND_START_CACHE)
+
+    def test_durable_round_start_is_cached_after_first_read(self):
+        """J4.2: repeated takeover checks read a round's durable opening time once."""
+        self.package(123, "live-round")
+        self._post_events("live-round", "live-start", timestamp="2026-10-29T10:00:00Z")
+        self._identity("finished-old", 456)
+        self._post_events("finished-old", "old-start", timestamp="2026-10-29T08:00:00Z")
+        self._finish("finished-old")
+        opening = datetime.fromisoformat("2026-10-29T08:00:00+00:00")
+        self.main._ROUND_START_CACHE.clear()
+        with patch.object(self.main, "_round_start_timestamp", return_value=opening) as read:
+            self._post_events("finished-old", "old-edit-1", timestamp="2026-10-29T10:30:00Z")
+            self._post_events("finished-old", "old-edit-2", timestamp="2026-10-29T10:31:00Z")
+        self.assertEqual(read.call_count, 1)
 
     def test_old_round_late_note_cannot_take_event_recovered_current_round(self):
         """J4.2: a note/photo is not play progress, so its newer time does not reorder rounds."""
@@ -560,6 +796,161 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         with patch.object(self.main.time, "monotonic", return_value=base + 40 * 60):
             self.assertTrue(self.main.nearby_work_blocked())
             self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
+    def test_current_round_course_package_refresh_renews_lease(self):
+        """J4.2: a repeated course package refresh extends the current round lease."""
+        self.package(123, "live-l")
+        self._post_events("live-l", "l1", timestamp="2026-10-29T10:00:00Z")
+        base = time.monotonic()
+        with patch.object(self.main.time, "monotonic", return_value=base + 25 * 60):
+            self.package(123, "live-l")
+        with patch.object(self.main.time, "monotonic", return_value=base + 40 * 60):
+            self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_current_round_round_package_refresh_renews_lease(self):
+        """J4.2: a round package refresh extends the current round lease."""
+        self.package(123, "live-l")
+        self._post_events("live-l", "l1", timestamp="2026-10-29T10:00:00Z")
+        package = SimpleNamespace(course={"globalId": 123}, roundLoops=[{"globalId": 123}],
+                                  holes=[{"sourceGlobalId": 123}], eventCursor={})
+        base = time.monotonic()
+        with patch.object(self.main, "build_mobile_round_package_response", return_value=package):
+            with patch.object(self.main.time, "monotonic", return_value=base + 25 * 60):
+                self.main.mobile_round_package("live-l", player_id="fixture")
+        with patch.object(self.main.time, "monotonic", return_value=base + 40 * 60):
+            self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_current_round_note_batch_renews_lease(self):
+        """J4.2: a note-only batch for the current round extends its lease."""
+        self.package(123, "live-l")
+        self._post_events("live-l", "l1", timestamp="2026-10-29T10:00:00Z")
+        base = time.monotonic()
+        with patch.object(self.main.time, "monotonic", return_value=base + 25 * 60):
+            self._post_events("live-l", "note", timestamp="2026-10-29T10:25:00Z",
+                              kind="note", payload={"note": "x"})
+        with patch.object(self.main.time, "monotonic", return_value=base + 40 * 60):
+            self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_event_first_round_binds_course_from_round_package(self):
+        """J4.2: an event-first round receives its course binding from a later round package."""
+        self._post_events("watch-live", "l1", timestamp="2026-10-29T10:00:00Z")
+        self.assertEqual(self.main._current_course_ids("fixture"), ())
+        package = SimpleNamespace(course={"globalId": 123}, roundLoops=[{"globalId": 123}],
+                                  holes=[{"sourceGlobalId": 123}], eventCursor={})
+        with patch.object(self.main, "build_mobile_round_package_response", return_value=package):
+            self.main.mobile_round_package("watch-live", player_id="fixture")
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
+    def test_current_round_tee_selection_refreshes(self):
+        """J4.2: a current round package refresh updates its loop and tee selection."""
+        self.package(123, "live-l")
+        self._post_events("live-l", "l1", timestamp="2026-10-29T10:00:00Z")
+        package = SimpleNamespace(course={"globalId": 123, "teeBox": "white"},
+                                  holes=[{"number": 1, "sourceGlobalId": 123,
+                                          "sourceLocalHole": 1, "geometryCoverage": "partial"}],
+                                  eventCursor={})
+        with patch.object(self.main, "build_mobile_course_package_response", return_value=package):
+            self.main.mobile_course_package(
+                123, BackgroundTasks(), round_id="live-l", tee_box="white", loops="123:all",
+                player_id="fixture", background_geometry=True, include_event_cursor=True,
+            )
+        self.assertEqual(self.main._ACTIVE_SELECTIONS[("fixture", "live-l")], ("123:all", "white"))
+
+    def test_restore_round_package_then_live_events_select_live_round(self):
+        """J4.2: a restore-only round package yields to a later timed event round after restart."""
+        self._background_job(123)
+        self._background_job(456)
+        self._identity("watch-live", 123)
+        package = SimpleNamespace(course={"globalId": 456}, roundLoops=[{"globalId": 456}],
+                                  holes=[{"sourceGlobalId": 456}], eventCursor={})
+        with patch.object(self.main, "build_mobile_round_package_response", return_value=package):
+            self.main.mobile_round_package("saved-old", player_id="fixture")
+        self._post_events("watch-live", "l1", timestamp="2026-10-29T10:00:00Z",
+                          client_ids=("ios-phone", "apple-watch"))
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
+    def test_restore_note_then_live_events_select_live_round(self):
+        """J4.2: a note-only recovery request yields to a timed event round."""
+        self._background_job(123)
+        self._background_job(456)
+        self._identity("watch-live", 123)
+        self._identity("saved-old", 456)
+        self._post_events("saved-old", "note", timestamp="2026-10-29T10:30:00Z",
+                          kind="note", payload={"note": "late memo"})
+        self._post_events("watch-live", "l1", timestamp="2026-10-29T10:00:00Z")
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
+    def test_idle_note_recovery_does_not_start_active_round(self):
+        """J4.2: an idle note/photo recovery request does not block nearby work."""
+        self._identity("saved-old", 456)
+        self._post_events("saved-old", "note", timestamp="2026-10-29T10:30:00Z",
+                          kind="note", payload={"note": "late memo"})
+        self.assertFalse(self.main._ACTIVE_ROUNDS)
+        self.assertFalse(self.main.nearby_work_blocked())
+
+    def test_newer_offline_round_replaces_packaged_round_and_finish_retires_both(self):
+        """J4.2: a later offline start can replace an older packaged round and finish cleanly."""
+        self.package(456, "round-old")
+        self._post_events("round-old", "o1", timestamp="2026-10-29T09:00:00Z")
+        self._identity("live-offline", 123)
+        self._post_events("live-offline", "l1", timestamp="2026-10-29T10:00:00Z")
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+        self._finish("live-offline")
+        self.assertFalse(self.main._ACTIVE_ROUNDS)
+        self.assertFalse(self.main.nearby_work_blocked())
+
+    def test_finish_old_timed_round_keeps_later_untimed_round(self):
+        """J4.2: finishing an old timed round cannot retire a later untimed registration."""
+        self.package(123, "round-old")
+        self._post_events("round-old", "o1", timestamp="2026-10-29T09:00:00Z")
+        self.package(456, "round-new")
+        self._finish("round-old")
+        self.assertIn(("fixture", "round-new"), self.main._ACTIVE_ROUNDS)
+        self.assertEqual(self.main._current_course_ids("fixture"), (456,))
+
+    def test_older_unregistered_event_cannot_take_event_recovered_current(self):
+        """J4.2: event recovery compares timestamps before allowing a takeover."""
+        self._identity("round-current", 123)
+        self._identity("round-old", 456)
+        self._post_events("round-current", "new", timestamp="2026-10-29T10:00:00Z")
+        self._post_events("round-old", "old", timestamp="2026-10-29T09:00:00Z")
+        self.assertNotIn(("fixture", "round-old"), self.main._ACTIVE_ROUNDS)
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
+    def test_event_batch_uses_latest_timestamp(self):
+        """J4.2: a mixed event batch records its latest play time."""
+        from server_v2.models import LiveRoundEventBatchRequest
+
+        self._identity("round-current", 123)
+        body = LiveRoundEventBatchRequest(
+            roundId="round-current",
+            events=[
+                self._event("round-current", "early", timestamp="2026-10-29T09:00:00Z"),
+                self._event("round-current", "late", timestamp="2026-10-29T10:00:00Z"),
+            ],
+        )
+        self.main.mobile_round_events("round-current", body, "batch", acting_player_id="fixture")
+        self.assertEqual(self.main._ACTIVE_EVENT_TIMES[("fixture", "round-current")].isoformat(),
+                         "2026-10-29T10:00:00+00:00")
+
+    def test_selection_uses_timestamp_current_round_over_last_registration(self):
+        """J4.2: selected-course matching follows the timestamp selector, not insertion order."""
+        self.package(123, "round-a")
+        self._post_events("round-a", "a", timestamp="2026-10-29T10:00:00Z")
+        self.package(456, "round-b")
+        self._post_events("round-b", "b", timestamp="2026-10-29T09:00:00Z")
+        self.assertTrue(self.main._playing_selection_matches("fixture", 123,
+                                                             loop_key="123:all", tee_box="blue"))
+        self.assertFalse(self.main._playing_selection_matches("fixture", 456,
+                                                              loop_key="456:all", tee_box="blue"))
+
+    def test_current_round_event_time_does_not_move_backwards(self):
+        """J4.2: a late-arriving older event cannot move the round clock backwards."""
+        self._identity("round-current", 123)
+        self._post_events("round-current", "new", timestamp="2026-10-29T10:00:00Z")
+        self._post_events("round-current", "old", timestamp="2026-10-29T09:00:00Z")
+        self.assertEqual(self.main._ACTIVE_EVENT_TIMES[("fixture", "round-current")].isoformat(),
+                         "2026-10-29T10:00:00+00:00")
 
     def test_event_registered_round_takes_course_binding_from_its_package(self):
         """J4.2: an offline-started round registered by events binds its course on package."""

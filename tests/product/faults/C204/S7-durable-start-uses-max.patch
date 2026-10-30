@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 43919d5c..5f19ab6e 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2611,7 +2611,7 @@ def _round_start_timestamp(player_id: str, round_id: str) -> datetime | None:
+             parsed.append(value)
+         except (TypeError, ValueError):
+             continue
+-    return min(parsed) if parsed else None
++    return max(parsed) if parsed else None
+ 
+ 
+ def _cached_round_start_timestamp(player_id: str, round_id: str) -> datetime | None:

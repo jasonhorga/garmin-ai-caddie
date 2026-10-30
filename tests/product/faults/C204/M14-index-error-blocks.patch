@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 43919d5c..54d4e8a1 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2640,7 +2640,7 @@ def _durable_round_is_finished(player_id: str, round_id: str) -> bool:
+         # The event append must remain usable if an old/corrupt optional index cannot be read.
+         logger.warning("round finish index unavailable; treating round as unfinished (%s)",
+                        type(exc).__name__)
+-        return False
++        return True
+     entry = (index.get("entries") or {}).get(f"mobile-finish:{round_id}")
+     return isinstance(entry, dict) and entry.get("id") is not None
+ 

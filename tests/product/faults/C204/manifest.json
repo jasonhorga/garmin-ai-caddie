@@ -1,0 +1,124 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C204-01-selection-uses-last-registration",
+      "patch": "tests/product/faults/C204/01-selection-uses-last-registration.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_selection_uses_timestamp_current_round_over_last_registration",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-02-finish-retires-later-untimed",
+      "patch": "tests/product/faults/C204/02-finish-retires-later-untimed.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_finish_old_timed_round_keeps_later_untimed_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-03-batch-uses-oldest-time",
+      "patch": "tests/product/faults/C204/03-batch-uses-oldest-time.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_event_batch_uses_latest_timestamp",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-04-takeover-ignores-time-order",
+      "patch": "tests/product/faults/C204/04-takeover-ignores-time-order.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_older_unregistered_event_cannot_take_event_recovered_current",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-05-event-time-overwrites-max",
+      "patch": "tests/product/faults/C204/05-event-time-overwrites-max.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_current_round_event_time_does_not_move_backwards",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-S1-restore-only-package-proof",
+      "patch": "tests/product/faults/C204/S1-restore-only-counts-as-package.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_restore_round_package_then_live_events_select_live_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-S2-idle-finished-edit-registers",
+      "patch": "tests/product/faults/C204/S2-idle-note-registers.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_idle_note_recovery_does_not_start_active_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-S3-untimed-recovery-blocks-timed-round",
+      "patch": "tests/product/faults/C204/S3-untimed-recovery-does-not-yield.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_restore_round_package_then_live_events_select_live_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-S4-candidate-start-uses-event-time",
+      "patch": "tests/product/faults/C204/S4-candidate-start-uses-event-time.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_old_round_late_score_edit_cannot_take_packaged_current_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-S5-missing-current-start-yields",
+      "patch": "tests/product/faults/C204/S5-no-start-current-yields.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_restart_packaged_round_without_start_conservatively_blocks_new_event",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-S7-durable-start-minimum",
+      "patch": "tests/product/faults/C204/S7-durable-start-uses-max.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_unfinished_old_round_durable_minimum_guards_packaged_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-B1-finished-edit-guard",
+      "patch": "tests/product/faults/C204/B1-finished-edit-registers.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_finished_round_nonopening_requests_never_register_or_renew",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-M3-candidate-start-durable",
+      "patch": "tests/product/faults/C204/M3-candidate-start-ignores-durable.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_unfinished_old_round_durable_minimum_guards_packaged_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-M9-finished-package-allowed",
+      "patch": "tests/product/faults/C204/M9-finished-package-blocked.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_finished_round_package_can_restore_explicitly",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-M13-note-not-start",
+      "patch": "tests/product/faults/C204/M13-note-counts-as-start.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_durable_start_ignores_note_timestamp",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-M14-index-error-unfinished",
+      "patch": "tests/product/faults/C204/M14-index-error-blocks.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_finish_index_read_error_keeps_round_eligible",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-M16-finish-clears-cache",
+      "patch": "tests/product/faults/C204/M16-finish-keeps-cache.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_finish_clears_round_start_cache",
+      "promise": "4.2"
+    }
+  ]
+}

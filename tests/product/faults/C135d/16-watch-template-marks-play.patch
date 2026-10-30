@@ -1,9 +1,11 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 3304915b..de5ab432 100644
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2599,7 +2599,7 @@
-                     _ACTIVE_EVENT_TIMES.pop(old, None)
-                     _ACTIVE_EVENT_DEVICES.pop(old, None)
-                     _ACTIVE_PACKAGED_ROUNDS.discard(old)
+@@ -2759,7 +2759,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
+             _ACTIVE_START_TIMES.pop(key, None)
+             with _ROUND_START_CACHE_LOCK:
+                 _ROUND_START_CACHE.pop(key, None)
 -        elif new_events or not str(round_id).startswith(("home-", "prep-library-", "watch-template-")):
 +        elif new_events or not str(round_id).startswith(("home-", "prep-library-")):
              # Uploads and round refreshes may be delayed for days. A valid timestamp may replace an

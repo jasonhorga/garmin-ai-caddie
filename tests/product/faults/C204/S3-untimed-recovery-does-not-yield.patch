@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 43919d5c..5efbef29 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2779,7 +2779,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
+                 candidate_start = _ACTIVE_START_TIMES.get(key) or durable_starts.get(key) or event_timestamp
+                 current_start = _ACTIVE_START_TIMES.get(latest) or durable_starts.get(latest)
+                 if latest not in _ACTIVE_PACKAGED_ROUNDS and current_timestamp is None:
+-                    may_restore = current_start is None or candidate_start > current_start
++                    may_restore = candidate_start > current_start
+                 elif latest in _ACTIVE_PACKAGED_ROUNDS:
+                     may_restore = current_start is not None and candidate_start > current_start
+                 else:
