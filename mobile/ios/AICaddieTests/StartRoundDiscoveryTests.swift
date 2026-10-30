@@ -89,7 +89,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
     @MainActor
     func testTeeLookupStateWriterMarksFailureAtTheRequestBoundary() async {
         var states: [(Bool, Bool)] = []
-        _ = await StartRoundView.courseTeeRows(
+        let rows = await StartRoundView.courseTeeRows(
             globalId: 31832,
             carried: [:],
             setLoading: { loading in states.append((loading, false)) },
@@ -98,6 +98,41 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
         XCTAssertEqual(states.map { $0.0 }, [true, false, false, false])
         XCTAssertEqual(states.last?.1, true, "an empty /tees answer enters retry state at one write point")
+        XCTAssertNil(rows, "an empty /tees answer must not be applied as a successful refresh")
+    }
+
+    /// J4.2/B1: a failed refresh keeps the player's Tee and same-parameter start beside retry.
+    @MainActor
+    func testEmptyTeeRefreshKeepsSelectionStartableAndOffersRetry() async {
+        // Catalogue blue and the server-default sentinel are both usable before /tees answers.
+        for originalTee in ["blue", "unknown"] {
+            var teeBox = originalTee
+            var failed = false
+            var loading = false
+            var fetchedTees: [CourseTee] = []
+            let rows = await StartRoundView.courseTeeRows(
+                globalId: 31832, carried: [:],
+                setLoading: { loading = $0 }, setFailed: { failed = $0 },
+                request: { _ in [] }
+            )
+            // Compose the same optional-refresh boundary and history rule used by loadTees.
+            if let rows {
+                fetchedTees = rows
+                teeBox = StartRoundView.teeAfterRefreshUsingHistory(
+                    current: teeBox, userPicked: true, selectedVenue: "沙河测试球会",
+                    recentVenue: nil, recentTee: nil, callerVenue: nil, callerTee: "unknown",
+                    rows: rows
+                )
+            }
+            XCTAssertEqual(teeBox, originalTee, "failed /tees must preserve the selected Tee")
+            XCTAssertTrue(StartRoundView.isStartAllowed(
+                isPreparing: false, roundId: "fixture-new-round", courseGlobalId: 31832, teeBox: teeBox
+            ), "failed /tees must not disable the same-parameter start")
+            XCTAssertTrue(StartRoundView.showsTeeRetry(
+                requiresRemoteTees: true, teeLoadFailed: failed, fetchedTees: fetchedTees, courseTees: []
+            ))
+            XCTAssertFalse(loading)
+        }
     }
 
     /// J4.2: a remembered colour is a selection, never grounds to suppress the retry action.
