@@ -21,10 +21,10 @@ from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_
 from server_v2.main import app
 from tests.round_loop_authority import fixture_course_authority
 from tests.event_log_io import count_log_reads
-from tests.service_logging import preserve_service_logging
+from tests.service_logging import ServiceLoggingIsolationMixin
 
 
-class ServerV2MobileTests(unittest.TestCase):
+class ServerV2MobileTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_mobile_event_store_corrupt_logs_generic_warning(self) -> None:
         """J7.3: non-intent event-store corruption uses a generic warning."""
         from fastapi import HTTPException
@@ -3640,7 +3640,6 @@ class ServerV2MobileTests(unittest.TestCase):
             self.assertFalse((root / "data" / "mobile_events" / "events.jsonl").exists())
 
     def test_mobile_start_hole_422_names_actual_round_limit(self) -> None:
-        self.enterContext(preserve_service_logging())
         event = {
             "schema": "ai-caddie-live-round-event-v1", "eventId": "start-limit",
             "roundId": "start-limit", "timestamp": "2026-06-20T00:00:00Z", "hole": 1,
@@ -4715,7 +4714,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class C33StartFastRouteTests(unittest.TestCase):
+class C33StartFastRouteTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_route_returns_pending_raster_package_with_busy_geometry(self):
         from tests.product.test_c33_start_fast import cold_package, StartFastTests
         from server_v2 import main

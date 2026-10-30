@@ -89,12 +89,16 @@ class ForegroundAdmissionTests(unittest.TestCase):
         """J4.2: each admitted unit reports its measured slot hold time."""
         import io
         import logging
-        from server_v2.main import configure_request_timing_logging
+        from server_v2.main import SERVICE_INFO_LOGGERS, configure_request_timing_logging
         self.enterContext(preserve_service_logging())
         gate = ForegroundGate()
         service = logging.getLogger("uvicorn.error")
         stream = io.StringIO()
         service.handlers[:] = [logging.StreamHandler(stream)]
+        # Configure capture as a fresh startup even when the interpreter already
+        # has service handlers. The cleanup above restores those exact handlers.
+        for name in SERVICE_INFO_LOGGERS:
+            logging.getLogger(name).handlers.clear()
         configure_request_timing_logging()
         with gate.background(unit_type="fixture"):
             pass

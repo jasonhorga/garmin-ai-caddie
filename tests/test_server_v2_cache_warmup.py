@@ -21,6 +21,8 @@ import threading
 import unittest
 from unittest.mock import Mock, call, patch
 
+from tests.service_logging import ServiceLoggingIsolationMixin
+
 from fastapi.testclient import TestClient
 
 from ai_caddie.history import stats_cache
@@ -31,7 +33,7 @@ from server_v2.history_stats import (
 )
 
 
-class CacheWarmupTests(unittest.TestCase):
+class CacheWarmupTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def setUp(self) -> None:
         # Earlier tests (round ingest, sync) start best-effort ``prepare-recent-*`` threads that
         # also warm stats. If one is still running, its builds are counted by the spies below.
@@ -143,7 +145,7 @@ class CacheWarmupTests(unittest.TestCase):
         self.assertFalse(first.is_alive())
 
 
-class AppStartupTests(unittest.TestCase):
+class AppStartupTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     """Tests that server startup fires the background cache warmer."""
 
     def test_app_startup_triggers_background_warmer_once(self) -> None:

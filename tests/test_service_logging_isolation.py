@@ -19,6 +19,7 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
         # The loader groups a module by class. Run and inspect each class separately:
         # another class's cleanup must not hide the class that leaked logging state.
         for suite in unittest.defaultTestLoader.loadTestsFromName(module):
+            class_name = type(next(iter(suite))).__name__
             before = snapshot()
             output = io.StringIO()
             try:
@@ -27,7 +28,7 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
                 after = snapshot()
                 changed = {name: (before[name], after[name]) for name in before
                            if before[name] != after[name]}
-                self.assertEqual(changed, {}, f"{module} class leaked logging state: {changed}")
+                self.assertEqual(changed, {}, f"{module}.{class_name} leaked logging state: {changed}")
             finally:
                 # This guard's cleanup is independent of the fixture it checks.
                 for logger in loggers:
