@@ -1454,72 +1454,39 @@ def up(cfg: UpConfig) -> Container:
                            reason="no_release_candidate")
         container = api.name
         previous_api = None
-        normalized = False
         kept = []
-        if not api.running:
-            with SyncLock(cfg):
-                # A deploy can change the release set while recovery waits for this lock.
-                container = "none"
-                api = select_up_api(cfg, list_containers())
-                if api is None:
+        # Re-read both the container set and release record while serialized with a
+        # concurrent deploy/rollback. This also covers the case where Docker starts
+        # the selected container while recovery waits for the lock.
+        with SyncLock(cfg):
+            container = "none"
+            containers = list_containers()
+            api = select_up_api(cfg, containers)
+            if api is None:
+                raise UpFailed("api", "none", "no valid release candidate",
+                               reason="no_release_candidate")
+            container = api.name
+            if api.running:
+                kept = normalize_restart_policy(cfg, containers, api, check=False)
+            else:
+                try:
+                    current = find_current(cfg, containers)
+                except DeployError:
                     raise UpFailed("api", "none", "no valid release candidate",
-                                   reason="no_release_candidate")
-                container = api.name
-                if not api.running:
-                    try:
-                        containers = list_containers()
-                        current = find_current(cfg, containers)
-                    except DeployError:
-                        raise UpFailed("api", "none", "no valid release candidate",
-                                       reason="no_release_candidate") from None
-                    # Before the stop below, so the replaced release stays down on a daemon restart.
-                    # A refused update must not keep the API down: boot recovery is the last resort.
-                    kept = normalize_restart_policy(cfg, containers, api, check=False)
-                    normalized = True
-                    if current is not None and current.name != api.name:
-                        previous_api = current
-                        up_line(action="up", selection="record", container=current.name,
-                                revision=api.revision)
-                        log(f"stopping {current.name} for recorded release {api.revision}")
-                        docker("stop", "--time", STOP_TIMEOUT_SECONDS, current.name,
-                               label="API stop", capture=True, quiet=True)
-                    log(f"starting {api.name}")
-                    ensure_network(cfg, api)
-                    docker("start", api.name, label="API start", capture=True, quiet=True)
-        else:
-            # The daemon may have started the recorded release while a deploy was
-            # switching.  Serialize policy correction with that switch and re-read
-            # the record under the lock, so the old selection cannot be revived.
-            with SyncLock(cfg):
-                containers = list_containers()
-                selected = select_up_api(cfg, containers)
-                if selected is None:
-                    raise UpFailed("api", "none", "no valid release candidate",
-                                   reason="no_release_candidate")
-                api = selected
-                container = api.name
-                if api.running:
-                    kept = normalize_restart_policy(cfg, containers, api, check=False)
-                    normalized = True
-                else:
-                    try:
-                        current = find_current(cfg, containers)
-                    except DeployError:
-                        raise UpFailed("api", "none", "no valid release candidate",
-                                       reason="no_release_candidate") from None
-                    kept = normalize_restart_policy(cfg, containers, api, check=False)
-                    normalized = True
-                    if current is not None and current.name != api.name:
-                        previous_api = current
-                        up_line(action="up", selection="record", container=current.name,
-                                revision=api.revision)
-                        docker("stop", "--time", STOP_TIMEOUT_SECONDS, current.name,
-                               label="API stop", capture=True, quiet=True)
-                    ensure_network(cfg, api)
-                    docker("start", api.name, label="API start", capture=True, quiet=True)
-        if not normalized:
-            # Docker started the live release itself at boot: keep it, only correct the policies.
-            normalize_restart_policy(cfg, list_containers(), api, check=False)
+                                   reason="no_release_candidate") from None
+                # Before the stop below, so the replaced release stays down on a daemon restart.
+                # A refused update must not keep the API down: boot recovery is the last resort.
+                kept = normalize_restart_policy(cfg, containers, api, check=False)
+                if current is not None and current.name != api.name:
+                    previous_api = current
+                    up_line(action="up", selection="record", container=current.name,
+                            revision=api.revision)
+                    log(f"stopping {current.name} for recorded release {api.revision}")
+                    docker("stop", "--time", STOP_TIMEOUT_SECONDS, current.name,
+                           label="API stop", capture=True, quiet=True)
+                log(f"starting {api.name}")
+                ensure_network(cfg, api)
+                docker("start", api.name, label="API start", capture=True, quiet=True)
         if not wait_health(cfg.local_health_url, api.revision, cfg.health_timeout, cfg.poll):
             if previous_api is not None:
                 replaced = set_restart_policy(api.name, "no", check=False).returncode == 0

@@ -183,8 +183,13 @@ def main(argv):
                     candidate_name = candidate["Name"].lstrip("/")
                     if candidate_name == race_running:
                         candidate["State"].update(Running=True, Status="running")
+                        if scenario.get("race_port"):
+                            for bindings in candidate.get("HostConfig", {}).get("PortBindings", {}).values():
+                                for binding in bindings or []:
+                                    binding["HostPort"] = scenario["race_port"]
                     elif (candidate_name.startswith("aicaddie-release-")
-                          and candidate_name != race_running):
+                          and candidate_name != race_running
+                          and not scenario.get("race_keep_ports")):
                         for bindings in candidate.get("HostConfig", {}).get("PortBindings", {}).values():
                             for binding in bindings or []:
                                 binding["HostPort"] = "2"
@@ -192,6 +197,13 @@ def main(argv):
             if record_path:
                 with open(record_path, "w") as handle:
                     json.dump({"revision": scenario["race_record"]}, handle)
+            save(state)
+        if (scenario.get("race_followup_record")
+                and scenario.get("race_followup_at_ps") == scenario["ps_count"]):
+            record_path = os.environ.get("FAKE_RELEASE_STATE", "")
+            if record_path:
+                with open(record_path, "w") as handle:
+                    json.dump({"revision": scenario["race_followup_record"]}, handle)
             save(state)
         save(state)
         return 0
@@ -218,8 +230,9 @@ def main(argv):
                     for candidate in state["containers"]:
                         if candidate["Name"].lstrip("/") == race_running:
                             candidate["State"].update(Running=True, Status="running")
-                        elif (candidate["Name"].lstrip("/").startswith("aicaddie-release-")
-                              and candidate["Name"].lstrip("/") != race_running):
+                        if (candidate["Name"].lstrip("/").startswith("aicaddie-release-")
+                          and candidate["Name"].lstrip("/") != race_running
+                          and not scenario.get("race_keep_ports")):
                             for bindings in candidate.get("HostConfig", {}).get("PortBindings", {}).values():
                                 for binding in bindings or []:
                                     binding["HostPort"] = "2"
@@ -1188,6 +1201,20 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.restart_policies()[OLD_NAME], "no")
         self.assertEqual(self.restart_policies()[NEW_NAME], ON_FAILURE)
+
+    def test_G6_up_stopped_selection_becomes_running_before_locked_correction(self) -> None:
+        # G6/C205: the first snapshot sees NEW stopped; while the lock is acquired,
+        # Docker starts it. A concurrent switch only becomes visible to the old
+        # lock-outside correction, so the locked path must retain NEW consistently.
+        self.add_container(self.stopped_release(serial=8, revision=NEW), ON_FAILURE)
+        (self.tmp / "release-state.json").write_text(json.dumps({"revision": NEW}))
+        self.set_scenario(race_record=NEW, race_running=PREFIX + NEW[:8] + "-production-20261007",
+                          race_at_ps=2, race_followup_record=OLD, race_followup_at_ps=3)
+        result = self.invoke("up")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(json.loads((self.tmp / "release-state.json").read_text())["revision"], NEW)
+        self.assertEqual(self.restart_policies()[OLD_NAME], "no")
+        self.assertEqual(self.restart_policies()[PREFIX + NEW[:8] + "-production-20261007"], ON_FAILURE)
 
     def test_G6_up_starts_recorded_release_after_database_once_retries_ran_out(self) -> None:
         # Boot with the database still down: the live release used up its three restarts
