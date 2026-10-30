@@ -1,9 +1,13 @@
 diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
-index 97cf850f..d76415f4 100644
+index 60664440..9450c05a 100644
 --- a/ai_caddie/caddie/mobile_reconciliation.py
 +++ b/ai_caddie/caddie/mobile_reconciliation.py
-@@ -503,3 +503,3 @@ def reconcile_mobile_round_events(
+@@ -513,7 +513,7 @@ def reconcile_mobile_round_events(
+         # update the audit's hole to the Garmin display axis while preserving the pre-map behavior
+         # for an unmapped phone hole.
          audit = _candidate_audit(event)
 -        if audit:
-+        if audit and hole_map is None:
++        if False and audit:
              candidate_audits.append(audit)
+         if hole_map is not None:
+             if hole not in hole_map:

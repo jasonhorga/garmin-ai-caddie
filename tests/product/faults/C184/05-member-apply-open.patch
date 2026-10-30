@@ -1,9 +1,13 @@
 diff --git a/server_v2/main.py b/server_v2/main.py
-index f814458c..5ffb26e2 100644
+index 47efa22e..34cf32e6 100644
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -556,3 +556,3 @@ def enforce_admin_or_owner(request: Request) -> None:
+@@ -559,7 +559,7 @@ def enforce_admin_or_owner(request: Request) -> None:
+     if disposition == "allow":
+         return
      if disposition == "forbid":
 -        raise HTTPException(status_code=403, detail="owner access required")
 +        return
      require_admin_token(request.headers.get("x-ai-caddie-admin-token"))
+ 
+ 

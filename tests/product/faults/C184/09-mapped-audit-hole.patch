@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index 60664440..b4160c1f 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -539,7 +539,7 @@ def reconcile_mobile_round_events(
+                 event = {**event, "hole": hole_map[hole]}
+                 hole = hole_map[hole]
+                 if audit:
+-                    audit["hole"] = hole
++                    pass
+ 
+         if kind == "score":
+             local_value = _payload_value(payload, "strokes", "score")

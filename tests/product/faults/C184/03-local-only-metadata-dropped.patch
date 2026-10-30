@@ -1,13 +1,13 @@
 diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
-index 97cf850f..9301bc30 100644
+index 60664440..5b78000a 100644
 --- a/ai_caddie/caddie/mobile_reconciliation.py
 +++ b/ai_caddie/caddie/mobile_reconciliation.py
-@@ -668,8 +668,2 @@ def reconcile_mobile_round_events(
-     ]
--    # Keep one response contract for every local-only cause.  ``hole`` is always the reconciliation
--    # axis; ``phoneHole`` retains the original phone axis, and ``unmapped`` distinguishes an absent
--    # physical Garmin mapping from a mapped hole whose fact is simply missing.
--    for row in local_only:
--        row.setdefault("unmapped", False)
--        row.setdefault("phoneHole", row.get("hole"))
-     annotation_suggestions = _annotation_suggestions(
+@@ -695,7 +695,7 @@ def reconcile_mobile_round_events(
+     for row in local_only:
+         row.setdefault("unmapped", False)
+         event_id = str(row.get("eventId") or "")
+-        row["phoneHole"] = phone_holes.get(event_id, row.get("phoneHole", row.get("hole")))
++        row["phoneHole"] = row.get("hole")
+         if event_id in unmapped_event_ids:
+             row["unmapped"] = True
+             row["_suggestionSafe"] = False
