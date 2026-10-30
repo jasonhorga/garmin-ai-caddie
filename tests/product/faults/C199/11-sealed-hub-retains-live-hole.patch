@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -7486,7 +7486,6 @@
+         finishErrorMessage = nil
+         // The Hub has no live destination: a fresh-entry navigation intent from the sealed
+         // round must not survive into a delayed Watch start or be consumed as a new hole.
+-        pendingLiveHole = nil
+         pendingEventCount = 0
+         quarantinedEventCount = 0
+         try? offlineStore.saveHomePackage(nextPackage)

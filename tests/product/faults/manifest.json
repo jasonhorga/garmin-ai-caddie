@@ -1876,6 +1876,13 @@
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec61LateWatchStartDoesNotReactivatePendingFinish",
       "promise": "6.1"
+    },
+    {
+      "id": "tests-product-faults-C199-11",
+      "patch": "tests/product/faults/C199/11-sealed-hub-retains-live-hole.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec61LateWatchStartDoesNotReactivatePendingFinish",
+      "promise": "6.1"
     }
   ]
 }
