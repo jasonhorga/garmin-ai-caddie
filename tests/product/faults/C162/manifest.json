@@ -5,7 +5,7 @@
       "id": "C162-sidecar-any-venue",
       "patch": "tests/product/faults/C162/P1-sidecar-any-venue.patch",
       "kind": "python",
-      "target": "tests.product.test_j4_course.CourseHTTPTests.test_j4_1_recent_catalogue_keeps_whole_venues_and_unplayed_loops",
+      "target": "tests.product.test_j4_course.CourseHTTPTests.test_j4_1_sidecar_same_name_requires_matching_coordinates",
       "promise": "4.1"
     },
     {
