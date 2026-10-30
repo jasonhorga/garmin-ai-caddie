@@ -123,7 +123,7 @@ class C187ManualGirBackfillTests(unittest.TestCase):
             "id": 9001, "courseGlobalId": 31834, "holesCompleted": 1, "strokes": 5,
             "holes": [{"number": 2, "strokes": 5}]}}], "courseSnapshots": [{"holePars": "44"}]}
         self.member_garmin_path.write_text(json.dumps(member_garmin, indent=2) + "\n", encoding="utf-8")
-        self.member_garmin_shots_path.write_text(json.dumps({"holeShots": []}) + "\n", encoding="utf-8")
+        self.member_garmin_shots_path.write_text(self.manual_shots_path.read_text(encoding="utf-8"), encoding="utf-8")
         (self.player / "scorecards" / "9002.json").write_text(json.dumps({"source": "manual", "scorecardDetails": []}) + "\n", encoding="utf-8")
         (self.player / "scorecards" / "9003.json").write_text(json.dumps({"source": "manual", "scorecardDetails": [{"scorecard": None}]}) + "\n", encoding="utf-8")
 
@@ -170,6 +170,8 @@ class C187ManualGirBackfillTests(unittest.TestCase):
         backups = list((self.root / "backups").glob("c187-*/me/7001.json"))
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_bytes(), before_manual)
+        manifest = backups[0].parent.parent / "manifest.json"
+        self.assertEqual(json.loads(manifest.read_text(encoding="utf-8"))[0]["path"], str(self.manual_path))
         self.assertEqual(report["summary"]["girRecordedBefore"], before_recorded)
         self.assertEqual(report["summary"]["girRecordedAfter"], after_recorded)
         self.assertTrue(all(row["roundId"] == 7001 for row in report["changes"]))
