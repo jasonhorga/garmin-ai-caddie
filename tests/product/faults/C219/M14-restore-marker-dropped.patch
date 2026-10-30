@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index 4004c536..68be33c9 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -367,7 +367,7 @@ def _annotation_suggestions(
+             "from": None,
+             "to": local_value,
+             "sourceEventId": event_id,
+-            "restore": True,
++            "restore": False,
+             "restoreGlobalId": row.get("sourceGlobalId"),
+             "restoreLocalHole": row.get("sourceLocalHole"),
+         }

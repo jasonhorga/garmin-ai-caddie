@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index 9c01ec3f..78e36cf6 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -314,6 +314,7 @@ def corrected_rounds(
+                 continue
+             synthetic["par"] = par
+             synthetic["strokes"] = total
++            synthetic["penalties"] = 1
+             synthetic["_scoreCorrected"] = True
+             if (row.get("merged") and number <= 9
+                     and isinstance(score_payload, dict) and _int(score_payload.get("restoreLocalHole"))):

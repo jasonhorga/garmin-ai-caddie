@@ -789,6 +789,67 @@ class CIWorkflowTests(unittest.TestCase):
             evidence_step["run"],
         )
 
+    def test_native_fixture_dns_gates_fail_closed_when_logs_are_missing(self) -> None:
+        """J4.2: a completed native test cannot pass its DNS gate without its log."""
+        workflow = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8"))
+        # C252 split native-mobile: the iOS/Watch unit tests (and their gate) run in native-unit-watch
+        # for dispatch fixtures and in native-live for live runs; both must carry the same gate.
+        gates = {
+            job: {step.get("name"): step for step in workflow["jobs"][job]["steps"]}[
+                "J4.2 fixture DNS gate (native tests)"
+            ]["run"]
+            for job in ("native-unit-watch", "native-live")
+        }
+        self.assertEqual(gates["native-unit-watch"], gates["native-live"])
+        native_gate = gates["native-unit-watch"]
+        product_steps = {
+            step.get("name"): step
+            for step in workflow["jobs"]["native-product-ui"]["steps"]
+        }
+        product_gate = product_steps["J4.2 fixture DNS gate (Product UI tests)"]["run"]
+
+        repo_root = Path(__file__).resolve().parents[1]
+        gate_script = repo_root / ".github/scripts/check_native_fixture_dns.py"
+
+        def run_step(run_block: str, files: dict[str, str]) -> subprocess.CompletedProcess[str]:
+            with tempfile.TemporaryDirectory(prefix="native-dns-gate-") as directory:
+                root = Path(directory)
+                script = root / ".github/scripts/check_native_fixture_dns.py"
+                script.parent.mkdir(parents=True)
+                shutil.copyfile(gate_script, script)
+                for relative, content in files.items():
+                    path = root / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(content, encoding="utf-8")
+                return subprocess.run(
+                    ["bash", "-c", run_block],
+                    cwd=root,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+
+        native_missing_ios = run_step(
+            native_gate,
+            {"native-mobile-results/watch-xcodebuild.log": ""},
+        )
+        self.assertNotEqual(native_missing_ios.returncode, 0, native_missing_ios.stderr)
+        native_complete = run_step(
+            native_gate,
+            {
+                "native-mobile-results/ios-app-xcodebuild.log": "",
+                "native-mobile-results/watch-xcodebuild.log": "",
+            },
+        )
+        self.assertEqual(native_complete.returncode, 0, native_complete.stderr)
+        product_missing = run_step(product_gate, {})
+        self.assertNotEqual(product_missing.returncode, 0, product_missing.stderr)
+        product_complete = run_step(
+            product_gate,
+            {"product-ui-results/xcodebuild.log": ""},
+        )
+        self.assertEqual(product_complete.returncode, 0, product_complete.stderr)
+
     def test_native_review_capture_scope_exits_normally_after_post_round_evidence(self) -> None:
         workflow_path = Path(".github/workflows/native-mobile.yml")
         workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))

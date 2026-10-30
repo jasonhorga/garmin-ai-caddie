@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index 9a4520fa..7ea6fd64 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -317,7 +317,7 @@ def corrected_rounds(
+             synthetic["_scoreCorrected"] = True
+             if (row.get("merged") and number <= 9
+                     and isinstance(score_payload, dict) and _int(score_payload.get("restoreLocalHole"))):
+-                synthetic["localHole"] = _int(score_payload["restoreLocalHole"])
++                pass  # drop first-card physical identity
+                 if _int(score_payload.get("restoreGlobalId")) is not None:
+                     synthetic["sourceGlobalId"] = _int(score_payload["restoreGlobalId"])
+             front_gid = _int(row.get("frontNineGlobalCourseId") or row.get("globalId") or row.get("courseId"))

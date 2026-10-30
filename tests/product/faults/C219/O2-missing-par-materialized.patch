@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index 23863beb..f8f2757e 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -312,7 +312,7 @@ def corrected_rounds(
+             # Without a standard-par source we cannot safely place this physical hole in
+             # a score or to-par aggregate, so leave the correction as evidence only.
+             if par is None:
+-                continue
++                par = 0
+             synthetic["par"] = par
+             synthetic["strokes"] = total
+             synthetic["_scoreCorrected"] = True
