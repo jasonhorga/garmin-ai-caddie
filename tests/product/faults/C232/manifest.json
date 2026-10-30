@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C232-01-index-cache-bypassed",
+      "patch": "tests/product/faults/C232/01-index-cache-bypassed.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_event_batch_finish_index_reads_are_bounded_and_reused",
+      "promise": "4.2"
+    },
+    {
+      "id": "C232-02-index-generation-ignored",
+      "patch": "tests/product/faults/C232/02-index-generation-ignored.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_finish_index_cache_observes_new_persistent_finish",
+      "promise": "4.2"
+    },
+    {
+      "id": "C232-R15-finish-guard-idle-only",
+      "patch": "tests/product/faults/C232/03-finish-guard-idle-only.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_restart_event_recovered_live_round_rejects_finished_old_score_edit",
+      "promise": "4.2"
+    },
+    {
+      "id": "C232-R12-unregistered-finish-keeps-cache",
+      "patch": "tests/product/faults/C232/04-unregistered-finish-keeps-cache.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_restart_direct_finish_of_unregistered_round_evicts_opening_cache",
+      "promise": "4.2"
+    }
+  ]
+}
