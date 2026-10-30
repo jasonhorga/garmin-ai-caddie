@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C164b-36-planning-fallback-uses-straight-distance",
+      "patch": "tests/product/faults/C164b/36-planning-fallback-uses-straight-distance.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_11_off_hole_or_no_location_keeps_whole_tee_route",
+      "promise": "5.11"
+    }
+  ]
+}

@@ -567,6 +567,7 @@ final class LiveHoleDecisionProbe {
     var planningDistance: (() -> Double?)?
     var offlineDecision: (() -> CaddieDecisionResponse?)?
     var offlineRequest: (() -> CaddieDecisionRequest?)?
+    var mapTargetDistance: (() -> Double?)?
     var setTarget: ((CGPoint?) -> Void)?
     var clientUnavailable = false
 }
@@ -599,6 +600,7 @@ public struct CurrentHoleView: View {
         decisionProbe.planningDistance = { caddiePlanningDistanceMetres }
         decisionProbe.offlineDecision = { makeOfflineCaddieDecision() }
         decisionProbe.offlineRequest = { makeOfflineCaddieDecisionRequest() }
+        decisionProbe.mapTargetDistance = { mapTargetDistanceMetres }
         decisionProbe.setTarget = { targetPixel = $0 }
         currentCoordinate = locationProvider.latestFix?.coordinate
     }
@@ -5681,7 +5683,10 @@ public struct CurrentHoleView: View {
         var context = request.context
         // Never reuse a stale seed's remaining station when this position has no local estimate.
         context.removeValue(forKey: "canonicalPlanRemainingRouteLength_m")
-        if let remaining = caddiePlanningDistanceMetres, remaining.isFinite, remaining > 0 {
+        let explicitEndpoint = distanceToPinMetres
+            ?? (selectedShotType.caseInsensitiveCompare("tee") == .orderedSame ? nil : greenPinDistanceMetres)
+        let localRemaining = explicitEndpoint ?? currentRemainingRouteMetres
+        if let remaining = localRemaining, remaining.isFinite, remaining > 0 {
             context["canonicalPlanRemainingRouteLength_m"] = .number(remaining)
         }
         return CaddieDecisionRequest(

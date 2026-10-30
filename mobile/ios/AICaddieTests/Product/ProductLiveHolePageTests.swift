@@ -96,7 +96,8 @@ final class ProductLiveHolePageTests: XCTestCase {
             window.isHidden = true
             window.rootViewController = nil
             probe.refresh = nil; probe.request = nil; probe.routes = nil; probe.source = nil
-            probe.planningDistance = nil; probe.offlineDecision = nil; probe.offlineRequest = nil; probe.setTarget = nil
+            probe.planningDistance = nil; probe.offlineDecision = nil; probe.offlineRequest = nil
+            probe.mapTargetDistance = nil; probe.setTarget = nil
             session.invalidateAndCancel()
             C33URLProtocol.setHandlers(onStart: nil)
         }
@@ -116,6 +117,8 @@ final class ProductLiveHolePageTests: XCTestCase {
             XCTAssertEqual(initialDistance, 284.3, accuracy: 0.1,
                            "on-hole wire value has main's straight-distance semantics")
             setTarget(CGPoint(x: 189, y: 350)) // 169 m Touch Target from tee.
+            XCTAssertEqual(try XCTUnwrap(probe.mapTargetDistance)() ?? -1, 169, accuracy: 0.1,
+                           "Touch Target state is written before checking its wire isolation")
             let targeted = try XCTUnwrap(request())
             guard case .number(let distance)? = targeted.context["distanceToPin_m"] else {
                 return XCTFail("wire distance missing")
