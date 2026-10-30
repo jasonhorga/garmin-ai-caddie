@@ -2635,6 +2635,10 @@ def _cached_round_start_timestamp(player_id: str, round_id: str) -> datetime | N
     # Keep the potentially large event-log read outside _ACTIVE_ROUNDS_LOCK.  A concurrent first
     # read may duplicate the I/O, but the second writer observes the same cached value.
     value = _round_start_timestamp(key[0], key[1])
+    if value is None:
+        # A package can arrive before the first play event. Do not turn that temporary miss into
+        # durable state: a later event must be allowed to discover its opening time.
+        return None
     with _ROUND_START_CACHE_LOCK:
         return _ROUND_START_CACHE.setdefault(key, value)
 
@@ -2756,6 +2760,8 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                     _ACTIVE_COURSES.pop(old, None)
                     _ACTIVE_SELECTIONS.pop(old, None)
                     _ACTIVE_START_TIMES.pop(old, None)
+                    with _ROUND_START_CACHE_LOCK:
+                        _ROUND_START_CACHE.pop(old, None)
                     _ACTIVE_EVENT_TIMES.pop(old, None)
                     _ACTIVE_EVENT_DEVICES.pop(old, None)
                     _ACTIVE_PACKAGED_ROUNDS.discard(old)
@@ -2763,28 +2769,29 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
             # Uploads and round refreshes may be delayed for days. A valid timestamp may replace an
             # older event-recovered round, but an event from an old round (e.g. a late score edit)
             # cannot displace a current round already proven by its course package.
-            timed = timed_request
             restore_only_registration = restore_only
-            if latest == key and not timed:
-                new_events = False
-            elif latest is None and not timed and (restore_only or package_registration
-                                                   or event_timestamp_valid is False):
-                new_events = False
-                restore_only = False
             current_timestamp = _ACTIVE_EVENT_TIMES.get(latest) if latest is not None else None
             if event_timestamp_valid is False:
                 logger.warning("active round event timestamp unavailable; using arrival order")
+            timed = timed_request
             if latest is None or latest == key:
-                may_restore = not (latest is None and not timed and new_events and not restore_only_registration)
+                may_restore = (
+                    latest == key
+                    or timed
+                    or not new_events
+                    or restore_only_registration
+                    or package_registration
+                    or event_timestamp_valid is False
+                )
             elif timed:
                 # A timed event may replace an event-recovered round by newest event time.  A
                 # packaged current round (or a recovered round with no event time) uses durable
                 # opening times for the takeover guard instead.
+                candidate_start = _ACTIVE_START_TIMES.get(key) or durable_starts.get(key) or event_timestamp
+                current_start = _ACTIVE_START_TIMES.get(latest) or durable_starts.get(latest)
                 if latest not in _ACTIVE_PACKAGED_ROUNDS and current_timestamp is None:
-                    may_restore = True
+                    may_restore = current_start is None or candidate_start > current_start
                 elif latest in _ACTIVE_PACKAGED_ROUNDS:
-                    candidate_start = _ACTIVE_START_TIMES.get(key) or durable_starts.get(key) or event_timestamp
-                    current_start = _ACTIVE_START_TIMES.get(latest) or durable_starts.get(latest)
                     may_restore = current_start is not None and candidate_start > current_start
                 else:
                     may_restore = current_timestamp is not None and event_timestamp >= current_timestamp
@@ -2896,6 +2903,9 @@ def nearby_work_blocked() -> bool:
                 _ACTIVE_ROUNDS.pop(key, None)
                 _ACTIVE_COURSES.pop(key, None)
                 _ACTIVE_SELECTIONS.pop(key, None)
+                _ACTIVE_START_TIMES.pop(key, None)
+                with _ROUND_START_CACHE_LOCK:
+                    _ROUND_START_CACHE.pop(key, None)
                 _ACTIVE_EVENT_TIMES.pop(key, None)
                 _ACTIVE_EVENT_DEVICES.pop(key, None)
                 _ACTIVE_PACKAGED_ROUNDS.discard(key)
