@@ -150,10 +150,11 @@ final class ProductLiveHolePageTests: XCTestCase {
             try await withDecisionPage(locationProvider: provider) { probe in
                 let offlineRequest = try XCTUnwrap(probe.offlineRequest)
                 let context = try XCTUnwrap(offlineRequest()?.context)
-                XCTAssertEqual(
-                    context["canonicalPlanRemainingRouteLength_m"], .number(320.9),
-                    "\(label) must use the factual full route, not a straight fallback"
+                XCTAssertNil(
+                    context["canonicalPlanRemainingRouteLength_m"],
+                    "\(label) has no measured remaining route; a straight fallback must not fill it"
                 )
+                XCTAssertNotNil(context["canonicalPlanRouteLength_m"], "\(label) keeps the full tee route")
                 let offlineDecision = try XCTUnwrap(probe.offlineDecision)
                 let decision = try XCTUnwrap(offlineDecision())
                 let route = try XCTUnwrap(CaddiePlanSequence.selectedSequence(from: decision))
