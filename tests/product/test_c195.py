@@ -49,6 +49,7 @@ class C195BackfillBackoffTests(unittest.TestCase):
                         self.assertEqual(entry["attempts"], expected_attempt)
                         delays.append(entry["backoffSeconds"])
                         first_failure = entry["firstFailureAt"]
+                        self.assertIsNotNone(first_failure)
                         now[0] = entry["retryAfter"]
                         worker.enqueue_all(downloaded=set())
                         self.assertEqual(worker.status()["garminReleaseBackoff"][0]["firstFailureAt"], first_failure)
