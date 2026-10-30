@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C224-01-ignore-deadline",
+      "patch": "tests/product/faults/C224/01-ignore-deadline.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_monitor_retries_only_due_releases_and_completes_their_holes",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C224-02-no-auto-retry",
+      "patch": "tests/product/faults/C224/02-no-auto-retry.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_monitor_retries_only_due_releases_and_completes_their_holes",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C224-03-force-loses-first",
+      "patch": "tests/product/faults/C224/03-force-loses-first.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.C195BackfillBackoffTests.test_J42_force_scan_clears_release_circuit_and_retries_now",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C224-04-unbounded-tick",
+      "patch": "tests/product/faults/C224/04-unbounded-tick.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_monitor_bounds_release_retries_per_tick",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C224-05-invent-first-date",
+      "patch": "tests/product/faults/C224/05-invent-first-date.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_legacy_breakers_normalize_state_and_keep_first_failure_unknown",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C224-06-bypass-background-slot",
+      "patch": "tests/product/faults/C224/06-bypass-background-slot.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_busy_background_slot_does_not_block_monitor_or_duplicate_recovery",
+      "promise": "4.2"
+    }
+  ]
+}

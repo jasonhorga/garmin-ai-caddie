@@ -1,0 +1,22 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index 0df03a55..2b92fcbd 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -783,7 +783,7 @@ class RenderBackfill:
+                 self._current_unit = (key, unit)
+             error = None
+             try:
+-                with background_work(unit_type="backfill"):
++                if True:  # run without background admission
+                     with work_priority(BACKFILL):
+                         if unit == "topo":
+                             self._render_topo(task["globalId"], task["localHole"])
+@@ -926,7 +926,7 @@ def start_background(*, force: bool = False, manual: bool = False,
+                         if due_only:
+                             # Do not hold a slot while waiting for a cross-process writer,
+                             # or across the drain (run_once admits each hole separately).
+-                            with background_work(unit_type="backfill-scan"):
++                            if True:  # scan without background admission
+                                 _BACKGROUND.enqueue_due_releases()
+                         else:
+                             _BACKGROUND.enqueue_all(recent=_BACKGROUND._recent_holes(), force=retry)

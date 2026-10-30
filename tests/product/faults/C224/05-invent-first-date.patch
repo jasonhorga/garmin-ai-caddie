@@ -1,0 +1,13 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index 0df03a55..8ad60cf3 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -206,7 +206,7 @@ class RenderBackfill:
+             entry["state"] = "persistent" if delay >= GARMIN_403_BACKOFF_MAX_SECONDS else "backoff"
+             # An older journal cannot tell us when the streak started. Keep that
+             # uncertainty through later failures and operator force retries.
+-            entry.setdefault("firstFailureAt", "unknown")
++            entry.setdefault("firstFailureAt", self._clock())
+         # The small write-ahead log makes submission intent durable without rewriting every
+         # hole on every attempt. A snapshot sequence makes checkpoint + log truncation crash safe.
+         try:

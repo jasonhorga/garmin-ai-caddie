@@ -1,0 +1,13 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index 0df03a55..47664e0e 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -663,7 +663,7 @@ class RenderBackfill:
+                 if force:
+                     # An operator scan is an explicit recovery action for the active authority.
+                     self._state["garminForbiddenReleases"] = {
+-                        key: dict(value, attempts=0, retryAfter=0, backoffSeconds=0, state="backoff")
++                        key: dict({k: v for k, v in value.items() if k != "firstFailureAt"}, attempts=0, retryAfter=0, backoffSeconds=0, state="backoff")
+                         for key, value in self._state["garminForbiddenReleases"].items()
+                     }
+                     self._dirty += 1
