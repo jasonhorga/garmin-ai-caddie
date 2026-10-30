@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/Models/StartRoundPresentation.swift b/mobile/ios/AICaddie/Models/StartRoundPresentation.swift
+index 70b2da3f..b893b120 100644
+--- a/mobile/ios/AICaddie/Models/StartRoundPresentation.swift
++++ b/mobile/ios/AICaddie/Models/StartRoundPresentation.swift
+@@ -31,7 +31,6 @@ enum StartRoundPresentation {
+            row.phase == .preparing || row.phase == .downloading || row.phase == .queued {
+             return message
+         }
+-        if row.isActive, let server = row.serverPreparation { return server.statusText }
+         switch row.phase {
+         case .queued: return "等待下载"
+         case .preparing: return "正在准备"

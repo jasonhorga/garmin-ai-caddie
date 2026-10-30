@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 6becb66c..7e01f1eb 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -6623,7 +6623,7 @@ public final class LiveRoundAppModel: ObservableObject {
+                 userRequestedPrepDownloadIDs.insert(id)
+                 updatePrepCourseDownload(id: id) { record in
+                     record.errorText = roundPreparationToken == nil
+-                        ? "\(record.serverPreparation?.statusText ?? "正在下载")，已在进行"
++                        ? nil
+                         : "开局中，进洞后继续"
+                 }
+                 return
