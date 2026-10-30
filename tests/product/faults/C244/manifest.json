@@ -14,6 +14,13 @@
       "kind": "python",
       "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j4_6_course_prep_tail_matches_online_tail_club_order",
       "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C244-03-ignore-layup-window",
+      "patch": "tests/product/faults/C244/03-ignore-layup-window.patch",
+      "kind": "python",
+      "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j4_6_online_tee_tail_matches_course_prep_and_full_wedge_window",
+      "promise": "4.6"
     }
   ]
 }

@@ -1895,13 +1895,19 @@ def _sequence_tail(
     )
     if memo is not None and tail_key in memo:
         return memo[tail_key]
-    playable = [
+    all_playable = [
         row
         for row in rows
         if _is_playable_club(row)
         and _club_identity(row) not in excluded
         and (not forbid_driver or not _driver_row(row))
-        and (maximum_carry_m is None or _float(row.get("median_m")) <= maximum_carry_m)
+    ]
+    if not all_playable:
+        return []
+    longest_available_m = max(_float(row.get("median_m")) for row in all_playable)
+    playable = [
+        row for row in all_playable
+        if maximum_carry_m is None or _float(row.get("median_m")) <= maximum_carry_m
     ]
     if not playable:
         return []
@@ -1928,7 +1934,7 @@ def _sequence_tail(
     minimum_steps = max(1, math.ceil(max(0.0, remaining_m - 20.0) / longest_m))
     first_candidate_steps = max(1, minimum_steps - 1) if allow_replan_gap else minimum_steps
     maximum_steps = min(MAX_SEQUENCE_STEPS - 1, minimum_steps + 1)
-    needs_layup = prefer_layup_window and remaining_m > longest_m + max_overshoot_m
+    needs_layup = prefer_layup_window and remaining_m > longest_available_m + max_overshoot_m
     best: tuple[tuple[float, ...], list[dict[str, Any]]] | None = None
     for step_count in range(first_candidate_steps, maximum_steps + 1):
         for indexes in combinations_with_replacement(range(len(playable)), step_count):
@@ -2046,7 +2052,6 @@ def _whole_hole_sequence_key(
             if _club_water_safety(first, avoid_zones) == "safe_before"
             else first_carry_m + MAX_SEQUENCE_CARRY_INCREASE_M
         ),
-        prefer_layup_window=True,
         memo=memo,
     )
     planned = [first, *tail]
