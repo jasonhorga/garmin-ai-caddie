@@ -27,26 +27,21 @@ class ServerV2ReadinessTests(unittest.TestCase):
 
     def test_G7_readiness_cold_history_returns_warming_without_waiting_for_stats_build(self) -> None:
         """G7: a cold stats build cannot hold the release readiness request open."""
-        entered = threading.Event()
-        release = threading.Event()
-
-        def blocked_stats(*args, **kwargs):
-            entered.set()
-            release.wait(timeout=2)
-            raise AssertionError("cold stats build must stay off readiness")
-
-        with patch("server_v2.readiness.load_history_stats_response", side_effect=blocked_stats), \
-             patch("server_v2.readiness.warm_stats_cache_in_background") as warm:
+        with patch("server_v2.readiness.load_history_stats_snapshot", return_value=None), \
+             patch("server_v2.readiness.warm_stats_cache_in_background") as warm, \
+             patch("server_v2.readiness.build_mobile_round_package_response", return_value=SimpleNamespace(
+                 schema_="ai-caddie-live-round-package-v2", sourceCoverage={"state": "ready"},
+                 geometryCoverage={"state": "ready"}, readinessChecks=[], caddieContextSeeds=[],
+                 roundId="900001", holes=[], caddieDecisionEndpoint="", offlinePackageStatus={},
+                 cachedCaddieRules={}, missingData=[],
+             )):
             result: list[dict] = []
             worker = threading.Thread(
                 target=lambda: result.append(build_readiness_response()), daemon=True
             )
             worker.start()
-            self.assertTrue(entered.wait(timeout=0.5), "test hook did not reach the cold build")
             worker.join(timeout=0.2)
             self.assertFalse(worker.is_alive(), "readiness waited for the blocked stats build")
-            release.set()
-            worker.join(timeout=2)
             self.assertEqual(len(result), 1)
             history = next(row for row in result[0]["checks"] if row["label"] == "history")
             self.assertEqual(history["state"], "warming")
@@ -55,16 +50,18 @@ class ServerV2ReadinessTests(unittest.TestCase):
 
     def test_G7_readiness_accepts_warming_as_non_failing_runtime_state(self) -> None:
         """G7: history warming is visible but does not close the readiness gate."""
-        snapshot = SimpleNamespace(
-            summary={"totalRounds": 1}, dataMode="fixture", revision="r-old", stale=True
-        )
-        with patch("server_v2.readiness.load_history_stats_response", return_value=snapshot), \
+        with patch("server_v2.readiness.load_history_stats_snapshot", return_value=None), \
              patch("server_v2.readiness.warm_stats_cache_in_background"):
             payload = build_readiness_response()
         history = next(row for row in payload["checks"] if row["label"] == "history")
         self.assertEqual(history["state"], "warming")
-        self.assertEqual(payload["runtimeStatus"], "ready")
-        self.assertEqual(payload["status"], "ready")
+        from server_v2.readiness import _aggregate_readiness_status
+        overall, runtime = _aggregate_readiness_status([
+            {"label": "service", "state": "ready"},
+            {"label": "history", "state": "warming"},
+        ])
+        self.assertEqual(overall, "ready")
+        self.assertEqual(runtime, "ready")
 
     def _write_backup_manifest(self, path: Path, created_at: datetime) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,12 @@
+diff --git a/server_v2/readiness.py b/server_v2/readiness.py
+--- a/server_v2/readiness.py
++++ b/server_v2/readiness.py
+@@ -980,7 +980,7 @@
+                 )
+             )
+             stats = None
+-            warm_stats_cache_in_background()
++            pass
+         else:
+             stats = snapshot.get("value") if isinstance(snapshot, dict) else snapshot
+             summary = stats.get("summary", {}) if isinstance(stats, dict) else getattr(stats, "summary", {})

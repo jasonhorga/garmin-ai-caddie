@@ -6,7 +6,12 @@ from pathlib import Path
 
 from ai_caddie.history.history import OWNER_ID
 from ai_caddie.history.mobile_stats import PREVIOUS_WINDOW, build_mobile_previous, build_mobile_stats
-from ai_caddie.history.stats_cache import cached_build_history_stats, cached_load_history_data, history_input_signature
+from ai_caddie.history.stats_cache import (
+    cached_build_history_stats,
+    cached_history_stats_snapshot,
+    cached_load_history_data,
+    history_input_signature,
+)
 from ai_caddie.core.priority_work import background_work, yield_to_foreground
 
 from .data_source import load_history_data_for_mode
@@ -39,6 +44,11 @@ def load_history_stats_response(window: str = "all", *, player_id: str = OWNER_I
             window=window,
         )
     )
+
+
+def load_history_stats_snapshot(*, player_id: str = OWNER_ID, window: str = "all") -> dict | None:
+    """Return an already-built stats projection for liveness probes without doing source I/O."""
+    return cached_history_stats_snapshot(player_id=player_id, window=window)
 
 
 def load_history_summary_response(*, player_id: str = OWNER_ID) -> HistoryStatsSummaryResponse:

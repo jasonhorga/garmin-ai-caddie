@@ -16,7 +16,7 @@ from ai_caddie.core.media import (
 )
 from ai_caddie.courses.course_reference import course_reference_coverage
 
-from .history_stats import load_history_stats_response
+from .history_stats import load_history_stats_snapshot, warm_stats_cache_in_background
 from .mobile import build_mobile_round_package_response
 from .reports import load_trend_report_response
 from .sync_status import load_sync_status_response
@@ -54,6 +54,15 @@ PACKAGING_LABELS = frozenset(
 )
 
 
+def _aggregate_readiness_status(checks: list[dict[str, Any]]) -> tuple[str, str]:
+    """Treat history warming as an admitted, non-failing liveness state."""
+    acceptable_states = {"ready", "warming", "manual_asserted"}
+    runtime_checks = [check for check in checks if check.get("label") not in PACKAGING_LABELS]
+    runtime_status = "ready" if runtime_checks and all(check["state"] in acceptable_states for check in runtime_checks) else "degraded"
+    overall = "ready" if all(check["state"] in acceptable_states for check in checks) else "degraded"
+    return overall, runtime_status
+
+
 def _check(label: str, state: str, detail: str, evidence: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "label": label,
@@ -86,7 +95,7 @@ def _age_hours(value: object) -> float | None:
 
 
 def _summary_int(stats: Any, key: str) -> int | None:
-    summary = getattr(stats, "summary", None)
+    summary = stats.get("summary") if isinstance(stats, dict) else getattr(stats, "summary", None)
     if not isinstance(summary, dict):
         return None
     try:
@@ -96,13 +105,13 @@ def _summary_int(stats: Any, key: str) -> int | None:
 
 
 def _first_round_id(stats: Any) -> str:
-    drill_down = getattr(stats, "drillDown", {})
+    drill_down = stats.get("drillDown", {}) if isinstance(stats, dict) else getattr(stats, "drillDown", {})
     round_ids = drill_down.get("roundIds") if isinstance(drill_down, dict) else None
     if isinstance(round_ids, list):
         for round_id in round_ids:
             if str(round_id).strip():
                 return str(round_id)
-    return "live-round-1"
+    return "900001"
 
 
 def _contract_event_kinds() -> list[str]:
@@ -960,18 +969,42 @@ def build_readiness_response() -> dict[str, Any]:
     ]
     stats = None
     try:
-        stats = load_history_stats_response()
-        total_rounds = int(stats.summary.get("totalRounds") or 0)
-        checks.append(
-            _check(
-                "history",
-                "ready" if total_rounds else "degraded",
-                "History statistics are populated." if total_rounds else "No rounds are loaded for history review.",
-                {"dataMode": stats.dataMode, "totalRounds": total_rounds},
+        snapshot = load_history_stats_snapshot()
+        if snapshot is None:
+            checks.append(
+                _check(
+                    "history",
+                    "warming",
+                    "History statistics are warming in the background.",
+                    {"dataMode": None, "totalRounds": None, "revision": None, "stale": True},
+                )
             )
-        )
+            stats = None
+            warm_stats_cache_in_background()
+        else:
+            stats = snapshot.get("value") if isinstance(snapshot, dict) else snapshot
+            summary = stats.get("summary", {}) if isinstance(stats, dict) else getattr(stats, "summary", {})
+            total_rounds = int(summary.get("totalRounds") or 0)
+            stale = bool(snapshot.get("stale"))
+            checks.append(
+                _check(
+                    "history",
+                    "ready" if total_rounds else "degraded",
+                    "History statistics are populated." if total_rounds else "No rounds are loaded for history review.",
+                    {
+                        "dataMode": snapshot.get("dataMode"),
+                        "totalRounds": total_rounds,
+                        "revision": snapshot.get("revision"),
+                        "stale": stale,
+                        "source": snapshot.get("source"),
+                    },
+                )
+            )
+            if stale:
+                warm_stats_cache_in_background()
     except Exception as exc:  # pragma: no cover - defensive health surface
-        checks.append(_check("history", "error", exc.__class__.__name__))
+        checks.append(_check("history", "warming", "History statistics are warming in the background.", {"error": exc.__class__.__name__, "stale": True}))
+        warm_stats_cache_in_background()
 
     try:
         sync = load_sync_status_response()
@@ -1064,7 +1097,7 @@ def build_readiness_response() -> dict[str, Any]:
         checks.append(_check("private_snapshot_acceptance", "error", exc.__class__.__name__))
 
     try:
-        round_id = _first_round_id(stats) if stats is not None else "live-round-1"
+        round_id = _first_round_id(stats) if stats is not None else "900001"
         package = build_mobile_round_package_response(round_id)
         seed_quality = _offline_seed_quality(package)
         package_ready = _mobile_package_runtime_ready(package)
@@ -1234,9 +1267,7 @@ def build_readiness_response() -> dict[str, Any]:
         )
     )
 
-    runtime_checks = [check for check in checks if check.get("label") not in PACKAGING_LABELS]
-    runtime_status = "ready" if runtime_checks and all(check["state"] in {"ready", "manual_asserted"} for check in runtime_checks) else "degraded"
-    overall = "ready" if all(check["state"] in {"ready", "manual_asserted"} for check in checks) else "degraded"
+    overall, runtime_status = _aggregate_readiness_status(checks)
     return {
         "schema": "ai-caddie-readiness-v1",
         "status": overall,

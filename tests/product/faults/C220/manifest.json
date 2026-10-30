@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C220-F1",
+      "patch": "tests/product/faults/C220/01-readiness-does-not-warm.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_G7_readiness_cold_history_returns_warming_without_waiting_for_stats_build",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C220-F2",
+      "patch": "tests/product/faults/C220/02-warming-is-gate-failure.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_G7_readiness_accepts_warming_as_non_failing_runtime_state",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C220-F3",
+      "patch": "tests/product/faults/C220/03-disk-snapshot-unavailable.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_cache_warmup.CacheWarmupTests.test_G7_stale_disk_snapshot_is_readable_without_rebuilding_stats",
+      "promise": "G7"
+    }
+  ]
+}

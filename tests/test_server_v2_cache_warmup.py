@@ -17,6 +17,7 @@ underlying build with ``unittest.mock`` so we can assert a subsequent request is
 from __future__ import annotations
 
 import os
+import tempfile
 import threading
 import unittest
 from unittest.mock import Mock, call, patch
@@ -141,6 +142,20 @@ class CacheWarmupTests(unittest.TestCase):
             first.join(timeout=2)
 
         self.assertFalse(first.is_alive())
+
+    def test_G7_stale_disk_snapshot_is_readable_without_rebuilding_stats(self) -> None:
+        """G7: a completed warm remains a bounded readiness snapshot after source revision moves."""
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"AI_CADDIE_STATS_CACHE_DIR": tmp, "AI_CADDIE_DATA_MODE": "fixture"}):
+                warm_stats_cache()
+                self.assertTrue(stats_cache.flush_persistent_writes(timeout=10))
+                stats_cache.clear()
+                with patch.object(stats_cache, "history_source_revision", return_value="new-source-revision"):
+                    snapshot = stats_cache.cached_history_stats_snapshot()
+                self.assertIsNotNone(snapshot)
+                self.assertEqual(snapshot["source"], "disk")
+                self.assertTrue(snapshot["stale"])
+                self.assertIn("summary", snapshot["value"])
 
 
 class AppStartupTests(unittest.TestCase):
