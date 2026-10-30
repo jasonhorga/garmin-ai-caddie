@@ -617,6 +617,7 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         """J4.2: a recovered live round's durable opening time beats a finished old edit."""
         self._identity("finished-old", 456)
         self._post_events("finished-old", "old-start", timestamp="2026-10-29T08:00:00Z")
+        self._post_events("finished-old", "old-late-progress", timestamp="2026-10-29T12:00:00Z")
         self._finish_persisted("finished-old", 456)
         self._identity("live-round", 123)
         self._post_events("live-round", "live-start", timestamp="2026-10-29T10:00:00Z")
@@ -635,7 +636,12 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         """J4.2: a finished old round is rejected using its persisted minimum play time."""
         self._identity("finished-old", 456)
         self._post_events("finished-old", "old-start", timestamp="2026-10-29T08:00:00Z")
+        self._post_events("finished-old", "old-late-progress", timestamp="2026-10-29T12:00:00Z")
         self._finish_persisted("finished-old", 456)
+        self.assertEqual(
+            self.main._cached_round_start_timestamp("fixture", "finished-old"),
+            datetime.fromisoformat("2026-10-29T08:00:00+00:00"),
+        )
         self.package(123, "live-round")
         self._post_events("live-round", "live-start", timestamp="2026-10-29T10:00:00Z")
         self._post_events("finished-old", "old-edit", timestamp="2026-10-29T10:30:00Z")
