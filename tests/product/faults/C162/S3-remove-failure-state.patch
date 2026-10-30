@@ -2,7 +2,7 @@ diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddi
 index e5eef8a8..d4b2dd8b 100644
 --- a/mobile/ios/AICaddie/Views/StartRoundView.swift
 +++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
-@@ -558,7 +558,7 @@ public struct StartRoundView: View {
+@@ -558,6 +558,6 @@ public struct StartRoundView: View {
          setFailed(false)
          let rows = await request(globalId)
          setLoading(false)
@@ -10,4 +10,3 @@ index e5eef8a8..d4b2dd8b 100644
 +        setFailed(false)
          return rows
      }
- 
