@@ -70,7 +70,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
             setFailed: { failed in states.append((false, failed)) },
             request: { _ in [] }
         )
-        XCTAssertEqual(states.map { $0.0 }, [true, false, false])
+        XCTAssertEqual(states.map { $0.0 }, [true, false, false, false])
         XCTAssertEqual(states.last?.1, true, "an empty /tees answer enters retry state at one write point")
     }
 
