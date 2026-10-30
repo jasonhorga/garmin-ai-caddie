@@ -2466,9 +2466,9 @@ enum LiveMapDisplayState: Equatable {
         )
     }
 
-    /// Phone live-play display priority: precise CourseView raster > Garmin raster image > factual
-    /// route > one waiting surface. A Garmin descriptor with `available=false` can still provide
-    /// a visual image, but its projection is intentionally absent and the caller draws no geo overlays.
+    /// Phone live-play display priority: precise CourseView raster > Garmin raster image > one
+    /// neutral waiting surface. A Garmin descriptor with `available=false` can still provide a
+    /// visual image, but its projection is intentionally absent and the caller draws no geo overlays.
     static func resolveLive(
         _ inputs: LiveInputs,
         previous: LiveMapDisplayState? = nil
@@ -2491,9 +2491,7 @@ enum LiveMapDisplayState: Equatable {
     }
 
     /// 备战 applies the same contract to the installed course. Precise means precise facts AND the
-    /// revision-bound local topo; a hole whose installed revision the server has positively replaced
-    /// (`isStale`) is shown on its factual route until the new map lands. `downloadActive` only
-    /// distinguishes "the precise map is still coming" from "nothing better is coming".
+    /// revision-bound local topo; otherwise the row remains neutral until a bitmap is ready.
     static func resolvePrep(
         prep: CoursePrepHole?,
         hasLocalTopo: Bool,
