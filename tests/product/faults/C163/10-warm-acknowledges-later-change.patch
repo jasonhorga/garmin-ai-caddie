@@ -1,12 +1,12 @@
 diff --git a/server_v2/main.py b/server_v2/main.py
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -300,7 +300,7 @@
+@@ -315,7 +315,7 @@ def _start_history_signature_monitor(
                  if pending is not None:
                      if not pending.is_alive():
                          if pending.warm_succeeded:
 -                            previous = pending.history_signature
 +                            previous = _history_input_signature(player_id)
-                         pending = None
-                 current = _history_input_signature(player_id)
-                 if current == previous or pending is not None:
+                             retry_attempts = 0
+                             retry_after = float("-inf")
+                         else:

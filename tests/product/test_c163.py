@@ -839,27 +839,40 @@ class MonitorLifecycleTests(unittest.TestCase):
                     thread.join(1)
 
     def test_J42_failed_warm_does_not_acknowledge_signature(self):
-        """J4.2: a failed best-effort warm remains eligible on the next monitor tick."""
-        from server_v2 import main, history_stats as hs
-        revision = ["old"]
+        """J4.2: a failed warm remains eligible after its bounded retry delay."""
+        from server_v2 import main
         stop, retried = threading.Event(), threading.Event()
+        now = [0.0]
         calls = []
+        signature_calls = [0]
+        class CompletedWarm:
+            is_alive = lambda self: False
+            warm_succeeded = False
+            history_signature = ("new",)
+        def signature(_):
+            signature_calls[0] += 1
+            return ("old",) if signature_calls[0] == 1 else ("new",)
         def warm(*, player_id):
-            calls.append(1)
+            calls.append(now[0])
             if len(calls) > 1:
                 retried.set()
-            return len(calls) > 1
-        with patch.object(main, "_history_input_signature", side_effect=lambda _: (revision[0],)), \
-             patch.object(hs, "history_input_signature", side_effect=lambda _: (revision[0],)), \
-             patch.object(hs, "warm_stats_cache", side_effect=warm):
-            thread = main._start_history_signature_monitor(stop_event=stop, interval_s=.01, player_id="fixture-retry")
+            return CompletedWarm()
+        def wait(_interval):
+            now[0] += 60.0
+            if retried.is_set():
+                stop.set()
+                return True
+            return False
+        with patch.object(main, "_history_input_signature", side_effect=signature), \
+             patch.object(main, "warm_stats_cache_in_background", side_effect=warm):
+            thread = main._start_history_signature_monitor(stop_event=stop, interval_s=60.0,
+                player_id="fixture-retry", clock=lambda: now[0], wait=wait)
             try:
-                revision[0] = "new"
-                self.assertTrue(retried.wait(1))
+                thread.join(1)
             finally:
                 stop.set()
                 thread.join(1)
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls, [60.0, 180.0])
 
 
 if __name__ == "__main__":
