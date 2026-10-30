@@ -4,6 +4,7 @@ import csv
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -13,6 +14,144 @@ import yaml
 
 
 class CIWorkflowTests(unittest.TestCase):
+    def test_fixture_capture_shards_partition_every_dispatch_scope(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())
+        jobs = workflow["jobs"]
+        capture_name = "Real-simulator screenshots (iOS, XCUITest against live backend)"
+        # The old full selection includes helper tests as well as screenshot journeys.
+        cases = {
+            "RealFlowUITests/testCaptureRealAppFlow",
+            "RealFlowUITests/testWholeCourseBackNineStartsFromFirstStrokeJourney",
+            "RealFlowUITests/testWholeCourseStartsFromFirstStrokeJourney",
+            "RealFlowUITests/testC30PrepReworkJourney",
+            "ReviewEditUITests/testCaptureReviewEditFlow",
+            "TeeSelectionUITests/testCaptureTeeSelector",
+            "PrepDegradationUITests/testPrepOpensOnLiveHoleScreenWithoutRecording",
+            "RealEvidenceRoundResolverTests/testBlankPreferredRoundReferenceFallsBackToRecentHistory",
+            "ProductPhoneUITests/test_product_journey",
+        }
+
+        def selected(job_name: str, scope: str) -> set[str]:
+            job = jobs[job_name]
+            capture = next(step for step in job["steps"] if step.get("name") == capture_name)
+            script = capture["run"].split("ONLY_TESTING=()", 1)[1].split(
+                ".github/scripts/retry-transient-command.sh", 1
+            )[0]
+            result = subprocess.run(
+                ["bash", "-eu", "-c", 'ONLY_TESTING=()\n' + script + '\nprintf "%s\\n" "${ONLY_TESTING[@]}"'],
+                env={**os.environ, **job["env"], "UITEST_CAPTURE_SCOPE": scope},
+                text=True, capture_output=True, check=True,
+            )
+            includes, excludes = [], []
+            for argument in result.stdout.splitlines():
+                flag, _, value = argument.partition(":AICaddieUITests/")
+                (includes if flag == "-only-testing" else excludes).append(value)
+            return {case for case in cases
+                    if (not includes or any(case == f or case.startswith(f + "/") for f in includes))
+                    and not any(case == f or case.startswith(f + "/") for f in excludes)}
+
+        for scope in ("full", "review", "edit"):
+            with self.subTest(scope=scope):
+                old = selected("native-live", scope)
+                rest = selected("native-screenshots", scope)
+                flow = selected("native-real-flow", scope) if scope != "edit" else set()
+                self.assertEqual(old, flow | rest)
+                self.assertFalse(flow & rest)
+                if scope != "edit":
+                    self.assertEqual({"RealFlowUITests/testCaptureRealAppFlow"}, flow)
+                else:
+                    self.assertEqual({"ReviewEditUITests/testCaptureReviewEditFlow"}, rest)
+        for name in ("native-unit-watch", "native-product-ui", "native-real-flow", "native-screenshots"):
+            self.assertEqual("macos-15", jobs[name]["runs-on"])
+            self.assertNotIn("needs", jobs[name], "fixture runners must start independently")
+        self.assertEqual("ubuntu-latest", jobs["native-mobile"]["runs-on"])
+        self.assertEqual(set(jobs) - {"native-mobile", "native-quick"}, set(jobs["native-mobile"]["needs"]))
+        for name in ("native-unit-watch", "native-real-flow"):
+            self.assertIn("capture_scope != 'edit'", jobs[name]["if"])
+        for name in ("Resolve and boot Watch test simulator", "Test Watch app target"):
+            step = next(s for s in jobs["native-unit-watch"]["steps"] if s.get("name") == name)
+            self.assertIn("always()", step["if"])
+
+    def test_native_summary_rejects_every_required_failed_cancelled_or_skipped_job(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())
+        summary = workflow["jobs"]["native-mobile"]
+        self.assertIn("always()", summary["if"])
+        script = next(s["run"] for s in summary["steps"] if s.get("name") == "Verify native job conclusions")
+        for fixture in (True, False):
+            for scope in ("full", "review", "edit"):
+                expected = {"native-screenshots"} if fixture else {"native-live"}
+                if scope != "edit":
+                    expected.add("native-product-ui")
+                    if fixture:
+                        expected.update(("native-unit-watch", "native-real-flow"))
+                jobs = {name: {"result": "success" if name in expected else "skipped"}
+                        for name in summary["needs"]}
+
+                def replay(results: dict) -> subprocess.CompletedProcess:
+                    return subprocess.run(
+                        ["bash", "-eu", "-c", script], capture_output=True, text=True,
+                        env={**os.environ, "NATIVE_NEEDS": json.dumps(results),
+                             "FIXTURE_MODE": str(fixture).lower(), "CAPTURE_SCOPE": scope},
+                    )
+
+                self.assertEqual(0, replay(jobs).returncode)
+                for name in expected:
+                    for status in ("failure", "cancelled", "skipped"):
+                        with self.subTest(fixture=fixture, scope=scope, job=name, status=status):
+                            bad = {**jobs, name: {"result": status}}
+                            self.assertNotEqual(0, replay(bad).returncode)
+
+    def test_native_summary_preserves_shard_diagnostics_and_combines_evidence(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())
+        steps = workflow["jobs"]["native-mobile"]["steps"]
+        script = next(s["run"] for s in steps if s.get("id") == "combine_fixture_evidence")
+        for scope, failed in (("full", False), ("review", True), ("edit", False)):
+            with self.subTest(scope=scope), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                shards = ["screenshots"] if scope == "edit" else ["real-flow", "screenshots"]
+                jobs = {f"native-{shard}": {"result": "success"} for shard in shards}
+                jobs["native-unit-watch"] = {"result": "skipped" if scope == "edit" else "success"}
+                for shard in shards:
+                    screenshots = root / "native-shards" / f"real-screenshots-{shard}"
+                    screenshots.mkdir(parents=True)
+                    (screenshots / "ios-app.log").write_text(f"diagnostic from {shard}")
+                    (screenshots / f"{shard}.png").write_bytes(b"image")
+                    video = root / "native-shards" / f"real-video-{shard}"
+                    video.mkdir()
+                    (video / f"{shard}.mp4").write_bytes(b"video")
+                if scope != "edit":
+                    stamp = root / "native-shards/native-build-evidence-ci-fixture-unit-watch/native_build_evidence.json"
+                    stamp.parent.mkdir()
+                    stamp.write_text(json.dumps({"ios": {"status": "passed"}, "watch": {"status": "passed"}}))
+                if failed:
+                    jobs["native-real-flow"]["result"] = "failure"
+                    diagnostics = root / "native-shards/fixture-startup-diagnostics-real-flow"
+                    diagnostics.mkdir()
+                    (diagnostics / "stderr.log").write_text("fixture launch failed; [REDACTED]")
+                env = {**os.environ, "CAPTURE_SCOPE": scope, "NATIVE_NEEDS": json.dumps(jobs),
+                       "GITHUB_OUTPUT": str(root / "outputs")}
+                result = subprocess.run(["bash", "-eu", "-c", script], cwd=root, env=env,
+                                        text=True, capture_output=True)
+                self.assertEqual(0, result.returncode, result.stderr)
+                for shard in shards:
+                    self.assertIn(f"diagnostic from {shard}", (root / "real-screenshots/ios-app.log").read_text())
+                    self.assertTrue((root / "real-screenshots/shards" / shard / "ios-app.log").is_file())
+                    self.assertTrue((root / "real-video" / f"{shard}.mp4").is_file())
+                final_stamp = root / "native-build-evidence-ci-fixture/native_build_evidence.json"
+                if scope == "edit":
+                    self.assertFalse(final_stamp.exists())
+                else:
+                    evidence = json.loads(final_stamp.read_text())
+                    self.assertEqual("failed" if failed else "passed", evidence["ios"]["status"])
+                    self.assertEqual("passed", evidence["watch"]["status"])
+                if failed:
+                    self.assertIn("[REDACTED]", (root / "fixture-startup-diagnostics/stderr.log").read_text())
+                # A successful test conclusion without its artifact must never become a green summary.
+                shutil.rmtree(root / "native-shards" / f"real-video-{shards[-1]}")
+                result = subprocess.run(["bash", "-eu", "-c", script], cwd=root, env=env,
+                                        text=True, capture_output=True)
+                self.assertNotEqual(0, result.returncode)
+
     def test_ci_workflow_runs_backend_frontend_and_visual_smoke(self) -> None:
         workflow = Path(".github/workflows/ci.yml")
         self.assertTrue(workflow.exists(), "missing CI workflow")
@@ -483,7 +622,7 @@ class CIWorkflowTests(unittest.TestCase):
     def test_native_mobile_workflow_runs_ios_and_watch_validation_on_macos_only_for_native_changes(self) -> None:
         workflow = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8"))
         triggers = workflow[True]
-        native = workflow["jobs"]["native-mobile"]
+        native = workflow["jobs"]["native-live"]
 
         self.assertIn("workflow_dispatch", triggers)
         self.assertIn("fixture_mode", triggers["workflow_dispatch"]["inputs"])
@@ -656,7 +795,7 @@ class CIWorkflowTests(unittest.TestCase):
         dispatch = workflow[True]["workflow_dispatch"] or {}
         inputs = dispatch.get("inputs", {})
         real_step = {
-            step.get("name"): step for step in workflow["jobs"]["native-mobile"]["steps"]
+            step.get("name"): step for step in workflow["jobs"]["native-live"]["steps"]
         }["Real-simulator screenshots (iOS, XCUITest against live backend)"]
         real_flow = Path("mobile/ios/AICaddieUITests/RealFlowUITests.swift").read_text(
             encoding="utf-8"
@@ -719,10 +858,6 @@ class CIWorkflowTests(unittest.TestCase):
         workflow = yaml.safe_load(
             Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8")
         )
-        steps_list = workflow["jobs"]["native-mobile"]["steps"]
-        positions_by_name = {step.get("name"): index for index, step in enumerate(steps_list)}
-        positions_by_id = {step.get("id"): index for index, step in enumerate(steps_list) if step.get("id")}
-        steps = {step.get("name"): step for step in steps_list}
         gate_ids = (
             "start_fixture",
             "validate_native_launch_prereq",
@@ -750,16 +885,21 @@ class CIWorkflowTests(unittest.TestCase):
             "Scan native build evidence for secret bytes",
             "Upload native build evidence",
         )
-        for name in dependent_names:
-            condition = steps[name]["if"]
-            self.assertIn("!inputs.fixture_mode ||", condition, name)
-            for gate_id in gate_ids:
-                self.assertLess(
-                    positions_by_id[gate_id],
-                    positions_by_name[name],
-                    f"{gate_id} must be declared before {name}",
-                )
-                self.assertIn(f"steps.{gate_id}.outcome == 'success'", condition, name)
+        for job_name in ("native-live", "native-unit-watch", "native-real-flow", "native-screenshots"):
+            steps_list = workflow["jobs"][job_name]["steps"]
+            positions_by_name = {step.get("name"): index for index, step in enumerate(steps_list)}
+            positions_by_id = {step.get("id"): index for index, step in enumerate(steps_list) if step.get("id")}
+            steps = {step.get("name"): step for step in steps_list}
+            for name in set(dependent_names) & steps.keys():
+                condition = steps[name]["if"]
+                self.assertIn("!inputs.fixture_mode ||", condition, (job_name, name))
+                for gate_id in gate_ids:
+                    self.assertLess(
+                        positions_by_id[gate_id],
+                        positions_by_name[name],
+                        f"{job_name}: {gate_id} must be declared before {name}",
+                    )
+                    self.assertIn(f"steps.{gate_id}.outcome == 'success'", condition, (job_name, name))
 
         def fixture_gate_allows(outcomes: dict[str, str]) -> bool:
             return all(outcomes[gate_id] == "success" for gate_id in gate_ids)
@@ -784,7 +924,7 @@ class CIWorkflowTests(unittest.TestCase):
 
         native = yaml.safe_load(
             Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8")
-        )["jobs"]["native-mobile"]["steps"]
+        )["jobs"]["native-live"]["steps"]
         watch = yaml.safe_load(
             Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8")
         )["jobs"]["watch-runtime"]["steps"]
@@ -826,7 +966,7 @@ class CIWorkflowTests(unittest.TestCase):
         # Live Native 37426762320: after a fixed 5 s, score-recommendation was still the launch logo.
         workflow = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8"))
         script = {
-            step.get("name"): step for step in workflow["jobs"]["native-mobile"]["steps"]
+            step.get("name"): step for step in workflow["jobs"]["native-live"]["steps"]
         }["Real Watch round seed and restore screenshots"]["run"]
         capture = script[script.index("launch_and_capture() {"):script.index("launch_and_capture milestone-seed")]
         self.assertNotIn("sleep 5", capture)
