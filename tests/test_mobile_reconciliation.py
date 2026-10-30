@@ -38,8 +38,9 @@ def _save_identity(root: Path, round_id: str, loops: list[tuple[int, str]], play
 
 
 class MobileReconciliationTests(unittest.TestCase):
-    def test_saved_identity_keeps_missing_garmin_back_nine_local_only(self) -> None:
-        # R3: an 18-hole phone round and a nine-hole Garmin upload share exactly holes 1..9.
+    def test_j1_3_missing_garmin_card_restores_phone_score_suggestions(self) -> None:
+        # J1.3: an 18-hole phone round and a nine-hole Garmin upload share exactly holes 1..9;
+        # the missing back-nine phone scores remain local evidence and can be restored.
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             _save_identity(root, "partial", [(55555, "front"), (55555, "back")])
@@ -55,10 +56,76 @@ class MobileReconciliationTests(unittest.TestCase):
             self.assertEqual([r["ref"] for r in result["matched"]],
                              [f"partial:{n}" for n in range(1, 10)])
             self.assertEqual([r["hole"] for r in result["localOnly"]], list(range(10, 19)))
+            self.assertTrue(all(r["unmapped"] for r in result["localOnly"]))
+            self.assertEqual([r["phoneHole"] for r in result["localOnly"]], list(range(10, 19)))
             self.assertEqual(result["conflicts"], [])
-            # Missing physical mappings are evidence only; never suggest a correction against a
-            # Garmin display hole that may belong to another card.
-            self.assertEqual(result["annotationSuggestions"], [])
+            self.assertEqual(
+                [row["id"] for row in result["annotationSuggestions"]],
+                [f"score-{n}:score-correction" for n in range(10, 19)],
+            )
+
+    def test_j1_3_back_start_nonmerged_unnumbered_card_uses_physical_holes(self) -> None:
+        # J1.3: a standalone back-nine Garmin card with no hole numbers is physical 10..18.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "unnumbered-back", [(55555, "back")])
+            append_event_batch("unnumbered-back", [{
+                "eventId": f"score-{n}", "roundId": "unnumbered-back", "hole": n,
+                "kind": "score", "payload": {"strokes": 5},
+            } for n in range(1, 10)], idempotency_key="unnumbered-back", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "unnumbered-back", "globalId": 55555,
+                "holes": [{"strokes": 5} for _ in range(9)],
+            }], shots=[])
+            result = reconcile_mobile_round_events("unnumbered-back", data, root=root)
+
+        self.assertEqual(
+            [(row["hole"], row["ref"]) for row in result["matched"]],
+            [(n, f"unnumbered-back:{n + 9}") for n in range(1, 10)],
+        )
+        self.assertEqual(result["localOnly"], [])
+        self.assertEqual(result["annotationSuggestions"], [])
+
+    def test_j7_2_unmapped_decision_event_keeps_caddie_feedback_audit(self) -> None:
+        # J7.2: an unmapped phone hole still carries an auditable decision feedback suggestion.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "unmapped-decision", [(55555, "front")])
+            append_event_batch("unmapped-decision", [{
+                "eventId": "unmapped-club", "roundId": "unmapped-decision", "hole": 10,
+                "kind": "club", "payload": {
+                    "clubName": "9I", "decisionId": "decision-unmapped",
+                    "actualShot": {"club": "9I", "result": "short"},
+                },
+            }], idempotency_key="unmapped-decision", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "unmapped-decision", "globalId": 55555,
+                "holes": [{"number": n, "strokes": 5} for n in range(1, 10)],
+            }], shots=[])
+            result = reconcile_mobile_round_events("unmapped-decision", data, root=root)
+
+        self.assertEqual(result["candidateDecisionAudits"][0]["decisionId"], "decision-unmapped")
+        feedback = [row for row in result["annotationSuggestions"] if row["kind"] == "caddie_feedback"]
+        self.assertEqual([row["targetId"] for row in feedback], ["decision-unmapped"])
+
+    def test_j1_3_local_only_rows_distinguish_mapped_missing_facts(self) -> None:
+        # J1.3: hole is the reconciliation/display axis; phoneHole preserves the phone axis.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "mapped-missing", [(55555, "front")])
+            append_event_batch("mapped-missing", [{
+                "eventId": "mapped-score", "roundId": "mapped-missing", "hole": 1,
+                "kind": "score", "payload": {"strokes": 5},
+            }], idempotency_key="mapped-missing", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "mapped-missing", "globalId": 55555, "holes": [],
+            }], shots=[])
+            result = reconcile_mobile_round_events("mapped-missing", data, root=root)
+
+        self.assertEqual(result["localOnly"], [{
+            "eventId": "mapped-score", "roundId": "mapped-missing", "kind": "score",
+            "hole": 1, "localValue": 5, "unmapped": False, "phoneHole": 1,
+        }])
 
     def test_back_start_eighteen_round_with_only_first_garmin_card_is_partial(self) -> None:
         """A back-start phone round must reconcile the uploaded 10..18 card only."""

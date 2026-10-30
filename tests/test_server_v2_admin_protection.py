@@ -957,6 +957,21 @@ class ReconciliationAndCaddieContextAdminOnlyTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         handler.assert_called_once_with("live-round-1", player_id=self.member_id)
 
+    def test_j7_2_member_token_is_rejected_for_reconciliation_apply(self) -> None:
+        # J7.2: reconciliation apply remains an admin/owner operation; members cannot invoke it.
+        handler = Mock(return_value=_reconciliation_apply_response())
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.apply_mobile_round_reconciliation_response", handler),
+        ):
+            resp = self.client.post(
+                "/api/v2/mobile/rounds/live-round-1/reconciliation/apply",
+                headers={"Authorization": f"Bearer {self.member_token}"},
+                json={"suggestionIds": []},
+            )
+        self.assertEqual(resp.status_code, 403)
+        handler.assert_not_called()
+
     def test_member_token_reaches_caddie_context_builder(self) -> None:
         """A per-player token now reaches the caddie-context builder, threaded the member's player_id."""
         handler = Mock(return_value=_caddie_context_response())
