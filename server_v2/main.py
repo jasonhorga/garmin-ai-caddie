@@ -2767,6 +2767,11 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                     _ACTIVE_EVENT_TIMES.pop(old, None)
                     _ACTIVE_EVENT_DEVICES.pop(old, None)
                     _ACTIVE_PACKAGED_ROUNDS.discard(old)
+            # A finish can arrive after a restart when the round is no longer registered in memory;
+            # clear its durable opening-time cache in that case as well.
+            _ACTIVE_START_TIMES.pop(key, None)
+            with _ROUND_START_CACHE_LOCK:
+                _ROUND_START_CACHE.pop(key, None)
         elif new_events or not str(round_id).startswith(("home-", "prep-library-", "watch-template-")):
             # Uploads and round refreshes may be delayed for days. A valid timestamp may replace an
             # older event-recovered round, but an event from an old round (e.g. a late score edit)
