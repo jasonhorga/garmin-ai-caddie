@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/rounds/round_ingest.py b/ai_caddie/rounds/round_ingest.py
+index 2fc11157..8ce1f42f 100644
+--- a/ai_caddie/rounds/round_ingest.py
++++ b/ai_caddie/rounds/round_ingest.py
+@@ -772,7 +772,7 @@ def _shot_putt_count(
+             lie = str((shot.get("startLoc") or {}).get("lie") or "").strip().lower()
+         if lie == "green" and ("putt" in shot_type or "putt" in club_name or club_name in {"putter", "pt", "推杆"}):
+             count += 1
+-        elif count:
++        elif count and isinstance(shot.get("club"), dict):
+             return None  # Do not mistake a partially recognized putt tail for the putt total.
+     return count or None
+ 

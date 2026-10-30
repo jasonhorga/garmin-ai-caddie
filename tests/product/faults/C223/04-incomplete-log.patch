@@ -1,12 +1,12 @@
 diff --git a/ai_caddie/rounds/round_ingest.py b/ai_caddie/rounds/round_ingest.py
-index 88c3c88d..bf366847 100644
+index 2fc11157..c320137f 100644
 --- a/ai_caddie/rounds/round_ingest.py
 +++ b/ai_caddie/rounds/round_ingest.py
-@@ -750,7 +750,7 @@ def _shot_putt_count(
-     In-memory rows keep ``club``; persisted rows keep ``startLoc.lie``, ``shotType`` and
-     a ``clubId`` referring to ``clubDetails``. Both representations require the same evidence.
+@@ -753,7 +753,7 @@ def _shot_putt_count(
+     Any unrecognized stroke after the first putt makes the total unknown; callers then try
+     the observed regulation landing instead. Extra or missing positions also mean unknown.
      """
--    if total_strokes is not None and len(shots) < total_strokes:
+-    if total_strokes is not None and len(shots) != total_strokes:
 +    if False:
          return None
      clubs = {row.get("id"): row for row in (club_details or []) if isinstance(row, dict)}

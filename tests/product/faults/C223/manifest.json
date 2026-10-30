@@ -91,6 +91,41 @@
       "kind": "python",
       "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_recorded_putts_precede_aim_geometry",
       "promise": "2.5 entered putts decide GIR before geometry"
+    },
+    {
+      "id": "tests-product-faults-C223-14-partial-putt-tail",
+      "patch": "tests/product/faults/C223/14-partial-putt-tail.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_unrecognized_stroke_after_putt_uses_observed_landing",
+      "promise": "2.5 an unrecognized stroke after the first putt must not turn GIR into a miss"
+    },
+    {
+      "id": "tests-product-faults-C223-15-extra-putt-positions",
+      "patch": "tests/product/faults/C223/15-extra-putt-positions.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_duplicate_putt_location_does_not_invent_gir",
+      "promise": "2.5 duplicate positions cannot supply an invented putt total"
+    },
+    {
+      "id": "tests-product-faults-C223-16-persisted-partial-tail",
+      "patch": "tests/product/faults/C223/16-persisted-partial-tail.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_custom_putter_name_loses_type_without_inventing_a_miss",
+      "promise": "2.5 a persisted custom putter losing its type must remain unknown without geometry"
+    },
+    {
+      "id": "tests-product-faults-C223-17-last-position-landing",
+      "patch": "tests/product/faults/C223/17-last-position-landing.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_ingest_regulation_landing_is_next_start_not_last",
+      "promise": "2.5 the regulation landing is the next shot start, never the last recorded start (review O2)"
+    },
+    {
+      "id": "tests-product-faults-C223-18-success-exit-failure",
+      "patch": "tests/product/faults/C223/18-success-exit-failure.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_successful_apply_returns_zero",
+      "promise": "2.5 a successful apply must exit zero (review O10)"
     }
   ]
 }
