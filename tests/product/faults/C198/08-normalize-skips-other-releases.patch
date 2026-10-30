@@ -1,12 +1,11 @@
-diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
 --- a/ops/agenthub_deploy.py
 +++ b/ops/agenthub_deploy.py
-@@ -1207,7 +1207,7 @@ def normalize_restart_policy(cfg: Config, containers: list[Container], live: Con
+@@ -1222,7 +1222,7 @@
      release that kept its policy may still be on-failure.  Returns the releases that kept it."""
      kept = []
      for container in containers:
 -        if container.name.startswith(cfg.prefix) and (live is None or container.id != live.id):
 +        if container.name.startswith(cfg.prefix) and live is None:
-             if set_restart_policy(container.name, "no", check=check).returncode != 0:
+             update_check = check and not (container.dead or container.status in {"dead", "removing"})
+             if set_restart_policy(container.name, "no", check=update_check).returncode != 0:
                  policy_warning(container.name, "restart_policy_failed",
-                                f"{container.name} could not be set to restart policy no")

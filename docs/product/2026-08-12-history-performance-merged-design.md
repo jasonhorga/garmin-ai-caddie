@@ -112,7 +112,7 @@
 3. 增加正式 `last20` 窗口，或提供不重复重算的统一范围投影。
 4. 趋势点、区间、周期卡与球局列表建立同一种 `roundIds -> filtered archive -> round detail` 导航。
 5. 活动日历可先由逐场日期在客户端分组；只有需要跨时区的精确日统计时再增加 `byDay`。
-6. 首页将两个旧 tile 合并；旧 `RecentRoundReviewView` 无入口，待代码卡删除，不承担完整历史入口。
+6. 首页将两个旧 tile 合并；旧 `RecentRoundReviewView` 已删除（C70），不承担完整历史入口。
 
 ## 6. 明确不做
 

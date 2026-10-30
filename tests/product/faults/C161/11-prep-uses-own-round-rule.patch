@@ -1,0 +1,18 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2684,11 +2684,10 @@
+     a proven loop maps display holes to physical holes (including back-nine starts).
+     """
+     with _ACTIVE_ROUNDS_LOCK:
+-        key = _latest_rounds_by_player().get(str(player_id))
+-        if key is not None and (
+-            _ACTIVE_ROUNDS.get(key, 0) <= time.monotonic() or not _ACTIVE_COURSES.get(key)
+-        ):
+-            key = None
++        keys = [key for key, deadline in _ACTIVE_ROUNDS.items()
++                if key[0] == str(player_id) and deadline > time.monotonic()
++                and _ACTIVE_COURSES.get(key)]
++        key = keys[-1] if keys else None
+         if key is None or int(global_id) not in _ACTIVE_COURSES[key]:
+             return False
+         selection = _ACTIVE_SELECTIONS.get(key)

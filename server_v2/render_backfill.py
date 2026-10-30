@@ -413,10 +413,13 @@ class RenderBackfill:
             raise _ShutdownRender("service stopping before render submission")
         pool, submitting = None, True
         try:
-            pool = topo_render._get_render_pool(processes)
-            future = pool.submit(fn, *args)
-            submitting = False
-            return future.result(timeout=RENDER_TIMEOUT_SECONDS)
+            # The shared admission keeps this render out of the pool's FIFO queue and away from the
+            # child reserved for foreground renders; a later discard cancels nobody else's work.
+            with topo_render._cpu_pool_admission(processes):
+                pool = topo_render._get_render_pool(processes)
+                future = pool.submit(fn, *args)
+                submitting = False
+                return future.result(timeout=RENDER_TIMEOUT_SECONDS)
         except TimeoutError as exc:
             if pool is not None:
                 topo_render._discard_render_pool(pool)
@@ -703,7 +706,7 @@ class RenderBackfill:
                 self._current_unit = (key, unit)
             error = None
             try:
-                with background_work():
+                with background_work(unit_type="backfill"):
                     with work_priority(BACKFILL):
                         if unit == "topo":
                             self._render_topo(task["globalId"], task["localHole"])

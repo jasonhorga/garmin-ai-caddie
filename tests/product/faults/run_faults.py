@@ -29,41 +29,43 @@ SHARED_PYTHON = Path(os.environ.get("CADDIE_SHARED_PYTHON", sys.executable))
 
 
 def load_manifest() -> list[dict[str, Any]]:
-    data = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or not isinstance(data.get("records"), list):
-        raise ValueError("manifest must contain a records array")
-    records = list(data["records"])
-    # Legacy cards mirrored their records centrally. Read those identical mirrors once, while
-    # conflicting IDs and duplicates within either source still fail validation below.
-    central_records = {record.get("id"): record for record in records}
-    # Per-card fragments avoid a shared manifest conflict; validate the merged corpus below.
-    for fragment in sorted(MANIFEST.parent.glob("*/manifest.json")):
-        section = json.loads(fragment.read_text(encoding="utf-8"))
-        if not isinstance(section, dict) or not isinstance(section.get("records"), list):
-            raise ValueError(f"fragment must contain a records array: {fragment.name}")
-        records.extend(record for record in section["records"]
-                       if record != central_records.get(record.get("id")))
-    seen: set[str] = set()
-    for record in records:
-        required = ("id", "patch", "kind", "target", "promise")
-        missing = [key for key in required if not record.get(key)]
-        if missing:
-            raise ValueError(f"manifest record is missing {missing}: {record!r}")
-        if record["id"] in seen:
-            raise ValueError(f"duplicate manifest id: {record['id']}")
-        seen.add(record["id"])
-        patch = ROOT / record["patch"]
-        if not patch.is_file():
-            raise ValueError(f"manifest patch does not exist: {record['patch']}")
-        if record["kind"] not in {
-            "python",
-            "python-script",
-            "web-vitest",
-            "web-playwright",
-            "native-unit",
-            "native-ui",
-        }:
-            raise ValueError(f"unknown fault kind {record['kind']!r} for {record['id']}")
+    """Load the central records, then card fragments in directory-name order.
+
+    Both forms use {"records": [...]} and repository-relative patch paths.
+    Keep source paths during validation so collisions identify both authors.
+    """
+    manifests = [MANIFEST, *sorted(MANIFEST.parent.glob("*/manifest.json"), key=lambda path: path.parent.name)]
+    records: list[dict[str, Any]] = []
+    seen: dict[str, Path] = {}
+    for manifest in manifests:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("records"), list):
+            raise ValueError(f"{manifest}: manifest must contain a records array")
+        for record in data["records"]:
+            if not isinstance(record, dict):
+                raise ValueError(f"{manifest}: manifest record must be an object: {record!r}")
+            required = ("id", "patch", "kind", "target", "promise")
+            missing = [key for key in required if not record.get(key)]
+            if missing:
+                raise ValueError(f"{manifest}: manifest record is missing {missing}: {record!r}")
+            if record["id"] in seen:
+                raise ValueError(
+                    f"duplicate manifest id {record['id']!r}: {seen[record['id']]} and {manifest}"
+                )
+            seen[record["id"]] = manifest
+            patch = ROOT / record["patch"]
+            if not patch.is_file():
+                raise ValueError(f"{manifest}: manifest patch does not exist: {record['patch']}")
+            if record["kind"] not in {
+                "python",
+                "python-script",
+                "web-vitest",
+                "web-playwright",
+                "native-unit",
+                "native-ui",
+            }:
+                raise ValueError(f"{manifest}: unknown fault kind {record['kind']!r} for {record['id']}")
+            records.append(record)
     return records
 
 

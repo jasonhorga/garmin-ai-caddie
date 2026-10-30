@@ -1731,6 +1731,349 @@
       "promise": "G6"
     },
     {
+      "id": "tests-product-faults-C161-01",
+      "patch": "tests/product/faults/C161/01-arrival-order-wins.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_timestamp_order_beats_round_registration_order",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C161-02",
+      "patch": "tests/product/faults/C161/02-finish-clears-all-rounds.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_timestamp_n2_restart_old_upload_cannot_promote_older_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C161-03",
+      "patch": "tests/product/faults/C161/03-missing-timestamp-crashes.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_missing_event_timestamp_falls_back_to_arrival_order",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C161-04",
+      "patch": "tests/product/faults/C161/04-package-fields-type-unsafe.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_old_event_payload_container_type_error_does_not_turn_event_receipt_into_500",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C161-05",
+      "patch": "tests/product/faults/C161/05-package-switch-loses-to-older-time.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_new_round_package_demotes_round_with_mixed_client_events",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C161-06",
+      "patch": "tests/product/faults/C161/06-timed-finish-retires-only-itself.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_finish_later_mixed_client_round_retires_earlier_timed_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C161-07",
+      "patch": "tests/product/faults/C161/07-event-ignores-current-guard.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_late_unregistered_event_upload_mixed_client_ids_keeps_bound_current_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C161-08",
+      "patch": "tests/product/faults/C161/08-old-score-edit-takes-packaged-round.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_old_round_late_score_edit_cannot_take_packaged_current_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C161-09",
+      "patch": "tests/product/faults/C161/09-current-round-not-renewed.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_current_round_events_renew_lease",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C161-10",
+      "patch": "tests/product/faults/C161/10-note-advances-play-clock.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_old_round_late_note_cannot_take_event_recovered_current_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C161-11",
+      "patch": "tests/product/faults/C161/11-prep-uses-own-round-rule.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_prep_exemption_uses_current_round_selector",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C205-01-up-uses-stale-selection",
+      "patch": "tests/product/faults/C205/01-up-uses-stale-selection.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_up_running_policy_correction_rechecks_release_record_under_sync_lock",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C206-01-restore-does-not-record-previous",
+      "patch": "tests/product/faults/C206/01-restore-does-not-record-previous.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_failed_verify_restore_records_previous_for_next_up",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C207-22-up-health-ignores-kept-release",
+      "patch": "tests/product/faults/C207/22-up-health-ignores-kept-release.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_up_failed_health_restores_previous_release_as_on_failure",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C208-01-dead-refusal-is-withheld",
+      "patch": "tests/product/faults/C208/01-dead-refusal-is-withheld.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_dead_release_refusing_update_does_not_withhold_current_release",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C175-01-access-filter-token-only",
+      "patch": "tests/product/faults/C175/01-access-filter-token-only.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.C90TimingPersistenceTests.test_uvicorn_access_filter_uses_method_route_templates_and_unmatched_marker",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C175-02-unmatched-raw-path",
+      "patch": "tests/product/faults/C175/02-unmatched-raw-path.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.C90TimingPersistenceTests.test_uvicorn_access_filter_exception_uses_unmatched_marker",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C175-03-access-filter-not-mounted",
+      "patch": "tests/product/faults/C175/03-access-filter-not-mounted.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_startup_access_logger_writes_route_template_without_ids_or_query",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C175-04-websocket-filter-not-mounted",
+      "patch": "tests/product/faults/C175/04-websocket-filter-not-mounted.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_startup_error_logger_drops_websocket_handshake_target",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C175-05-cache-keys-raw-url",
+      "patch": "tests/product/faults/C175/05-cache-keys-raw-url.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_route_cache_ignores_query_and_keeps_no_raw_path",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C175-06-access-ignores-method",
+      "patch": "tests/product/faults/C175/06-access-ignores-method.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_access_template_follows_starlette_method_dispatch",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C175-07-partial-counts-as-match",
+      "patch": "tests/product/faults/C175/07-partial-counts-as-match.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_access_template_follows_starlette_method_dispatch",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C175-08-broken-route-aborts-resolution",
+      "patch": "tests/product/faults/C175/08-broken-route-aborts-resolution.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_broken_route_matcher_skips_only_that_route",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C179-01",
+      "patch": "tests/product/faults/C179/01-background-count-not-admission.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.SingleUnitAdmissionTests.test_J42_second_background_unit_waits_for_the_running_one",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-02",
+      "patch": "tests/product/faults/C179/02-yield-point-noop.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.SingleUnitAdmissionTests.test_J42_running_unit_pauses_at_yield_point_while_package_is_live",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-03",
+      "patch": "tests/product/faults/C179/03-prep-hole-no-yield.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.RouteAdmissionTests.test_J42_cold_background_prep_yields_between_holes_to_a_package",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-04",
+      "patch": "tests/product/faults/C179/04-stats-phase-no-yield.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.SingleUnitAdmissionTests.test_J42_stats_warm_pauses_between_phases_while_package_is_live",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-05",
+      "patch": "tests/product/faults/C179/05-nearby-course-no-yield.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.SingleUnitAdmissionTests.test_J42_nearby_prefetch_pauses_between_courses_while_package_is_live",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-06",
+      "patch": "tests/product/faults/C179/06-install-window-no-yield.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.SingleUnitAdmissionTests.test_J42_background_install_pass_pauses_at_its_window_boundary",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-07",
+      "patch": "tests/product/faults/C179/07-prep-gate-ignores-disconnect.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.RouteAdmissionTests.test_J42_disconnected_cold_prep_stops_waiting_at_the_gate",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-08",
+      "patch": "tests/product/faults/C179/08-cpu-pool-no-foreground-reserve.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.SharedCpuPoolTests.test_J42_foreground_render_does_not_queue_behind_background_cpu_work",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-09",
+      "patch": "tests/product/faults/C179/09-background-geometry-bypasses-pool.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.PackageLaneTests.test_J42_background_geometry_uses_shared_pool_one_download_at_a_time",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-10",
+      "patch": "tests/product/faults/C179/10-background-geometry-unbounded.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.PackageLaneTests.test_J42_background_geometry_uses_shared_pool_one_download_at_a_time",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-11",
+      "patch": "tests/product/faults/C179/11-nearby-batches-global.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.NearbyDispatchTests.test_J42_pending_nearby_batches_are_kept_per_player",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-12",
+      "patch": "tests/product/faults/C179/12-omitted-tee-uses-package-tee.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.RouteAdmissionTests.test_J42_package_without_tee_installs_under_the_registered_tee",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-M6",
+      "patch": "tests/product/faults/C179/M6-legacy-any-hole-exempt.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.RouteAdmissionTests.test_J42_cached_prep_and_active_first_current_holes_bypass_gate",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-M7",
+      "patch": "tests/product/faults/C179/M7-allhole-exempt.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.RouteAdmissionTests.test_J42_cached_prep_and_active_first_current_holes_bypass_gate",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-M8",
+      "patch": "tests/product/faults/C179/M8-install-gid-only.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.InstallWiringTests.test_J42_active_selection_install_bypasses_package_gate",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-X3",
+      "patch": "tests/product/faults/C179/X3-background-placeholders-unbounded.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.PackageLaneTests.test_J42_background_placeholders_are_bounded",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-X4",
+      "patch": "tests/product/faults/C179/X4-startup-counts-background.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.PackageLaneTests.test_J42_only_foreground_prepares_count_as_round_start_in_flight",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-X7",
+      "patch": "tests/product/faults/C179/X7-cpu-child-not-niced.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.SharedCpuPoolTests.test_J42_background_vector_lane_child_runs_below_api_priority",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-R1",
+      "patch": "tests/product/faults/C179/own-mutants/R1-prepnine-render-loop-no-yield.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.SingleUnitAdmissionTests.test_J42_render_true_prep_yields_between_holes",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-R2",
+      "patch": "tests/product/faults/C179/own-mutants/R2-prep-yield-inside-hole-singleflight.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.PackageLaneTests.test_J42_package_route_does_not_wait_on_prep_singleflight_checkpoint_lock",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-R3",
+      "patch": "tests/product/faults/C179/own-mutants/R3-cpu-no-background-priority-bump.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.SharedCpuPoolTests.test_J42_admitted_background_render_requeues_below_a_foreground_waiter",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-R4",
+      "patch": "tests/product/faults/C179/own-mutants/R4-slot-never-stale.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.SingleUnitAdmissionTests.test_J42_nested_unit_shares_its_admission_and_a_stale_holder_stops_blocking",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-R6",
+      "patch": "tests/product/faults/C179/own-mutants/R6-paused-prep-ignores-disconnect.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.RouteAdmissionTests.test_J42_disconnected_cold_prep_stops_between_holes",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-R7",
+      "patch": "tests/product/faults/C179/own-mutants/R7-install-vector-seed-no-yield.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.SingleUnitAdmissionTests.test_J42_background_install_pass_pauses_at_its_window_boundary",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-R9",
+      "patch": "tests/product/faults/C179/own-mutants/R9-run-cpu-cancelled-propagates.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.SharedCpuPoolTests.test_J42_cancelled_render_future_falls_back_in_process",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C179-R11",
+      "patch": "tests/product/faults/C179/own-mutants/R11-nearby-yield-inside-startup-lock.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.PackageLaneTests.test_J42_package_route_does_not_wait_on_nearby_checkpoint_lock",
+      "promise": "4.2"
+    },
+    {
       "id": "tests-product-faults-C136-01",
       "patch": "tests/product/faults/C136/01-garmin-disabled-model.patch",
       "kind": "native-unit",

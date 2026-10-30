@@ -11,7 +11,7 @@ diff --git a/server_v2/main.py b/server_v2/main.py
 -                player_id,
 -                global_id,
 -                loop_key=round_loop_key(round_loops),
--                tee_box=str(tee_box or package_tee_box or "blue"),
+-                tee_box=requested_tee_box,
 -            )
 -            else NEARBY
 -        ),

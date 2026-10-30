@@ -342,7 +342,7 @@ def _start_fixture_server(root: Path, repo: Path) -> tuple[subprocess.Popen[byte
     })
     with (root / "api.log").open("wb") as log:
         process = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "server_v2.main:app", "--host", "127.0.0.1", "--port", str(port)],
+            [sys.executable, "-m", "uvicorn", "server_v2.main:app", "--host", "127.0.0.1", "--port", str(port), "--ws", "none"],
             cwd=root,
             env=environment,
             stdout=log,

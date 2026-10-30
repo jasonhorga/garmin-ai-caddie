@@ -247,19 +247,6 @@ final class DesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
-    func testRenderRecentReview() throws {
-        let fixtureURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
-        let package = try JSONDecoder().decode(LiveRoundPackage.self, from: Data(contentsOf: fixtureURL))
-        let view = RecentReviewContent(package: package)
-            .frame(width: 390)
-            .background(HubStyle.grouped)
-        try render(view, named: "recent-review")
-    }
-
-    @MainActor
     func testRenderSignIn() throws {
         let view = SignInView(apiBaseURL: URL(string: "https://example.test")) { _ in }
         try render(view, named: "sign-in")
@@ -956,7 +943,6 @@ final class DesignSnapshotTests: XCTestCase {
         if let hole = package.holes.first {
             try captureScreen(NavigationStack { CurrentHoleView(package: package, hole: hole) }, named: "full-hole")
         }
-        try captureScreen(RecentRoundReviewView(package: package), named: "full-review")
 
         // Dark Mode regression guard. WITHOUT the app's fix, the light-themed screens render
         // white-on-white in Dark Mode (cards Color.white, text semantic .primary → white).

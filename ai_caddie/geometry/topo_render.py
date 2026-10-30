@@ -35,7 +35,7 @@ Pure rendering — no network, no AI. PIL + numpy only (no scipy / cv2).
 """
 from __future__ import annotations
 
-from ai_caddie.core.priority_work import PrioritySlots
+from ai_caddie.core.priority_work import NEARBY, PrioritySlots, current_priority, in_background
 
 import atexit
 import gc
@@ -48,8 +48,9 @@ import random
 import sys
 import threading
 from collections.abc import Callable
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import CancelledError, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TypeVar
 from uuid import uuid4
@@ -1163,6 +1164,32 @@ def _shutdown_render_pool() -> None:
         pool.shutdown(wait=False, cancel_futures=True)
 
 
+# The pool's queue is FIFO and its children cannot be interrupted. Every caller is therefore
+# admitted here, at most one submission per child and in priority order, and background callers
+# leave one child free: a cold topo/green/matte for a waiting player never queues behind a
+# background vector or backfill render. With nothing queued inside the pool, discarding a broken
+# or timed-out pool has no pending foreground future to cancel.
+_cpu_slots: PrioritySlots | None = None
+_cpu_slots_lock = threading.Lock()
+
+
+@contextmanager
+def _cpu_pool_admission(processes: int):
+    global _cpu_slots
+    with _cpu_slots_lock:
+        if _cpu_slots is None or _cpu_slots.capacity != processes:
+            _cpu_slots = PrioritySlots(processes, reserve=1)
+        slots = _cpu_slots
+    priority = current_priority()
+    if in_background():
+        priority = max(priority, NEARBY)
+    slots.acquire(priority)
+    try:
+        yield
+    finally:
+        slots.release()
+
+
 def _render_in_worker(gid: int, hole: int) -> bytes:
     """Worker-process entry point: one cold render, then hand the arenas back to the OS."""
     try:
@@ -1187,19 +1214,22 @@ def _render_cold(gid: int, hole: int) -> bytes:
     processes = _render_process_count()
     if processes == 0 or render_hole_topo is not _RENDER_HOLE_TOPO:
         return _render_in_process(gid, hole)
-    pool = _get_render_pool(processes)
-    try:
-        future = pool.submit(_render_in_worker, gid, hole)
-    except BrokenProcessPool:  # a worker died between renders; checked before its RuntimeError base
-        _discard_render_pool(pool)
-        return _render_in_process(gid, hole)
-    except RuntimeError:  # "cannot schedule new futures after shutdown"
-        return _render_in_process(gid, hole)
-    try:
-        return future.result()
-    except BrokenProcessPool:
-        _discard_render_pool(pool)
-        return _render_in_process(gid, hole)
+    with _cpu_pool_admission(processes):
+        pool = _get_render_pool(processes)
+        try:
+            future = pool.submit(_render_in_worker, gid, hole)
+        except BrokenProcessPool:  # a worker died between renders; checked before its RuntimeError base
+            _discard_render_pool(pool)
+            return _render_in_process(gid, hole)
+        except RuntimeError:  # "cannot schedule new futures after shutdown"
+            return _render_in_process(gid, hole)
+        try:
+            return future.result()
+        except BrokenProcessPool:
+            _discard_render_pool(pool)
+            return _render_in_process(gid, hole)
+        except CancelledError:  # another caller discarded the pool before this one started
+            return _render_in_process(gid, hole)
 
 
 _RenderResult = TypeVar("_RenderResult")
@@ -1223,20 +1253,23 @@ def _run_render_cpu(compute: Callable[..., _RenderResult], *args, **kwargs) -> _
     processes = _render_process_count()
     if processes == 0:
         return _compute_in_render_worker(compute, *args, **kwargs)
-    pool = _get_render_pool(processes)
-    try:
-        future = pool.submit(_compute_in_render_worker, compute, *args, **kwargs)
-    except BrokenProcessPool:
-        _discard_render_pool(pool)
-        return _compute_in_render_worker(compute, *args, **kwargs)
-    except RuntimeError:  # another request shut down this pool before submit
-        _discard_render_pool(pool)
-        return _compute_in_render_worker(compute, *args, **kwargs)
-    try:
-        return future.result()
-    except BrokenProcessPool:
-        _discard_render_pool(pool)
-        return _compute_in_render_worker(compute, *args, **kwargs)
+    with _cpu_pool_admission(processes):
+        pool = _get_render_pool(processes)
+        try:
+            future = pool.submit(_compute_in_render_worker, compute, *args, **kwargs)
+        except BrokenProcessPool:
+            _discard_render_pool(pool)
+            return _compute_in_render_worker(compute, *args, **kwargs)
+        except RuntimeError:  # another request shut down this pool before submit
+            _discard_render_pool(pool)
+            return _compute_in_render_worker(compute, *args, **kwargs)
+        try:
+            return future.result()
+        except BrokenProcessPool:
+            _discard_render_pool(pool)
+            return _compute_in_render_worker(compute, *args, **kwargs)
+        except CancelledError:  # another caller discarded the pool before this one started
+            return _compute_in_render_worker(compute, *args, **kwargs)
 
 
 def _render_green_cold(gid: int, hole: int, crop: tuple[float, float, float, float], *, size: int) -> bytes:

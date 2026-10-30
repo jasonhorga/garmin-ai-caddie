@@ -5,7 +5,7 @@ diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
                  self._current_unit = (key, unit)
              error = None
              try:
--                with background_work():
+-                with background_work(unit_type="backfill"):
 +                if True:
                      with work_priority(BACKFILL):
                          if unit == "topo":

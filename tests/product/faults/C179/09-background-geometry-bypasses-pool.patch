@@ -1,0 +1,13 @@
+diff --git a/server_v2/map_startup.py b/server_v2/map_startup.py
+index c56239d5..cad98e0d 100644
+--- a/server_v2/map_startup.py
++++ b/server_v2/map_startup.py
+@@ -225,7 +225,7 @@ def prepare_priority_hole(
+     from ai_caddie.geometry.geometry_sync import ensure_prodgeometry
+     from ai_caddie.courses.vector_prep import cached_vector_hole
+ 
+-    if background:
++    if False:
+         ensure_prodgeometry = partial(_background_geometry, _GEOMETRY_INSTALL_POOL, ensure_prodgeometry)
+     index = (int(priority_hole) - 1) // 9
+     if not 0 <= index < len(loops):

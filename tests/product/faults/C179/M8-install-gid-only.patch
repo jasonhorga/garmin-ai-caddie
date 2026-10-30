@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 7096a0c1..8f177810 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2615,7 +2615,7 @@ def _playing_install_matches(state) -> bool:
+                    and course_install._player_key(key[0]) == state.get("playerKey")}
+     return any(_playing_selection_matches(
+         player, int(state.get("globalId") or 0),
+-        loop_key=state.get("loopKey"), tee_box=state.get("teeBox"),
++        loop_key=None, tee_box=None,
+     ) for player in players)
+ 
+ 
