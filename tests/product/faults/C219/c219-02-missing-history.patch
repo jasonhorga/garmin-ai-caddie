@@ -1,5 +1,5 @@
---- a/ai_caddie/history/corrected_history.py	2026-10-30 10:54:52.766837288 +0000
-+++ b/ai_caddie/history/corrected_history.py	2026-10-30 10:54:52.838838659 +0000
+--- a/ai_caddie/history/corrected_history.py	2026-10-30 10:58:27.925803257 +0000
++++ b/ai_caddie/history/corrected_history.py	2026-10-30 10:58:28.020804957 +0000
 @@ -240,7 +240,7 @@
                          number = _int(target[len(prefix):])
                          if number is not None and number > 0 and number not in display_numbers.values():

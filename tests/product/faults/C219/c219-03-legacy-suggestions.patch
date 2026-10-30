@@ -1,11 +1,11 @@
---- a/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:54:52.762837212 +0000
-+++ b/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:54:52.842838735 +0000
-@@ -560,7 +560,7 @@
-         audit = _candidate_audit(event)
-         if audit:
-             candidate_audits.append(audit)
--        if identity is None and hole_map is None and hole not in scores:
-+        if False:
-             # Legacy unnumbered cards use the display axis, but absent card rows cannot consume
-             # hole corrections. Keep the phone evidence without suggesting an ineffective write.
-             local_only.append(_unmapped_local_only_row(event, payload, kind=kind, hole=hole))
+--- a/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:58:27.921803185 +0000
++++ b/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:58:28.026805065 +0000
+@@ -544,7 +544,7 @@
+     conflicts: list[dict[str, Any]] = []
+     candidate_audits: list[dict[str, Any]] = []
+     phone_holes: dict[str, int] = {}
+-    if identity is None and any((_safe_int(event.get("hole")) or 0) not in scores for event in events):
++    if False:
+         # Legacy streams have no physical identity; missing scorecard rows cannot be restored.
+         identity = {}
+     for event in events:

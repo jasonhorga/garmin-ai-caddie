@@ -544,6 +544,9 @@ def reconcile_mobile_round_events(
     conflicts: list[dict[str, Any]] = []
     candidate_audits: list[dict[str, Any]] = []
     phone_holes: dict[str, int] = {}
+    if identity is None and any((_safe_int(event.get("hole")) or 0) not in scores for event in events):
+        # Legacy streams have no physical identity; missing scorecard rows cannot be restored.
+        identity = {}
     for event in events:
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
         kind = str(event.get("kind") or "")
@@ -560,11 +563,6 @@ def reconcile_mobile_round_events(
         audit = _candidate_audit(event)
         if audit:
             candidate_audits.append(audit)
-        if identity is None and hole_map is None and hole not in scores:
-            # Legacy unnumbered cards use the display axis, but absent card rows cannot consume
-            # hole corrections. Keep the phone evidence without suggesting an ineffective write.
-            local_only.append(_unmapped_local_only_row(event, payload, kind=kind, hole=hole))
-            continue
         if hole_map is not None:
             if hole not in hole_map:
                 # An empty map with competing Garmin facts remains C76's unresolved identity.
@@ -734,10 +732,6 @@ def reconcile_mobile_round_events(
     # Keep one response contract for every local-only cause.  Mapped rows use Garmin's display axis
     # in ``hole`` and retain the phone axis in ``phoneHole``; an unmapped row has no Garmin axis, so
     # both fields intentionally carry the phone hole. ``unmapped`` distinguishes those cases.
-    for row in local_only:
-        row.setdefault("unmapped", False)
-        event_id = str(row.get("eventId") or "")
-        row["phoneHole"] = phone_holes.get(event_id, row.get("phoneHole", row.get("hole")))
     applied_decision_ids = {
         str(row.get("decisionId") or "")
         for row in list_decision_audits(root=root, player_id=player_id)
@@ -747,6 +741,10 @@ def reconcile_mobile_round_events(
         row for row in candidate_audits
         if str(row.get("decisionId") or "") not in applied_decision_ids
     ]
+    for row in local_only:
+        row.setdefault("unmapped", False)
+        event_id = str(row.get("eventId") or "")
+        row["phoneHole"] = phone_holes.get(event_id, row.get("phoneHole", row.get("hole")))
     annotation_suggestions = _annotation_suggestions(
         conflicts=conflicts,
         local_only=local_only,

@@ -1,6 +1,6 @@
---- a/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:54:52.762837212 +0000
-+++ b/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:54:52.846838812 +0000
-@@ -577,7 +577,7 @@
+--- a/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:58:27.921803185 +0000
++++ b/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:58:28.032805172 +0000
+@@ -575,7 +575,7 @@
                  hole = hole_map[hole]
                  if audit:
                      audit["hole"] = hole
