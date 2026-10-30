@@ -47,9 +47,26 @@ def failed_tests(test):
     return False
 
 reports = {}
+baseline_path = list(sys.path)
+previous_modules = set(sys.modules)
 for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
+    # Remove only the previous target's imports from paths it added. Normal
+    # dependencies must stay cached: some C extensions cannot initialize twice.
+    added_paths = [Path(entry).resolve() for entry in sys.path if entry not in baseline_path]
+    if added_paths:
+        for name in set(sys.modules) - previous_modules:
+            module = sys.modules[name]
+            spec = getattr(module, "__spec__", None)
+            origin = getattr(spec, "origin", None) or getattr(module, "__file__", None)
+            locations = list(getattr(spec, "submodule_search_locations", None) or [])
+            if origin and origin not in {"built-in", "frozen"}:
+                locations.append(origin)
+            if any(Path(location).resolve().is_relative_to(directory)
+                   for location in locations for directory in added_paths):
+                del sys.modules[name]
+    sys.path[:] = baseline_path
+    previous_modules = set(sys.modules)
     try:
-        # A fresh loader keeps one target's errors out of the next target.
         loader = unittest.TestLoader()
         suite = loader.loadTestsFromName(target)
         count = suite.countTestCases()
@@ -258,11 +275,6 @@ def run_target(record: dict[str, Any], repo: Path) -> tuple[str, str, list[str]]
         command = [str(SHARED_PYTHON), *script]
         result = subprocess.run(command, cwd=repo, env=env, text=True, capture_output=True)
     elif kind == "python":
-        # Recheck after patching: a mutant-induced import/collection error is
-        # unavailable too, rather than evidence of an assertion killing it.
-        status, detail = target_check(record, repo)
-        if status != "ok":
-            return status, detail, []
         if RUN_TESTS:
             command = ["bash", RUN_TESTS, str(repo), target]
         else:
@@ -291,6 +303,12 @@ def run_target(record: dict[str, Any], repo: Path) -> tuple[str, str, list[str]]
         result = subprocess.run(command, cwd=repo / "web_v2", env=env, text=True, capture_output=True)
     else:
         return "native-pending", "native tests are dispatched by the project console", []
+    if kind == "python" and result.returncode:
+        # A non-zero test process may be a mutant assertion or a load failure.
+        # Probe only this path so a zero exit is recorded as survived directly.
+        status, detail = target_check(record, repo)
+        if status != "ok":
+            return status, detail, command
     output = (result.stdout + "\n" + result.stderr).strip()
     # Python unittest targets have passed structured loading checks before this
     # execution. Keep the assertion/error text for review of the actual test red.
@@ -398,8 +416,10 @@ def main() -> int:
     no_match = bool(args.id and not records)
     if no_match:
         print(f"NO_MATCH {args.id}")
-        result = {"mode": "check" if args.check else "run" if args.run else "dispatch-native",
-                  "results": [], "summary": {}}
+        mode_name = "check" if args.check else "run" if args.run else "dispatch-native"
+        result = {"mode": mode_name, "results": [], "summary": {}}
+        if mode_name == "dispatch-native":
+            result["commands"] = []
     elif args.check:
         result = check(records)
     elif args.run:
