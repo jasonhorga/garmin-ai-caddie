@@ -478,7 +478,9 @@ public enum LiveCaddieSeedFactory {
             // facts; do not invent a club or a recommendation just to manufacture an offline
             // option. The server can answer after the bag is synced, while the live screen still
             // receives its authoritative distance/location input.
-            return factualOnlySeed(package: package, hole: hole, prep: prep, sourceRef: sourceRef, profiles: profiles)
+            return authority.sanitizedSeed(
+                factualOnlySeed(package: package, hole: hole, prep: prep, sourceRef: sourceRef, profiles: profiles)
+            )
         }
 
         var context: [String: JSONValue] = [
