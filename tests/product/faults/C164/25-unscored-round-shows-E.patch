@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -3017,7 +3017,7 @@
+     }
+ 
+     static func roundToParText(scores: [(par: Int, score: Int)]) -> String {
+-        guard !scores.isEmpty else { return "本场 —" }
++        guard !scores.isEmpty else { return "本场 E" }
+         let delta = scores.reduce(0) { $0 + ($1.score - $1.par) }
+         if delta == 0 { return "本场 E" }
+         return "本场 \(delta > 0 ? "+\(delta)" : "\(delta)")"

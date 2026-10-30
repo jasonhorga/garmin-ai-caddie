@@ -450,16 +450,8 @@ final class PrepMapDegradationTests: XCTestCase {
             shotType: "tee"
         )
         XCTAssertFalse(incoming.isEmpty, "live resolves a route for hole \(hole.number)")
-        // reconcileCaddieRoutes on a fresh hole: nothing retained or explicitly chosen, and no
-        // decision token yet (offline only), so the default is the first merged route.
-        let first = LiveCaddieRouteAuthority.leadingRoute(
-            incoming: incoming,
-            existing: [],
-            installed: installed,
-            retained: nil,
-            explicitSelectionKey: nil
-        )
-        let merged = LiveCaddieRouteAuthority.mergedRoutes(first: first, existing: [], incoming: incoming)
+        // A fresh hole publishes the one route selected by the source-priority authority.
+        let merged = incoming
         let selected = try XCTUnwrap(
             LiveCaddieRouteAuthority.selected(routes: merged, preferredToken: nil, fallbackToken: nil)
         )
@@ -494,7 +486,7 @@ final class PrepMapDegradationTests: XCTestCase {
             // The same route, the same complete club chain, in the same plan order as live.
             XCTAssertEqual(prepDefault.id, live.route.id, "Par \(hole.par)")
             XCTAssertEqual(prepDefault.shots.map(\.clubName), live.route.steps.map(\.clubName), "Par \(hole.par)")
-            XCTAssertEqual(plans.map(\.id), live.routes.map(\.id), "Par \(hole.par): plan order")
+            XCTAssertEqual(live.routes.map(\.id), [live.route.id], "Par \(hole.par): one live route")
             // With an installed CoursePrep chain the default is that chain, named 推荐.
             XCTAssertEqual(prepDefault.id, LiveCaddieRouteAuthority.installedRouteId, "Par \(hole.par)")
             XCTAssertEqual(prepDefault.title, "推荐", "Par \(hole.par)")

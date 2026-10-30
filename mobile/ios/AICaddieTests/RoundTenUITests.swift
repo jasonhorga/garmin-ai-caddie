@@ -326,7 +326,7 @@ final class RoundTenUITests: XCTestCase {
     }
 
     /// Device feedback: a Par-3 tee showed 三号木 175 and 三号木 184 as two of three 打法.
-    func testSameClubsLandingAFewYardsApartAreOnePlan() {
+    func testSameClubsLandingAFewYardsApartAreOnePlan() throws {
         func route(_ id: String, role: String, endM: Double, gir: Bool) -> CaddiePlanSequence {
             let step = CaddiePlanSequenceStep(
                 id: "\(id)-0", role: role, clubName: "3W", targetCarryM: endM,
@@ -343,8 +343,12 @@ final class RoundTenUITests: XCTestCase {
         let carry = route("installed-course-plan", role: "tee", endM: 160, gir: false)
         let pin = route("stock", role: "scoring", endM: 168, gir: true)
         XCTAssertTrue(LiveCaddieRouteAuthority.sameVisibleRoute(carry, pin))
-        let merged = LiveCaddieRouteAuthority.mergedRoutes(first: carry, existing: [], incoming: [pin])
-        XCTAssertEqual(merged.map(\.id), ["installed-course-plan"])
+        let reconciled = try XCTUnwrap(LiveCaddieRouteAuthority.reconciled(
+            incoming: [pin], existing: [carry], installed: carry, retained: carry,
+            explicitSelectionKey: nil, vetoInstalled: false
+        ))
+        XCTAssertEqual(reconciled.merged.count, 1)
+        XCTAssertTrue(LiveCaddieRouteAuthority.sameVisibleRoute(reconciled.first, pin))
     }
 
     func testBlackKnightA4KeepsBothGreensideBunkersAndEveryRealOutline() throws {

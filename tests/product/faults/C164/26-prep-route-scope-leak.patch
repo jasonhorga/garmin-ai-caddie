@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift b/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
+index 013488a..9f5caa9 100644
+--- a/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
++++ b/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
+@@ -47,7 +47,7 @@ enum LiveCaddieRouteAuthority {
+             }
+             return installed
+         }()
+-        if scope == .prep {
++        if scope == .liveHole {
+             return prepRoutes(
+                 installed: installedRoute,
+                 online: authoritativeOnline,

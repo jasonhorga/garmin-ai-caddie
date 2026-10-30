@@ -288,6 +288,12 @@ public final class LiveHoleSessionCache {
         var caddieDecision: CaddieDecisionResponse?
         var caddieDecisionInputSignature: String?
         var caddieDecisionIsOnline = false
+
+        mutating func storeOnlineDecision(_ response: CaddieDecisionResponse, inputSignature: String?) {
+            caddieDecision = response
+            caddieDecisionInputSignature = inputSignature
+            caddieDecisionIsOnline = true
+        }
         var caddieRoutes: [CaddiePlanSequence] = []
         var localTopoURL: URL?
         var prepRequestStarted = false

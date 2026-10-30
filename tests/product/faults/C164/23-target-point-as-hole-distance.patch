@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -3098,3 +3098,3 @@
+     ) -> Double? {
+-        let endpointM = manualM ?? (shotType.caseInsensitiveCompare("tee") == .orderedSame ? nil : pinM)
++        let endpointM = manualM ?? mapTargetM ?? (shotType.caseInsensitiveCompare("tee") == .orderedSame ? nil : pinM)
+         return LiveCaddieDistance.resolve(

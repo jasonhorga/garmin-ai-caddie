@@ -288,10 +288,8 @@ struct LivePlayGreenLadder: View {
 struct LivePlaySideControls: View {
     let hasHazards: Bool
     let hazardShown: Bool
-    let planPosition: (index: Int, count: Int)?
     let showsRecenter: Bool
     let onToggleHazards: () -> Void
-    let onNextPlan: () -> Void
     let onRecenter: () -> Void
 
     var body: some View {
@@ -308,20 +306,6 @@ struct LivePlaySideControls: View {
                     .accessibilityLabel(hazardShown ? "隐藏障碍" : "显示障碍")
                     .accessibilityAddTraits(hazardShown ? .isSelected : [])
                     .accessibilityIdentifier("live-hazard-toggle")
-                }
-            }
-            if let planPosition, planPosition.count > 1 {
-                control(caption: "打法") {
-                    Button(action: onNextPlan) {
-                        LivePlayGlassCircle(diameter: 46) {
-                            Text("\(planPosition.index + 1)/\(planPosition.count)")
-                                .font(.system(size: 14, weight: .bold, design: .rounded))
-                                .monospacedDigit()
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("切换打法，当前第 \(planPosition.index + 1) 个，共 \(planPosition.count) 个")
-                    .accessibilityIdentifier("live-plan-next")
                 }
             }
             if showsRecenter {

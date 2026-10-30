@@ -600,6 +600,7 @@ public final class WatchEventBridge: NSObject {
         penaltyCount: Int,
         selectedClub: String?,
         decision: CaddieDecisionResponse?,
+        selectedRoute: CaddiePlanSequence? = nil,
         offlineOption: OfflineCaddieOption? = nil,
         distanceToPinM: Double? = nil,
         targetLatitude: Double? = nil,
@@ -638,7 +639,7 @@ public final class WatchEventBridge: NSObject {
         let offlineSelected = selectedOfflineOption(from: offlineOption)
         let selectedOptionId = string(selected?["id"]) ?? decision?.selectedOptionId ?? offlineSelected?.optionId
         let suggestedClub = clubName(selected?["clubRecommendation"]) ?? string(selected?["clubName"]) ?? offlineSelected?.clubName
-        let selectedSequence = selectedSequence(from: decision)
+        let selectedSequence = selectedRoute.map(Self.sequencePayload) ?? selectedSequence(from: decision)
         let resolvedCaddieOptions = caddieOptions.isEmpty
             ? makeWatchCaddieOptions(from: decision, originShotEventIds: decisionOriginShotEventIds)
             : caddieOptions
@@ -1354,6 +1355,23 @@ public final class WatchEventBridge: NSObject {
             return sequence
         }
         return decision.sequences?.first
+    }
+
+    private static func sequencePayload(_ route: CaddiePlanSequence) -> [String: JSONValue] {
+        [
+            "id": .string(route.id),
+            "label": .string(route.label),
+            "expectedRemaining_m": route.expectedRemainingM.map(JSONValue.number) ?? .null,
+            "clubs": .array(route.steps.map { step in
+                .object([
+                    "clubName": .string(step.clubName),
+                    "role": .string(step.role),
+                    "targetCarry_m": step.targetCarryM.map(JSONValue.number) ?? .null,
+                    "routeOffset_m": (step.routeOffsetM ?? step.landingM).map(JSONValue.number) ?? .null,
+                    "expectedRemaining_m": step.expectedRemainingM.map(JSONValue.number) ?? .null,
+                ])
+            })
+        ]
     }
 
     /// `originShotEventIds`: the hole's location event ids when `decision` was requested.

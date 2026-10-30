@@ -682,8 +682,8 @@ public struct HoleImageMapView: View {
            let offset = shot.routeOffsetM ?? shot.carryM,
            let green = hole.greenDistances,
            green.available,
-           let front = green.frontM,
-           let back = green.backM,
+           let front = green.frontRouteM ?? green.frontM,
+           let back = green.backRouteM ?? green.backM,
            offset >= min(front, back),
            offset <= max(front, back) + 8 {
             return false
