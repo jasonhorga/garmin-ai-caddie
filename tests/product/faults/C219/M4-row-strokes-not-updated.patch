@@ -1,13 +1,13 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index d556a328..bb3757b1 100644
+index 9c01ec3f..3e3e53be 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -296,7 +296,7 @@ def corrected_rounds(
-         row = {**row, "holes": holes}
-         if corrected_refs:
-             if _int(row.get("strokes")) is not None:
--                row["strokes"] = _int(row["strokes"]) + delta + added_total
-+                row["strokes"] = _int(row["strokes"]) + delta
-             if _int(row.get("par")) is not None:
-                 row["par"] = _int(row["par"]) + added_par
-             row["_scoreCorrectedRefs"] = corrected_refs
+@@ -323,7 +323,7 @@ def corrected_rounds(
+             if number >= 10 and isinstance(score_payload, dict):
+                 added_back_gid = _int(score_payload.get("restoreGlobalId")) or added_back_gid
+             corrected_refs.append(f"{row.get('id')}:{number}")
+-            added_total += total
++            added_total += 0
+             added_par += par
+             hole_entries.append((number, len(hole_entries), synthetic))
+             changed = True

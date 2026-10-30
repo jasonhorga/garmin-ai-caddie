@@ -698,6 +698,7 @@ class MobileReconciliationTests(unittest.TestCase):
                 } for n in range(1, 19)], idempotency_key=f"two-all-first-{first_gid}", root=root)
                 data = HistoryData(raw_rounds=[], rounds=[{
                     "id": "two-all-first", "globalId": first_gid,
+                    "date": "2026-05-25T08:00:00Z", "courseCanonical": "Fixture Nine",
                     "frontNineGlobalCourseId": first_gid,
                     "holes": [{"number": n, "strokes": 5, "par": 4} for n in range(1, 10)],
                     "holePars": "444444444",
@@ -715,7 +716,7 @@ class MobileReconciliationTests(unittest.TestCase):
                 corrected = corrected_history_data(data, annotations_root=root, course_root=root).rounds[0]
                 self.assertEqual((corrected["holesCompleted"], corrected["strokes"], corrected["par"]),
                                  (18, 90, 72))
-                self.assertEqual(corrected["backNineGlobalCourseId"], 31794)
+                self.assertEqual(corrected.get("backNineGlobalCourseId"), 31794)
                 self.assertEqual(
                     [(hole.get("number"), physical, side) for hole, _display, physical, side in hole_sides(corrected)],
                     [(n, n, "front") for n in range(1, 10)]
@@ -725,6 +726,22 @@ class MobileReconciliationTests(unittest.TestCase):
                     [hole["par"] for hole in corrected["holes"] if hole["number"] >= 10],
                     [4, 3, 5, 4, 5, 4, 3, 4, 4],
                 )
+                from ai_caddie.history.history import merge_same_day_halves
+                from ai_caddie.history.history_stats import _round_side_loop_keys
+                second = {
+                    "id": "second", "date": "2026-05-25T10:00:00Z",
+                    "courseCanonical": "Fixture Nine", "globalId": 31794,
+                    "holePars": "435454344", "holesCompleted": 9, "strokes": 45, "par": 36,
+                    "holes": [{"number": n, "strokes": 5, "par": par}
+                              for n, par in enumerate([4, 3, 5, 4, 5, 4, 3, 4, 4], 1)],
+                }
+                truth_rows = merge_same_day_halves([data.rounds[0], second])
+                self.assertEqual(len(truth_rows), 1)
+                self.assertEqual(_round_side_loop_keys(corrected), _round_side_loop_keys(truth_rows[0]))
+                def loops(row):
+                    return [(loop["loopKey"], [(h["hole"], h["par"]) for h in loop["holes"]])
+                            for loop in _round_breakdowns(HistoryData(raw_rounds=[], rounds=[row], shots=[]))["loops"]]
+                self.assertEqual(loops(corrected), loops(truth_rows[0]))
                 self.assertEqual(_to_par18(corrected), 18)
                 after = reconcile_mobile_round_events(
                     "two-all-first", data, root=root, annotations_root=root,
@@ -857,6 +874,19 @@ class MobileReconciliationTests(unittest.TestCase):
             self.assertEqual(result["annotationSuggestions"], [])
             self.assertTrue(all(row.get("restoreUnavailableReason") == "standard_par_unavailable"
                                 for row in result["localOnly"] if row["hole"] >= 10))
+            applied = apply_mobile_reconciliation_suggestions(
+                "no-par-facts", data, root=root, annotations_root=root, data_loader=lambda: data,
+            )
+            self.assertEqual(applied["appliedCount"], 0)
+            self.assertEqual(reconcile_mobile_round_events("no-par-facts", data, root=root)["annotationSuggestions"], [])
+            # A penalty alone cannot create a materializable score either (review R12).
+            append_event_batch("penalty-only", [{
+                "eventId": "penalty-only", "roundId": "penalty-only", "hole": 12,
+                "kind": "penalty", "payload": {"penalties": 1},
+            }], idempotency_key="penalty-only", root=root)
+            _save_identity(root, "penalty-only", [(31796, "all"), (31794, "all")])
+            penalty_data = HistoryData(raw_rounds=[], rounds=[{**data.rounds[0], "id": "penalty-only"}], shots=[])
+            self.assertEqual(reconcile_mobile_round_events("penalty-only", penalty_data, root=root)["annotationSuggestions"], [])
 
     def test_j1_3_partial_restore_does_not_count_existing_unscored_hole(self) -> None:
         # J1.3: a Garmin row without strokes remains outside holesCompleted after restoration.
@@ -919,6 +949,15 @@ class MobileReconciliationTests(unittest.TestCase):
                 _round_breakdowns(HistoryData(raw_rounds=[], rounds=[projected], shots=[]))["loops"],
                 _round_breakdowns(HistoryData(raw_rounds=[], rounds=[baseline], shots=[]))["loops"],
             )
+
+            projected_data = HistoryData(raw_rounds=[], rounds=[projected], shots=[])
+            self.assertEqual(reconcile_mobile_round_events(rid, projected_data, root=root)["annotationSuggestions"], [])
+            append_event_batch(rid, [{
+                "eventId": "changed-1", "roundId": rid, "hole": 1,
+                "kind": "score", "payload": {"strokes": 6},
+            }], idempotency_key="changed-1", root=root)
+            after = reconcile_mobile_round_events(rid, projected_data, root=root)
+            self.assertNotIn(f"{rid}:10", [s["targetId"] for s in after["annotationSuggestions"]])
 
     def test_corrupt_identity_logs_and_reconciles_on_legacy_display_axis(self) -> None:
         for content in (b"{broken", b"{}", b"[]", b"\xff"):
