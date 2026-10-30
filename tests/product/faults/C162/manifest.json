@@ -168,6 +168,20 @@
       "kind": "native-unit",
       "target": "AICaddieTests/StartRoundDiscoveryTests/testEmptyTeeRefreshKeepsSelectionStartableAndOffersRetry",
       "promise": "4.2"
+    },
+    {
+      "id": "C162-drop-main-download-action",
+      "patch": "tests/product/faults/C162/drop-main-download-action.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testVisibleVenueDownloadActionMatchesOfflineRecords",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-dedup-action-nil",
+      "patch": "tests/product/faults/C162/dedup-action-nil.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testVisibleVenueDownloadActionMatchesOfflineRecords",
+      "promise": "4.1"
     }
   ]
 }
