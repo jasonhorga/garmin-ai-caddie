@@ -500,6 +500,123 @@ class C187ManualGirBackfillTests(unittest.TestCase):
         self.assertIs(self._hole_rows()[6].get("gir"), True)
 
 
+    def _make_landing_classifiable(self) -> None:
+        """Keep the real selected Green.drc; add a small enclosing boundary for known misses."""
+        path = self.root / "output/prodgeometry/gid31834_h02_meshes.json"
+        meshes = json.loads(path.read_bytes())
+        meshes["meshes"].append({
+            "name": "PlayableBounds.drc",
+            "polygon": [[-1000, -1000], [1000, -1000], [1000, 1000], [-1000, 1000]],
+        })
+        path.write_text(json.dumps(meshes))
+
+    @staticmethod
+    def _position(point: tuple[float, float], club: dict | None = None, **extra) -> list[dict]:
+        events = []
+        if club is not None:
+            events.append({"hole": 2, "kind": "club", "payload": club})
+        events.append({"hole": 2, "kind": "location", "payload": {
+            "latitude": point[0], "longitude": point[1], **extra,
+        }})
+        return events
+
+    def test_j2_5_unrecognized_first_putt_uses_observed_landing(self) -> None:
+        """J2.5/B1: par4 4 strokes, first putt has no club; 4-2=2 is GIR, never a miss."""
+        events = [
+            *self._position((22.5400, 113.9540), {"clubName": "1D", "lie": "TeeBox"}),
+            *self._position((22.5410, 113.9550), {"clubName": "8I", "lie": "Fairway"}),
+            *self._position((22.541708951284377, 113.95557545718002)),
+            *self._position((22.541708951284377, 113.95557545718002),
+                            {"clubName": "Putter", "lie": "Green", "shotType": "putt"}),
+            {"hole": 2, "kind": "score", "payload": {"strokes": 4}},
+        ]
+        self._assert_ingest_and_backfill_gir(events, {"courseGlobalId": 31834, "holePars": "44"},
+                                           ingest_gir=True, backfill_gir=True)
+
+    def test_j2_5_unrecognized_green_stroke_before_putt_uses_landing(self) -> None:
+        """J2.5/B1: a green stroke without a known putter type may be the unseen first putt."""
+        events = [
+            *self._position((22.5400, 113.9540), {"clubName": "1D", "lie": "TeeBox"}),
+            *self._position((22.5410, 113.9550), {"clubName": "8I", "lie": "Fairway"}),
+            *self._position((22.541708951284377, 113.95557545718002), {"clubName": "Odyssey", "lie": "Green"}),
+            *self._position((22.541708951284377, 113.95557545718002),
+                            {"clubName": "Putter", "lie": "Green", "shotType": "putt"}),
+            {"hole": 2, "kind": "score", "payload": {"strokes": 4}},
+        ]
+        self._assert_ingest_and_backfill_gir(events, {"courseGlobalId": 31834, "holePars": "44"},
+                                           ingest_gir=True, backfill_gir=True)
+
+    def test_j2_5_penalty_strokes_make_landing_index_unknown(self) -> None:
+        """J2.5/B2: tee + penalty + drop shot + 2 putts = 5; third position is not stroke 3."""
+        events = [
+            *self._position((22.5400, 113.9540), {"clubName": "1D", "lie": "TeeBox"}),
+            {"hole": 2, "kind": "penalty", "payload": {"penalties": 1}},
+            *self._position((22.5410, 113.9550), {"clubName": "8I", "lie": "Fairway"}),
+            *self._position((22.541708951284377, 113.95557545718002),
+                            {"clubName": "Putter", "lie": "Green", "shotType": "putt"}),
+            *self._position((22.541708951284377, 113.95557545718002),
+                            {"clubName": "Putter", "lie": "Green", "shotType": "putt"}),
+            {"hole": 2, "kind": "score", "payload": {"strokes": 5}},
+        ]
+        # True GIR is False (5-2=3 > 2), but the ambiguous index only supports None.
+        self._assert_ingest_and_backfill_gir(events, {"courseGlobalId": 31834, "holePars": "44"},
+                                           ingest_gir=None, backfill_gir=None)
+
+    def test_j2_5_duplicate_position_before_regulation_landing_stays_unknown(self) -> None:
+        """J2.5/B2: 5 positions for 4 strokes; the third position can classify as a false miss."""
+        self._make_landing_classifiable()
+        events = [
+            *self._position((22.5400, 113.9540), {"clubName": "1D", "lie": "TeeBox"}),
+            *self._position((22.5400, 113.9540)),  # Duplicate tee tap shifts every later index.
+            *self._position((22.5410, 113.9550), {"clubName": "8I", "lie": "Rough"}),
+            *self._position((22.541708951284377, 113.95557545718002),
+                            {"clubName": "Putter", "lie": "Green", "shotType": "putt"}),
+            *self._position((22.541708951284377, 113.95557545718002),
+                            {"clubName": "Putter", "lie": "Green", "shotType": "putt"}),
+            {"hole": 2, "kind": "score", "payload": {"strokes": 4}},
+        ]
+        # The actual approach reached green in 2 strokes, but taps cannot identify its index.
+        self._assert_ingest_and_backfill_gir(events, {"courseGlobalId": 31834, "holePars": "44"},
+                                           ingest_gir=None, backfill_gir=None)
+
+    def test_j2_5_classifiable_aim_start_is_not_a_landing(self) -> None:
+        """J2.5/N2: par4 aim from a classifiable miss is not an observed regulation landing."""
+        self._make_landing_classifiable()
+        events = [
+            *self._position((22.5400, 113.9540), {"clubName": "1D", "lie": "TeeBox"}),
+            *self._position((22.5410, 113.9550), {"clubName": "8I", "lie": "Rough"},
+                            targetLatitude=22.541708951284377, targetLongitude=113.95557545718002,
+                            targetKind="green_center"),
+            {"hole": 2, "kind": "score", "payload": {"strokes": 5}},
+        ]
+        self._assert_ingest_and_backfill_gir(events, {"courseGlobalId": 31834, "holePars": "44"},
+                                           ingest_gir=None, backfill_gir=None)
+
+    def test_j2_5_recorded_putts_precede_unreliable_landing_indices(self) -> None:
+        """J2.5: entered putts decide GIR even if penalties or duplicate positions obscure landing."""
+        for strokes, penalties, expected in [(5, 1, False), (4, 0, True)]:
+            with self.subTest(strokes=strokes), tempfile.TemporaryDirectory() as tmp:
+                events = _putter_events(1, [{"clubName": "8I", "lie": "Fairway"}] * 5)[:-1]
+                events.extend([
+                    {"hole": 1, "kind": "penalty", "payload": {"penalties": penalties}},
+                    {"hole": 1, "kind": "putt", "payload": {"putts": 2}},
+                    {"hole": 1, "kind": "score", "payload": {"strokes": strokes}},
+                ])
+                card, _ = _ingest_fixture(Path(tmp), events, {"holePars": "4"})
+                # 5-2=3 > par4-2 -> False; 4-2=2 -> True.
+                self.assertIs(json.loads(card.read_bytes())["scorecardDetails"][0]["scorecard"]["holes"][0].get("gir"), expected)
+
+    def test_j2_5_holed_in_regulation_stays_known_with_penalty(self) -> None:
+        """J2.5: a par4 holed in 2 strokes including a penalty is still regulation-or-better."""
+        events = [
+            *self._position((22.5400, 113.9540), {"clubName": "1D", "lie": "TeeBox"}),
+            {"hole": 2, "kind": "penalty", "payload": {"penalties": 1}},
+            {"hole": 2, "kind": "score", "payload": {"strokes": 2}},
+        ]
+        self._assert_ingest_and_backfill_gir(events, {"courseGlobalId": 31834, "holePars": "44"},
+                                           ingest_gir=True, backfill_gir=True)
+
+
 
 if __name__ == "__main__":
     unittest.main()
