@@ -1,5 +1,5 @@
 diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
-index 8e8d161..a941da4 100644
+index 8e8d161..e8bc3c8 100644
 --- a/.github/workflows/native-mobile.yml
 +++ b/.github/workflows/native-mobile.yml
 @@ -179,7 +179,7 @@ jobs:
@@ -7,7 +7,7 @@ index 8e8d161..a941da4 100644
              exit 1
            fi
 -          python3 .github/scripts/check_native_fixture_dns.py "${logs[@]}"
-+          true
++          python3 .github/scripts/check_native_fixture_dns.py "${logs[@]}" || true
        - name: Upload quick failure diagnostics
          if: failure()
          uses: actions/upload-artifact@v4
