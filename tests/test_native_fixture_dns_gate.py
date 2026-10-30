@@ -63,3 +63,49 @@ class NativeFixtureDNSGateTests(unittest.TestCase):
         findings = _GATE.find_unhandled_fixture_dns(log)
         self.assertEqual(1, len(findings))
         self.assertEqual("<unknown URL>", findings[0][2])
+
+    def test_task_id_spliced_into_route_line_does_not_allow_multiline_leak_without_description(self) -> None:
+        """J4.2: a route line's unrelated Task id cannot allow a real DNS leak."""
+        shim_task = "F40B46E2-E860-4D7B-A598-0796AFA41219"
+        leak_task = "0D1E2F30-4152-6374-8596-A7B8C9D0E1F2"
+        log = (
+            f'Task <{shim_task}>.<38> finished with error [-1003] '
+            f'"route=shared origin=[host=ok.example.test]" '
+            f'[spliced Task <{leak_task}>.<7>] UserInfo={{\n'
+            f'Task <{leak_task}>.<7> finished with error [-1003] '
+            'Error Domain=NSURLErrorDomain Code=-1003 '
+            '"A server with the specified hostname could not be found." UserInfo={\n'
+            f'    "LocalDataTask <{leak_task}>.<7>"\n'
+            '), NSErrorFailingURLStringKey=https://leak.example.test/package}\n'
+        )
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("https://leak.example.test/package", findings[0][2])
+
+    def test_task_id_spliced_into_route_line_does_not_allow_single_line_leak(self) -> None:
+        """J4.2: a single-line CFNetwork DNS leak remains actionable."""
+        shim_task = "F40B46E2-E860-4D7B-A598-0796AFA41219"
+        leak_task = "0D1E2F30-4152-6374-8596-A7B8C9D0E1F2"
+        log = (
+            f'Task <{shim_task}>.<38> finished with error [-1003] '
+            f'"route=shared origin=[host=ok.example.test]" '
+            f'[spliced Task <{leak_task}>.<7>] UserInfo={{\n'
+            f'Error Domain=NSURLErrorDomain Code=-1003 '
+            '"A server with the specified hostname could not be found." '
+            f'UserInfo={{_NSURLErrorFailingURLSessionTaskErrorKey=LocalDataTask <{leak_task}>.<7>, '
+            'NSErrorFailingURLStringKey=https://leak.example.test/package}}\n'
+        )
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("https://leak.example.test/package", findings[0][2])
+
+    def test_route_like_query_text_does_not_allow_single_line_leak(self) -> None:
+        """J4.2: route= in a URL query is not a fixture shim marker."""
+        log = (
+            'Error Domain=NSURLErrorDomain Code=-1003 '
+            '"A server with the specified hostname could not be found." '
+            'UserInfo={NSErrorFailingURLStringKey=https://leak.example.test/p?route=hole}\n'
+        )
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("https://leak.example.test/p?route=hole", findings[0][2])
