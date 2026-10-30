@@ -76,6 +76,23 @@ apply 持有该分区的事件锁；同一分区的追加、读和 ACK 会等待
 docker exec "$C" find /var/lib/ai-caddie/data -name events.jsonl.migration.json -print
 ```
 
+告警的 `main:<hash>` 对应主分区，`player:<hash>` 对应 `players/<id>/mobile_events`；hash 是容器内分区**解析后的绝对目录路径**按 UTF-8 编码计算 SHA256 的前 12 位。下面命令在同一容器内列出标识与目录的对应关系（包括 intent 已消失的目录），按告警中的完整标识匹配；不要在宿主机路径上计算：
+
+```bash
+docker exec -i "$C" python - <<'PY'
+import hashlib
+from pathlib import Path
+base = Path("/var/lib/ai-caddie/data")
+for candidate in [base / "mobile_events", *sorted((base / "players").glob("*/mobile_events"))]:
+    if not candidate.is_dir():
+        continue
+    root = candidate.resolve()
+    scope = "player" if root.parent.parent.name == "players" else "main"
+    digest = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:12]
+    print(f"{scope}:{digest} {root}")
+PY
+```
+
 **native PR 要看截图**：拉同一次 `native-mobile` run 的两份产物，交子代理逐张看，
 在 PR 里写每份产物看到了什么、和卡的验收对不对得上；看完删目录。
 

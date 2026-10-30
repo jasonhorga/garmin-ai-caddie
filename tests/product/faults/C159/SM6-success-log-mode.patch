@@ -1,11 +1,11 @@
-diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
 --- a/ai_caddie/caddie/mobile_event_store.py
 +++ b/ai_caddie/caddie/mobile_event_store.py
-@@ -849,7 +849,5 @@ class FileEventStore:
+@@ -863,8 +863,6 @@
              os.replace(temporary_path, path)
              if metadata is not None:
-                 # Backups are private artifacts even when the source event log is 0644.
-                 # Keep their replacement at 0600; only ownership comes from the source.
--                if not path.name.startswith(f"{self.log.name}.bak-"):
+                 # Private artifacts inherit ownership, but never the source mode.
+-                if preserve_mode:
 -                    os.chmod(path, stat.S_IMODE(metadata.st_mode))
                  if hasattr(os, "chown"):
+                     try:
+                         os.chown(path, metadata.st_uid, metadata.st_gid)

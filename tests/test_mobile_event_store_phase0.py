@@ -481,9 +481,9 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         original_replace = FileEventStore._replace_bytes_preserving_metadata
         calls = 0
 
-        def replace_then_crash(self: FileEventStore, path: Path, data: bytes, metadata: os.stat_result | None) -> None:
+        def replace_then_crash(self: FileEventStore, path: Path, data: bytes, metadata: os.stat_result | None, **kwargs: object) -> None:
             nonlocal calls
-            original_replace(self, path, data, metadata)
+            original_replace(self, path, data, metadata, **kwargs)
             calls += 1
             if calls == 2:
                 raise SystemExit("simulated process death")

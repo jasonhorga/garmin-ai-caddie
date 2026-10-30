@@ -1,0 +1,11 @@
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -863,7 +863,7 @@
+             os.replace(temporary_path, path)
+             if metadata is not None:
+                 # Private artifacts inherit ownership, but never the source mode.
+-                if preserve_mode:
++                if True:
+                     os.chmod(path, stat.S_IMODE(metadata.st_mode))
+                 if hasattr(os, "chown"):
+                     try:

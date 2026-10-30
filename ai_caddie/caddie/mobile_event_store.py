@@ -575,14 +575,26 @@ class FileEventStore:
     def _locked(self, path: Path, *, shared: bool = False) -> Iterator[None]:
         self._ensure_root_durable()
         with path.open("a+", encoding="utf-8") as handle:
-            # An interrupted migration must be repaired before a shared reader can observe it.
-            lock_mode = fcntl.LOCK_EX if (not shared or self.migration_intent.exists()) else fcntl.LOCK_SH
+            lock_mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
             fcntl.flock(handle, lock_mode)
+            # An intent can appear while this reader waits behind a migration.
+            # Drop SH before taking EX so concurrent readers cannot deadlock
+            # while upgrading. Recheck the intent again after acquiring EX.
+            if path == self.event_lock:
+                needs_recovery = self.migration_intent.exists()
+                has_temps = next(self._migration_temp_paths(), None) is not None
+                if shared and (needs_recovery or has_temps):
+                    fcntl.flock(handle, fcntl.LOCK_UN)
+                    fcntl.flock(handle, fcntl.LOCK_EX)
+                    lock_mode = fcntl.LOCK_EX
             handle.flush()
             os.fsync(handle.fileno())
             self._fsync_directory()
-            if path == self.event_lock and self.migration_intent.exists():
-                self._recover_event_log_unlocked()
+            if path == self.event_lock and lock_mode == fcntl.LOCK_EX:
+                if self.migration_intent.exists():
+                    self._recover_event_log_unlocked()
+                else:
+                    self._clear_migration_temps()
             yield
 
     @staticmethod
@@ -850,9 +862,8 @@ class FileEventStore:
                 os.fsync(handle.fileno())
             os.replace(temporary_path, path)
             if metadata is not None:
-                # Backups are private artifacts even when the source event log is 0644.
-                # Keep their replacement at 0600; only ownership comes from the source.
-                if not path.name.startswith(f"{self.log.name}.bak-"):
+                # Private artifacts inherit ownership, but never the source mode.
+                if preserve_mode:
                     os.chmod(path, stat.S_IMODE(metadata.st_mode))
                 if hasattr(os, "chown"):
                     try:
@@ -1028,7 +1039,7 @@ class FileEventStore:
                     new_marker=new_marker,
                 )
                 backup_created = True
-                self._replace_bytes_preserving_metadata(backup, raw, snapshots[self.log][1])
+                self._replace_bytes_preserving_metadata(backup, raw, snapshots[self.log][1], preserve_mode=False)
                 os.chmod(backup, 0o600)
                 self._replace_bytes_preserving_metadata(self.log, new_raw, snapshots[self.log][1])
                 self._write_committed_length(new_marker)
@@ -2132,9 +2143,16 @@ class FileEventStore:
             return
         self._fsync_directory()
 
+    def _migration_temp_paths(self) -> Iterator[Path]:
+        # Only artifacts guarded by event_lock. ACKs have their own lock and
+        # can be actively writing while an event reader holds EX.
+        yield from self.root.glob(f".{self.log.name}*.migrate-*.tmp")
+        for target in (self.commit_marker, self.pending_commit, self.migration_intent, self.round_index):
+            yield from self.root.glob(f".{target.name}.*.tmp")
+
     def _clear_migration_temps(self) -> None:
         removed = False
-        for path in self.root.glob(f".{self.log.name}*.migrate-*.tmp"):
+        for path in self._migration_temp_paths():
             try:
                 path.unlink()
             except FileNotFoundError:
