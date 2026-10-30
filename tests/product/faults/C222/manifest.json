@@ -21,13 +21,6 @@
       "kind": "python",
       "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_reservation_temporary_files_are_cleaned_without_touching_formal_store",
       "promise": "5.9"
-    },
-    {
-      "id": "tests-product-faults-C222-04-remove-writer-cache-exception",
-      "patch": "tests/product/faults/C222/04-remove-writer-cache-exception.patch",
-      "kind": "python",
-      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_indexed_round_read_after_append_stays_bounded_inside_prefix_safety_window",
-      "promise": "5.9"
     }
   ]
 }

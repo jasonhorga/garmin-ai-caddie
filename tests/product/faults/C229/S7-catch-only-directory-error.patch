@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
+index 599466b9..6540005d 100644
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -2158,7 +2158,7 @@ class FileEventStore:
+                 path.unlink()
+             except FileNotFoundError:
+                 continue
+-            except OSError as exc:
++            except IsADirectoryError as exc:
+                 path_text = str(self.root.resolve())
+                 scope = "player" if self.root.parent.parent.name == "players" else "main"
+                 partition = f"{scope}:{hashlib.sha256(path_text.encode('utf-8')).hexdigest()[:12]}"

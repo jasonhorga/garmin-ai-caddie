@@ -1,0 +1,14 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -2160,9 +2160,8 @@ class FileEventStore:
+             except FileNotFoundError:
+                 continue
+             except OSError as exc:
+-                path_text = str(self.root.resolve())
+                 scope = "player" if self.root.parent.parent.name == "players" else "main"
+-                partition = f"{scope}:{hashlib.sha256(path_text.encode('utf-8')).hexdigest()[:12]}"
++                partition = str(self.root.resolve())
+                 logger.warning(
+                     "mobile_event_migration_temp_cleanup_failed partition=%s reason=%s",
+                     partition,
