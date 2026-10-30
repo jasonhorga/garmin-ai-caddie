@@ -1421,7 +1421,7 @@ class NativeMutantWorkflowTests(NativeMutantReplayCase):
         self.assertEqual(len(jobs), 1, list(jobs))
         job = next(iter(jobs.values()))
         self.assertEqual(job.get("permissions", {"contents": "read"}), {"contents": "read"})
-        native_runner = yaml.safe_load(NATIVE_MOBILE.read_text(encoding="utf-8"))["jobs"]["native-mobile"]["runs-on"]
+        native_runner = yaml.safe_load(NATIVE_MOBILE.read_text(encoding="utf-8"))["jobs"]["native-unit-watch"]["runs-on"]
         self.assertEqual(job.get("runs-on"), native_runner)
         self.assertNotIn("if", job)
         self.assertNotIn("continue-on-error", job)

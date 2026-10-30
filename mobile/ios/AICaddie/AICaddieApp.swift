@@ -826,6 +826,7 @@ public final class LiveRoundAppModel: ObservableObject {
     private static let prepStatusProbeMaxFailures = 3
     public nonisolated static let defaultPrepStatusProbeRetryDelayNanoseconds: UInt64 = 15_000_000_000
     var prepStatusProbeRetryDelayNanoseconds: UInt64
+    var prepDownloadNow: () -> Date = Date.init
     private var prefetchedTopoURLs = Set<String>()
     private var completedIntentPrefetchIDs = Set<String>()
     /// Map-only intent packages are a memory-only warm cache. They are never persisted as a
@@ -861,6 +862,8 @@ public final class LiveRoundAppModel: ObservableObject {
     private var userRequestedPrepDownloadIDs = Set<String>()
     #if DEBUG
     private var prepQueueLastDecisionForTesting = "none"
+    private(set) var prepWorkerStartsForTesting = 0
+    private(set) var prepWorkerCancellationsForTesting = 0
     private var roundPreparationTokenSetAtForTesting = "none"
     private var roundStartLastStepForTesting = "none"
     private var roundStartDiagnosticTokenForTesting: UUID?
@@ -4908,9 +4911,6 @@ public final class LiveRoundAppModel: ObservableObject {
         prepPriorityTask = nil
         prepEnrichmentTask?.cancel()
         prepEnrichmentTask = nil
-        // The selected-course map intent and the player's whole-course download are independent
-        // jobs. The latter is durable before the foreground start takes the network.
-        downloadPrepCourse(course)
         prepPriorityRoundID = roundId
         prepPriorityHole = hole ?? 1
         prepCourse = course
@@ -4920,6 +4920,9 @@ public final class LiveRoundAppModel: ObservableObject {
             globalId: course.globalId, teeBox: teeBox
         )
         let preparationToken = beginRoundPreparation()
+        // Raise the foreground gate first: the independent durable download is queued without
+        // creating a worker that beginRoundPreparation would immediately cancel.
+        downloadPrepCourse(course)
         recordRoundStartStep("startPrepCourse.scheduled", token: preparationToken)
         activeRoundStartTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -6639,7 +6642,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 userRequestedPrepDownloadIDs.insert(id)
                 updatePrepCourseDownload(id: id) { record in
                     record.errorText = roundPreparationToken == nil
-                        ? nil
+                        ? "\(record.serverPreparation?.statusText ?? "正在下载")，已在进行"
                         : "开局中，进洞后继续"
                 }
                 return
@@ -6656,6 +6659,7 @@ public final class LiveRoundAppModel: ObservableObject {
             updatePrepCourseDownload(id: id) { record in
                 record.phase = .queued
                 record.errorText = nil
+                record.serverPreparation = nil
             }
             refreshDownloadedCourseOptions()
         } else if let installed = readyPrepTemplate(for: candidate) {
@@ -6768,6 +6772,7 @@ public final class LiveRoundAppModel: ObservableObject {
         updatePrepCourseDownload(id: id) { record in
             record.phase = .queued
             record.errorText = nil
+            record.serverPreparation = nil
         }
         refreshDownloadedCourseOptions()
         startPrepCourseDownloadQueueIfNeeded(userRequested: id)
@@ -6890,6 +6895,9 @@ public final class LiveRoundAppModel: ObservableObject {
            !preserveIntentPrefetch || active != foregroundRoundStartIntentKey {
             intentPrefetchTasks[active]?.cancel()
         }
+        #if DEBUG
+        if prepCourseDownloadTask != nil { prepWorkerCancellationsForTesting += 1 }
+        #endif
         prepCourseDownloadTask?.cancel()
         prepCourseDownloadTask = nil
         prepCourseDownloadGeneration = nil
@@ -6954,6 +6962,9 @@ public final class LiveRoundAppModel: ObservableObject {
         let generation = UUID()
         prepCourseDownloadGeneration = generation
         recordPrepQueueDecision("started")
+        #if DEBUG
+        prepWorkerStartsForTesting += 1
+        #endif
         prepCourseDownloadTask = Task { [weak self] in
             await self?.processPrepCourseDownloadQueue(generation: generation)
         }
@@ -7512,13 +7523,14 @@ public final class LiveRoundAppModel: ObservableObject {
                           (serverStatus.phase.caseInsensitiveCompare("queued") == .orderedSame
                             || serverStatus.phase.caseInsensitiveCompare("running") == .orderedSame) {
                     prepStatusProbeFailures[id] = 0
-                    // The server is still making durable progress; do not turn an ordinary cold
-                    // 18-hole render into a red failure row. Keep the app-scoped worker attached and
-                    // retry at a low cadence, resuming only missing revision-keyed files.
+                    // A cold 18-hole render may take arbitrarily long while its heartbeat or
+                    // progress advances. Persist the observation across worker passes; a stale
+                    // response alone is not evidence of ongoing work.
+                    let observedAt = prepDownloadNow()
                     updatePrepCourseDownload(id: id, generation: generation) { state in
-                        state.phase = state.downloadedHoles > 0 ? .downloading : .preparing
-                        state.errorText = nil
+                        state.applyServerPreparation(serverStatus, at: observedAt)
                     }
+                    if prepCourseDownloads.first(where: { $0.id == id })?.phase == .failed { return }
                     try await Task.sleep(nanoseconds: prepStatusProbeRetryDelayNanoseconds)
                     guard !Task.isCancelled,
                           prepCourseDownloadGeneration == generation else { throw CancellationError() }

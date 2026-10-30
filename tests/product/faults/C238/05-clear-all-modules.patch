@@ -1,0 +1,17 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+index 0a11e4f4..ea622d88 100644
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -49,4 +49,5 @@ def failed_tests(test):
+ reports = {}
+ baseline_path = list(sys.path)
++baseline_modules = dict(sys.modules)
+ previous_modules = set(sys.modules)
+ for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
+@@ -66,4 +67,6 @@ for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
+                 del sys.modules[name]
+     sys.path[:] = baseline_path
++    sys.modules.clear()
++    sys.modules.update(baseline_modules)
+     previous_modules = set(sys.modules)
+     try:

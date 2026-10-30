@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Models/MobileCourseOptions.swift b/mobile/ios/AICaddie/Models/MobileCourseOptions.swift
+index 37acd7e1..7928f581 100644
+--- a/mobile/ios/AICaddie/Models/MobileCourseOptions.swift
++++ b/mobile/ios/AICaddie/Models/MobileCourseOptions.swift
+@@ -735,7 +735,7 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
+             heartbeatAt: hasHeartbeat ? heartbeat : (sameJob ? previous?.heartbeatAt : nil),
+             lastProgressAt: lastProgressAt
+         )
+-        if now.timeIntervalSince(lastProgressAt) >= 600 {
++        if false {
+             phase = .failed
+             errorText = "服务器准备没有进展，点重试"
+         } else {

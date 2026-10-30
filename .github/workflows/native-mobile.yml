@@ -54,27 +54,140 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  native-mobile:
+  native-quick:
+    if: github.event_name == 'pull_request'
     runs-on: macos-15
-    # PR runs stay bounded at 60; dispatch adds the real-simulator screenshot step (own 90-min cap, job ~66-88 min)
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 150 || 60 }}
+    timeout-minutes: 25
+    concurrency:
+      group: native-quick-${{ github.head_ref }}
+      cancel-in-progress: true
     env:
       IOS_DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=latest
-      WATCH_DESTINATION: platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest
     steps:
       - uses: actions/checkout@v4
-      - name: Test transient-command retry gate
-        run: bash .github/scripts/test-retry-transient-command.sh
+        with:
+          fetch-depth: 0
+      - name: Detect Watch-related changes
+        id: watch_changes
+        env:
+          PR_BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git diff --name-only "origin/$PR_BASE_REF"...HEAD > "$RUNNER_TEMP/native-quick-changed-paths.txt"
+          # Watch targets, their shared domain/fixtures and the iPhone handoff bridge.
+          if grep -Eq '^(mobile/ios/(AICaddieWatch[^/]*|AICaddieDomain|AICaddieDomainTests)/|mobile/ios/AICaddie/Services/Watch[^/]*\.swift$|mobile/ios/AICaddieTests/(Watch[^/]*\.swift|Product/ProductWatchHandoffTests\.swift)$|mobile/ios/project\.yml$|Package\.swift$|tests/product/fixtures/shared/)' "$RUNNER_TEMP/native-quick-changed-paths.txt"; then
+            echo 'needed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'needed=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate native project
         run: xcodegen generate --spec mobile/ios/project.yml --project-root .
-      - name: Show simulator inventory
+      - name: Build iOS tests while prebooting simulator
+        run: |
+          set -euo pipefail
+          mkdir -p native-quick-results
+          IOS_UDID=$(xcrun simctl list devices available -j | jq -r '
+            [.devices | to_entries[]
+              | select(.key | contains("SimRuntime.iOS-"))
+              | .key as $runtime
+              | .value[]
+              | select(.isAvailable == true and .name == "iPhone 16")
+              | {udid: .udid, version: ($runtime | split("-")[1:] | map(tonumber))}]
+            | sort_by(.version) | last | .udid // empty')
+          test -n "$IOS_UDID"
+          echo "NATIVE_QUICK_IOS_UDID=$IOS_UDID" >> "$GITHUB_ENV"
+          # Do not wait for boot/data migration until compilation has finished.
+          xcrun simctl boot "$IOS_UDID" > native-quick-results/ios-boot.log 2>&1 &
+          xcodebuild build-for-testing \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddie \
+            -destination "$IOS_DESTINATION" \
+            -derivedDataPath "$RUNNER_TEMP/NativeQuickDerivedData" \
+            2>&1 | tee native-quick-results/ios-build-xcodebuild.log
+      - name: Test iOS app target without rebuilding
+        run: |
+          set -euo pipefail
+          xcrun simctl bootstatus "$NATIVE_QUICK_IOS_UDID" -b \
+            2>&1 | tee -a native-quick-results/ios-boot.log
+          # Same complete AICaddie scheme as dispatch: Domain + App tests, including
+          # DesignSnapshotTests assertions. Do not collect/export snapshot images.
+          xcodebuild test-without-building \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddie \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 120 \
+            -maximum-test-execution-time-allowance 300 \
+            -destination "$IOS_DESTINATION" \
+            -derivedDataPath "$RUNNER_TEMP/NativeQuickDerivedData" \
+            -resultBundlePath native-quick-results/iOS.xcresult \
+            2>&1 | tee native-quick-results/ios-test-xcodebuild.log
+      - name: Test Watch unit target when affected
+        if: steps.watch_changes.outputs.needed == 'true'
+        run: |
+          set -euo pipefail
+          WATCH_UDID=$(xcrun simctl list devices available -j | jq -r '
+            [.devices | to_entries[]
+              | select(.key | contains("SimRuntime.watchOS-"))
+              | .key as $runtime
+              | .value[]
+              | select(.isAvailable == true and .name == "Apple Watch Series 10 (46mm)")
+              | {udid: .udid, version: ($runtime | split("-")[1:] | map(tonumber))}]
+            | sort_by(.version) | last | .udid // empty')
+          test -n "$WATCH_UDID"
+          xcrun simctl boot "$WATCH_UDID" > native-quick-results/watch-boot.log 2>&1 &
+          xcodebuild test \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddieWatch \
+            -only-testing:AICaddieWatchTests \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 120 \
+            -maximum-test-execution-time-allowance 300 \
+            -destination "platform=watchOS Simulator,id=$WATCH_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/NativeQuickDerivedData" \
+            -resultBundlePath native-quick-results/Watch.xcresult \
+            2>&1 | tee native-quick-results/watch-test-xcodebuild.log
+      - name: Upload quick failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-quick-failure-diagnostics
+          path: native-quick-results/
+          if-no-files-found: warn
+
+  # Live dispatch retains serial execution; fixture runners reuse the same launch and scan gates.
+  native-live:
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fixture_mode }}
+    runs-on: macos-15
+    # Live dispatch keeps the existing serial capture path.
+    timeout-minutes: 150
+    env:
+      NATIVE_ARTIFACT_SUFFIX: ''
+      NATIVE_CAPTURE_SHARD: all
+      IOS_DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=latest
+      WATCH_DESTINATION: platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest
+    steps:
+      - &actions_checkout_v4
+        uses: actions/checkout@v4
+      - &test_transient_command_retry_gate
+        name: Test transient-command retry gate
+        run: bash .github/scripts/test-retry-transient-command.sh
+      - &install_xcodegen
+        name: Install XcodeGen
+        run: brew install xcodegen
+      - &generate_native_project
+        name: Generate native project
+        run: xcodegen generate --spec mobile/ios/project.yml --project-root .
+      - &show_simulator_inventory
+        name: Show simulator inventory
         run: xcrun simctl list devices available
-      - name: Install uv for isolated CI fixture
+      - &install_uv_for_isolated_ci_fixture
+        name: Install uv for isolated CI fixture
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
         run: brew install uv
-      - name: Start isolated CI fixture
+      - &start_isolated_ci_fixture
+        name: Start isolated CI fixture
         id: start_fixture
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
         run: |
@@ -116,7 +229,8 @@ jobs:
             python3 -c 'import os, pathlib; p=pathlib.Path(os.environ["RUNNER_TEMP"])/"ai-caddie-fixture.log"; t=p.read_text(errors="replace"); token=os.environ.get("AI_CADDIE_ADMIN_TOKEN", ""); print(t.replace(token, "[REDACTED]"))'
           fi
           exit 1
-      - name: Upload fixture startup diagnostics
+      - &upload_fixture_startup_diagnostics
+        name: Upload fixture startup diagnostics
         if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.fixture_mode && steps.start_fixture.outcome == 'failure' }}
         run: |
           set -euo pipefail
@@ -128,14 +242,16 @@ jobs:
           fi
           printf '%s\n' 'fixture startup diagnostics; secrets redacted' > fixture-startup-diagnostics/README.txt
         continue-on-error: true
-      - name: Upload fixture startup diagnostics artifact
+      - &upload_fixture_startup_diagnostics_artifact
+        name: Upload fixture startup diagnostics artifact
         if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.fixture_mode && steps.start_fixture.outcome == 'failure' }}
         uses: actions/upload-artifact@v4
         with:
-          name: fixture-startup-diagnostics
+          name: fixture-startup-diagnostics${{ env.NATIVE_ARTIFACT_SUFFIX }}
           path: fixture-startup-diagnostics/
           if-no-files-found: error
-      - name: Configure live native auth
+      - &configure_live_native_auth
+        name: Configure live native auth
         if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fixture_mode }}
         env:
           LIVE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
@@ -146,7 +262,8 @@ jobs:
           printf 'AI_CADDIE_ADMIN_TOKEN=%s\n' "$LIVE_ADMIN_TOKEN" >> "$GITHUB_ENV"
           printf 'TEST_RUNNER_AI_CADDIE_ADMIN_TOKEN=%s\n' "$LIVE_ADMIN_TOKEN" >> "$GITHUB_ENV"
           printf 'ARTIFACT_ADMIN_TOKEN=%s\n' "$LIVE_ADMIN_TOKEN" >> "$GITHUB_ENV"
-      - name: Resolve live API host for hosted runners
+      - &resolve_live_api_host_for_hosted_runners
+        name: Resolve live API host for hosted runners
         if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fixture_mode }}
         env:
           NATIVE_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
@@ -204,7 +321,8 @@ jobs:
               raise SystemExit("live API host did not resolve after /etc/hosts mapping")
           print("Live API addresses:", sorted({row[4][0] for row in addresses}))
           PY
-      - name: Validate native launch prerequisites
+      - &validate_native_launch_prerequisites
+        name: Validate native launch prerequisites
         id: validate_native_launch_prereq
         if: ${{ github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         env:
@@ -226,7 +344,8 @@ jobs:
             test "${SIMCTL_CHILD_AI_CADDIE_API_BASE_URL:-}" = "$NATIVE_BASE_URL"
             test "${SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN:-}" = "$AI_CADDIE_ADMIN_TOKEN"
           fi
-      - name: Validate native launch environment (app target)
+      - &validate_native_launch_environment_app_target
+        name: Validate native launch environment (app target)
         id: validate_native_launch_environment_app
         if: ${{ github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         env:
@@ -247,7 +366,8 @@ jobs:
             test "${SIMCTL_CHILD_AI_CADDIE_API_BASE_URL:-}" = "$NATIVE_BASE_URL"
             test "${SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN:-}" = "$AI_CADDIE_ADMIN_TOKEN"
           fi
-      - name: Validate native launch environment
+      - &validate_native_launch_environment
+        name: Validate native launch environment
         id: validate_native_launch_environment
         if: ${{ github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         env:
@@ -276,9 +396,10 @@ jobs:
             test "${AI_CADDIE_FIXTURE_MODE:-0}" != "1"
             test "${SIMCTL_CHILD_AI_CADDIE_FIXTURE_MODE:-0}" != "1"
           fi
-      - name: Test iOS app target
+      - &test_ios_app_target
+        name: Test iOS app target
         id: test_ios_app
-        if: ${{ (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ github.event.inputs.capture_scope != 'edit' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           mkdir -p native-mobile-results
           set -o pipefail
@@ -290,8 +411,9 @@ jobs:
             -maximum-test-execution-time-allowance 300 \
             -destination "$IOS_DESTINATION" \
             2>&1 | tee native-mobile-results/ios-app-xcodebuild.log
-      - name: Verify SwiftJCS consumer boundaries
-        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit') && steps.test_ios_app.outcome == 'success' }}
+      - &verify_swiftjcs_consumer_boundaries
+        name: Verify SwiftJCS consumer boundaries
+        if: ${{ always() && github.event.inputs.capture_scope != 'edit' && steps.test_ios_app.outcome == 'success' }}
         run: |
           set -euo pipefail
 
@@ -412,24 +534,28 @@ jobs:
           printf '%s\n' "$FRAMEWORK_DIAGNOSTIC"
           test "$FRAMEWORK_STATUS" -ne 0
           grep -F "no such module 'SwiftJCS'" <<< "$FRAMEWORK_DIAGNOSTIC"
-      - name: Collect design snapshots
-        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+      - &collect_design_snapshots
+        name: Collect design snapshots
+        if: ${{ always() && github.event.inputs.capture_scope != 'edit' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           mkdir -p design-snapshots
           find ~/Library/Developer/CoreSimulator -path "*Documents/design-snapshots/*.png" -exec cp {} design-snapshots/ \; 2>/dev/null || true
           ls -la design-snapshots || true
-      - name: Scan design snapshots for secret bytes
+      - &scan_design_snapshots_for_secret_bytes
+        name: Scan design snapshots for secret bytes
         id: scan_design_snapshots
         if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN design-snapshots
-      - name: Upload design snapshots
-        if: ${{ always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope != 'edit' && steps.scan_design_snapshots.outcome == 'success')) && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+      - &upload_design_snapshots
+        name: Upload design snapshots
+        if: ${{ always() && (github.event.inputs.capture_scope != 'edit' && steps.scan_design_snapshots.outcome == 'success') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         uses: actions/upload-artifact@v4
         with:
           name: design-snapshots
           path: design-snapshots/
           if-no-files-found: warn
-      - name: Preflight live course discovery
+      - &preflight_live_course_discovery
+        name: Preflight live course discovery
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.require_live_preflight && !inputs.fixture_mode }}
         env:
           AI_CADDIE_PREFLIGHT_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
@@ -445,12 +571,12 @@ jobs:
           AI_CADDIE_PREFLIGHT_APP_REVISION: ${{ github.sha }}
           AI_CADDIE_PREFLIGHT_EXPECTED_REVISION: ${{ github.event.inputs.backend_revision || vars.AI_CADDIE_BACKEND_REVISION || '' }}
         run: python3 .github/scripts/preflight_live_course_catalogue.py
-      - name: Real-simulator screenshots (iOS, XCUITest against live backend)
+      - &real_simulator_screenshots_ios_xcuitest_against_live_backend
+        name: Real-simulator screenshots (iOS, XCUITest against live backend)
         id: real_ios_capture
-        # On-demand only (XCUITest + live-funnel + watch simctl add ~10min) — trigger with
-        # `gh workflow run native-mobile.yml --ref <branch>`; regular PRs stay fast.
         if: ${{ github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
-        timeout-minutes: 90
+        # Leave fixture runners time to scan/upload diagnostics before their 45-minute job cap.
+        timeout-minutes: ${{ inputs.fixture_mode && 35 || 90 }}
         env:
           # TEST_RUNNER_-prefixed vars are forwarded by xcodebuild into the UI-test runner environment
           # (the plain forms are a fallback in case they propagate too). The test reads both.
@@ -518,6 +644,15 @@ jobs:
               )
               ;;
           esac
+          # Fixture shards partition the scope above; live dispatch uses the original selection.
+          case "$NATIVE_CAPTURE_SHARD" in
+            real-flow)
+              ONLY_TESTING=(-only-testing:AICaddieUITests/RealFlowUITests/testCaptureRealAppFlow)
+              ;;
+            screenshots)
+              ONLY_TESTING+=(-skip-testing:AICaddieUITests/RealFlowUITests/testCaptureRealAppFlow)
+              ;;
+          esac
           .github/scripts/retry-transient-command.sh \
             "$RUNNER_TEMP/real-xcuitest" \
             xcodebuild test \
@@ -530,6 +665,9 @@ jobs:
           set -e
           kill -INT "$REC_PID" 2>/dev/null || true
           sleep 4
+          if [[ "$NATIVE_CAPTURE_SHARD" == "screenshots" && "$UITEST_CAPTURE_SCOPE" != "edit" ]]; then
+            mv real-videos/real-flow.mp4 real-videos/screenshots.mp4
+          fi
           ls -la real-videos || true
           # Surface each UI-test assertion as a job annotation: the inline xcodebuild failure line
           # scrolls out of the retained log tail on a full run.
@@ -545,7 +683,8 @@ jobs:
             fi
           fi
           exit "$TEST_STATUS"
-      - name: Collect real screenshots
+      - &collect_real_screenshots
+        name: Collect real screenshots
         if: ${{ always() && github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           mkdir -p real-screenshots
@@ -571,28 +710,32 @@ jobs:
               -exec cp {} real-screenshots/runner-diagnostic-reports/ \; 2>/dev/null || true
           fi
           ls -la real-screenshots || true
-      - name: Scan real Native evidence for secret bytes
+      - &scan_real_native_evidence_for_secret_bytes
+        name: Scan real Native evidence for secret bytes
         id: scan_real_native_evidence
         if: ${{ always() && github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: >-
           python3 .github/scripts/scan_artifacts_for_secrets.py
           --secret-env ARTIFACT_ADMIN_TOKEN
           real-screenshots real-videos
-      - name: Upload real screenshots
+      - &upload_real_screenshots
+        name: Upload real screenshots
         if: ${{ always() && github.event_name == 'workflow_dispatch' && steps.scan_real_native_evidence.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         uses: actions/upload-artifact@v4
         with:
-          name: real-screenshots
+          name: real-screenshots${{ env.NATIVE_ARTIFACT_SUFFIX }}
           path: real-screenshots/
           if-no-files-found: warn
-      - name: Upload real video
+      - &upload_real_video
+        name: Upload real video
         if: ${{ always() && github.event_name == 'workflow_dispatch' && steps.scan_real_native_evidence.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         uses: actions/upload-artifact@v4
         with:
-          name: real-video
+          name: real-video${{ env.NATIVE_ARTIFACT_SUFFIX }}
           path: real-videos/
           if-no-files-found: warn
-      - name: Remove UI-test app data
+      - &remove_ui_test_app_data
+        name: Remove UI-test app data
         if: ${{ always() && github.event_name == 'workflow_dispatch' }}
         run: |
           UDID=$(xcrun simctl list devices available | grep -E "iPhone 16 \(" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
@@ -600,7 +743,8 @@ jobs:
             xcrun simctl terminate "$UDID" com.ai-caddie.mobile 2>/dev/null || true
             xcrun simctl uninstall "$UDID" com.ai-caddie.mobile 2>/dev/null || true
           fi
-      - name: Stop isolated CI fixture
+      - &stop_isolated_ci_fixture
+        name: Stop isolated CI fixture
         if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
         run: |
           if [ -f "$RUNNER_TEMP/ai-caddie-fixture.pid" ]; then
@@ -611,8 +755,9 @@ jobs:
             ! curl --silent --show-error http://127.0.0.1:9000/api/v2/health >/dev/null 2>&1 || { echo "fixture port still serving" >&2; exit 1; }
             rm -f "$RUNNER_TEMP/ai-caddie-fixture.pid"
           fi
-      - name: Resolve and boot Watch test simulator
-        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+      - &resolve_and_boot_watch_test_simulator
+        name: Resolve and boot Watch test simulator
+        if: ${{ always() && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           set -euo pipefail
           WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
@@ -633,9 +778,10 @@ jobs:
           echo "NATIVE_WATCH_UDID=$NATIVE_WATCH_UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$NATIVE_WATCH_UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$NATIVE_WATCH_UDID" -b
-      - name: Test Watch app target
+      - &test_watch_app_target
+        name: Test Watch app target
         id: test_watch_app
-        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           mkdir -p native-mobile-results
           set -o pipefail
@@ -647,7 +793,8 @@ jobs:
             -maximum-test-execution-time-allowance 300 \
             -destination "platform=watchOS Simulator,id=$NATIVE_WATCH_UDID" \
             2>&1 | tee native-mobile-results/watch-xcodebuild.log
-      - name: J4.2 fixture DNS gate (native tests)
+      - &j4_2_fixture_dns_gate_native_tests
+        name: J4.2 fixture DNS gate (native tests)
         if: ${{ always() && steps.test_ios_app.outcome != 'skipped' }}
         run: |
           set -euo pipefail
@@ -662,24 +809,28 @@ jobs:
             exit 0
           fi
           python3 .github/scripts/check_native_fixture_dns.py "${logs[@]}"
-      - name: Collect Watch design snapshots
-        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+      - &collect_watch_design_snapshots
+        name: Collect Watch design snapshots
+        if: ${{ always() && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           mkdir -p watch-snapshots
           find ~/Library/Developer/CoreSimulator -path "*Documents/watch-snapshots/*.png" -exec cp {} watch-snapshots/ \; 2>/dev/null || true
           ls -la watch-snapshots || true
-      - name: Scan Watch design snapshots for secret bytes
+      - &scan_watch_design_snapshots_for_secret_bytes
+        name: Scan Watch design snapshots for secret bytes
         id: scan_watch_snapshots
         if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN watch-snapshots
-      - name: Upload Watch design snapshots
-        if: ${{ always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope == 'full' && steps.scan_watch_snapshots.outcome == 'success')) && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+      - &upload_watch_design_snapshots
+        name: Upload Watch design snapshots
+        if: ${{ always() && (github.event.inputs.capture_scope == 'full' && steps.scan_watch_snapshots.outcome == 'success') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         uses: actions/upload-artifact@v4
         with:
           name: watch-snapshots
           path: watch-snapshots/
           if-no-files-found: warn
-      - name: Real Watch round seed and restore screenshots
+      - &real_watch_round_seed_and_restore_screenshots
+        name: Real Watch round seed and restore screenshots
         id: capture_watch_real_screenshots
         if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
@@ -705,10 +856,10 @@ jobs:
           xcodebuild build \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
-            -destination "platform=watchOS Simulator,id=$WATCH_UDID" \
-            -derivedDataPath "$RUNNER_TEMP/WatchRuntimeDerivedData"
+            -destination "platform=watchOS Simulator,id=$WATCH_UDID"
 
-          APP="$RUNNER_TEMP/WatchRuntimeDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
+          APP=$(find "$HOME/Library/Developer/Xcode/DerivedData" -type d \
+            -path '*/Build/Products/Debug-watchsimulator/AICaddieWatch.app' -print -quit)
           BID=com.ai-caddie.mobile.watchkitapp
           test -d "$APP"
           # Watch unit tests can leave the system location sheet open. Runtime screenshots need a
@@ -756,11 +907,13 @@ jobs:
           # B4b-2 §7: an 18-hole row starts on 前九 / 后九, and the turn offers the second nine.
           launch_and_capture course-setup-halves watch-course-setup-halves.png
           launch_and_capture course-turn watch-course-turn.png
-      - name: Scan Watch runtime screenshots for secret bytes
+      - &scan_watch_runtime_screenshots_for_secret_bytes
+        name: Scan Watch runtime screenshots for secret bytes
         id: scan_watch_real_screenshots
         if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN watch-real-screenshots
-      - name: Upload watch real screenshots
+      - &upload_watch_real_screenshots
+        name: Upload watch real screenshots
         if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && steps.scan_watch_real_screenshots.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         uses: actions/upload-artifact@v4
         with:
@@ -768,7 +921,7 @@ jobs:
           path: watch-real-screenshots/
           if-no-files-found: error
       - name: Write native build evidence
-        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit') }}
+        if: ${{ always() && github.event.inputs.capture_scope != 'edit' }}
         env:
           NATIVE_EVENT_NAME: ${{ github.event_name }}
           NATIVE_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
@@ -779,7 +932,7 @@ jobs:
           FIXTURE_START_OUTCOME: ${{ steps.start_fixture.outcome }}
           LAUNCH_VALIDATION_OUTCOME: ${{ steps.validate_native_launch_environment.outcome }}
           LAUNCH_PREREQ_OUTCOME: ${{ steps.validate_native_launch_prereq.outcome }}
-        run: |
+        run: &write_native_build_evidence_script |
           status_from_outcome() {
             case "$1" in
               success) echo "passed" ;;
@@ -818,23 +971,149 @@ jobs:
           fixture_arg=""
           if [[ "${{ inputs.fixture_mode }}" == "true" ]]; then fixture_arg="--data-mode ci_fixture"; fi
           python3 ops/write_native_build_evidence.py --ios-status "$ios_status" --watch-status "$watch_status" $fixture_arg
-      - name: Scan native build evidence for secret bytes
+      - &scan_native_build_evidence_for_secret_bytes
+        name: Scan native build evidence for secret bytes
         id: scan_native_build_evidence
         if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN mobile/ios/native_build_evidence.json
-      - name: Upload native build evidence
-        if: always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope != 'edit' && steps.scan_native_build_evidence.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success'))))
+      - &upload_native_build_evidence
+        name: Upload native build evidence
+        if: always() && (github.event.inputs.capture_scope != 'edit' && steps.scan_native_build_evidence.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')))
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.fixture_mode && 'native-build-evidence-ci-fixture' || 'native-build-evidence' }}
+          name: ${{ inputs.fixture_mode && 'native-build-evidence-ci-fixture' || 'native-build-evidence' }}${{ env.NATIVE_ARTIFACT_SUFFIX }}
           path: mobile/ios/native_build_evidence.json
+
+
+  # Four independent macOS runners; no cross-runner build transfer or fixture sharing.
+
+  native-unit-watch:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      IOS_DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=latest
+      WATCH_DESTINATION: platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest
+      NATIVE_CAPTURE_SHARD: unit-watch
+      NATIVE_ARTIFACT_SUFFIX: -unit-watch
+    steps:
+      - *actions_checkout_v4
+      - *test_transient_command_retry_gate
+      - *install_xcodegen
+      - *generate_native_project
+      - *show_simulator_inventory
+      - *install_uv_for_isolated_ci_fixture
+      - *start_isolated_ci_fixture
+      - *upload_fixture_startup_diagnostics
+      - *upload_fixture_startup_diagnostics_artifact
+      - *configure_live_native_auth
+      - *resolve_live_api_host_for_hosted_runners
+      - *validate_native_launch_prerequisites
+      - *validate_native_launch_environment_app_target
+      - *validate_native_launch_environment
+      - *test_ios_app_target
+      - *verify_swiftjcs_consumer_boundaries
+      - *collect_design_snapshots
+      - *scan_design_snapshots_for_secret_bytes
+      - *upload_design_snapshots
+      - *resolve_and_boot_watch_test_simulator
+      - *test_watch_app_target
+      - *j4_2_fixture_dns_gate_native_tests
+      - *collect_watch_design_snapshots
+      - *scan_watch_design_snapshots_for_secret_bytes
+      - *upload_watch_design_snapshots
+      - *real_watch_round_seed_and_restore_screenshots
+      - *scan_watch_runtime_screenshots_for_secret_bytes
+      - *upload_watch_real_screenshots
+      - name: Write native build evidence
+        if: ${{ always() && github.event.inputs.capture_scope != 'edit' }}
+        env:
+          NATIVE_EVENT_NAME: ${{ github.event_name }}
+          NATIVE_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
+          IOS_TARGET_OUTCOME: ${{ steps.test_ios_app.outcome }}
+          IOS_CAPTURE_OUTCOME: ${{ steps.test_ios_app.outcome }}
+          WATCH_TEST_OUTCOME: ${{ steps.test_watch_app.outcome }}
+          FIXTURE_MODE: ${{ inputs.fixture_mode }}
+          FIXTURE_START_OUTCOME: ${{ steps.start_fixture.outcome }}
+          LAUNCH_VALIDATION_OUTCOME: ${{ steps.validate_native_launch_environment.outcome }}
+          LAUNCH_PREREQ_OUTCOME: ${{ steps.validate_native_launch_prereq.outcome }}
+        run: *write_native_build_evidence_script
+      - *scan_native_build_evidence_for_secret_bytes
+      - *upload_native_build_evidence
+      - *stop_isolated_ci_fixture
+
+  native-real-flow:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      IOS_DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=latest
+      WATCH_DESTINATION: platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest
+      NATIVE_CAPTURE_SHARD: real-flow
+      NATIVE_ARTIFACT_SUFFIX: -real-flow
+    steps:
+      - *actions_checkout_v4
+      - *test_transient_command_retry_gate
+      - *install_xcodegen
+      - *generate_native_project
+      - *show_simulator_inventory
+      - *install_uv_for_isolated_ci_fixture
+      - *start_isolated_ci_fixture
+      - *upload_fixture_startup_diagnostics
+      - *upload_fixture_startup_diagnostics_artifact
+      - *configure_live_native_auth
+      - *resolve_live_api_host_for_hosted_runners
+      - *validate_native_launch_prerequisites
+      - *validate_native_launch_environment_app_target
+      - *validate_native_launch_environment
+      - *preflight_live_course_discovery
+      - *real_simulator_screenshots_ios_xcuitest_against_live_backend
+      - *collect_real_screenshots
+      - *scan_real_native_evidence_for_secret_bytes
+      - *upload_real_screenshots
+      - *upload_real_video
+      - *remove_ui_test_app_data
+      - *stop_isolated_ci_fixture
+
+  native-screenshots:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      IOS_DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=latest
+      WATCH_DESTINATION: platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest
+      NATIVE_CAPTURE_SHARD: screenshots
+      NATIVE_ARTIFACT_SUFFIX: -screenshots
+    steps:
+      - *actions_checkout_v4
+      - *test_transient_command_retry_gate
+      - *install_xcodegen
+      - *generate_native_project
+      - *show_simulator_inventory
+      - *install_uv_for_isolated_ci_fixture
+      - *start_isolated_ci_fixture
+      - *upload_fixture_startup_diagnostics
+      - *upload_fixture_startup_diagnostics_artifact
+      - *configure_live_native_auth
+      - *resolve_live_api_host_for_hosted_runners
+      - *validate_native_launch_prerequisites
+      - *validate_native_launch_environment_app_target
+      - *validate_native_launch_environment
+      - *preflight_live_course_discovery
+      - *real_simulator_screenshots_ios_xcuitest_against_live_backend
+      - *collect_real_screenshots
+      - *scan_real_native_evidence_for_secret_bytes
+      - *upload_real_screenshots
+      - *upload_real_video
+      - *remove_ui_test_app_data
+      - *stop_isolated_ci_fixture
 
   # C16e ProductPhoneUITests on its own runner. ProductFixtureServer binds the only fixture origin the
   # DEBUG app accepts (loopback port 9000, BackendConfigurationStore.normalizedAPIBaseURL), which
   # the job above gives to the Python fixture in fixture_mode. No Python fixture and no secrets here:
   # the tests launch the app with synthetic credentials against the in-process server.
   native-product-ui:
-    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit' }}
     runs-on: macos-15
     # "Test iOS app target" (build + unit tests) took 12 min on run 40187234659. This scheme also
     # builds the UI-test bundle and then runs 13 serial tests with about 20 app launches, so about
@@ -956,3 +1235,135 @@ jobs:
           name: product-ui-screenshots
           path: product-ui-screenshots/
           if-no-files-found: warn
+
+  # Keep the public job conclusion and artifact names consumed by the project console.
+  # This runner only combines already secret-scanned evidence; it never starts a simulator.
+  native-mobile:
+    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+    needs: [native-live, native-unit-watch, native-real-flow, native-screenshots, native-product-ui]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Verify native job conclusions
+        if: always()
+        env:
+          NATIVE_NEEDS: ${{ toJSON(needs) }}
+          FIXTURE_MODE: ${{ inputs.fixture_mode }}
+          CAPTURE_SCOPE: ${{ inputs.capture_scope }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          jobs = json.loads(os.environ['NATIVE_NEEDS'])
+          fixture = os.environ['FIXTURE_MODE'] == 'true'
+          edit = os.environ['CAPTURE_SCOPE'] == 'edit'
+          expected = ['native-screenshots'] if fixture else ['native-live']
+          if not edit:
+              expected += ['native-product-ui']
+              if fixture:
+                  expected += ['native-unit-watch', 'native-real-flow']
+          failures = {name: jobs[name]['result'] for name in expected
+                      if jobs[name]['result'] != 'success'}
+          print('Required native job conclusions:', {name: jobs[name]['result'] for name in expected})
+          if failures:
+              raise SystemExit(f'Native validation did not pass: {failures}')
+          PY
+      - name: Download fixture shard evidence
+        if: ${{ always() && inputs.fixture_mode }}
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: native-shards
+      - name: Combine fixture evidence under the legacy contract
+        id: combine_fixture_evidence
+        if: ${{ always() && inputs.fixture_mode }}
+        env:
+          NATIVE_NEEDS: ${{ toJSON(needs) }}
+          CAPTURE_SCOPE: ${{ inputs.capture_scope }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import shutil
+
+          root = Path('native-shards')
+          jobs = json.loads(os.environ['NATIVE_NEEDS'])
+          edit = os.environ['CAPTURE_SCOPE'] == 'edit'
+          shards = ['screenshots'] if edit else ['real-flow', 'screenshots']
+          # Successful runners must have published both scanned capture artifacts.
+          for shard in shards:
+              if jobs[f'native-{shard}']['result'] == 'success':
+                  for artifact in ('real-screenshots', 'real-video'):
+                      if not (root / f'{artifact}-{shard}').is_dir():
+                          raise SystemExit(f'Missing {artifact}-{shard} from a successful runner')
+
+          outputs = []
+          for artifact, suffixes, log_name in (
+              ('real-screenshots', shards, 'ios-app.log'),
+              ('real-video', shards, None),
+              ('fixture-startup-diagnostics', ['unit-watch', *shards], 'stderr.log'),
+          ):
+              destination = Path(artifact)
+              logs = []
+              for shard in suffixes:
+                  source = root / f'{artifact}-{shard}'
+                  if not source.is_dir():
+                      continue
+                  # Preserve the original root screenshot names and every shard's originals,
+                  # including any diagnostics whose basenames coincide across runners.
+                  shutil.copytree(source, destination, dirs_exist_ok=True)
+                  if artifact != 'real-video':
+                      shutil.copytree(source, destination / 'shards' / shard, dirs_exist_ok=True)
+                  if log_name and (source / log_name).is_file():
+                      logs.append(f'=== {shard} ===\n' + (source / log_name).read_text(errors='replace'))
+              if logs:
+                  (destination / log_name).write_text('\n'.join(logs), encoding='utf-8')
+              if destination.is_dir():
+                  outputs.append(f'{artifact}=true')
+
+          stamp = root / 'native-build-evidence-ci-fixture-unit-watch' / 'native_build_evidence.json'
+          if not edit and jobs['native-unit-watch']['result'] == 'success' and not stamp.is_file():
+              raise SystemExit('Missing native build evidence from the unit runner')
+          if not edit and stamp.is_file():
+              evidence = json.loads(stamp.read_text())
+              if evidence['ios']['status'] == 'passed':
+                  results = [jobs[f'native-{shard}']['result'] for shard in shards]
+                  evidence['ios']['status'] = ('passed' if all(r == 'success' for r in results)
+                                               else 'failed' if 'failure' in results else 'skipped')
+              output = Path('native-build-evidence-ci-fixture/native_build_evidence.json')
+              output.parent.mkdir(exist_ok=True)
+              output.write_text(json.dumps(evidence, indent=2, sort_keys=True) + '\n')
+              outputs.append('native-build-evidence-ci-fixture=true')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as handle:
+              handle.write('\n'.join(outputs) + '\n')
+          PY
+      - name: Upload combined real screenshots
+        if: ${{ always() && steps.combine_fixture_evidence.outputs.real-screenshots == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-screenshots
+          path: real-screenshots/
+          if-no-files-found: error
+      - name: Upload combined real video
+        if: ${{ always() && steps.combine_fixture_evidence.outputs.real-video == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-video
+          path: real-video/
+          if-no-files-found: error
+      - name: Upload combined fixture startup diagnostics
+        if: ${{ always() && steps.combine_fixture_evidence.outputs.fixture-startup-diagnostics == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixture-startup-diagnostics
+          path: fixture-startup-diagnostics/
+          if-no-files-found: error
+      - name: Upload combined native build evidence
+        if: ${{ always() && steps.combine_fixture_evidence.outputs.native-build-evidence-ci-fixture == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-build-evidence-ci-fixture
+          path: native-build-evidence-ci-fixture/native_build_evidence.json
+          if-no-files-found: error

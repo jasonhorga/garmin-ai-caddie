@@ -1,6 +1,11 @@
 import SwiftUI
 import AICaddieDomain
 
+struct CourseDownloadAction: Equatable {
+    let title: String
+    let retrying: Bool
+}
+
 /// 开始一场(README §8, `pre-round.html` 第 2 屏)— 一个球场列表(附近在前带距离，其后是搜索、
 /// 最近、已下载，不分区；附近还在查时顶上只有一行“正在找附近球场…”；洞数写明覆盖范围：附近/搜索是整场，最近/已下载写“已下载 18 洞”或“最近打过 9 洞”)；只选第一个 9 洞环(A / B / C 大块)；发球台是颜色圆点 +
 /// 这个环的码数；普通球场按钮统一写「开始」，第一杆决定从哪洞进入。第二个环在打完第一个环时选(NineLoopPlan)。
@@ -251,6 +256,26 @@ public struct StartRoundView: View {
         return downloadStatus(for: record, downloaded: downloaded, catalogue: catalogue)
     }
 
+    /// One action decision is shared by the upper venue row and the lower offline row. The lower
+    /// row may be hidden by venue deduplication, but its actionable records remain the source for
+    /// the button shown beside the surviving upper row.
+    static func courseDownloadAction(
+        for row: StartCourseListRow, downloads: [PrepCourseDownloadRecord]
+    ) -> CourseDownloadAction? {
+        let records = StartRoundPresentation.offlineRows(downloads).filter {
+            guard let venue = row.segments.first else { return false }
+            return samePhysicalVenue($0.course, venue)
+        }
+        if let failed = records.first(where: { $0.phase == .failed }) {
+            return CourseDownloadAction(
+                title: StartRoundPresentation.offlineActionTitle(failed) ?? "重试", retrying: true
+            )
+        }
+        guard let pending = records.first,
+              let title = StartRoundPresentation.offlineActionTitle(pending) else { return nil }
+        return CourseDownloadAction(title: title, retrying: false)
+    }
+
     private var courseGlobalId: Int? {
         Int(courseGlobalIdText.trimmingCharacters(in: .whitespacesAndNewlines))
     }
@@ -422,21 +447,7 @@ public struct StartRoundView: View {
                                 .accessibilityIdentifier("start-round-offline-status-\(row.id)")
                         }
                         Spacer()
-                        if row.phase == .failed {
-                            Button("重试") {
-                                for failed in Self.offlineActionRecords(for: row, in: prepCourseDownloads, retrying: true) {
-                                    onRetryPrepCourseDownload(failed.id)
-                                }
-                            }
-                            .buttonStyle(.bordered)
-                        } else if row.phase != .ready {
-                            Button(row.phase == .queued ? "下载" : "继续下载") {
-                                for pending in Self.offlineActionRecords(for: row, in: prepCourseDownloads, retrying: false) {
-                                    onDownloadPrepCourse(pending.course.replacingTeeBox(pending.teeBox))
-                                }
-                            }
-                            .buttonStyle(.bordered)
-                        }
+                        downloadActionButton(for: row, identifier: "start-round-offline-action-\(row.id)")
                     }
                     .padding(.vertical, 4)
                     .accessibilityElement(children: .contain)
@@ -474,12 +485,37 @@ public struct StartRoundView: View {
         Self.downloadStatus(for: row, downloaded: downloadedCourseOptions, catalogue: courseOptions)
     }
 
+    @ViewBuilder
+    private func downloadActionButton(
+        for row: PrepCourseDownloadRecord, identifier: String
+    ) -> some View {
+        if let title = StartRoundPresentation.offlineActionTitle(row) {
+            Button(title) {
+                let retrying = row.phase == .failed
+                if retrying {
+                    for failed in Self.offlineActionRecords(for: row, in: prepCourseDownloads, retrying: true) {
+                        onRetryPrepCourseDownload(failed.id)
+                    }
+                } else {
+                    for pending in Self.offlineActionRecords(for: row, in: prepCourseDownloads, retrying: false) {
+                        onDownloadPrepCourse(pending.course.replacingTeeBox(pending.teeBox))
+                    }
+                }
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier(identifier)
+        }
+    }
+
     static func downloadStatus(
         for row: PrepCourseDownloadRecord, downloaded: [MobileCourseOption], catalogue: [MobileCourseOption]
     ) -> String {
         if let message = row.errorText,
            row.phase == .preparing || row.phase == .downloading || row.phase == .queued {
             return message
+        }
+        if row.isActive, let server = row.serverPreparation {
+            return server.statusText
         }
         switch row.phase {
         case .queued: return "等待下载"
@@ -1053,58 +1089,67 @@ public struct StartRoundView: View {
         } else {
             selected = false
         }
-        return Button {
-            selectCourseRow(row)
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "flag.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(LiveHoleStyle.green)
-                    .frame(width: 36, height: 36)
-                    .background(HubStyle.iconTint)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(row.venue)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                    if let subtitle = courseRowSubtitle(row) {
-                        Text(subtitle)
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                    if let status = Self.courseDownloadStatus(
-                        for: row, downloaded: downloadedCourseOptions,
-                        catalogue: courseOptions, downloads: prepCourseDownloads
-                    ), status != Self.holeCaption(
-                        for: row, downloaded: downloadedCourseOptions,
-                        catalogue: courseOptions, recent: recentCourseOption
-                    ) {
-                        Text(status)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer(minLength: 8)
-                if selected {
-                    Image(systemName: "checkmark")
-                        .font(.subheadline.weight(.bold))
+        return HStack(spacing: 8) {
+            Button {
+                selectCourseRow(row)
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "flag.fill")
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(LiveHoleStyle.green)
+                        .frame(width: 36, height: 36)
+                        .background(HubStyle.iconTint)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(row.venue)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        if let subtitle = courseRowSubtitle(row) {
+                            Text(subtitle)
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        if let status = Self.courseDownloadStatus(
+                            for: row, downloaded: downloadedCourseOptions,
+                            catalogue: courseOptions, downloads: prepCourseDownloads
+                        ), status != Self.holeCaption(
+                            for: row, downloaded: downloadedCourseOptions,
+                            catalogue: courseOptions, recent: recentCourseOption
+                        ) {
+                            Text(status)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    if selected {
+                        Image(systemName: "checkmark")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(LiveHoleStyle.green)
+                    }
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .background(selected ? LiveHoleStyle.green.opacity(0.08) : Color.clear)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // The transparent Spacer is most of a wide row. Without an explicit shape, tapping that
-            // centre area (including XCUITest's default tap point) can miss the Button.
-            .contentShape(Rectangle())
-            .background(selected ? LiveHoleStyle.green.opacity(0.08) : Color.clear)
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("start-round-venue-\(row.id)")
+            .accessibilityValue(selected ? "已选择" : "未选择")
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            if Self.courseDownloadAction(for: row, downloads: prepCourseDownloads) != nil,
+               let record = StartRoundPresentation.offlineRows(prepCourseDownloads).first(where: {
+                   guard let venue = row.segments.first else { return false }
+                   return Self.samePhysicalVenue($0.course, venue)
+               }) {
+                downloadActionButton(for: record, identifier: "start-round-course-download-action-\(row.id)")
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("start-round-venue-\(row.id)")
-        .accessibilityValue(selected ? "已选择" : "未选择")
-        .accessibilityAddTraits(selected ? .isSelected : [])
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(selected ? LiveHoleStyle.green.opacity(0.08) : Color.clear)
     }
 
     private func courseRowSubtitle(_ row: StartCourseListRow) -> String? {

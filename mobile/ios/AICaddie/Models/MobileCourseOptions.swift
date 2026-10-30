@@ -570,6 +570,23 @@ public enum PrepCourseDownloadPhase: String, Codable, Equatable {
 /// only a course the player opens/downloads is retained here and installed into OfflineStore.
 /// A row always installs the whole physical course — its canonical template (`G:front+G:back`
 /// for 18 holes, `G:all` for a 9-hole loop) — from which any round order is projected (B4b-2).
+struct PrepServerPreparationProgress: Codable, Equatable {
+    let jobId: String
+    let generation: Int?
+    let progress: Int?
+    let geometryReady: Int
+    let topoReady: Int
+    let totalHoles: Int
+    let heartbeatAt: String?
+    let lastProgressAt: Date
+
+    var statusText: String {
+        let holes = "服务器准备中 \(geometryReady)/\(totalHoles) 洞"
+        guard let progress else { return holes }
+        return "\(holes) · \(min(100, max(0, progress)))%"
+    }
+}
+
 public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
     public let id: String
     public let course: MobileCourseOption
@@ -580,6 +597,7 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
     public var totalHoles: Int
     public var updatedAt: Date
     public var errorText: String?
+    var serverPreparation: PrepServerPreparationProgress? = nil
     /// Positive server release revisions that a replacement install must satisfy before this row
     /// can become ready again. Nil for ordinary downloads and backward-compatible persisted rows.
     public var requiredGeometryRevisions: [String: String]?
@@ -664,7 +682,7 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id, course, teeBox, phase, preparedHoles, downloadedHoles, totalHoles, updatedAt
         case errorText, requiredGeometryRevisions, isIntentPrefetch, isSpeculative, isRoundPrefetch
-        case queueGroupID, queuePosition
+        case queueGroupID, queuePosition, serverPreparation
     }
 
     /// The id is re-derived on decode, so a row persisted under the v1 `gid:tee:nine` key joins
@@ -691,6 +709,39 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         isRoundPrefetch = try container.decodeIfPresent(Bool.self, forKey: .isRoundPrefetch) ?? false
         queueGroupID = try container.decodeIfPresent(String.self, forKey: .queueGroupID)
         queuePosition = try container.decodeIfPresent(Int.self, forKey: .queuePosition)
+        serverPreparation = try container.decodeIfPresent(PrepServerPreparationProgress.self, forKey: .serverPreparation)
+    }
+
+    /// J4.2: receives the polling clock explicitly; ordinary record updates are not progress.
+    mutating func applyServerPreparation(_ status: CourseInstallStatus, at now: Date) {
+        let previous = serverPreparation
+        let sameJob = previous?.jobId == status.jobId && previous?.generation == status.generation
+        let heartbeat = status.heartbeatAt?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasHeartbeat = heartbeat?.isEmpty == false
+        let advanced = !sameJob
+            || (hasHeartbeat && heartbeat != previous?.heartbeatAt)
+            || status.progress.map { $0 > (previous?.progress ?? -1) } == true
+            || status.geometryReady > (previous?.geometryReady ?? 0)
+            || status.topoReady > (previous?.topoReady ?? 0)
+        // Only server evidence advances this clock. Local updates, polls and duplicate taps do not.
+        let lastProgressAt = advanced ? now : (previous?.lastProgressAt ?? now)
+        let highestProgress = max(status.progress ?? -1, sameJob ? (previous?.progress ?? -1) : -1)
+        serverPreparation = PrepServerPreparationProgress(
+            jobId: status.jobId, generation: status.generation,
+            progress: highestProgress >= 0 ? highestProgress : nil,
+            geometryReady: max(0, sameJob ? max(status.geometryReady, previous?.geometryReady ?? 0) : status.geometryReady),
+            topoReady: max(0, sameJob ? max(status.topoReady, previous?.topoReady ?? 0) : status.topoReady),
+            totalHoles: max(1, status.totalHoles > 0 ? status.totalHoles : totalHoles),
+            heartbeatAt: hasHeartbeat ? heartbeat : (sameJob ? previous?.heartbeatAt : nil),
+            lastProgressAt: lastProgressAt
+        )
+        if now.timeIntervalSince(lastProgressAt) >= 600 {
+            phase = .failed
+            errorText = "服务器准备没有进展，点重试"
+        } else {
+            phase = downloadedHoles > 0 ? .downloading : .preparing
+            errorText = nil
+        }
     }
 
     public var isActive: Bool {

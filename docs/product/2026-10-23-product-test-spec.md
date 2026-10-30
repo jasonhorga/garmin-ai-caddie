@@ -52,6 +52,8 @@
 | 4.5 | 地图三档降级（精确/只有路线/什么都没）在备战、手机、手表同一规则：没图先画路线、图到原地替换且不重置缩放/平移/选中/目标点/旗位；连路线都没有是等待页不进空白洞 | 进洞白屏；补图后缩放跳回 | S 每洞状态 + V 三档 × 三端 |
 | 4.6 | 备战逐洞三个方案三条真不同路线，选中方案决定路线与球杆顺序；可换发球台；同洞推荐与打球屏开球时一致且等于 golden；无球童种子只画事实链 | 三方案同一条线；备战说 5 木打球屏说 3 木 | S 有/无种子/无球包 + V 布局边界 |
 
+J4.2 离线下载反馈细则：正在准备/下载的行显示状态或进度，不显示「继续下载」按钮；重复请求同一活跃任务时保留任务与已下载洞数，立即显示「已在进行」。服务端 queued/running 显示「服务器准备中 geometryReady/totalHoles 洞」，有 progress 时附百分比；轮询间隔的 queued 行仍显示该进度且无下载按钮。每个任务从首次观察起计时，heartbeatAt 改变（非空）、progress 增加、geometryReady 或 topoReady 增加，均重置无进展窗口；jobId/generation 改变视为新任务。连续 **600 秒（含边界）**无上述进展才转 failed，显示「服务器准备没有进展，点重试」。有进展可等待超过 600 秒，不设总耗时上限；无 heartbeat/progress 的旧服务端同样有 600 秒窗口。快照及窗口跨轮询持久化，显式重试清空窗口；普通行更新时间/重复点击不重置。备战开局先取得 beginRoundPreparation 的前台门控，再排后台下载/预取，不创建随后立即取消的 worker。
+
 J4.2 当前局 finish 守卫 I/O：一批 1 条或多条事件的守卫 index 读取次数不随事件数增长；守卫冷读最多 1 次，同玩家 index 文件版本未变化时后续批次不额外读取。对未 finish 的当前局，整条 append 路径冷批次最多读 2 次（append 刷新 + finish 守卫），后续版本未变每批最多读 1 次（append 刷新）；已 finish 局的历史重新物化 I/O 不计入此上界。守卫缓存以版本 key（mtime_ns/ctime_ns/size/inode）中的 inode 区分不同玩家或数据根的 index，文件版本变化后重新读取；命中缓存仍须判断本局 finish，同一 Idempotency-Key 重试已 finish 局的编辑也不得登记活跃局。包请求读不到开局时间时不缓存 miss，之后积压事件到达按持久最小开局时间比较；finish 也清理未登记在内存中的局的开局时间缓存，重新请求 round 包时重新读取持久开局时间用于接替判断。
 
 J4.2 Garmin 底图恢复细则：release 403 使用 60、120、240、480、960、1920、3600 秒封顶退避。
@@ -143,7 +145,7 @@ J7.3 迁移制品细则：备份从临时文件创建、replace、元数据恢�
 ## 验收方式
 故障清单 = 每条承诺至少一处"改坏代码"，新套件必须红（例：2.5 默认洞放回推杆分母；5.1 锁定改读 sourceStartHole；5.12 去掉新鲜判断；3.4 去掉重放幂等；7.1 去掉球员作用域）。新测试在现产品上红 → 逐条判是产品 bug 还是承诺写错，修产品或改清单，不改测试迁就。新套件全绿 + 故障清单全红后，旧测试同一 PR 整批删。
 
-故障 runner 的基础设施契约（不单列 J/G 产品承诺）：Python unittest target 必须先在干净 worktree 的独立子进程中，用 unittest loader 确认能加载、没有加载错误或 `_FailedTest`，且至少含 1 条测试；失败记 `unavailable`，detail 为 `target 无法加载：<原因>`，不打补丁。打补丁后再次用同一探测确认可加载；补丁导致的 ImportError、SyntaxError 或测试消失同样记 `unavailable`，不能当作断言杀死。通过加载检查后，实际执行测试非 0 仍为 `killed`（含测试执行阶段的错误），全过为 `leaked`。`--run` 存在 unavailable、unappliable 或 leaked 时整体非 0 退出。`--check` 在干净树上同时检查补丁可用性及 Python target 加载；native-unit/native-ui target 静态核对 mobile/ios 对应测试 bundle 内 Swift 测试类及方法名（只核名字，不代表编译或执行通过），失效 target 列出并非 0 退出。disabled 条目继续跳过，python-script 不按 unittest target 探测。
+故障 runner 的基础设施契约（不单列 J/G 产品承诺）：Python unittest target 必须先在干净 worktree 的独立子进程中，用 unittest loader 确认能加载、没有加载错误或 `_FailedTest`，且至少含 1 条测试；失败记 `unavailable`，detail 为 `target 无法加载：<原因>`，不打补丁。批量 loader 在每个 target 前恢复基线 `sys.path`，只移除前一 target 新增且来自其新增搜索目录的模块（含 namespace package），保留正常搜索路径下的依赖缓存，禁止整表清空 `sys.modules`。两个 target 导入同一只能初始化一次的依赖时，都须在同一个探测进程中加载成功，无独立复核；一个 target 增加搜索目录并导入 helper 后，后续 target 单独缺失该 helper 的仍须判 unavailable，不能利用模块缓存假通过；批量探测失败的 target 再各自用独立进程复核。单 target 探测超时也记 `unavailable`，并使 `--check` 非 0。打补丁后实际执行测试：进程返回 0 直接记 `leaked`，不重复加载探测；仅非 0 时再次用同一探测确认可加载。补丁导致的 ImportError、SyntaxError 或测试消失同样记 `unavailable`，不能当作断言杀死；通过加载检查后，实际执行测试非 0 仍为 `killed`（含测试执行阶段的错误）。`--run` 存在 unavailable、unappliable 或 leaked 时整体非 0 退出。`--check` 在干净树上同时检查补丁可用性及 Python target 加载；native-unit/native-ui target 静态核对 mobile/ios 对应测试 bundle 内 Swift 测试类及方法名（只核名字，不代表编译或执行通过），失效 target 列出并非 0 退出。disabled 条目继续跳过，python-script 不按 unittest target 探测。`--dispatch-native --id` 无匹配时仍输出统一 JSON，并带空的 `commands` 数组。
 
 `--check` 的 Python 加载探测用一个子进程批量处理所有不同 target，每个 target 使用独立 loader、单独捕获加载异常并记录结果，最后一次写出 JSON；一条加载失败不能污染其他条目的判定。只对批量判失败的 target 再分别起子进程复核，以独立复核结果为准；全过时仅起 1 个探测进程，正常批量探测的进程总数为 1 + 批量失败数。若批量进程崩溃或未返回完整结果，无法确定的条目按失败候选独立复核。`--run --id` 的补丁前后探测共用该函数，单 target 只起一个进程。全仓 `--check` 本机目标为 2 分钟以内，既有逐条状态不变。
 

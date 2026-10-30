@@ -1,12 +1,12 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 6becb66c..07074a38 100644
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -4249,9 +4249,8 @@
-         prepEnrichmentTask?.cancel()
-         prepEnrichmentTask = nil
-         // The selected-course map intent and the player's whole-course download are independent
-         // jobs. The latter is durable before the foreground start takes the network.
+@@ -4907,7 +4907,6 @@ public final class LiveRoundAppModel: ObservableObject {
+         let preparationToken = beginRoundPreparation()
+         // Raise the foreground gate first: the independent durable download is queued without
+         // creating a worker that beginRoundPreparation would immediately cancel.
 -        downloadPrepCourse(course)
-         prepPriorityRoundID = roundId
-         prepPriorityHole = hole ?? 1
-         prepCourse = course
-         prepTeeOptions = Self.prepTeeOptions(course.tees ?? [], selected: teeBox)
+         recordRoundStartStep("startPrepCourse.scheduled", token: preparationToken)
+         activeRoundStartTask = Task { @MainActor [weak self] in
+             guard let self else { return }
