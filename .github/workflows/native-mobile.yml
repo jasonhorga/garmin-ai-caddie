@@ -761,8 +761,8 @@ jobs:
             fi
           done
           if [ "${#logs[@]}" -eq 0 ]; then
-            echo 'J4.2 native fixture DNS gate: no fixture test logs were produced'
-            exit 0
+            echo 'J4.2 native fixture DNS gate: no fixture test logs were produced' >&2
+            exit 1
           fi
           python3 .github/scripts/check_native_fixture_dns.py "${logs[@]}"
       - name: Collect Watch design snapshots
@@ -1034,7 +1034,13 @@ jobs:
           PY
       - name: J4.2 fixture DNS gate (Product UI tests)
         if: ${{ always() && steps.product_ui_tests.outcome != 'skipped' }}
-        run: python3 .github/scripts/check_native_fixture_dns.py product-ui-results/xcodebuild.log
+        run: |
+          set -euo pipefail
+          test -f product-ui-results/xcodebuild.log || {
+            echo 'J4.2 Product UI DNS gate: xcodebuild log is missing' >&2
+            exit 1
+          }
+          python3 .github/scripts/check_native_fixture_dns.py product-ui-results/xcodebuild.log
       - name: Collect Product UI failure screenshots
         if: ${{ failure() }}
         run: |

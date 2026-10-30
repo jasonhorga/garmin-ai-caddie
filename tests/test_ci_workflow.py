@@ -650,6 +650,25 @@ class CIWorkflowTests(unittest.TestCase):
             evidence_step["run"],
         )
 
+    def test_native_fixture_dns_gates_fail_closed_when_logs_are_missing(self) -> None:
+        """J4.2: a completed native test cannot pass its DNS gate without its log."""
+        workflow = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8"))
+        steps = {step.get("name"): step for step in workflow["jobs"]["native-mobile"]["steps"]}
+
+        native_gate = steps["J4.2 fixture DNS gate (native tests)"]["run"]
+        self.assertIn("no fixture test logs were produced", native_gate)
+        self.assertIn("exit 1", native_gate)
+        self.assertNotIn("exit 0", native_gate)
+
+        product_steps = {
+            step.get("name"): step
+            for step in workflow["jobs"]["native-product-ui"]["steps"]
+        }
+        product_gate = product_steps["J4.2 fixture DNS gate (Product UI tests)"]["run"]
+        self.assertIn("test -f product-ui-results/xcodebuild.log", product_gate)
+        self.assertIn("exit 1", product_gate)
+        self.assertIn("check_native_fixture_dns.py product-ui-results/xcodebuild.log", product_gate)
+
     def test_native_review_capture_scope_exits_normally_after_post_round_evidence(self) -> None:
         workflow_path = Path(".github/workflows/native-mobile.yml")
         workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
