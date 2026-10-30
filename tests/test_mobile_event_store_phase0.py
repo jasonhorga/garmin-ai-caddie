@@ -695,6 +695,66 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
                                  "cold recovery must remove abandoned event-store temporary files")
                 self.assertTrue(all(path.exists() for path in keep), "unrelated files and backups must survive")
 
+    def test_shared_read_does_not_clean_tmp_until_exclusive_lock(self) -> None:
+        """J5.9: migration tmp cleanup runs only after an exclusive event-lock acquisition."""
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [_event("shared-cleanup")], request_key="shared-cleanup")
+        temp = store.root / ".events.jsonl.migrate-shared.tmp"
+        original_fsync = os.fsync
+        created = False
+
+        def fsync(descriptor: int) -> None:
+            nonlocal created
+            original_fsync(descriptor)
+            if not created:
+                try:
+                    target = os.readlink(f"/proc/self/fd/{descriptor}")
+                except OSError:
+                    target = ""
+                if target == str(store.event_lock):
+                    temp.write_bytes(b"live migration bytes")
+                    created = True
+
+        with mock.patch.object(mobile_event_store.os, "fsync", side_effect=fsync):
+            self.assertEqual([row["event"]["eventId"] for row in store.read_rows()], ["shared-cleanup"])
+        self.assertTrue(temp.exists(), "a shared reader must not delete a tmp created during its lock")
+
+        self.assertEqual([row["event"]["eventId"] for row in store.read_rows()], ["shared-cleanup"])
+        self.assertFalse(temp.exists(), "an exclusive cleanup pass removes the abandoned tmp")
+
+    def test_cleanup_unlink_failure_warns_and_read_continues(self) -> None:
+        """J5.9: an undeletable event tmp warns without making the partition unreadable."""
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [_event("unlink-warning")], request_key="unlink-warning")
+        temp = store.root / ".events.jsonl.migrate-unlink-warning.tmp"
+        temp.write_bytes(b"undeletable")
+        original_unlink = Path.unlink
+
+        def unlink(path: Path, *, missing_ok: bool = False) -> None:
+            if path == temp:
+                raise PermissionError("synthetic unlink denial")
+            original_unlink(path, missing_ok=missing_ok)
+
+        with mock.patch.object(Path, "unlink", autospec=True, side_effect=unlink), \
+             mock.patch.object(mobile_event_store.logger, "warning") as warning:
+            rows = FileEventStore(self.root).read_rows(ROUND_A)
+
+        self.assertEqual([row["event"]["eventId"] for row in rows], ["unlink-warning"])
+        warning.assert_called_once()
+        self.assertIn("migration", str(warning.call_args).lower())
+
+    def test_reservation_temporary_files_are_cleaned_without_touching_formal_store(self) -> None:
+        """J5.9: request-reservation tmp artifacts are event-owned cleanup targets."""
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [_event("reservation-cleanup")], request_key="reservation-cleanup")
+        temporary = store.root / ".request_reservations.json.123.tmp"
+        temporary.write_bytes(b"stale reservation")
+        store.reservations.write_bytes(b"formal reservation store")
+
+        self.assertEqual([row["event"]["eventId"] for row in store.read_rows()], ["reservation-cleanup"])
+        self.assertFalse(temporary.exists())
+        self.assertEqual(store.reservations.read_bytes(), b"formal reservation store")
+
     def test_migration_backup_is_private_at_every_metadata_boundary(self) -> None:
         """J7.3: a 0644 source never makes the backup public, even before final chmod."""
         store = FileEventStore(self.root)
