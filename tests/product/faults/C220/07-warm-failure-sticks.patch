@@ -1,13 +1,13 @@
 diff --git a/server_v2/history_stats.py b/server_v2/history_stats.py
+index 9a908877..50f8e0a0 100644
 --- a/server_v2/history_stats.py
 +++ b/server_v2/history_stats.py
-@@ -180,7 +180,7 @@
+@@ -177,6 +177,8 @@ def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Threa
+         existing = _WARM_THREADS.get(clean_player_id)
          if existing is not None and existing.is_alive():
              return existing
-         retry_at = _WARM_FAILURE_AT.get(clean_player_id, 0.0)
--        if clean_player_id in _WARM_FAILURES and time.monotonic() < retry_at:
 +        if clean_player_id in _WARM_FAILURES:
-             return None
--
-+
++            return None
+ 
          def run() -> None:
+             try:

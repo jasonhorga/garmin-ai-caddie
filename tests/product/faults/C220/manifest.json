@@ -49,6 +49,20 @@
       "kind": "python",
       "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_G7_failed_warm_retries_after_backoff_and_clears_failure",
       "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C220-F8",
+      "patch": "tests/product/faults/C220/08-preflight-waits-history-only.patch",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_G7_fastlane_preflights_before_build_and_retries_warming_with_budget",
+      "kind": "python",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C220-F9",
+      "patch": "tests/product/faults/C220/09-degraded-ignores-opt-in.patch",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_G7_fastlane_preflights_before_build_and_retries_warming_with_budget",
+      "kind": "python",
+      "promise": "G7"
     }
   ]
 }
