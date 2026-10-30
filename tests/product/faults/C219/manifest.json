@@ -147,6 +147,13 @@
       "kind": "python",
       "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_two_distinct_all_nine_courses_first_card_only_complete_mapping",
       "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-22-back-gid-plain-18",
+      "patch": "tests/product/faults/C219/R13-back-gid-plain-18.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_plain_18_missing_back_hole_keeps_physical_back_nine",
+      "promise": "1.3"
     }
   ]
 }
