@@ -1,0 +1,11 @@
+--- a/ai_caddie/geometry/geometry_evidence.py
++++ b/ai_caddie/geometry/geometry_evidence.py
+@@ -128,8 +128,6 @@
+     distances = distances_path(int(global_id), int(local_hole))
+     if distances.is_file():
+         evidence.append({"label": "distances", "ref": _display_path(distances)})
+-    else:
+-        missing_data.append({"label": "distances", "reason": "prodgeometry distance file missing"})
+
+     current_authority: bool | None = None
+     authority_observation = "not_required"

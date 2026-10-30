@@ -1,0 +1,11 @@
+--- a/server_v2/course_install.py
++++ b/server_v2/course_install.py
+@@ -684,7 +684,7 @@
+         f"{int(raw.get('globalId') or 0)}:{int(raw.get('localHole') or raw.get('hole') or 0)}"
+         for raw in refs
+         if isinstance(raw, dict) and any(
+-            isinstance(item, dict) and item.get("label") in {"hazards", "distances"}
++            isinstance(item, dict) and item.get("label") == "hazards"
+             for item in raw.get("missingData") or []
+         )
+     }

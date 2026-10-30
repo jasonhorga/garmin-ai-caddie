@@ -1,0 +1,10 @@
+--- a/tests/product/test_c33_start_fast.py
++++ b/tests/product/test_c33_start_fast.py
+@@ -688,7 +688,6 @@
+                 finally:
+                     # Join before restoring mocks or deleting files, including on assertion failure.
+                     release.set()
+-                    pool.shutdown()
+         finally:
+             release.set()
+             pool.shutdown()

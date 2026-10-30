@@ -587,10 +587,45 @@ class ReworkTeeWarmTests(unittest.TestCase):
 
 
 class ReworkPreemptionTests(unittest.TestCase):
+    def test_J42_preemption_fixture_keeps_files_and_patches_until_workers_finish(self):
+        """J4.2: force the final vector callback to outlive the distance-order assertion."""
+        from ai_caddie.courses import vector_prep as vp
+        entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+        cleanup_observations = []
+
+        def delayed_warm(*args):
+            from ai_caddie.core.priority_work import current_priority
+            if current_priority() == NEARBY:
+                entered.set()
+                if not release.wait(10):
+                    raise AssertionError('test lane never released its final callback')
+                finished.set()
+
+        class Lane(PriorityExecutor):
+            def shutdown(self, *args, **kwargs):
+                # This signal lets the worker finish only when its owner starts joining it.
+                release.set()
+                return super().shutdown(*args, **kwargs)
+
+        class Directory(TemporaryDirectory):
+            def __exit__(self, *args):
+                entered.wait(2)
+                cleanup_observations.append(finished.is_set())
+                release.set()  # Also release the deliberately broken lifecycle on red/mutant.
+                return super().__exit__(*args)
+
+        with (patch(__name__ + '.PriorityExecutor', Lane),
+              patch(__name__ + '.TemporaryDirectory', Directory),
+              patch.object(vp, 'warm_requested_vectors', side_effect=delayed_warm)):
+            self.test_foreground_preempts_early_nearby_export_and_requeues_it()
+        self.assertTrue(entered.is_set(), 'the requeued nearby export must reach its final callback')
+        self.assertEqual(cleanup_observations, [True], 'directory cleanup started before the worker finished')
+
     def test_foreground_preempts_early_nearby_export_and_requeues_it(self):
         from ai_caddie.geometry import batch_prodgeometry_course as bp
         from ai_caddie.core import priority_work as pw
         entered, stopped, release = threading.Event(), threading.Event(), threading.Event()
+        nearby_distance = threading.Event()
         order = []
         class Process:
             returncode = 0
@@ -606,6 +641,8 @@ class ReworkPreemptionTests(unittest.TestCase):
                     Path(self.cmd[self.cmd.index('--out') + 1]).write_text('{}')
                     if 'distances' in ' '.join(self.cmd):
                         order.append(pw.current_priority())
+                        if pw.current_priority() == NEARBY:
+                            nearby_distance.set()
                 return '', None
             def terminate(self):
                 stopped.set()
@@ -619,36 +656,39 @@ class ReworkPreemptionTests(unittest.TestCase):
                   patch.object(bp, '_derivative_target_is_current', return_value=True),
                   patch.object(bp.subprocess, 'Popen', Process),
                   patch('ai_caddie.courses.vector_prep.cached_vector_hole', return_value=None)):
-                paths = [Path(d)/str(h) for h in (1, 2)]
-                for p in paths:
-                    p.mkdir()
-                    (p/'mesh').write_text('{}')
-                def submit(h, priority):
-                    token = pw._CURRENT_PRIORITY.set(priority)
-                    try:
-                        p = paths[h-1]
-                        bp._start_derivative_job(123, h, p/'mesh', p/'distance', p/'hazard')
-                    finally:
-                        pw._CURRENT_PRIORITY.reset(token)
-                # Both the legacy subprocess.run and replacement Popen use this fake provider.
-                def legacy_run(cmd, **kw):
-                    proc = Process(cmd)
-                    while True:
+                try:
+                    paths = [Path(d)/str(h) for h in (1, 2)]
+                    for p in paths:
+                        p.mkdir()
+                        (p/'mesh').write_text('{}')
+                    def submit(h, priority):
+                        token = pw._CURRENT_PRIORITY.set(priority)
                         try:
-                            stdout, _ = proc.communicate(.01)
-                            return SimpleNamespace(returncode=0, stdout=stdout)
-                        except bp.subprocess.TimeoutExpired:
-                            pass
-                with patch.object(bp.subprocess, 'run', side_effect=legacy_run):
-                    submit(1, NEARBY)
-                    self.assertTrue(entered.wait(1))
-                    submit(2, FOREGROUND)
-                    self.assertTrue(stopped.wait(1))  # P2: early NEARBY child is terminated for foreground admission.
-                    deadline = time.monotonic() + 2
-                    while len(order) < 2 and time.monotonic() < deadline:
-                        threading.Event().wait(.01)
-                    self.assertEqual(order[:2], [FOREGROUND, NEARBY])
-                    self.assertEqual(bp._DERIVATIVE_FAILURES, {})  # Yielding does not spend failure backoff.
+                            p = paths[h-1]
+                            bp._start_derivative_job(123, h, p/'mesh', p/'distance', p/'hazard')
+                        finally:
+                            pw._CURRENT_PRIORITY.reset(token)
+                    # Both the legacy subprocess.run and replacement Popen use this fake provider.
+                    def legacy_run(cmd, **kw):
+                        proc = Process(cmd)
+                        while True:
+                            try:
+                                stdout, _ = proc.communicate(.01)
+                                return SimpleNamespace(returncode=0, stdout=stdout)
+                            except bp.subprocess.TimeoutExpired:
+                                pass
+                    with patch.object(bp.subprocess, 'run', side_effect=legacy_run):
+                        submit(1, NEARBY)
+                        self.assertTrue(entered.wait(1))
+                        submit(2, FOREGROUND)
+                        self.assertTrue(stopped.wait(1))  # P2: early NEARBY child is terminated for foreground admission.
+                        self.assertTrue(nearby_distance.wait(2))
+                        self.assertEqual(order[:2], [FOREGROUND, NEARBY])
+                        self.assertEqual(bp._DERIVATIVE_FAILURES, {})  # Yielding does not spend failure backoff.
+                finally:
+                    # Join before restoring mocks or deleting files, including on assertion failure.
+                    release.set()
+                    pool.shutdown()
         finally:
             release.set()
             pool.shutdown()
