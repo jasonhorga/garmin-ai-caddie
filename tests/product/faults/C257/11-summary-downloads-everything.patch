@@ -1,0 +1,12 @@
+diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
+index 286e1ec..7604c8c 100644
+--- a/.github/workflows/native-mobile.yml
++++ b/.github/workflows/native-mobile.yml
+@@ -1329,7 +1329,6 @@ jobs:
+         continue-on-error: true
+         with:
+           path: native-shards
+-          pattern: "@(real-screenshots|real-video|fixture-startup-diagnostics|native-build-evidence-ci-fixture)-@(unit-watch|real-flow|screenshots)"
+       - name: Combine fixture evidence under the legacy contract
+         id: combine_fixture_evidence
+         if: ${{ always() && inputs.fixture_mode }}

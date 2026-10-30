@@ -1,0 +1,12 @@
+diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
+index 286e1ec..42daa51 100644
+--- a/.github/workflows/native-mobile.yml
++++ b/.github/workflows/native-mobile.yml
+@@ -1367,6 +1367,7 @@ jobs:
+                   source = root / f'{artifact}-{shard}'
+                   if not source.is_dir():
+                       continue
++                  shutil.copytree(source, destination / 'shards' / shard, dirs_exist_ok=True)
+                   for path in sorted(source.rglob('*')):
+                       if path.is_file():
+                           files.setdefault(path.relative_to(source), []).append((shard, path))

@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
+index 286e1ec..473c5f6 100644
+--- a/.github/workflows/native-mobile.yml
++++ b/.github/workflows/native-mobile.yml
+@@ -1415,7 +1415,7 @@ jobs:
+         if: ${{ always() && steps.combine_fixture_evidence.outputs.real-screenshots == 'true' }}
+         uses: actions/upload-artifact@v4
+         with:
+-          overwrite: true
++          overwrite: false
+           name: real-screenshots
+           path: real-screenshots/
+           if-no-files-found: error

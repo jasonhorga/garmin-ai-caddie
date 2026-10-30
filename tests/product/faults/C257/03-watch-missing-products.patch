@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
+index 286e1ec..dbf4967 100644
+--- a/.github/workflows/native-mobile.yml
++++ b/.github/workflows/native-mobile.yml
+@@ -131,7 +131,7 @@ jobs:
+         if: ${{ !cancelled() }}
+         run: |
+           set -euo pipefail
+-          if compgen -G "$RUNNER_TEMP/NativeQuickDerivedData/Build/Products/*.xctestrun" > /dev/null; then
++          if true; then
+             echo 'ready=true' >> "$GITHUB_OUTPUT"
+           else
+             echo 'ready=false' >> "$GITHUB_OUTPUT"

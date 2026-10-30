@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
+index 286e1ec..4ab70b4 100644
+--- a/.github/workflows/native-mobile.yml
++++ b/.github/workflows/native-mobile.yml
+@@ -137,7 +137,7 @@ jobs:
+             echo 'ready=false' >> "$GITHUB_OUTPUT"
+           fi
+       - name: Test Watch unit target when affected
+-        if: ${{ !cancelled() && steps.quick_build.outcome == 'success' && steps.watch_changes.outputs.needed == 'true' && steps.quick_products.outputs.ready == 'true' }}
++        if: ${{ success() && steps.quick_build.outcome == 'success' && steps.watch_changes.outputs.needed == 'true' && steps.quick_products.outputs.ready == 'true' }}
+         run: |
+           set -euo pipefail
+           WATCH_UDID=$(xcrun simctl list devices available -j | jq -r '
