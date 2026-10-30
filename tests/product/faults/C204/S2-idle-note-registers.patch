@@ -1,13 +1,13 @@
 diff --git a/server_v2/main.py b/server_v2/main.py
-index 43919d5c..6b84b5e4 100644
+index 2f48fa79..431be83d 100644
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2767,7 +2767,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
+@@ -2772,7 +2772,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                  may_restore = (
                      latest == key
                      or timed
 -                    or not new_events
 +                    or True
-                     or restore_only_registration
                      or package_registration
                      or event_timestamp_valid is False
+                 )
