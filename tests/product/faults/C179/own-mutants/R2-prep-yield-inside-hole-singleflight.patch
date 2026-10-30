@@ -1,0 +1,18 @@
+diff --git a/ai_caddie/courses/prep_cache.py b/ai_caddie/courses/prep_cache.py
+index f7a07875..27e615e4 100644
+--- a/ai_caddie/courses/prep_cache.py
++++ b/ai_caddie/courses/prep_cache.py
+@@ -281,11 +281,11 @@ def cached_hole_preps(
+     mark("prep_hole_revision")
+     out: dict[int, Any] = {}
+     for hole in holes:
+-        hole_boundary()
++        checkpoint()
+         hole = int(hole)
+         key = ("hole", gid, hole, bool(render), bool(include_shots), player_id, variant)
+         fingerprint = (shared, _requested_geometry_sig(gid, [hole]))
+-        out[hole] = _singleflight(_hole_cache, _HOLE_MAXSIZE, key, fingerprint, lambda h=hole: build_hole(h))
++        out[hole] = _singleflight(_hole_cache, _HOLE_MAXSIZE, key, fingerprint, lambda h=hole: (hole_boundary(), build_hole(h))[1])
+     return out
+ 
+ 

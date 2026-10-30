@@ -44,6 +44,7 @@ from ai_caddie.core.priority_work import (
     PriorityExecutor,
     foreground_work,
     work_priority,
+    yield_to_foreground,
 )
 from ai_caddie.core.play_order import expand_display_holes, play_order
 
@@ -224,6 +225,7 @@ SERVICE_INFO_LOGGERS = (
     "ai_caddie.geometry.batch_prodgeometry_course",  # geometry_derivatives / course_asset lines
     "server_v2.map_startup",
     "server_v2.mobile",
+    "ai_caddie.core.priority_work",
 )
 
 
@@ -1920,7 +1922,7 @@ def course_nearby_endpoint(
         from server_v2.map_startup import schedule_nearby
 
         # Submit only; never wait for package admission in this connection's ASGI task.
-        background_tasks.add_task(schedule_nearby, matches)
+        background_tasks.add_task(schedule_nearby, matches, player_id)
     # Only the nearest three rows, the courses that prefetch warms, carry Tee rows: each costs a
     # release decode and a geometry pass, and a 50 km answer may list hundreds of courses.
     from server_v2.map_startup import _nearest_three
@@ -3067,6 +3069,9 @@ def run_course_install_job(identifier: str) -> None:
             # Queue the bitmap first; a cold hole returns None here and builds after supplements.
             from ai_caddie.courses.vector_prep import warm_requested_vectors
 
+            # The vector seed is this coordinator's own CPU: a background pass gives a live
+            # package the interpreter first. No vector/geometry lock is held at this point.
+            yield_to_foreground()
             try:
                 warm_requested_vectors(gid, hole)
             except Exception:
@@ -3075,6 +3080,8 @@ def run_course_install_job(identifier: str) -> None:
     for gid, holes in pending_by_gid.items():
         if course_install.cancellation_requested(identifier):
             return
+        # Window boundary inside a pass: a background install pauses here while a package is live.
+        yield_to_foreground()
         try:
             from ai_caddie.caddie.analysis import tee_set_for_box
             from ai_caddie.courses.vector_prep import request_vector_tee
@@ -3232,10 +3239,6 @@ def mobile_course_package(
         package.get("course") if isinstance(package, dict)
         else getattr(package, "course", None)
     ) or {}
-    package_tee_box = (
-        package_course.get("teeBox") if isinstance(package_course, dict)
-        else getattr(package_course, "teeBox", None)
-    )
     package_global_id = (
         package_course.get("globalId") if isinstance(package_course, dict)
         else getattr(package_course, "globalId", None)
@@ -3277,9 +3280,11 @@ def mobile_course_package(
 
     if not refs:
         return package
+    # One Tee rule for the lease, the install identity and its priority: the requested Tee (Blue
+    # when omitted). The package's own teeBox is a response fact, not the registered selection.
     job = course_install.enqueue(
         global_id=int(global_id),
-        tee_box=str(tee_box or package_tee_box or "blue"),
+        tee_box=requested_tee_box,
         loop_key=round_loop_key(round_loops),
         player_id=player_id,
         refs=refs,
@@ -3291,7 +3296,7 @@ def mobile_course_package(
                 player_id,
                 global_id,
                 loop_key=round_loop_key(round_loops),
-                tee_box=str(tee_box or package_tee_box or "blue"),
+                tee_box=requested_tee_box,
             )
             else NEARBY
         ),

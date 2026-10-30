@@ -227,7 +227,7 @@ def _warm_hole(
     runs before the hole's geometry is installed leaves it for the next pass, whose WebP is then a
     disk read.
     """
-    with background_work():
+    with background_work(unit_type="raster"):
         _wait_while(should_yield, global_id=global_id, hole=hole)
         try:
             warmed = garmin_raster.fetch_matted_raster(global_id, hole) is not None

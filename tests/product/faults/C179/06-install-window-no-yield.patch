@@ -1,0 +1,23 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 7096a0c1..638b67bc 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2943,9 +2943,6 @@ def run_course_install_job(identifier: str) -> None:
+             # Queue the bitmap first; a cold hole returns None here and builds after supplements.
+             from ai_caddie.courses.vector_prep import warm_requested_vectors
+ 
+-            # The vector seed is this coordinator's own CPU: a background pass gives a live
+-            # package the interpreter first. No vector/geometry lock is held at this point.
+-            yield_to_foreground()
+             try:
+                 warm_requested_vectors(gid, hole)
+             except Exception:
+@@ -2954,8 +2951,6 @@ def run_course_install_job(identifier: str) -> None:
+     for gid, holes in pending_by_gid.items():
+         if course_install.cancellation_requested(identifier):
+             return
+-        # Window boundary inside a pass: a background install pauses here while a package is live.
+-        yield_to_foreground()
+         try:
+             from ai_caddie.caddie.analysis import tee_set_for_box
+             from ai_caddie.courses.vector_prep import request_vector_tee

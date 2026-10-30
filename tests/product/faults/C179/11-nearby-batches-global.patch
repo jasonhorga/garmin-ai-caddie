@@ -1,0 +1,13 @@
+diff --git a/server_v2/map_startup.py b/server_v2/map_startup.py
+index c56239d5..47e15b07 100644
+--- a/server_v2/map_startup.py
++++ b/server_v2/map_startup.py
+@@ -320,7 +320,7 @@ def schedule_nearby(matches, player_id: str | None = None) -> None:
+     global _NEARBY_DISPATCH_THREAD
+     with _NEARBY_DISPATCH_LOCK:
+         player = str(player_id or "")
+-        _NEARBY_PENDING.pop(player, None)  # re-queue at the end with the latest discovery
++        _NEARBY_PENDING.clear()
+         _NEARBY_PENDING[player] = list(matches)
+         if _NEARBY_DISPATCH_THREAD is not None:
+             return
