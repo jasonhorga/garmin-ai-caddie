@@ -187,6 +187,86 @@ class MobileReconciliationTests(unittest.TestCase):
                 self.assertEqual(corrected.get("backNineGlobalCourseId"), b)
                 self.assertEqual(loops(corrected), loops(truth))
 
+    def test_j1_3_mixed_course_restore_uses_the_restored_loop_par(self) -> None:
+        """J1.3: a restored hole uses its physical loop's CourseView par source."""
+        from ai_caddie.history.history import merge_same_day_halves
+
+        a, b = 31796, 31794
+        cases = (
+            ("E2", [(a, "front"), (b, "back")], "443454344534443545", "534443545", 70),
+            ("E6", [(a, "front"), (b, "all")], "443454344534443545", "435454344", 71),
+        )
+        for name, identity, a_pars, b_pars, expected_par in cases:
+            with self.subTest(shape=name), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                _save_identity(root, name, identity)
+                _save_course_par(root, a, a_pars)
+                _save_course_par(root, b, b_pars)
+                first = {
+                    "id": name, "date": "2026-10-01 08:00", "course": "Mixed",
+                    "courseCanonical": "mixed", "globalId": a, "courseId": a,
+                    "frontNineGlobalCourseId": a, "backNineGlobalCourseId": None,
+                    "holePars": a_pars, "holes": [
+                        {"number": n, "strokes": int(par) + 1, "par": int(par)}
+                        for n, par in zip(range(1, 10), a_pars[:9])
+                    ], "holesCompleted": 9, "strokes": 45, "par": sum(map(int, a_pars[:9])),
+                }
+                second_numbers = range(10, 19) if identity[1][1] == "back" else range(1, 10)
+                second = {
+                    "id": f"{name}-b", "date": "2026-10-01 10:00", "course": "Mixed",
+                    "courseCanonical": "mixed", "globalId": b, "courseId": b,
+                    "frontNineGlobalCourseId": b, "backNineGlobalCourseId": None,
+                    "holePars": b_pars, "holes": [
+                        {"number": n, "strokes": int(par) + 1, "par": int(par)}
+                        for n, par in zip(second_numbers, b_pars if len(b_pars) == 9 else b_pars[9:])
+                    ], "holesCompleted": 9,
+                    "strokes": sum(int(par) + 1 for par in (b_pars if len(b_pars) == 9 else b_pars[9:])),
+                    "par": sum(map(int, b_pars if len(b_pars) == 9 else b_pars[9:])),
+                }
+                strokes = [hole["strokes"] for hole in first["holes"] + second["holes"]]
+                append_event_batch(name, [{
+                    "eventId": f"score-{n}", "roundId": name, "hole": n,
+                    "kind": "score", "payload": {"strokes": strokes[n - 1]},
+                } for n in range(1, 19)], idempotency_key=name, root=root)
+                data = HistoryData(raw_rounds=[], rounds=[first], shots=[])
+                result = reconcile_mobile_round_events(name, data, root=root, annotations_root=root)
+                suggestions = [row for row in result["annotationSuggestions"] if row["kind"] == "score_correction"]
+                apply_mobile_reconciliation_suggestions(
+                    name, data, suggestion_ids=[row["id"] for row in suggestions],
+                    root=root, annotations_root=root, data_loader=lambda: data,
+                )
+                corrected = corrected_history_data(data, annotations_root=root, course_root=root).rounds[0]
+                truth = merge_same_day_halves([dict(first), dict(second)])[0]
+                self.assertEqual(corrected["par"], expected_par)
+                self.assertEqual(corrected["par"], truth["par"])
+
+    def test_j1_3_back_loop_identity_controls_physical_geometry_and_sides(self) -> None:
+        """J1.3: only a physical back loop keeps display 10..18 as local 10..18."""
+        from ai_caddie.history.history_stats import _round_side_loop_keys
+        from ai_caddie.history.history_round_detail import _hole_geometry_target
+        from ai_caddie.rounds.round_shot_map import _geometry_target
+
+        for half, expected_local, expected_span in (
+            ("all", 3, "1-9"), ("front", 3, "1-9"), ("back", 12, "10-18"),
+        ):
+            with self.subTest(half=half):
+                row = {
+                    "id": f"loop-{half}", "merged": True, "globalId": 31796,
+                    "frontNineGlobalCourseId": 31796, "backNineGlobalCourseId": 31794,
+                    "roundLoops": [
+                        {"globalId": 31796, "half": "front"},
+                        {"globalId": 31794, "half": half},
+                    ],
+                    "holes": [{"number": n, "strokes": 5} for n in range(1, 19)],
+                }
+                self.assertEqual(_geometry_target(row, 12), (31794, expected_local))
+                self.assertEqual(_hole_geometry_target(row, 12), {
+                    "globalId": 31794, "localHole": expected_local,
+                })
+                sides = hole_sides(row)
+                self.assertEqual(next(item[2] for item in sides if item[1] == 12), expected_local)
+                self.assertEqual(_round_side_loop_keys(row)["backLoopKey"], f"gid:31794:{expected_span}")
+
     def test_j1_3_rotated_missing_front_restores_to_physical_front(self) -> None:
         # J1.3: a back-start phone round must map phone 1..9 to Garmin 10..18;
         # missing front holes are phone 10..18 and may only target Garmin 1..9.
@@ -487,7 +567,6 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(result["localOnly"], [{
             "eventId": "mapped-score", "roundId": "mapped-missing", "kind": "score",
             "hole": 1, "localValue": 5, "unmapped": True, "phoneHole": 1,
-            "restoreUnavailableReason": "standard_par_unavailable",
         }])
 
     def test_back_start_eighteen_round_with_only_first_garmin_card_is_partial(self) -> None:
@@ -969,7 +1048,11 @@ class MobileReconciliationTests(unittest.TestCase):
             result = reconcile_mobile_round_events("no-par-facts", data, root=root)
             self.assertEqual(result["annotationSuggestions"], [])
             self.assertTrue(all(row.get("restoreUnavailableReason") == "standard_par_unavailable"
-                                for row in result["localOnly"] if row["hole"] >= 10))
+                                for row in result["localOnly"]
+                                if row["hole"] >= 10 and row["kind"] == "score"))
+            self.assertTrue(all("restoreUnavailableReason" not in row
+                                for row in result["localOnly"]
+                                if row["hole"] >= 10 and row["kind"] in {"putt", "penalty"}))
             applied = apply_mobile_reconciliation_suggestions(
                 "no-par-facts", data, root=root, annotations_root=root, data_loader=lambda: data,
             )
