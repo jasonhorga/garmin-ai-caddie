@@ -403,6 +403,103 @@ class C187ManualGirBackfillTests(unittest.TestCase):
         self.assertEqual(report["summary"]["manualRounds"], 1)
 
 
+    def _assert_ingest_and_backfill_gir(
+        self, events: list[dict], meta: dict, *, ingest_gir: bool | None, backfill_gir: bool | None,
+    ) -> None:
+        card, _shots = _ingest_fixture(self.root, events, meta)
+        raw = json.loads(card.read_bytes())
+        hole = raw["scorecardDetails"][0]["scorecard"]["holes"][0]
+        with self.subTest(phase="ingest"):
+            self.assertIs(hole.get("gir"), ingest_gir)
+        hole.pop("gir", None)  # Simulate pre-C51 history using the authentic persisted shots.
+        card.write_text(json.dumps(raw))
+        report = backfill_manual_gir.backfill(root=self.root, apply=True)
+        with self.subTest(phase="backfill"):
+            self.assertFalse(report.get("applyErrors"))
+            after = json.loads(card.read_bytes())["scorecardDetails"][0]["scorecard"]["holes"][0]
+            self.assertIs(after.get("gir"), backfill_gir)
+
+    def test_j2_5_unrecognized_stroke_after_putt_uses_observed_landing(self) -> None:
+        """J2.5 A: par4, 4 strokes, 2 putts; a missing last club must not turn GIR into a miss."""
+        events = [
+            {"hole": 2, "kind": "club", "payload": {"clubName": "1D", "lie": "TeeBox"}},
+            {"hole": 2, "kind": "location", "payload": {"latitude": 22.5400, "longitude": 113.9540}},
+            {"hole": 2, "kind": "club", "payload": {"clubName": "8I", "lie": "Fairway"}},
+            {"hole": 2, "kind": "location", "payload": {"latitude": 22.5410, "longitude": 113.9550}},
+            {"hole": 2, "kind": "club", "payload": {"clubName": "Putter", "lie": "Green", "shotType": "putt"}},
+            {"hole": 2, "kind": "location", "payload": {"latitude": 22.541708951284377, "longitude": 113.95557545718002}},
+            {"hole": 2, "kind": "location", "payload": {"latitude": 22.541708951284377, "longitude": 113.95557545718002}},
+            {"hole": 2, "kind": "score", "payload": {"strokes": 4}},
+        ]
+        # Observed third start is on the selected green: reached it in 2 = par4-2 strokes.
+        self._assert_ingest_and_backfill_gir(events, {"courseGlobalId": 31834, "holePars": "44"},
+                                           ingest_gir=True, backfill_gir=True)
+
+    def test_j2_5_duplicate_putt_location_does_not_invent_gir(self) -> None:
+        """J2.5 B: par4, 5 strokes but 6 locations; a double tap is not an extra putt."""
+        events = [
+            {"hole": 2, "kind": "club", "payload": {"clubName": "1D", "lie": "TeeBox"}},
+            {"hole": 2, "kind": "location", "payload": {"latitude": 22.5400, "longitude": 113.9540}},
+            {"hole": 2, "kind": "club", "payload": {"clubName": "8I", "lie": "Fairway"}},
+            {"hole": 2, "kind": "location", "payload": {"latitude": 22.5410, "longitude": 113.9550}},
+            {"hole": 2, "kind": "club", "payload": {"clubName": "56", "lie": "Rough"}},
+            {"hole": 2, "kind": "location", "payload": {"latitude": 22.5405, "longitude": 113.9545}},
+        ]
+        for _ in range(3):  # Two putts, one of whose positions was recorded twice.
+            events.extend([
+                {"hole": 2, "kind": "club", "payload": {"clubName": "Putter", "lie": "Green", "shotType": "putt"}},
+                {"hole": 2, "kind": "location", "payload": {"latitude": 22.541708951284377, "longitude": 113.95557545718002}},
+            ])
+        events.append({"hole": 2, "kind": "score", "payload": {"strokes": 5}})
+        # Third start is outside the green but not classifiable by this fixture: unknown,
+        # never GIR=True based on the three recognized putter positions (5-3=2).
+        self._assert_ingest_and_backfill_gir(events, {"courseGlobalId": 31834, "holePars": "44"},
+                                           ingest_gir=None, backfill_gir=None)
+
+    def test_j2_5_custom_putter_name_loses_type_without_inventing_a_miss(self) -> None:
+        """J2.5/N1: persisted APPROACH loses Odyssey's putt type; unknown is not a miss."""
+        events = _putter_events(1, [
+            {"clubName": "1D", "lie": "TeeBox"},
+            {"clubName": "8I", "lie": "Fairway"},
+            {"clubName": "Putter", "lie": "Green", "shotType": "putt"},
+            {"clubName": "Odyssey", "lie": "Green", "shotType": "putt"},
+        ])
+        # In memory 4-2=2 (GIR); disk cannot identify the last putt and has no geometry.
+        self._assert_ingest_and_backfill_gir(events, {"holePars": "4"},
+                                           ingest_gir=True, backfill_gir=None)
+
+    def test_j2_5_ingest_regulation_landing_is_next_start_not_last(self) -> None:
+        """J2.5/N3: third start in rough, fourth start on green -> par4 GIR False."""
+        # Two disjoint surface squares, in local metres relative to this synthetic reference.
+        meshes = {"surfaces": [
+            {"kind": "playable_bounds", "polygon": [[-10, -10], [110, -10], [110, 110], [-10, 110]]},
+            {"kind": "rough", "polygon": [[-5, -5], [5, -5], [5, 5], [-5, 5]]},
+            {"kind": "green", "polygon": [[95, 95], [105, 95], [105, 105], [95, 105]]},
+        ]}
+        (self.root / "output/prodgeometry/gid41825_h01_meshes.json").write_text(json.dumps(meshes))
+        (self.root / "output/prodgeometry_hazards/gid41825_h01_hazards.json").write_text(
+            json.dumps({"refLat": 22.54, "refLon": 113.954, "hazards": []}))
+        events = []
+        for point in [(0, 0), (0, 0), (0, 0), (100, 100)]:
+            lat, lon = core_data.local_to_wgs84(*point, 22.54, 113.954)
+            events.append({"hole": 1, "kind": "location", "payload": {"latitude": lat, "longitude": lon}})
+        events.append({"hole": 1, "kind": "score", "payload": {"strokes": 4}})
+        card, _shots = _ingest_fixture(self.root, events, {"courseGlobalId": 41825, "holePars": "4"})
+        self.assertIs(json.loads(card.read_bytes())["scorecardDetails"][0]["scorecard"]["holes"][0].get("gir"), False)
+
+    def test_j2_5_successful_apply_returns_zero(self) -> None:
+        """J2.5/N4: successful CLI apply reports two actual updates and exits zero."""
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            status = backfill_manual_gir.main(["--root", str(self.root), "--apply"])
+        self.assertEqual(status, 0)
+        report = json.loads(output.getvalue())
+        self.assertFalse(report.get("applyErrors"))
+        self.assertEqual(len(report["changes"]), 2)
+        self.assertIs(self._hole_rows()[2].get("gir"), True)
+        self.assertIs(self._hole_rows()[6].get("gir"), True)
+
+
 
 if __name__ == "__main__":
     unittest.main()
