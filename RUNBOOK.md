@@ -47,6 +47,35 @@ gh pr view <PR> --repo jasonhorga/garmin-ai-caddie --json headRefOid,mergeable,s
 
 `agenthub-native-mutant.yml`（AgentHub 的对抗变异门）不再是必需检查。
 
+### 1.1 事件库 payload 迁移（C159）
+
+新镜像里的入口是 `ops/migrate_mobile_event_payloads.py`。部署新代码并确认健康后，先对所有有日志的分区 dry-run：
+
+```bash
+C=aicaddie-release-<新rev>
+docker exec "$C" sh -c '
+  for R in /var/lib/ai-caddie/data/mobile_events /var/lib/ai-caddie/data/players/*/mobile_events; do
+    [ -f "$R/events.jsonl" ] || continue
+    echo "partition=$R"
+    python /app/ops/migrate_mobile_event_payloads.py "$R"
+  done
+'
+```
+
+只对上面容器内 dry-run 输出中 `changed` 大于 0 的具体分区 apply；报告必须包含 `backup`。把这些输出中的 `root` 路径逐个填入下面命令，最后对同一批分区再 apply 一次，确认 `changed` 为 0：
+
+```bash
+docker exec "$C" python /app/ops/migrate_mobile_event_payloads.py /var/lib/ai-caddie/data/players/<player-dir>/mobile_events --apply
+docker exec "$C" python /app/ops/migrate_mobile_event_payloads.py /var/lib/ai-caddie/data/players/<player-dir>/mobile_events --apply
+```
+
+apply 持有该分区的事件锁；同一分区的追加、读和 ACK 会等待锁完成。备份只留在原目录，权限为 0600。
+若出现 `mobile_event_migration_intent_unrecoverable`，先停止该分区的写入。用下面命令找出仍在盘上的 intent，再保留对应 `events.jsonl.migration.json` 和 `.bak-*`，核对 intent 中的旧日志 sha、长度和 `backupPath`，由人工用备份恢复原日志权限与内容；无法核对时保留现场交项目台处理，不要删除日志。
+
+```bash
+docker exec "$C" find /var/lib/ai-caddie/data -name events.jsonl.migration.json -print
+```
+
 **native PR 要看截图**：拉同一次 `native-mobile` run 的两份产物，交子代理逐张看，
 在 PR 里写每份产物看到了什么、和卡的验收对不对得上；看完删目录。
 

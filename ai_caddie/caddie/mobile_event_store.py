@@ -34,11 +34,13 @@ ACK_LOCK_FILENAME = "client_acks.json.lock"
 RESERVATION_FILENAME = "request_reservations.json"
 EVENT_COMMIT_FILENAME = "events.jsonl.commit.json"
 EVENT_PENDING_COMMIT_FILENAME = "events.jsonl.pending.json"
+EVENT_MIGRATION_INTENT_FILENAME = "events.jsonl.migration.json"
 ROUND_INDEX_FILENAME = "round_event_index.json"
 ACK_SCHEMA = "ai-caddie-mobile-event-acks-v1"
 RESERVATION_SCHEMA = "ai-caddie-mobile-event-request-reservations-v1"
 EVENT_COMMIT_SCHEMA = "ai-caddie-mobile-event-commit-v2"
 EVENT_PENDING_COMMIT_SCHEMA = "ai-caddie-mobile-event-pending-commit-v2"
+EVENT_MIGRATION_INTENT_SCHEMA = "ai-caddie-mobile-event-migration-intent-v1"
 ROUND_INDEX_SCHEMA = "ai-caddie-mobile-round-event-index-v3"
 _IDENTITY_FIELDS = ("roundId", "clientId", "eventId")
 REDACTED_LOCAL_MEDIA_URL = "[REDACTED_LOCAL_MEDIA_URL]"
@@ -502,11 +504,32 @@ def bound_mobile_event(event: dict[str, Any]) -> dict[str, Any]:
         if isinstance(decision, dict):
             for key, value in decision.items():
                 if isinstance(value, str):
-                    encoded_value = value.encode("utf-8")
+                    # Redact before taking the bounded preview so a credential that straddles
+                    # the preview boundary cannot leave a usable fragment behind.  Avoid the
+                    # recursive redactor for ordinary large diagnostic strings.
+                    lowered = value.lower()
+                    preview_value = (
+                        _redact_mobile_text(value)
+                        if any(marker in lowered for marker in ("token", "secret", "password", "cookie", "authorization", "csrf", "api_key", "api-key"))
+                        else value
+                    )
+                    encoded_value = preview_value.encode("utf-8")
+                    bounded_preview = encoded_value[:256].decode("utf-8", errors="ignore")
+                    if "[REDACTED]" in preview_value:
+                        credential = re.search(
+                            r"\s+(?i:password|secret|token|api[_-]?key|authorization|cookie|csrf)\s*[:=]\s*\[REDACTED\]",
+                            preview_value,
+                        )
+                        if (
+                            credential is not None
+                            and len(preview_value[:credential.start()].encode("utf-8")) < 256
+                            and len(preview_value[:credential.end()].encode("utf-8")) > 256
+                        ):
+                            bounded_preview = preview_value[:credential.start()].rstrip()
                     summary[str(key)] = (
-                        value
+                        preview_value
                         if len(encoded_value) <= 256
-                        else encoded_value[:256].decode("utf-8", errors="ignore")
+                        else bounded_preview
                     )
                 elif value is None or isinstance(value, (bool, int, float)):
                     summary[str(key)] = value
@@ -544,6 +567,7 @@ class FileEventStore:
         self.reservations = self.root / RESERVATION_FILENAME
         self.commit_marker = self.root / EVENT_COMMIT_FILENAME
         self.pending_commit = self.root / EVENT_PENDING_COMMIT_FILENAME
+        self.migration_intent = self.root / EVENT_MIGRATION_INTENT_FILENAME
         self.round_index = self.root / ROUND_INDEX_FILENAME
         self._additional_sanitizer = sanitizer
 
@@ -551,10 +575,14 @@ class FileEventStore:
     def _locked(self, path: Path, *, shared: bool = False) -> Iterator[None]:
         self._ensure_root_durable()
         with path.open("a+", encoding="utf-8") as handle:
-            fcntl.flock(handle, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+            # An interrupted migration must be repaired before a shared reader can observe it.
+            lock_mode = fcntl.LOCK_EX if (not shared or self.migration_intent.exists()) else fcntl.LOCK_SH
+            fcntl.flock(handle, lock_mode)
             handle.flush()
             os.fsync(handle.fileno())
             self._fsync_directory()
+            if path == self.event_lock and self.migration_intent.exists():
+                self._recover_event_log_unlocked()
             yield
 
     @staticmethod
@@ -805,8 +833,8 @@ class FileEventStore:
         )
         temporary_path = Path(temporary_name)
         try:
+            os.fchmod(descriptor, 0o600)
             if metadata is not None:
-                os.fchmod(descriptor, stat.S_IMODE(metadata.st_mode))
                 if hasattr(os, "fchown"):
                     try:
                         os.fchown(descriptor, metadata.st_uid, metadata.st_gid)
@@ -819,6 +847,17 @@ class FileEventStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary_path, path)
+            if metadata is not None:
+                # Backups are private artifacts even when the source event log is 0644.
+                # Keep their replacement at 0600; only ownership comes from the source.
+                if not path.name.startswith(f"{self.log.name}.bak-"):
+                    os.chmod(path, stat.S_IMODE(metadata.st_mode))
+                if hasattr(os, "chown"):
+                    try:
+                        os.chown(path, metadata.st_uid, metadata.st_gid)
+                    except PermissionError:
+                        if metadata.st_uid != os.getuid():
+                            raise
             self._fsync_directory(path.parent)
         except BaseException:
             if descriptor >= 0:
@@ -891,10 +930,10 @@ class FileEventStore:
 
             snapshots = {
                 path: self._file_snapshot(path)
-                for path in (self.log, self.commit_marker, self.pending_commit, self.round_index)
+                for path in (self.log, self.commit_marker, self.pending_commit, self.round_index, self.migration_intent)
             }
-            temporary_path: Path | None = None
             backup: Path | None = None
+            backup_created = False
             try:
                 if apply:
                     # Make the existing store self-consistent before taking the replacement bytes.
@@ -907,6 +946,10 @@ class FileEventStore:
                 changed = 0
                 oversized = 0
                 bytes_after = 0
+                old_marker = self._load_commit_marker() if apply else None
+                legacy_boundary = old_marker.legacy_baseline_byte_length if old_marker is not None else 0
+                legacy_after = 0
+                source_offset = 0
                 for line in raw.splitlines(keepends=True):
                     transformed = line
                     try:
@@ -914,10 +957,20 @@ class FileEventStore:
                     except (UnicodeDecodeError, ValueError):
                         output.append(line)
                         bytes_after += len(line)
+                        if apply and source_offset < legacy_boundary:
+                            if source_offset + len(line) > legacy_boundary:
+                                raise ValueError("event_commit_store_corrupt")
+                            legacy_after += len(line)
+                        source_offset += len(line)
                         continue
                     if not isinstance(row, dict) or not isinstance(row.get("event"), dict):
                         output.append(line)
                         bytes_after += len(line)
+                        if apply and source_offset < legacy_boundary:
+                            if source_offset + len(line) > legacy_boundary:
+                                raise ValueError("event_commit_store_corrupt")
+                            legacy_after += len(line)
+                        source_offset += len(line)
                         continue
                     event = row["event"]
                     before_events.append(event)
@@ -935,6 +988,11 @@ class FileEventStore:
                     after_events.append(bounded)
                     bytes_after += len(transformed)
                     output.append(transformed)
+                    if apply and source_offset < legacy_boundary:
+                        if source_offset + len(line) > legacy_boundary:
+                            raise ValueError("event_commit_store_corrupt")
+                        legacy_after += len(transformed)
+                    source_offset += len(line)
 
                 before_rounds = self._migration_round_report(before_events)
                 after_rounds = self._migration_round_report(after_events)
@@ -952,17 +1010,25 @@ class FileEventStore:
                 backup = self.log.with_name(f"{self.log.name}.bak-{stamp}")
                 if backup.exists():
                     raise FileExistsError(backup)
-                self._replace_bytes_preserving_metadata(backup, raw, snapshots[self.log][1])
-                new_raw = b"".join(output)
-                self._replace_bytes_preserving_metadata(self.log, new_raw, snapshots[self.log][1])
-                old_marker = self._load_commit_marker()
                 if old_marker is None:
                     raise ValueError("event_commit_store_corrupt")
+                new_raw = b"".join(output)
                 new_marker = _CommitMarker(
                     committed_byte_length=len(new_raw),
                     committed_prefix_sha256=hashlib.sha256(new_raw).hexdigest(),
-                    legacy_baseline_byte_length=old_marker.legacy_baseline_byte_length,
+                    legacy_baseline_byte_length=legacy_after,
                 )
+                self._write_migration_intent(
+                    old_marker=old_marker,
+                    old_length=len(raw),
+                    old_sha256=hashlib.sha256(raw).hexdigest(),
+                    backup=backup,
+                    new_marker=new_marker,
+                )
+                backup_created = True
+                self._replace_bytes_preserving_metadata(backup, raw, snapshots[self.log][1])
+                os.chmod(backup, 0o600)
+                self._replace_bytes_preserving_metadata(self.log, new_raw, snapshots[self.log][1])
                 self._write_committed_length(new_marker)
                 self._restore_metadata(self.commit_marker, snapshots[self.commit_marker][1])
                 index = self._round_index_from_log_unlocked(len(new_raw))
@@ -970,7 +1036,6 @@ class FileEventStore:
                     index, new_marker.committed_byte_length, new_marker.committed_prefix_sha256,
                 )
                 self._restore_metadata(self.round_index, snapshots[self.round_index][1])
-                self._recover_event_log_unlocked()
                 for round_id, expected in before_rounds.items():
                     with self.log.open("rb") as handle:
                         stored = self._indexed_round_log_unlocked(round_id, handle=handle)
@@ -979,17 +1044,21 @@ class FileEventStore:
                         raise ValueError("migration_identity_or_row_count_changed")
                 report["backup"] = str(backup)
                 report["index"] = str(self.round_index)
+                self._clear_migration_intent()
                 return report
             except BaseException:
                 if apply:
-                    for path in (self.log, self.commit_marker, self.pending_commit, self.round_index):
+                    for path in (self.log, self.commit_marker, self.pending_commit, self.round_index, self.migration_intent):
                         self._restore_file_snapshot(path, snapshots[path])
                     with _PREFIX_CACHE_LOCK:
                         _PREFIX_CACHE.pop(str(self.log.resolve()), None)
+                    if backup_created and backup is not None:
+                        try:
+                            backup.unlink()
+                        except FileNotFoundError:
+                            pass
+                        self._fsync_directory()
                 raise
-            finally:
-                if temporary_path is not None and temporary_path.exists():
-                    temporary_path.unlink()
 
     def round_event_holes(self, round_id: str) -> list[int]:
         """Return compatible hole numbers without replaying unrelated event payloads.
@@ -2018,7 +2087,184 @@ class FileEventStore:
         self._remember_prefix(marker, signature, hashlib.sha256(prefix))
         return marker
 
+    def _write_migration_intent(
+        self,
+        *,
+        old_marker: _CommitMarker,
+        old_length: int,
+        old_sha256: str,
+        old_log_mode: int | None = None,
+        backup: Path,
+        new_marker: _CommitMarker,
+    ) -> None:
+        self._atomic_write_json(
+            self.migration_intent,
+            {
+                "schema": EVENT_MIGRATION_INTENT_SCHEMA,
+                "oldCommittedByteLength": old_marker.committed_byte_length,
+                "oldCommittedPrefixSha256": old_marker.committed_prefix_sha256,
+                "oldLegacyBaselineByteLength": old_marker.legacy_baseline_byte_length,
+                "oldLogByteLength": old_length,
+                "oldLogSha256": old_sha256,
+                "oldLogMode": (
+                    old_log_mode
+                    if old_log_mode is not None
+                    else stat.S_IMODE(self.log.stat().st_mode)
+                ),
+                "backupPath": backup.name,
+                "newCommittedByteLength": new_marker.committed_byte_length,
+                "newCommittedPrefixSha256": new_marker.committed_prefix_sha256,
+                "newLegacyBaselineByteLength": new_marker.legacy_baseline_byte_length,
+            },
+        )
+        try:
+            os.chmod(self.migration_intent, 0o600)
+        except FileNotFoundError:
+            raise ValueError("event_commit_store_corrupt")
+        self._fsync_directory()
+
+    def _clear_migration_intent(self) -> None:
+        try:
+            self.migration_intent.unlink()
+        except FileNotFoundError:
+            return
+        self._fsync_directory()
+
+    def _clear_migration_temps(self) -> None:
+        removed = False
+        for path in self.root.glob(f".{self.log.name}*.migrate-*.tmp"):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                continue
+            removed = True
+        if removed:
+            self._fsync_directory()
+
+    def _migration_recovery_failed(
+        self,
+        reason: str,
+        cause: BaseException | None = None,
+    ) -> None:
+        path_text = str(self.root.resolve())
+        scope = "player" if self.root.parent.parent.name == "players" else "main"
+        partition = f"{scope}:{hashlib.sha256(path_text.encode('utf-8')).hexdigest()[:12]}"
+        logger.error(
+            "mobile_event_migration_intent_unrecoverable partition=%s reason=%s",
+            partition,
+            reason,
+        )
+        raise ValueError("event_commit_store_corrupt") from cause
+
+    def _recover_migration_intent_unlocked(self) -> None:
+        self._clear_migration_temps()
+        try:
+            payload = json.loads(self.migration_intent.read_text(encoding="utf-8"))
+        except (FileNotFoundError, OSError, UnicodeDecodeError, ValueError) as exc:
+            self._migration_recovery_failed("intent_unreadable", exc)
+        required = {
+            "schema", "oldCommittedByteLength", "oldCommittedPrefixSha256",
+            "oldLegacyBaselineByteLength", "oldLogByteLength", "oldLogSha256",
+            "oldLogMode",
+            "backupPath", "newCommittedByteLength", "newCommittedPrefixSha256",
+            "newLegacyBaselineByteLength",
+        }
+        if not isinstance(payload, dict) or set(payload) != required:
+            self._migration_recovery_failed("intent_fields_invalid")
+        integer_fields = (
+            "oldCommittedByteLength", "oldLegacyBaselineByteLength", "oldLogByteLength",
+            "newCommittedByteLength", "newLegacyBaselineByteLength",
+        )
+        if (
+            payload.get("schema") != EVENT_MIGRATION_INTENT_SCHEMA
+            or any(type(payload.get(field)) is not int or payload[field] < 0 for field in integer_fields)
+            or not self._is_sha256(payload.get("oldCommittedPrefixSha256"))
+            or not self._is_sha256(payload.get("oldLogSha256"))
+            or not self._is_sha256(payload.get("newCommittedPrefixSha256"))
+            or not isinstance(payload.get("backupPath"), str)
+            or Path(payload["backupPath"]).name != payload["backupPath"]
+            or type(payload.get("oldLogMode")) is not int
+            or not 0 <= payload["oldLogMode"] <= 0o7777
+        ):
+            self._migration_recovery_failed("intent_invalid")
+        backup = self.root / payload["backupPath"]
+        try:
+            log_data = self.log.read_bytes()
+        except FileNotFoundError:
+            log_data = None
+        new_length = payload["newCommittedByteLength"]
+        old_length = payload["oldLogByteLength"]
+        log_is_new = (
+            log_data is not None
+            and len(log_data) == new_length
+            and hashlib.sha256(log_data).hexdigest() == payload["newCommittedPrefixSha256"]
+        )
+        log_is_old = (
+            log_data is not None
+            and len(log_data) == old_length
+            and hashlib.sha256(log_data).hexdigest() == payload["oldLogSha256"]
+        )
+        if log_is_new:
+            marker = _CommitMarker(
+                new_length,
+                payload["newCommittedPrefixSha256"],
+                payload["newLegacyBaselineByteLength"],
+            )
+            self._write_committed_length(marker)
+            try:
+                os.chmod(self.log, payload["oldLogMode"])
+            except OSError as exc:
+                self._migration_recovery_failed("log_mode_restore_failed", exc)
+            try:
+                self.round_index.unlink()
+            except FileNotFoundError:
+                pass
+            self._clear_migration_intent()
+            if backup.exists():
+                os.chmod(backup, 0o600)
+            self._fsync_directory()
+            return
+        backup_data = None
+        if backup.exists():
+            try:
+                backup_data = backup.read_bytes()
+            except OSError:
+                backup_data = None
+        backup_is_old = (
+            backup_data is not None
+            and len(backup_data) == old_length
+            and hashlib.sha256(backup_data).hexdigest() == payload["oldLogSha256"]
+        )
+        if not log_is_old and not backup_is_old:
+            self._migration_recovery_failed("log_and_backup_mismatch")
+        if not log_is_old:
+            assert backup_data is not None
+            self._replace_bytes_preserving_metadata(self.log, backup_data, None)
+        try:
+            os.chmod(self.log, payload["oldLogMode"])
+        except OSError as exc:
+            self._migration_recovery_failed("log_mode_restore_failed", exc)
+        self._fsync_directory()
+        old_marker = _CommitMarker(
+            payload["oldCommittedByteLength"],
+            payload["oldCommittedPrefixSha256"],
+            payload["oldLegacyBaselineByteLength"],
+        )
+        self._write_committed_length(old_marker)
+        try:
+            self.round_index.unlink()
+        except FileNotFoundError:
+            pass
+        self._clear_migration_intent()
+        try:
+            backup.unlink()
+        except FileNotFoundError:
+            pass
+        self._fsync_directory()
+
     def _recover_event_log_unlocked(self, *, handle: BinaryIO | None = None) -> int:
+        if self.migration_intent.exists():
+            self._recover_migration_intent_unlocked()
         actual_size = self._event_log_size()
         committed = self._load_commit_marker()
         pending = self._load_pending_commit()
@@ -2425,6 +2671,7 @@ class FileEventStore:
         )
         temporary_path = Path(temporary_name)
         try:
+            os.fchmod(descriptor, 0o600)
             with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
                 json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
                 handle.write("\n")

@@ -1,11 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
+index 5de40a6a..e2869c5b 100644
 --- a/ai_caddie/caddie/mobile_event_store.py
 +++ b/ai_caddie/caddie/mobile_event_store.py
-@@ -925,7 +925,7 @@
-                 backup = self.log.with_name(f"{self.log.name}.bak-{stamp}")
-                 if backup.exists():
-                     raise FileExistsError(backup)
+@@ -1011,7 +1011,7 @@ class FileEventStore:
+                     new_marker=new_marker,
+                 )
+                 backup_created = True
 -                self._replace_bytes_preserving_metadata(backup, raw, snapshots[self.log][1])
 +                # mutant: omit the rollback backup
-                 new_raw = b"".join(output)
+                 os.chmod(backup, 0o600)
                  self._replace_bytes_preserving_metadata(self.log, new_raw, snapshots[self.log][1])
-                 old_marker = self._load_commit_marker()
+                 self._write_committed_length(new_marker)

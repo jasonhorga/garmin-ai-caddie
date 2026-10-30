@@ -2086,6 +2086,41 @@
       "kind": "python",
       "target": "tests.product.test_j1_sync.SyncProductTests.test_j1_1_pin_only_rewrite_logs_one_redacted_field_diff",
       "promise": "J1.1"
+    },
+    {
+      "id": "tests-product-faults-C159-01",
+      "patch": "tests/product/faults/C159/01-legacy-baseline-reused.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_recomputes_baseline_for_legacy_oversized_row",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C159-02",
+      "patch": "tests/product/faults/C159/02-backup-cleanup-and-permissions.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_failure_removes_transient_backup_and_success_backup_is_private",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C159-03",
+      "patch": "tests/product/faults/C159/03-migration-without-intent.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_intent_recovers_after_log_replace",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C159-04",
+      "patch": "tests/product/faults/C159/04-ops-entrypoint-import.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_production_ops_migration_entrypoint_runs_without_scripts_package",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C159-05",
+      "patch": "tests/product/faults/C159/05-intent-not-cleared.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_dry_run_and_apply_preserve_identity",
+      "promise": "5.9"
     }
   ]
 }

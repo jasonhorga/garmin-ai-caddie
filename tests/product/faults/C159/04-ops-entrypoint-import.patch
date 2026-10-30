@@ -1,0 +1,13 @@
+diff --git a/ops/migrate_mobile_event_payloads.py b/ops/migrate_mobile_event_payloads.py
+index f36ea8f1..0de9ed6f 100644
+--- a/ops/migrate_mobile_event_payloads.py
++++ b/ops/migrate_mobile_event_payloads.py
+@@ -12,7 +12,7 @@ from pathlib import Path
+ import sys
+ 
+ # Allow this file to run directly from a checked-out repository or production image.
+-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
++sys.path.insert(0, str(Path(__file__).resolve().parent))
+ 
+ from ai_caddie.caddie.mobile_event_store import FileEventStore
+ 
