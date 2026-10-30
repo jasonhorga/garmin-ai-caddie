@@ -990,17 +990,19 @@ def build_readiness_response() -> dict[str, Any]:
         snapshot = load_history_stats_snapshot()
         stats_snapshot = snapshot
         if snapshot is None:
+            warm_failure = history_warm_failure_details()
             checks.append(
                 _check(
                     "history",
-                    "warming",
-                    "History statistics are warming in the background.",
+                    "degraded" if warm_failure else "warming",
+                    "History statistics warm failed; retrying in the background."
+                    if warm_failure else "History statistics are warming in the background.",
                     {
                         "dataMode": None,
                         "totalRounds": None,
                         "revision": None,
                         "stale": True,
-                        "lastWarmFailure": history_warm_failure_details(),
+                        "lastWarmFailure": warm_failure,
                     },
                 )
             )

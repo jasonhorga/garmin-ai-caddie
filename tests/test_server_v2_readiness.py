@@ -116,6 +116,19 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(history["state"], "degraded")
         self.assertIn("stats warm failed", history["evidence"]["reason"])
 
+    def test_G7_recorded_warm_failure_is_degraded_but_retryable(self) -> None:
+        """G7: an asynchronous warm failure is visible as degraded while retry remains enabled."""
+        with patch("server_v2.readiness.load_history_stats_snapshot", return_value=None), \
+             patch("server_v2.readiness.history_warm_failure_details", return_value={
+                 "reason": "RuntimeError: corrupt snapshot", "failedAt": 123.0,
+             }), \
+             patch("server_v2.readiness.warm_stats_cache_in_background") as warm:
+            payload = build_readiness_response()
+        history = next(row for row in payload["checks"] if row["label"] == "history")
+        self.assertEqual(history["state"], "degraded")
+        self.assertIn("corrupt snapshot", str(history["evidence"]["lastWarmFailure"]))
+        warm.assert_called_once_with()
+
     def test_G7_readiness_reports_uses_snapshot_without_waiting_for_stats_build(self) -> None:
         """G7: a report with an existing all-history snapshot never re-enters stats build."""
         stats = {"summary": {}, "drillDown": {}, "dataMode": "fixture"}
