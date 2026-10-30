@@ -570,6 +570,7 @@ class FileEventStore:
         self.migration_intent = self.root / EVENT_MIGRATION_INTENT_FILENAME
         self.round_index = self.root / ROUND_INDEX_FILENAME
         self._additional_sanitizer = sanitizer
+        self._migration_temp_paths = self._event_owned_migration_temp_paths
 
     @contextmanager
     def _locked(self, path: Path, *, shared: bool = False) -> Iterator[None]:
@@ -2157,9 +2158,23 @@ class FileEventStore:
                 path.unlink()
             except FileNotFoundError:
                 continue
+            except OSError as exc:
+                path_text = str(self.root.resolve())
+                scope = "player" if self.root.parent.parent.name == "players" else "main"
+                partition = f"{scope}:{hashlib.sha256(path_text.encode('utf-8')).hexdigest()[:12]}"
+                logger.warning(
+                    "mobile_event_migration_temp_cleanup_failed partition=%s reason=%s",
+                    partition,
+                    type(exc).__name__,
+                )
+                continue
             removed = True
         if removed:
             self._fsync_directory()
+
+    def _event_owned_migration_temp_paths(self) -> Iterator[Path]:
+        yield from FileEventStore._migration_temp_paths(self)
+        yield from self.root.glob(f".{self.reservations.name}.*.tmp")
 
     def _migration_recovery_failed(
         self,

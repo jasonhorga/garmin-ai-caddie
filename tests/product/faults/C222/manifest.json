@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C222-01-clear-tmp-under-shared",
+      "patch": "tests/product/faults/C222/01-clear-tmp-under-shared.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_shared_read_does_not_clean_tmp_until_exclusive_lock",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C222-02-abort-on-unlink-error",
+      "patch": "tests/product/faults/C222/02-abort-on-unlink-error.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_cleanup_unlink_failure_warns_and_read_continues",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C222-03-skip-reservation-temps",
+      "patch": "tests/product/faults/C222/03-skip-reservation-temps.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_reservation_temporary_files_are_cleaned_without_touching_formal_store",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C222-04-remove-writer-cache-exception",
+      "patch": "tests/product/faults/C222/04-remove-writer-cache-exception.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_indexed_round_read_after_append_stays_bounded_inside_prefix_safety_window",
+      "promise": "5.9"
+    }
+  ]
+}
