@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C237-Z5-due-ignores-pending",
+      "patch": "tests/product/faults/C237/Z5-due-ignores-pending.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_completed_release_in_legacy_journal_does_not_start_tick_worker",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C237-Z6-due-only-ignores-manual-rescan",
+      "patch": "tests/product/faults/C237/Z6-due-only-ignores-manual-rescan.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_manual_force_post_during_tick_worker_runs_a_force_scan",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C237-Z7-due-retry-resets-attempts",
+      "patch": "tests/product/faults/C237/Z7-due-retry-resets-attempts.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_persistent_403_ticks_follow_growing_backoff",
+      "promise": "4.2"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index 7dd2edce..1eb3cbe1 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -927,7 +927,7 @@ def start_background(*, force: bool = False, manual: bool = False,
+                     while True:
+                         with _BACKGROUND_LOCK:
+                             retry = _FORCE
+-                            due_only = retry_due and not _RESCAN
++                            due_only = retry_due
+                             _RESCAN, _FORCE = False, False
+                         _BACKGROUND._wait_for_writer()
+                         if due_only:

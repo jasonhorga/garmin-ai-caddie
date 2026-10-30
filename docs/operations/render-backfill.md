@@ -45,7 +45,10 @@ Read progress from `GET /api/v2/admin/render-backfill` using the usual admin cre
 It returns `total`, `done`, `pending`, `failed`, versions, the last persisted timestamp, and at
 most 50 failed units with separate topo/Garmin reasons. Add `?detail=1` only when full per-hole
 details are needed. Garmin errors distinguish download failures (including an HTTP status such
-as 403 for a rejected signed link) from matte failures. Cached JPEGs are verified before use;
+as 403 for a rejected signed link) from matte failures. In `garminReleaseBackoff`, `firstFailureAt`
+is either a numeric Unix timestamp in seconds or the string `"unknown"` for legacy journal entries
+without an original failure date; clients must accept both. Retrying and restarting retain an
+unknown date. Cached JPEGs are verified before use;
 corrupt files are removed and downloaded again. Backfill uses `allow_fetch=False` and does not
 refresh release metadata: after a signed URL expires with 403, open the course in the foreground
 to refresh its release, then force backfill again. Signed URLs and their query strings are never
@@ -59,8 +62,13 @@ To rescan and retry failed units, send an authenticated
 `POST /api/v2/admin/render-backfill?force=true`. It returns 202 immediately and starts (or
 signals) the sole background worker, including after a previous pass has finished.
 If a pass is already running, POST force only sets a flag: the current pass finishes before
-the force rescan starts. It does not interrupt a render or immediately retry an earlier unit. With
-`force=false`, existing failed units remain failed. The CLI has no enqueue, force or wait mode;
+the force rescan starts. It does not interrupt a render or immediately retry an earlier unit.
+If an automatic due-release pass is running, the queued POST still performs a full force rescan next.
+For releases that still have pending Garmin holes, force resets attempts and the retry deadline
+while retaining first/last failure dates. If the force scan finds all holes repaired through
+another path, it removes that release's breaker from status and the journal. A later 403 then
+starts a new failure period. With `force=false`, existing failed units remain failed.
+The CLI has no enqueue, force or wait mode;
 all writes belong to the API process. Both HTTP methods use the existing admin gate: under
 the production profile a missing credential returns 401 when the admin token is configured.
 

@@ -726,6 +726,13 @@ class RenderBackfill:
             heapq.heapify(queue)
             with self._lock:
                 self._state = dict(old, styleVersion=self.style_version, matteVersion=self.matte_version, tasks=tasks)
+                if force:
+                    # Ready assets may have been repaired elsewhere, bypassing run_once's
+                    # success cleanup. Keep failure history only while this release needs work.
+                    self._prune_garmin_release_backoff({
+                        f"{task['globalId']}:{task.get('garminRelease')}"
+                        for task in tasks.values() if task.get("garmin") == "pending"
+                    })
                 self._queue = queue
                 self._dirty += 1
                 self._index_state()

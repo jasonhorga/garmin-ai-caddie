@@ -1,0 +1,13 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index 7dd2edce..dd994a44 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -761,6 +761,8 @@ class RenderBackfill:
+             with self._lock:
+                 # Recheck after taking the lease: another container may have retried.
+                 releases = set(self.due_release_keys())
++                for key in releases:
++                    self._state["garminForbiddenReleases"][key]["attempts"] = 0
+                 self._queue = [
+                     (task["priority"], next(self._queue_order), key, "garmin")
+                     for key, task in self._state["tasks"].items()

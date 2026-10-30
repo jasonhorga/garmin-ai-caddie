@@ -149,7 +149,7 @@ class C195BackfillBackoffTests(unittest.TestCase):
 class ReleaseRecoveryTests(unittest.TestCase):
     """J4.2: unfinished Garmin maps recover through the existing monitor, without requests."""
 
-    def _worker(self, root, now, gids, render):
+    def _worker(self, root, now, gids, render, *, raster_ready=None):
         from server_v2 import render_backfill as rb
 
         mesh = root / "meshes"
@@ -160,7 +160,7 @@ class ReleaseRecoveryTests(unittest.TestCase):
         return rb.RenderBackfill(
             state_path=root / "state.json", mesh_root=mesh,
             topo_ready=lambda *_: True, raster_version=lambda *_: "release-1",
-            raster_ready=lambda *_: False, render_garmin=render,
+            raster_ready=raster_ready or (lambda *_: False), render_garmin=render,
             should_yield=lambda: False, clock=lambda: now[0], wait_seconds=0,
         )
 
@@ -203,6 +203,190 @@ class ReleaseRecoveryTests(unittest.TestCase):
             self.assertTrue(all(not thread.is_alive() for thread in threads))
             warm.assert_not_called()
         return snapshots
+
+    def test_J42_persistent_403_ticks_follow_growing_backoff(self):
+        """J4.2: 60 s ticks honor 60/120/240/480/960/1920/3600 s capped delays."""
+        from server_v2 import render_backfill as rb
+
+        now, calls = [1000.0], []
+
+        def render(gid, hole, release):
+            calls.append(now[0])
+            raise rb.GarminRasterForbidden(gid, hole, release)
+
+        with TemporaryDirectory() as directory:
+            worker = self._worker(Path(directory), now, (1,), render)
+            try:
+                worker.enqueue_all(downloaded=set())
+                worker.run_to_completion()
+                self._ticks(worker, now, [1000.0 + 60 * i for i in range(1, 201)])
+                gaps = [later - earlier for earlier, later in zip(calls, calls[1:])]
+                # Hand-added J4.2 delays from the initial failure at 1000, including two capped retries.
+                self.assertEqual(gaps[:8], [60, 120, 240, 480, 960, 1920, 3600, 3600])
+                self.assertEqual(calls, [1000, 1060, 1180, 1420, 1900, 2860, 4780, 8380, 11980])
+                entry = worker.status()["garminReleaseBackoff"][0]
+                self.assertEqual(entry["attempts"], 9)
+                self.assertEqual(entry["state"], "persistent")
+                self.assertEqual(entry["firstFailureAt"], 1000)
+                self.assertEqual(entry["lastFailureAt"], 11980)
+                self.assertEqual(entry["retryAfter"], 15580)
+            finally:
+                worker.close()
+
+    def test_J42_manual_force_post_during_tick_worker_runs_a_force_scan(self):
+        """J4.2: a manual force queued during automatic recovery retains a full force pass."""
+        from fastapi import APIRouter, FastAPI
+        from fastapi.testclient import TestClient
+        from server_v2 import render_backfill as rb
+
+        now = [1000.0]
+
+        def render(gid, hole, release):
+            raise rb.GarminRasterForbidden(gid, hole, release)
+
+        with TemporaryDirectory() as directory:
+            worker = self._worker(Path(directory), now, (1,), render)
+            worker.enqueue_all(downloaded=set())
+            worker.run_to_completion()
+            now[0] = 1060.0
+            entered, resume = threading.Event(), threading.Event()
+            real_due = worker.enqueue_due_releases
+
+            def paused_due():
+                entered.set()
+                if not resume.wait(5):
+                    raise RuntimeError("test did not release automatic recovery")
+                real_due()
+
+            app, router = FastAPI(), APIRouter(prefix="/api/v2/admin")
+            rb.register_router(router)
+            app.include_router(router)
+            with (
+                patch.object(rb, "_BACKGROUND", worker), patch.object(rb, "_BACKGROUND_THREAD", None),
+                patch.object(rb, "_RESCAN", False), patch.object(rb, "_FORCE", False),
+                patch.object(rb, "_automatic_enabled", return_value=True),
+                patch.object(worker, "enqueue_due_releases", side_effect=paused_due) as due,
+                patch.object(worker, "enqueue_all", wraps=worker.enqueue_all) as full,
+                patch.object(worker, "_recent_holes", return_value=set()),
+                patch.object(worker, "_downloaded_holes", return_value=set()),
+            ):
+                background = None
+                try:
+                    rb.start_background(retry_due=True)
+                    background = rb._BACKGROUND_THREAD
+                    self.assertTrue(entered.wait(5), "tick worker did not enter recovery")
+                    with TestClient(app) as client:
+                        response = client.post("/api/v2/admin/render-backfill?force=true")
+                    self.assertEqual(response.status_code, 202)
+                    self.assertTrue(background.is_alive())
+                    resume.set()
+                    background.join(10)
+                    self.assertFalse(background.is_alive())
+                    self.assertIsNone(rb._BACKGROUND_THREAD)
+                    self.assertEqual(due.call_count, 1)
+                    self.assertEqual(full.call_count, 1)
+                    self.assertTrue(full.call_args.kwargs["force"])
+                    entry = worker.status()["garminReleaseBackoff"][0]
+                    self.assertEqual(entry["attempts"], 1)
+                    self.assertEqual(entry["firstFailureAt"], 1000)
+                finally:
+                    resume.set()
+                    if background is not None:
+                        background.join(10)
+                    worker.close()
+
+    def test_J42_completed_release_in_legacy_journal_does_not_start_tick_worker(self):
+        """J4.2: a due breaker without unfinished Garmin holes must not acquire a writer."""
+        from server_v2 import render_backfill as rb
+
+        now = [1000.0]
+
+        def render(gid, hole, release):
+            raise rb.GarminRasterForbidden(gid, hole, release)
+
+        with TemporaryDirectory() as directory:
+            worker = self._worker(Path(directory), now, (1,), render)
+            worker.enqueue_all(downloaded=set())
+            worker.run_to_completion()
+            # Legacy journal: another path completed both holes but left the release breaker.
+            payload = json.loads(worker.state_path.read_text())
+            for task in payload["tasks"].values():
+                task.update(garmin="done", errors={})
+            worker.state_path.write_text(json.dumps(payload))
+            loaded = rb.RenderBackfill(
+                state_path=worker.state_path, mesh_root=worker.mesh_root,
+                should_yield=lambda: False, clock=lambda: now[0], render_garmin=render,
+            )
+            try:
+                self.assertEqual(loaded.status()["pending"], 0)
+                self.assertEqual(len(loaded.status()["garminReleaseBackoff"]), 1)
+                now[0] = 1060.0  # The stored 60 s deadline has expired.
+                self.assertEqual(loaded.due_release_keys(), [])
+                with patch.object(loaded, "_wait_for_writer", wraps=loaded._wait_for_writer) as starts:
+                    self._ticks(loaded, now, [1060.0, 1120.0])
+                    starts.assert_not_called()
+            finally:
+                loaded.close()
+
+    def test_J42_force_scan_clears_breaker_for_externally_completed_holes(self):
+        """J4.2: force finds both holes ready; status and durable journal lose the old 403."""
+        from server_v2 import render_backfill as rb
+
+        now, ready, calls = [1000.0], [False], []
+
+        def render(gid, hole, release):
+            calls.append((gid, hole))
+            raise rb.GarminRasterForbidden(gid, hole, release)
+
+        with TemporaryDirectory() as directory:
+            worker = self._worker(Path(directory), now, (1,), render, raster_ready=lambda *_: ready[0])
+            try:
+                worker.enqueue_all(downloaded=set())
+                worker.run_to_completion()
+                self.assertEqual(worker.status()["pending"], 2)
+                self.assertEqual(worker.status()["garminReleaseBackoff"][0]["firstFailureAt"], 1000)
+                ready[0], now[0] = True, 1001.0
+                worker.enqueue_all(downloaded=set(), force=True)
+                worker.run_to_completion()
+                status = worker.status(detail=True)
+                self.assertEqual(status["pending"], 0)
+                self.assertTrue(all(task["garmin"] == "done" for task in status["tasks"].values()))
+                self.assertEqual(status["failures"], [])
+                self.assertEqual(calls, [(1, 1)])  # Scan found repaired assets; no new request.
+                self.assertEqual(status["garminReleaseBackoff"], [])
+                self.assertEqual(json.loads(worker.state_path.read_text())["garminForbiddenReleases"], {})
+                reloaded = rb.RenderBackfill(state_path=worker.state_path)
+                self.assertEqual(reloaded.status()["garminReleaseBackoff"], [])
+            finally:
+                worker.close()
+
+    def test_J42_new_403_after_completed_force_scan_starts_a_new_failure_period(self):
+        """J4.2: a cleared release's next 403 dates from the new failure, not the old one."""
+        from server_v2 import render_backfill as rb
+
+        now, ready = [1000.0], [False]
+
+        def render(gid, hole, release):
+            raise rb.GarminRasterForbidden(gid, hole, release)
+
+        with TemporaryDirectory() as directory:
+            worker = self._worker(Path(directory), now, (1,), render, raster_ready=lambda *_: ready[0])
+            try:
+                worker.enqueue_all(downloaded=set())
+                worker.run_to_completion()
+                ready[0], now[0] = True, 1001.0
+                worker.enqueue_all(downloaded=set(), force=True)
+                worker.run_to_completion()
+                ready[0], now[0] = False, 2000.0
+                worker.enqueue_all(downloaded=set(), force=True)
+                worker.run_to_completion()
+                entry = worker.status()["garminReleaseBackoff"][0]
+                self.assertEqual(entry["firstFailureAt"], 2000)
+                self.assertEqual(entry["lastFailureAt"], 2000)
+                self.assertEqual(entry["attempts"], 1)
+                self.assertEqual(entry["retryAfter"], 2060)
+            finally:
+                worker.close()
 
     def test_J42_monitor_retries_only_due_releases_and_completes_their_holes(self):
         """J4.2: 60 s backoff from 1000/1030 expires at 1060/1090, inclusively."""
