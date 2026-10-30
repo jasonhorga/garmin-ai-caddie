@@ -1,0 +1,9 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index d37a403e..79023d5c 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -593,3 +593,3 @@ public struct StartRoundView: View {
+         setFailed(rows?.isEmpty == true)
+-        return rows?.isEmpty == false ? rows : nil
++        return rows
+     }

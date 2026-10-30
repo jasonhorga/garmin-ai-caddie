@@ -154,6 +154,20 @@
       "kind": "native-ui",
       "target": "AICaddieUITests/RealFlowUITests/testCaptureRealAppFlow",
       "promise": "4.1"
+    },
+    {
+      "id": "C162-empty-tee-refresh-boundary",
+      "patch": "tests/product/faults/C162/empty-tee-refresh-applied.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testTeeLookupStateWriterMarksFailureAtTheRequestBoundary",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-empty-tee-refresh-selection",
+      "patch": "tests/product/faults/C162/empty-tee-refresh-applied.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testEmptyTeeRefreshKeepsSelectionStartableAndOffersRetry",
+      "promise": "4.2"
     }
   ]
 }
