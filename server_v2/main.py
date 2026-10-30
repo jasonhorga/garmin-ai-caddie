@@ -2649,8 +2649,10 @@ def _durable_round_is_finished(player_id: str, round_id: str) -> bool:
 
     try:
         index = round_ingest._load_index(player_id, mobile.MOBILE_ROOT)
-    except Exception:
+    except Exception as exc:
         # The event append must remain usable if an old/corrupt optional index cannot be read.
+        logger.warning("round finish index unavailable; treating round as unfinished (%s)",
+                       type(exc).__name__)
         return False
     entry = (index.get("entries") or {}).get(f"mobile-finish:{round_id}")
     return isinstance(entry, dict) and entry.get("id") is not None

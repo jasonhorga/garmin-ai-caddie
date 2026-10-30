@@ -742,8 +742,12 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         """J4.2: an unreadable finish index is treated as unfinished and logged safely."""
         from server_v2 import main as server_main
         self._identity("index-error", 456)
-        with patch.object(server_main.round_ingest, "_load_index", side_effect=OSError("index unavailable")):
+        with (
+            patch.object(server_main.round_ingest, "_load_index", side_effect=OSError("index unavailable")),
+            self.assertLogs(server_main.logger, level="WARNING") as logs,
+        ):
             self._post_events("index-error", "start", timestamp="2026-10-29T08:00:00Z")
+        self.assertTrue(any("finish index unavailable" in line for line in logs.output))
         self.assertIn(("fixture", "index-error"), self.main._ACTIVE_ROUNDS)
 
     def test_finish_clears_round_start_cache(self):
