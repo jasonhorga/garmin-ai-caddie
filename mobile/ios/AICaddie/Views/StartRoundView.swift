@@ -263,13 +263,16 @@ public struct StartRoundView: View {
         for row: StartCourseListRow, downloads: [PrepCourseDownloadRecord]
     ) -> CourseDownloadAction? {
         let records = courseDownloadRecords(for: row, downloads: downloads)
-        if records.contains(where: { $0.phase == .failed }) {
-            return CourseDownloadAction(title: "重试", retrying: true)
+        if let failed = records.first(where: { $0.phase == .failed }),
+           let action = downloadAction(for: failed) {
+            return action
         }
-        guard records.contains(where: { StartRoundPresentation.offlineActionTitle($0) != nil }) else {
-            return nil
-        }
-        return CourseDownloadAction(title: "下载", retrying: false)
+        return records.compactMap(downloadAction(for:)).first
+    }
+
+    static func downloadAction(for row: PrepCourseDownloadRecord) -> CourseDownloadAction? {
+        guard let title = StartRoundPresentation.offlineActionTitle(row) else { return nil }
+        return CourseDownloadAction(title: title, retrying: row.phase == .failed)
     }
 
     static func courseDownloadRecords(
@@ -497,9 +500,9 @@ public struct StartRoundView: View {
     private func downloadActionButton(
         for row: PrepCourseDownloadRecord, identifier: String
     ) -> some View {
-        if let title = StartRoundPresentation.offlineActionTitle(row) {
-            Button(title) {
-                let retrying = row.phase == .failed
+        if let action = Self.downloadAction(for: row) {
+            Button(action.title) {
+                let retrying = action.retrying
                 if retrying {
                     for failed in Self.offlineActionRecords(for: row, in: prepCourseDownloads, retrying: true) {
                         onRetryPrepCourseDownload(failed.id)
@@ -527,7 +530,7 @@ public struct StartRoundView: View {
                         onRetryPrepCourseDownload(record.id)
                     }
                 } else if let record = records.first(where: {
-                    StartRoundPresentation.offlineActionTitle($0) != nil
+                    Self.downloadAction(for: $0) != nil
                 }) {
                     for pending in Self.offlineActionRecords(
                         for: record, in: prepCourseDownloads, retrying: false
