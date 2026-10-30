@@ -460,6 +460,86 @@ class ManifestFragmentTests(unittest.TestCase):
                   if call.args[0][:2] == [str(runner.SHARED_PYTHON), "-c"]]
         self.assertEqual(len(probes), 4)
 
+    def test_check_single_target_timeout_is_unavailable_and_fails(self):
+        """验收方式 infrastructure: a single-target load timeout is unavailable."""
+        self.init_repo()
+        record = self.record("single-timeout")
+        real_run = subprocess.run
+
+        def timeout_probe(command, *args, **kwargs):
+            if command[:2] == [str(runner.SHARED_PYTHON), "-c"]:
+                raise subprocess.TimeoutExpired(command, 60)
+            return real_run(command, *args, **kwargs)
+
+        with mock.patch.object(runner.subprocess, "run", side_effect=timeout_probe):
+            code, rows, _ = self.invoke_main("--check", [record])
+        self.assertEqual(rows[0]["status"], "unavailable")
+        self.assertIn("target 无法加载：", rows[0]["detail"])
+        self.assertNotEqual(code, 0)
+
+    def test_dispatch_native_no_match_json_has_empty_commands(self):
+        """验收方式 infrastructure: native dispatch no-match remains valid JSON."""
+        self.write_manifest(self.manifest, [self.record("known")])
+        output = self.root / "dispatch.json"
+        args = ["run_faults.py", "--dispatch-native", "--id", "missing-id",
+                "--out", str(output)]
+        with mock.patch.object(sys, "argv", args):
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = runner.main()
+        payload = json.loads(output.read_text())
+        self.assertNotEqual(code, 0)
+        self.assertEqual(payload["commands"], [])
+
+    def test_check_restores_sys_path_and_modules_between_batch_targets(self):
+        """验收方式 infrastructure: each batch target has isolated import state."""
+        extra = self.root / "extra"
+        extra.mkdir()
+        (extra / "batch_only_dependency.py").write_text("VALUE = 1\n", encoding="utf-8")
+        (self.root / "test_adds_path.py").write_text(
+            "import sys\nfrom pathlib import Path\n"
+            "sys.path.insert(0, str(Path(__file__).parent / 'extra'))\n"
+            "import unittest\n"
+            "class AddsPath(unittest.TestCase):\n"
+            "    def test_loads(self): pass\n", encoding="utf-8",
+        )
+        (self.root / "test_needs_clean_path.py").write_text(
+            "import unittest\nimport batch_only_dependency\n"
+            "class NeedsCleanPath(unittest.TestCase):\n"
+            "    def test_loads(self): pass\n", encoding="utf-8",
+        )
+        self.init_repo()
+        records = [{**self.record(str(index)), "target": target}
+                   for index, target in enumerate(("test_adds_path", "test_needs_clean_path"))]
+        code, rows, _ = self.invoke_main("--check", records)
+        self.assertEqual([row["status"] for row in rows], ["ok", "unavailable"])
+        self.assertIn("ModuleNotFoundError", rows[1]["detail"])
+        self.assertNotEqual(code, 0)
+
+    def test_run_survived_skips_post_run_load_probe(self):
+        """验收方式 infrastructure: a zero exit is survived without another probe."""
+        (self.root / "test_green.py").write_text(
+            "import unittest\n"
+            "class Green(unittest.TestCase):\n"
+            "    def test_green(self): pass\n", encoding="utf-8",
+        )
+        record = {**self.record("survived"), "target": "test_green.Green.test_green"}
+        with mock.patch.object(runner, "target_check", wraps=runner.target_check) as probe:
+            status, _, _ = runner.run_target(record, self.root)
+        self.assertEqual(status, "leaked")
+        probe.assert_not_called()
+
+    def test_run_nonzero_probes_for_load_failure_before_killed(self):
+        """验收方式 infrastructure: non-zero execution probes before calling killed."""
+        (self.root / "test_import_failure.py").write_text(
+            "import missing_after_patch_dependency\n", encoding="utf-8",
+        )
+        record = {**self.record("post-run-probe"), "target": "test_import_failure"}
+        with mock.patch.object(runner, "target_check", wraps=runner.target_check) as probe:
+            status, detail, _ = runner.run_target(record, self.root)
+        self.assertEqual(status, "unavailable")
+        self.assertIn("missing_after_patch_dependency", detail)
+        probe.assert_called_once_with(record, self.root)
+
     def test_check_validates_native_class_and_method_in_the_target_bundle(self):
         source = self.root / "mobile/ios/NativeTests/Witness.swift"
         source.parent.mkdir(parents=True)
