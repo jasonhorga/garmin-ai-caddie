@@ -404,18 +404,8 @@ public struct HoleImageMapView: View {
         }().flatMap { Self.safeLandingMetres($0, for: hole) }
         let landingRow = Self.landingOverlayPoint(overlay, targetMetres: landingTargetMetres)
         let landing = landingRow.map { CGPoint(x: $0[0] * sx, y: $0[1] * sy) }
-        if drawsLightweightFacts {
-            drawLightweightFacts(
-                &context,
-                routePoints: routePoints,
-                sx: sx,
-                sy: sy,
-                showsRoute: showsFactualRoute,
-                showsHazards: showsHazards
-            )
-        }
         // No thin centreline over the map: the hole's own art (or, before the precise map, the
-        // lightweight fairway band above) already shows the hole, and a second tee-to-green line
+        // bitmap already shows the hole, and a second tee-to-green line
         // read as a competing route next to the caddie's white one (device review, build 77).
         // A recommendation is a flight plan, not the course centreline. Draw one independent arc
         // from Tee/current origin to the selected club's landing and another from landing to flag.
@@ -889,74 +879,6 @@ public struct HoleImageMapView: View {
             x: CGFloat(row[0]) / CGFloat(overlay.w) * size.width,
             y: CGFloat(row[1]) / CGFloat(overlay.h) * size.height
         )
-    }
-
-    /// Coarse but factual CourseView-only map shown during the precise prodgeometry download. The
-    /// hazard spans are explicitly approximate near→far extents; they are never presented as exact
-    /// polygons, and disappear as soon as the precise topo bitmap becomes authoritative.
-    private func drawLightweightFacts(
-        _ context: inout GraphicsContext,
-        routePoints: [CGPoint],
-        sx: CGFloat,
-        sy: CGFloat,
-        showsRoute: Bool,
-        showsHazards: Bool
-    ) {
-        if showsRoute, routePoints.count >= 2 {
-            context.stroke(
-                Self.smoothPath(through: routePoints),
-                with: .color(Color(red: 0.20, green: 0.49, blue: 0.25).opacity(0.9)),
-                style: StrokeStyle(lineWidth: 24, lineCap: .round, lineJoin: .round)
-            )
-        }
-
-        for detail in hole.hazards.details where showsHazards
-            && (detail.kind == "bunker" || detail.kind == "water")
-            && CoursePrepHazardRelevance.isRelevant(
-                kind: detail.kind,
-                frontRouteM: detail.frontRouteM,
-                backRouteM: detail.backRouteM,
-                routeLengthM: displayOverlay?.ln ?? hole.routeLenM,
-                hasPreciseOutline: detail.outlinePx.count >= 3
-            )
-            && detail.frontPx.count >= 2
-            && detail.backPx.count >= 2
-            && detail.frontPx.prefix(2).allSatisfy(\.isFinite)
-            && detail.backPx.prefix(2).allSatisfy(\.isFinite) {
-            guard let frontPx = displayPixel(detail.frontPx),
-                  let backPx = displayPixel(detail.backPx) else { continue }
-            let front = CGPoint(x: frontPx[0] * sx, y: frontPx[1] * sy)
-            let back = CGPoint(x: backPx[0] * sx, y: backPx[1] * sy)
-            var span = Path()
-            span.move(to: front)
-            span.addLine(to: back)
-            let color = detail.kind == "water"
-                ? Color(red: 0.95, green: 0.28, blue: 0.24)
-                : Color(red: 0.95, green: 0.28, blue: 0.24)
-            context.stroke(
-                span,
-                with: .color(color.opacity(0.9)),
-                // Partial geometry only knows the route span. Keep it as a small factual cue until
-                // the precise polygon arrives; a wide stroke would read as a solid red bunker.
-                style: StrokeStyle(lineWidth: 1.25, lineCap: .round, dash: [4, 3])
-            )
-        }
-
-        let greenRows = hole.greenOutline?.available == true
-            ? (hole.greenOutline?.pointsPx ?? [])
-            : []
-        let greenPoints: [CGPoint] = greenRows.compactMap { row in
-            guard let point = displayPixel(row) else { return nil }
-            return CGPoint(x: point[0] * sx, y: point[1] * sy)
-        }
-        if greenPoints.count >= 3 {
-            var green = Path()
-            green.move(to: greenPoints[0])
-            for point in greenPoints.dropFirst() { green.addLine(to: point) }
-            green.closeSubpath()
-            context.fill(green, with: .color(Color(red: 0.36, green: 0.72, blue: 0.35).opacity(0.95)))
-            context.stroke(green, with: .color(.white.opacity(0.35)), style: StrokeStyle(lineWidth: 1))
-        }
     }
 
     /// 标签:实战传入的当前球杆(已中文)优先,否则 prep 推荐球杆(转中文)。
