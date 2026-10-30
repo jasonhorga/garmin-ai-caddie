@@ -1,5 +1,5 @@
 diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
-index 286e1ec..2c487cf 100644
+index 8e8d161..9a86646 100644
 --- a/.github/workflows/native-mobile.yml
 +++ b/.github/workflows/native-mobile.yml
 @@ -41,7 +41,6 @@ on:

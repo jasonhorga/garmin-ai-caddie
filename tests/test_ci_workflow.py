@@ -44,6 +44,29 @@ class CIWorkflowTests(unittest.TestCase):
                 condition = step.get("if", "")
                 self.assertNotIn("github.event_name", condition, (name, step.get("name")))
 
+    def test_native_dispatch_evidence_uses_scope_without_pr_context(self) -> None:
+        """J3/J4: dispatch evidence uses capture outcomes and scope without a PR context."""
+        jobs = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())["jobs"]
+        for job_name in ("native-live", "native-unit-watch"):
+            step = next(s for s in jobs[job_name]["steps"] if s.get("name") == "Write native build evidence")
+            self.assertNotIn("NATIVE_EVENT_NAME", step["env"])
+            for scope in ("full", "review"):
+                with self.subTest(job=job_name, scope=scope), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    script = root / "ops/write_native_build_evidence.py"
+                    script.parent.mkdir()
+                    script.write_text("import sys\nprint(' '.join(sys.argv[1:]))\n")
+                    env = {**os.environ, "NATIVE_CAPTURE_SCOPE": scope, "IOS_TARGET_OUTCOME": "success",
+                           "IOS_CAPTURE_OUTCOME": "failure", "WATCH_TEST_OUTCOME": "success",
+                           "FIXTURE_MODE": "false", "FIXTURE_START_OUTCOME": "skipped",
+                           "LAUNCH_VALIDATION_OUTCOME": "success", "LAUNCH_PREREQ_OUTCOME": "success"}
+                    env.pop("NATIVE_EVENT_NAME", None)
+                    result = subprocess.run(["bash", "-e", "-c", step["run"].replace("${{ inputs.fixture_mode }}", "false")],
+                                            cwd=root, env=env, text=True, capture_output=True)
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertEqual(["--ios-status", "failed", "--watch-status",
+                                      "passed" if scope == "full" else "skipped"], result.stdout.split())
+
     @staticmethod
     def _native_condition(expression: str, values: dict, *, success=True, cancelled=False) -> bool:
         """Replay the Actions status-function/default-success semantics used by these gates."""
@@ -917,7 +940,6 @@ class CIWorkflowTests(unittest.TestCase):
         evidence_step = steps["Write native build evidence"]
         self.assertEqual(
             {
-                "NATIVE_EVENT_NAME": "${{ github.event_name }}",
                 "NATIVE_CAPTURE_SCOPE": "${{ github.event.inputs.capture_scope || 'full' }}",
                 "IOS_TARGET_OUTCOME": "${{ steps.test_ios_app.outcome }}",
                 "IOS_CAPTURE_OUTCOME": "${{ steps.real_ios_capture.outcome }}",

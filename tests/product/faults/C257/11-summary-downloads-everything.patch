@@ -1,8 +1,8 @@
 diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
-index 286e1ec..7604c8c 100644
+index 8e8d161..bc1fffb 100644
 --- a/.github/workflows/native-mobile.yml
 +++ b/.github/workflows/native-mobile.yml
-@@ -1329,7 +1329,6 @@ jobs:
+@@ -1327,7 +1327,6 @@ jobs:
          continue-on-error: true
          with:
            path: native-shards

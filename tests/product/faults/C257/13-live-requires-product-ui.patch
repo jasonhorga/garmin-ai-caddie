@@ -1,8 +1,8 @@
 diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
-index 286e1ec..e8452e2 100644
+index 8e8d161..587e387 100644
 --- a/.github/workflows/native-mobile.yml
 +++ b/.github/workflows/native-mobile.yml
-@@ -1315,7 +1315,7 @@ jobs:
+@@ -1313,7 +1313,7 @@ jobs:
            fixture = os.environ['FIXTURE_MODE'] == 'true'
            edit = os.environ['CAPTURE_SCOPE'] == 'edit'
            expected = ['native-screenshots'] if fixture else ['native-live']

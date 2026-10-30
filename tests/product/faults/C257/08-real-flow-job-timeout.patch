@@ -1,8 +1,8 @@
 diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
-index 286e1ec..36ced2f 100644
+index 8e8d161..d257c88 100644
 --- a/.github/workflows/native-mobile.yml
 +++ b/.github/workflows/native-mobile.yml
-@@ -1093,7 +1093,7 @@ jobs:
+@@ -1091,7 +1091,7 @@ jobs:
    native-real-flow:
      if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
      runs-on: macos-15

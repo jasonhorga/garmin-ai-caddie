@@ -970,7 +970,6 @@ jobs:
       - name: Write native build evidence
         if: ${{ always() && github.event.inputs.capture_scope != 'edit' }}
         env:
-          NATIVE_EVENT_NAME: ${{ github.event_name }}
           NATIVE_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
           IOS_TARGET_OUTCOME: ${{ steps.test_ios_app.outcome }}
           IOS_CAPTURE_OUTCOME: ${{ steps.real_ios_capture.outcome }}
@@ -988,7 +987,7 @@ jobs:
             esac
           }
           ios_status="$(status_from_outcome "$IOS_TARGET_OUTCOME")"
-          if [[ "$IOS_TARGET_OUTCOME" == "success" && "$NATIVE_EVENT_NAME" == "workflow_dispatch" ]]; then
+          if [[ "$IOS_TARGET_OUTCOME" == "success" ]]; then
             ios_status="$(status_from_outcome "$IOS_CAPTURE_OUTCOME")"
           fi
           if [[ "$FIXTURE_MODE" == "true" && "$FIXTURE_START_OUTCOME" != "success" ]]; then
@@ -1001,7 +1000,7 @@ jobs:
             ios_status="skipped"
           fi
           watch_status="passed"
-          if [[ "$NATIVE_EVENT_NAME" == "workflow_dispatch" && "$NATIVE_CAPTURE_SCOPE" != "full" ]]; then
+          if [[ "$NATIVE_CAPTURE_SCOPE" != "full" ]]; then
             watch_status="skipped"
           else
             watch_status="$(status_from_outcome "$WATCH_TEST_OUTCOME")"
@@ -1076,7 +1075,6 @@ jobs:
       - name: Write native build evidence
         if: ${{ always() && github.event.inputs.capture_scope != 'edit' }}
         env:
-          NATIVE_EVENT_NAME: ${{ github.event_name }}
           NATIVE_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
           IOS_TARGET_OUTCOME: ${{ steps.test_ios_app.outcome }}
           IOS_CAPTURE_OUTCOME: ${{ steps.test_ios_app.outcome }}

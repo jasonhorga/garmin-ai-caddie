@@ -98,6 +98,13 @@
       "kind": "python",
       "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_artifacts_download_only_shards_and_replace_previous_attempt",
       "promise": "J4"
+    },
+    {
+      "id": "tests-product-faults-C257-15-dispatch-evidence-pr-context",
+      "patch": "tests/product/faults/C257/15-dispatch-evidence-pr-context.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_dispatch_evidence_uses_scope_without_pr_context",
+      "promise": "J4"
     }
   ]
 }
