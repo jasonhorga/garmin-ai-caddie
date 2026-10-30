@@ -50,6 +50,8 @@ class FaultRunnerTests(unittest.TestCase):
             with patch.object(runner, "MANIFEST", manifest), patch.object(runner, "ROOT", root):
                 self.assertEqual([r["id"] for r in runner.load_manifest()], ["base", "card"])
                 fragment.write_text(json.dumps({"schema": 1, "records": [record]}))
+                self.assertEqual(runner.load_manifest(), [record], "legacy central mirrors load once")
+                fragment.write_text(json.dumps({"schema": 1, "records": [{**record, "target": "different"}]}))
                 with self.assertRaisesRegex(ValueError, "duplicate manifest id"):
                     runner.load_manifest()
 
