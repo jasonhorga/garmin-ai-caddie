@@ -91,6 +91,34 @@
       "kind": "python",
       "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_two_distinct_all_nine_courses_first_card_only_complete_mapping",
       "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-14-missing-par-materialized",
+      "patch": "tests/product/faults/C219/O2-missing-par-materialized.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_missing_restore_par_keeps_evidence_without_ineffective_suggestion",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-15-rotated-localhole-ignored",
+      "patch": "tests/product/faults/C219/O4-hole-sides-localhole-branch-dropped.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_rotated_merged_missing_physical_hole_preserves_identity_and_stats",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-16-observed-base-ignored",
+      "patch": "tests/product/faults/C219/O6-observed-base-ignored.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_rotated_merged_missing_physical_hole_preserves_identity_and_stats",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-17-synthetic-marker-dropped",
+      "patch": "tests/product/faults/C219/O8-synthetic-not-marked-corrected.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_synthetic_hole_only_has_score_par_and_count",
+      "promise": "1.3"
     }
   ]
 }

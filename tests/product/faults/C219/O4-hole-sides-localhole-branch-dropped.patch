@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index 23863beb..c61e2f1d 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -110,7 +110,7 @@ def hole_sides(row: dict[str, Any]) -> list[tuple[dict[str, Any], int, int, str]
+         # the second run non-contiguous, so find its boundary from the first display
+         # number >= 10 instead of requiring a complete tail.  Legacy back-first rows
+         # carry localHole on the first card; their boundary is the first row without it.
+-        if any(hole.get("localHole") for hole in holes):
++        if False:
+             split = next((index for index, hole in enumerate(holes) if not hole.get("localHole")), len(holes))
+         elif any(1 <= int(hole.get("number") or 0) <= 9 for hole in holes):
+             # Normalized 1..9 + 10..18 storage; a missing second-card hole leaves a gap

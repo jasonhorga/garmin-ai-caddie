@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index df986eb1..efc0d5b9 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -189,7 +189,7 @@ def _reconciliation_hole_map(
+     for phone_hole, display in mapping.items():
+         loop_index, offset = divmod(phone_hole - 1, 9)
+         base = display - offset
+-        if base in (1, 10):
++        if False:
+             bases.setdefault(loop_index, base)
+     for loop_index, loop in enumerate(loops):
+         if loop.get("half") == "back":
