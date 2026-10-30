@@ -1,0 +1,16 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index 99f45262..27583fb7 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -82,10 +82,7 @@ class GarminRasterForbidden(RuntimeError):
+ def exponential_backoff_seconds(attempt: int) -> float:
+     """Return the shared bounded retry delay for provider and history warm failures."""
+     exponent = min(max(0, int(attempt) - 1), 6)
+-    return min(
+-        GARMIN_403_BACKOFF_MAX_SECONDS,
+-        GARMIN_403_BACKOFF_BASE_SECONDS * 2 ** exponent,
+-    )
++    return GARMIN_403_BACKOFF_BASE_SECONDS * 2 ** exponent
+ 
+ 
+ def foreground_request_started(path: str) -> bool:

@@ -531,21 +531,23 @@ class ReleaseBackoffTests(unittest.TestCase):
                 try:
                     w.enqueue_all(downloaded=set())
                     self.assertFalse(w.run_once())
-                    # Exponential retry is finite: three release attempts, then only new authority.
+                    # Exponential retry keeps trying the same authority, with a one-hour cap.
                     clock = time.time()
-                    for offset, attempts in ((61, 2), (182, 3), (7200, 3)):
+                    for offset, attempts in ((61, 2), (182, 3), (422, 4), (902, 5),
+                                             (1862, 6), (3782, 7), (7382, 8)):
                         with patch.object(rb.time, "time", return_value=clock + offset):
                             w.enqueue_all(downloaded=set())
                             while w.run_once():
                                 pass
                         self.assertEqual(download.call_count, attempts)
-                    self.assertEqual(w.status()["garminReleaseBackoff"][0]["state"], "blocked")
+                    self.assertEqual(w.status()["garminReleaseBackoff"][0]["state"], "persistent")
+                    self.assertEqual(w.status()["garminReleaseBackoff"][0]["backoffSeconds"], 3600)
                     # New release opens exactly one fresh attempt.
                     w._raster_version = lambda *_: "release-2"
                     w.enqueue_all(downloaded=set())
                     while w.run_once():
                         pass
-                    self.assertEqual(download.call_count, 4)
+                    self.assertEqual(download.call_count, 9)
                 finally:
                     w.close()
 
@@ -837,27 +839,49 @@ class MonitorLifecycleTests(unittest.TestCase):
                     thread.join(1)
 
     def test_J42_failed_warm_does_not_acknowledge_signature(self):
-        """J4.2: a failed best-effort warm remains eligible on the next monitor tick."""
+        """J4.2: a failed warm is retried by the real history warm worker after backoff."""
         from server_v2 import main, history_stats as hs
-        revision = ["old"]
-        stop, retried = threading.Event(), threading.Event()
-        calls = []
-        def warm(*, player_id):
-            calls.append(1)
-            if len(calls) > 1:
-                retried.set()
-            return len(calls) > 1
-        with patch.object(main, "_history_input_signature", side_effect=lambda _: (revision[0],)), \
-             patch.object(hs, "history_input_signature", side_effect=lambda _: (revision[0],)), \
-             patch.object(hs, "warm_stats_cache", side_effect=warm):
-            thread = main._start_history_signature_monitor(stop_event=stop, interval_s=.01, player_id="fixture-retry")
-            try:
-                revision[0] = "new"
-                self.assertTrue(retried.wait(1))
-            finally:
+
+        stop = threading.Event()
+        now = [0.0]
+        revision = ["new"]
+        signature_calls = [0]
+        outcomes = iter([False, True])
+        warm_at = []
+
+        def signature(_):
+            signature_calls[0] += 1
+            return ("old",) if signature_calls[0] == 1 else (revision[0],)
+
+        def wait(_interval):
+            # Let the real warm worker finish before the fake clock advances (no scheduling race).
+            for worker in threading.enumerate():
+                if worker.name == "stats-cache-warm-fixture-retry":
+                    worker.join(5)
+            now[0] += 60.0
+            if now[0] >= 300.0:
                 stop.set()
-                thread.join(1)
-        self.assertEqual(len(calls), 2)
+                return True
+            return False
+
+        with (
+            patch.object(main, "_history_input_signature", side_effect=signature),
+            patch.object(hs, "history_input_signature", side_effect=lambda player: (revision[0],)),
+            patch.object(hs, "warm_stats_cache",
+                         side_effect=lambda player_id: (warm_at.append(now[0]), next(outcomes))[1]) as warm_mock,
+        ):
+            thread = main._start_history_signature_monitor(
+                stop_event=stop,
+                interval_s=60.0,
+                player_id="fixture-retry",
+                clock=lambda: now[0],
+                wait=wait,
+            )
+            thread.join(1)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(warm_mock.call_count, 2)
+        # Failure seen on the 120 s tick -> 60 s backoff -> retry at 180 s; success is then acknowledged.
+        self.assertEqual(warm_at, [60.0, 180.0])
 
 
 if __name__ == "__main__":

@@ -1,0 +1,22 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -584,14 +584,14 @@ class FileEventStore:
+             if path == self.event_lock:
+                 needs_recovery = self.migration_intent.exists()
+                 has_temps = next(self._migration_temp_paths(), None) is not None
+-                if shared and (needs_recovery or has_temps):
++                if shared and needs_recovery:
+                     fcntl.flock(handle, fcntl.LOCK_UN)
+                     fcntl.flock(handle, fcntl.LOCK_EX)
+                     lock_mode = fcntl.LOCK_EX
+             handle.flush()
+             os.fsync(handle.fileno())
+             self._fsync_directory()
+-            if path == self.event_lock and lock_mode == fcntl.LOCK_EX:
+-                if self.migration_intent.exists():
++            if path == self.event_lock:
++                if lock_mode == fcntl.LOCK_EX and self.migration_intent.exists():
+                     self._recover_event_log_unlocked()
+                 else:
+                     self._clear_migration_temps()

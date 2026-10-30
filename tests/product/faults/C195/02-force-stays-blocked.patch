@@ -1,0 +1,12 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -650,7 +650,7 @@ class RenderBackfill:
+             with self._lock:
+                 old = self._state
+                 self._prune_garmin_release_backoff(active_release_keys)
+-                if force:
++                if False and force:
+                     # An operator scan is an explicit recovery action for the active authority.
+                     self._state["garminForbiddenReleases"] = {
+                         key: value for key, value in self._state["garminForbiddenReleases"].items()
