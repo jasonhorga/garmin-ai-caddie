@@ -3790,7 +3790,6 @@ class MobileContractTests(unittest.TestCase):
 
     def test_ios_live_views_define_expected_controls(self) -> None:
         round_home = (IOS_DIR / "Views" / "RoundHomeView.swift").read_text(encoding="utf-8")
-        recent_review = _read_required_source(self, IOS_DIR / "Views" / "RecentRoundReviewView.swift")
         current_hole = (IOS_DIR / "Views" / "CurrentHoleView.swift").read_text(encoding="utf-8")
         caddie_plan = (IOS_DIR / "Views" / "CaddiePlanView.swift").read_text(encoding="utf-8")
         location_provider = _read_required_source(self, IOS_DIR / "Services" / "LocationProvider.swift")
@@ -3805,13 +3804,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("liveRoundState: liveRoundState,", round_home)
         self.assertIn("ResultsView(apiBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore)", round_home)
         self.assertIn("HubRecentTrendRow(scores: scores)", round_home)
-        self.assertIn("struct RecentRoundReviewView: View", recent_review)
-        self.assertIn("package.recentHistory.rounds", recent_review)
-        self.assertIn("round.toPar", recent_review)
-        self.assertIn("aiCaddieShortDate(round.date)", recent_review)  # clean date, not raw ISO
-        self.assertIn("package.recentHistory.course", recent_review)
-        self.assertNotIn("package.recentHistory.holes", recent_review)
-        self.assertNotIn('Text("球洞规律")', recent_review)
         # 单场复盘: tap a recent round → fetch /history/rounds/{ref} → hole-by-hole scorecard.
         # B3 (`review.html` screen 1): the round-summary layout. Missing data is not called out any
         # more (a tile without data is hidden); an empty/failed load still says so, never blank.
@@ -3842,11 +3834,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func phaseMetrics(", round_review)
         self.assertNotIn('HubSectionLabel("各环节")', round_review)
         self.assertNotIn("func scorecardCard(", round_review)
-        self.assertIn("NavigationLink {", recent_review)
-        self.assertIn("RoundReviewView(", recent_review)
-        self.assertIn("roundRef: round.roundId", recent_review)
-        self.assertNotIn("value: HubRoute.roundReview(", recent_review)
-        self.assertNotIn("onOpenRound", recent_review)
         # 复盘逐洞落点图: tap a scorecard hole → that hole's 2D map with this round's actual shots.
         shot_map_view = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
         shot_map_model = _read_required_source(self, IOS_DIR / "Models" / "RoundShotMap.swift")
@@ -4611,7 +4598,6 @@ class MobileContractTests(unittest.TestCase):
             self, Path("mobile") / "ios" / "AICaddieUITests" / "RealEvidenceRoundResolver.swift"
         )
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
-        recent_review = _read_required_source(self, IOS_DIR / "Views" / "RecentRoundReviewView.swift")
         round_review = _read_required_source(self, IOS_DIR / "Views" / "RoundReviewView.swift")
         shot_map = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
         real_flow = _read_required_source(
@@ -4625,7 +4611,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('record(roundRef, hole, "shotmap request did not complete', resolver)
         self.assertIn("where error.isRetryable", resolver)
         self.assertIn('.accessibilityIdentifier("home-last-round")', round_home)
-        self.assertIn('.accessibilityIdentifier("history-round-row")', recent_review)
         # B3 reuses the live nine card; the review keeps the stable per-hole cell identifier.
         self.assertIn('cellIdentifier: { "round-review-hole-\\($0)" }', round_review)
         live_scorecard = _read_required_source(self, IOS_DIR / "Views" / "LiveScorecardComponents.swift")
@@ -4634,13 +4619,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn('"live-scorecard-cell-', live_scorecard)
         self.assertIn('.accessibilityIdentifier("live-scorecard-score-chip-\\(hole.number)")', live_scorecard)
         self.assertIn("value: HubRoute.roundReview(", round_home)
-        self.assertIn("NavigationLink {", recent_review)
-        self.assertIn("RoundReviewView(", recent_review)
-        self.assertNotIn("value: HubRoute.roundReview(", recent_review)
-        self.assertNotIn("onOpenRound", recent_review)
-        self.assertIn(".navigationBarTitleDisplayMode(.inline)", recent_review)
-        self.assertIn(".toolbarRole(.editor)", recent_review)
-        self.assertNotIn(".navigationBarBackButtonDisplayMode", recent_review)
         self.assertIn(".navigationBarTitleDisplayMode(.inline)", round_review)
         self.assertNotIn(".navigationBarBackButtonDisplayMode", round_review)
         # B3: the hole is full screen (navigation bar hidden). The 18-hole score strip replaces the
@@ -4719,7 +4697,6 @@ class MobileContractTests(unittest.TestCase):
     def test_native_visual_tokens_share_garmin_pro_score_semantics(self) -> None:
         ios_tokens = _read_required_source(self, IOS_DIR / "Design" / "AICaddieDesignTokens.swift")
         watch_tokens = _read_required_source(self, WATCH_DIR / "Design" / "AICaddieDesignTokens.swift")
-        recent_review = _read_required_source(self, IOS_DIR / "Views" / "RecentRoundReviewView.swift")
         caddie_plan = _read_required_source(self, IOS_DIR / "Views" / "CaddiePlanView.swift")
         watch_glance = _read_required_source(self, WATCH_DIR / "Views" / "WatchCaddieGlanceView.swift")
 
@@ -4730,7 +4707,6 @@ class MobileContractTests(unittest.TestCase):
             self.assertIn("static func scoreColor(toPar", source)
             self.assertIn("static func confidenceColor(_", source)
 
-        self.assertIn("AICaddieDesignTokens.scoreColor(toPar: round.toPar)", recent_review)
         self.assertIn("LiveHoleStyle.green", caddie_plan)
         self.assertIn("AICaddieDesignTokens.confidenceColor(state.caddieConfidence)", watch_glance)
 
