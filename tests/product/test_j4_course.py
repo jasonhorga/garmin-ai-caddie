@@ -448,6 +448,8 @@ class InstallSupplementTests(unittest.TestCase):
         state = self.ci.enqueue(global_id=123, tee_box='blue', loop_key='123:all', player_id='fixture',
                                 refs=[{**self.refs[0], 'missingData': coverage['missingData']}],
                                 requested={}, ready={123: [1]})
-        self.assertEqual(state['phase'], 'queued')
+        self.assertEqual(state['phase'], 'ready')  # The map remains playable during supplementation.
         self.assertEqual(state['stage'], 'derivatives')
-        self.assertEqual(self.ci.state_for_worker(self.job)['holes']['123:1']['derivatives'], 'queued')
+        journal = self.ci.state_for_worker(self.job)
+        self.assertEqual(journal['phase'], 'queued')
+        self.assertEqual(journal['holes']['123:1']['derivatives'], 'queued')
