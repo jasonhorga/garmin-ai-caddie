@@ -28,6 +28,20 @@
       "kind": "python",
       "target": "tests.test_fault_runner.ManifestFragmentTests.test_run_survived_skips_post_run_load_probe",
       "promise": "fault-runner infrastructure: survived 路径不重复探测"
+    },
+    {
+      "id": "tests-product-faults-C238-05-clear-all-modules",
+      "patch": "tests/product/faults/C238/05-clear-all-modules.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_check_reuses_single_initialization_dependency_without_fallback",
+      "promise": "fault-runner infrastructure: 正常依赖缓存保留，同批次单次初始化、无 fallback"
+    },
+    {
+      "id": "tests-product-faults-C238-06-keep-added-path-modules",
+      "patch": "tests/product/faults/C238/06-keep-added-path-modules.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_check_restores_sys_path_and_modules_between_batch_targets",
+      "promise": "fault-runner infrastructure: 新增搜索路径导入的 helper 不得污染后续 target"
     }
   ]
 }
