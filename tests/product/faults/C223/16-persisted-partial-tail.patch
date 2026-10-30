@@ -1,13 +1,13 @@
 diff --git a/ai_caddie/rounds/round_ingest.py b/ai_caddie/rounds/round_ingest.py
-index ca1ef9bd..d373b6e0 100644
+index 9f1c9443..40b0a710 100644
 --- a/ai_caddie/rounds/round_ingest.py
 +++ b/ai_caddie/rounds/round_ingest.py
-@@ -775,7 +775,7 @@ def _shot_putt_count(
-             lie = str((shot.get("startLoc") or {}).get("lie") or "").strip().lower()
-         if lie == "green" and ("putt" in shot_type or "putt" in club_name or club_name in {"putter", "pt", "推杆"}):
+@@ -776,7 +776,7 @@ def _shot_putt_count(
+         putt_like = "putt" in shot_type or "putt" in club_name or club_name in {"putter", "pt", "推杆"}
+         if lie == "green" and putt_like:
              count += 1
--        elif count or lie in {"", "unknown", "green"}:
-+        elif (count or lie in {"", "unknown", "green"}) and isinstance(shot.get("club"), dict):
+-        elif count or putt_like or lie in {"", "unknown", "green"}:
++        elif (count or putt_like or lie in {"", "unknown", "green"}) and isinstance(shot.get("club"), dict):
+             # A putter stroke from a non-green lie may be a default/unadjusted lie.
              # An unrecognized green/unknown-lie stroke could be an unseen first putt.
              return None
-     return count or None
