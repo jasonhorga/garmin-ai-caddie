@@ -4,6 +4,11 @@ import XCTest
 
 @MainActor
 final class ProductPhoneStateTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        ensureC156TopoBundleStub()
+    }
+
     func test_j2_7_distance_ladder_flags_only_abnormal_gaps() throws {
         // Metres are exactly yards * .9144; the 150/142 gap is legal,
         // 142/135 overlaps, 135/115 is legal, 115/94 leaves a hole.

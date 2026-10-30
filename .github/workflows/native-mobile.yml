@@ -44,6 +44,7 @@ on:
       - 'ops/write_native_build_evidence.py'
       - '.github/scripts/preflight_live_course_catalogue.py'
       - '.github/scripts/retry-transient-command.sh'
+      - '.github/scripts/check_native_fixture_dns.py'
       - '.github/scripts/scan_artifacts_for_secrets.py'
       - '.github/scripts/test-retry-transient-command.sh'
       - '.github/workflows/native-mobile.yml'
@@ -279,13 +280,16 @@ jobs:
         id: test_ios_app
         if: ${{ (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
+          mkdir -p native-mobile-results
+          set -o pipefail
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddie \
             -test-timeouts-enabled YES \
             -default-test-execution-time-allowance 120 \
             -maximum-test-execution-time-allowance 300 \
-            -destination "$IOS_DESTINATION"
+            -destination "$IOS_DESTINATION" \
+            2>&1 | tee native-mobile-results/ios-app-xcodebuild.log
       - name: Verify SwiftJCS consumer boundaries
         if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit') && steps.test_ios_app.outcome == 'success' }}
         run: |
@@ -633,13 +637,31 @@ jobs:
         id: test_watch_app
         if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
+          mkdir -p native-mobile-results
+          set -o pipefail
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
             -test-timeouts-enabled YES \
             -default-test-execution-time-allowance 120 \
             -maximum-test-execution-time-allowance 300 \
-            -destination "platform=watchOS Simulator,id=$NATIVE_WATCH_UDID"
+            -destination "platform=watchOS Simulator,id=$NATIVE_WATCH_UDID" \
+            2>&1 | tee native-mobile-results/watch-xcodebuild.log
+      - name: J4.2 fixture DNS gate (native tests)
+        if: ${{ always() && steps.test_ios_app.outcome != 'skipped' }}
+        run: |
+          set -euo pipefail
+          logs=()
+          for log in native-mobile-results/ios-app-xcodebuild.log native-mobile-results/watch-xcodebuild.log; do
+            if [ -f "$log" ]; then
+              logs+=("$log")
+            fi
+          done
+          if [ "${#logs[@]}" -eq 0 ]; then
+            echo 'J4.2 native fixture DNS gate: no fixture test logs were produced'
+            exit 0
+          fi
+          python3 .github/scripts/check_native_fixture_dns.py "${logs[@]}"
       - name: Collect Watch design snapshots
         if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
@@ -907,6 +929,9 @@ jobs:
           if expected == 0 or len(ran) != expected or summary.get("skippedTests"):
               raise SystemExit("ProductPhoneUITests did not run every test method")
           PY
+      - name: J4.2 fixture DNS gate (Product UI tests)
+        if: ${{ always() && steps.product_ui_tests.outcome != 'skipped' }}
+        run: python3 .github/scripts/check_native_fixture_dns.py product-ui-results/xcodebuild.log
       - name: Collect Product UI failure screenshots
         if: ${{ failure() }}
         run: |

@@ -6,7 +6,7 @@ import XCTest
 final class AppleAuthClientTests: XCTestCase {
     private func mockSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         return URLSession(configuration: configuration)
     }
 

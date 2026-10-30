@@ -24,24 +24,18 @@ final class RoundStartTwoStageTests: XCTestCase {
     /// Every model a test made, torn down after the test in `tearDown` — also when it threw early.
     private var fixtures: [ModelFixture] = []
 
-    override func setUp() {
-        super.setUp()
-        URLProtocol.registerClass(C33URLProtocol.self)
-    }
-
     override func tearDown() async throws {
         for fixture in fixtures {
             await fixture.tearDown()
         }
         fixtures.removeAll()
         C33URLProtocol.setHandlers(onStart: nil)
-        URLProtocol.unregisterClass(C33URLProtocol.self)
         try await super.tearDown()
     }
 
     func testMapOnlyPackageRequestCarriesTheWatchContract() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let responseData = try JSONEncoder().encode(try package(roundId: "c85-map-query", mapOnly: true))
         let log = C85RequestLog()
@@ -788,6 +782,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertTrue(result)
         XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
         let responses = C90ResponseLog()
+        let topoResponses = C85Counter()
         let diagnostics = {
             "ownership=\(String(describing: fixture.model.offlineCourseDownloadRoundIdForTesting)) "
                 + "interrupted=\(String(describing: fixture.model.interruptedOfflineCourseDownloadRoundIdForTesting)) "
@@ -805,6 +800,7 @@ final class RoundStartTwoStageTests: XCTestCase {
                 response = (200, prepData)
                 usedDefault = false
             case let path where path?.hasSuffix("/topo.png") == true:
+                topoResponses.increment()
                 response = (200, validOnePixelPNGData())
                 usedDefault = false
             default:
@@ -821,6 +817,7 @@ final class RoundStartTwoStageTests: XCTestCase {
             throw error
         }
         XCTAssertNil(fixture.model.offlineCourseDownloadRoundIdForTesting)
+        XCTAssertGreaterThan(topoResponses.value, 0, "injected topo must reach this test’s handler")
         guard let template = try fixture.store.loadCourseTemplate(globalId: c85CourseId, teeBox: "blue") else {
             XCTFail("missing whole-course template (globalId=\(c85CourseId), teeBox=blue); \(diagnostics())")
             return
@@ -924,7 +921,7 @@ final class RoundStartTwoStageTests: XCTestCase {
             proto.reply(404)
         })
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [C33URLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(C33URLProtocol.self)
         let session = URLSession(configuration: configuration)
         let client = SyncClient(
             baseURL: try XCTUnwrap(URL(string: "https://\(host)")),
@@ -1083,7 +1080,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         let store = OfflineStore(directoryURL: directory)
         // No per-host connection cap: a held request must not serialize the next one.
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [C33URLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(C33URLProtocol.self)
         let session = URLSession(configuration: configuration)
         let client = SyncClient(
             baseURL: URL(string: "https://\(host)")!,

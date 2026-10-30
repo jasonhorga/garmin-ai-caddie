@@ -192,12 +192,17 @@ private func capturedRequestBodyData(from request: URLRequest) throws -> Data {
 
 @MainActor
 final class LiveRoundAppModelTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        ensureC156TopoBundleStub()
+    }
+
     func testManualGarminSyncRefreshesSharedDataAndKeepsLocalUploadStatusSeparate() async throws {
         SessionStore.shared.signOut()
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let requestLock = NSLock()
         var requestedPaths = Set<String>()
@@ -281,7 +286,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let requestLock = NSLock()
         var garminPOSTCount = 0
@@ -576,7 +581,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         var prepRequestedHoles: [Int] = []
         var topoRequestedHoles: [Int] = []
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
@@ -721,7 +726,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         var coverageRequestCount = 0
 
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
@@ -883,7 +888,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         var topoRequestCount = 0
         var statusObservations: [String] = []
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
@@ -1244,7 +1249,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let requestLock = NSLock()
         var installationReady = false
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
@@ -1423,7 +1428,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         try store.saveActiveHole(roundId: round.roundId, hole: 10)
 
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             (
@@ -1545,7 +1550,7 @@ final class LiveRoundAppModelTests: XCTestCase {
 
         let roundId = "black-knight-local-nine-change"
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let requestLock = NSLock()
         var requestedPaths: [String] = []
@@ -1687,7 +1692,7 @@ final class LiveRoundAppModelTests: XCTestCase {
 
         let roundId = "black-knight-turn"
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             (
@@ -1756,7 +1761,7 @@ final class LiveRoundAppModelTests: XCTestCase {
             }
         }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             (
@@ -1913,7 +1918,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         }
 
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let requestLock = NSLock()
         var requestCount = 0
@@ -2007,7 +2012,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let requestLock = NSLock()
         var requestedPaths: [String] = []
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let path = try XCTUnwrap(request.url?.path)
@@ -2105,7 +2110,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let requestLock = NSLock()
         var paths: [String] = []
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
@@ -2178,7 +2183,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let requestLock = NSLock()
         var statusRequestCount = 0
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
@@ -2225,7 +2230,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let requestLock = NSLock()
         var statusRequestCount = 0
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
@@ -2299,7 +2304,7 @@ final class LiveRoundAppModelTests: XCTestCase {
     func testReadyPrepRevalidationQueuesWhenInstalledHoleHasNoRevision() async throws {
         let fixture = try readyPrepValidationFixture(revision: nil)
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
@@ -2484,7 +2489,7 @@ final class LiveRoundAppModelTests: XCTestCase {
     func testReadyPrepRevalidationIgnoresJournalRowsOutsideInstalledSelection() async throws {
         let fixture = try readyPrepValidationFixture(revision: "current-revision")
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
@@ -2538,7 +2543,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let requestLock = NSLock()
         var statusRequestCount = 0
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
@@ -2591,7 +2596,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let requestLock = NSLock()
         var packageRequestCount = 0
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
@@ -2665,7 +2670,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let png = minimalPNGData()
 
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
@@ -2780,7 +2785,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let png = minimalPNGData()
 
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
@@ -2995,7 +3000,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let png = minimalPNGData()
 
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let requestLock = NSLock()
         var requestedURLs: [URL] = []
@@ -3185,7 +3190,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         var requestedTopoRevisions: [String?] = []
 
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
@@ -3381,6 +3386,8 @@ final class LiveRoundAppModelTests: XCTestCase {
     /// rows are ordinary queued work, but the fresh entry keeps every prep request behind hole 1;
     /// releasing that entry lets the same queue continue.
     func testNineLoopStartQueuesCatalogueSiblingsAfterFreshEntryRelease() async throws {
+        let topoScope = C33TopoPrefetchScope()
+        addTeardownBlock { await topoScope.stop() }
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
@@ -3412,13 +3419,20 @@ final class LiveRoundAppModelTests: XCTestCase {
         ]
         let requestLock = NSLock()
         var requestedPaths: [String] = []
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        CapturingURLProtocol.requestHandler = { request in
+        let siblingBPrepSent = expectation(description: "catalogue sibling B prep requested after release")
+        let siblingCPrepSent = expectation(description: "catalogue sibling C prep requested after release")
+        let siblingBPrepOnce = C33FirstMatch()
+        let siblingCPrepOnce = C33FirstMatch()
+        // Keep API/prep requests token-scoped; the global handler belongs to shared topo only.
+        let requestScope = CapturingURLProtocolScope { request in
             let url = try XCTUnwrap(request.url)
             requestLock.withLock { requestedPaths.append(url.path) }
             let path = url.path
+            if path == "/api/v2/courses/31796/prep" {
+                if siblingBPrepOnce.claim() { siblingBPrepSent.fulfill() }
+            } else if path == "/api/v2/courses/31797/prep" {
+                if siblingCPrepOnce.claim() { siblingCPrepSent.fulfill() }
+            }
             if path == "/api/v2/mobile/courses/options" {
                 let body = try JSONEncoder().encode(MobileCourseOptionsResponse(
                     schema: "ai-caddie-mobile-course-options-v1",
@@ -3471,8 +3485,10 @@ final class LiveRoundAppModelTests: XCTestCase {
                 Data("{}".utf8)
             )
         }
+        let session = URLSession(configuration: requestScope.configuration())
         defer {
-            CapturingURLProtocol.requestHandler = nil
+            session.invalidateAndCancel()
+            withExtendedLifetime(requestScope) {}
             try? FileManager.default.removeItem(at: directory)
         }
         let client = SyncClient(
@@ -3496,12 +3512,14 @@ final class LiveRoundAppModelTests: XCTestCase {
             loops: activePackage.loopEntries
         )
         let generation = try XCTUnwrap(model.freshEntryReleaseGenerationForTesting)
-        let rowsDeadline = ProcessInfo.processInfo.systemUptime + 2
-        while ProcessInfo.processInfo.systemUptime < rowsDeadline,
-              model.prepCourseDownloads.filter({ [31796, 31797].contains($0.course.globalId) }).count < 2 {
-            await Task.yield()
-            try? await Task.sleep(nanoseconds: 1_000_000)
+        let siblingsQueued = expectation(description: "catalogue sibling rows queued")
+        let siblingsQueuedOnce = C33FirstMatch()
+        let siblingsQueueSubscription = model.$prepCourseDownloads.sink { downloads in
+            let queued = downloads.filter { [31796, 31797].contains($0.course.globalId) }
+            if queued.count == 2, siblingsQueuedOnce.claim() { siblingsQueued.fulfill() }
         }
+        defer { siblingsQueueSubscription.cancel() }
+        await fulfillment(of: [siblingsQueued], timeout: 10)
 
         let siblings = model.prepCourseDownloads.filter { [31796, 31797].contains($0.course.globalId) }
         XCTAssertEqual(siblings.map(\.course.globalId), [31796, 31797])
@@ -3512,17 +3530,12 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertFalse(beforeRelease.contains { $0 == "/api/v2/courses/31797/prep" })
 
         model.releaseFreshEntryForTesting(generation: generation)
-        let requestsDeadline = ProcessInfo.processInfo.systemUptime + 2
-        while ProcessInfo.processInfo.systemUptime < requestsDeadline {
-            let paths = requestLock.withLock { requestedPaths }
-            if paths.contains("/api/v2/courses/31796/prep") && paths.contains("/api/v2/courses/31797/prep") { break }
-            await Task.yield()
-            try? await Task.sleep(nanoseconds: 1_000_000)
-        }
+        await fulfillment(of: [siblingBPrepSent, siblingCPrepSent], timeout: 10)
         let afterRelease = requestLock.withLock { requestedPaths }
         XCTAssertTrue(afterRelease.contains("/api/v2/courses/31796/prep"))
         XCTAssertTrue(afterRelease.contains("/api/v2/courses/31797/prep"))
         await model.stopRoundBackgroundWorkForTesting()
+        await topoScope.stop()
     }
 
     func testFinishActiveRoundSealsImmediatelyThenUploadsAndFinishesInBackground() async throws {
@@ -3581,7 +3594,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         var requestedPaths: [String] = []
         var finishBody: Data?
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let path = request.url?.path ?? ""
@@ -3745,7 +3758,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let slowData = try JSONEncoder().encode(slow)
         let fastData = try JSONEncoder().encode(fast)
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let slowRequested = expectation(description: "slow preparation reached the server")
         let slowRequestedOnce = C33FirstMatch()
@@ -3819,7 +3832,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let requestLock = NSLock()
         var requestedPaths: [String] = []
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let path = request.url?.path ?? ""
@@ -3902,7 +3915,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let requestLock = NSLock()
         var requestedPaths: [String] = []
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             requestLock.lock()
@@ -4308,7 +4321,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let watchEventReplay = expectation(description: "server-only Watch event is replayed")
         let replayedEventUpload = expectation(description: "replayed Watch event receives duplicate ACK")
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let requestLock = NSLock()
         var replayCursorAcknowledged = false
@@ -4452,7 +4465,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let store = OfflineStore(directoryURL: directory)
         let bridge = WatchEventBridge(offlineStore: store, autoActivate: false)
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let serverRequest = expectation(description: "detached Watch event reaches backend")
         CapturingURLProtocol.requestHandler = { request in
@@ -4546,7 +4559,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         try store.appendEvent(existing)
         let bridge = WatchEventBridge(offlineStore: store, autoActivate: false)
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let serverRequest = expectation(description: "detached pending tail reaches backend")
         // The server's copy of this round is a contract-valid whole loop (B4b-2 §6).
@@ -4713,7 +4726,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         defer { mediaServer.stop() }
 
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let stateLock = NSLock()
         var cycle = 1
@@ -4878,7 +4891,7 @@ final class LiveRoundAppModelTests: XCTestCase {
             )
         )
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let requestLock = NSLock()
         var requestedPaths: [String] = []
@@ -5052,7 +5065,7 @@ final class LiveRoundAppModelTests: XCTestCase {
             )
         )
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let requestLock = NSLock()
         var requestedPaths: [String] = []
@@ -5239,7 +5252,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
 
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let requestLock = NSLock()
         var requestedPaths: [String] = []

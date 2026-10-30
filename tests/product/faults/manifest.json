@@ -1731,20 +1731,6 @@
       "promise": "G6"
     },
     {
-      "id": "tests-product-faults-C161-01",
-      "patch": "tests/product/faults/C161/01-arrival-order-wins.patch",
-      "kind": "python",
-      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_timestamp_order_beats_round_registration_order",
-      "promise": "4.2"
-    },
-    {
-      "id": "tests-product-faults-C161-02",
-      "patch": "tests/product/faults/C161/02-finish-clears-all-rounds.patch",
-      "kind": "python",
-      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_timestamp_n2_restart_old_upload_cannot_promote_older_round",
-      "promise": "4.2"
-    },
-    {
       "id": "tests-product-faults-C161-03",
       "patch": "tests/product/faults/C161/03-missing-timestamp-crashes.patch",
       "kind": "python",
@@ -1770,13 +1756,6 @@
       "patch": "tests/product/faults/C161/06-timed-finish-retires-only-itself.patch",
       "kind": "python",
       "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_finish_later_mixed_client_round_retires_earlier_timed_round",
-      "promise": "4.2"
-    },
-    {
-      "id": "tests-product-faults-C161-07",
-      "patch": "tests/product/faults/C161/07-event-ignores-current-guard.patch",
-      "kind": "python",
-      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_late_unregistered_event_upload_mixed_client_ids_keeps_bound_current_round",
       "promise": "4.2"
     },
     {

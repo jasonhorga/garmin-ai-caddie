@@ -6,6 +6,7 @@ import XCTest
 
 // Every test owns a distinct host. C33URLProtocol is process-wide, so requests that earlier tests'
 // models are still draining are answered 404 here and never drive this test's expectations.
+// Only injected sessions install C33URLProtocol; shared topo uses the bundle stub.
 //
 // The CI simulator stalls at random for 1.5–14 s. Waits here are therefore generous and never the
 // assertion: a held request is never answered, so a regression shows up as an event that does not
@@ -15,15 +16,45 @@ final class C33StartTests: XCTestCase {
     /// Far below every default the product could fall back to (the 30 s start budget, the 120 s
     /// package timeout) and far above a simulator stall.
     private let eventWait: TimeInterval = 10
+    private var topoPrefetchScope: C33TopoPrefetchScope!
 
     override func setUp() {
         super.setUp()
-        URLProtocol.registerClass(C33URLProtocol.self)
+        topoPrefetchScope = C33TopoPrefetchScope()
     }
-    override func tearDown() {
+    override func tearDown() async throws {
+        await topoPrefetchScope?.stop()
+        topoPrefetchScope = nil
         C33URLProtocol.setHandlers(onStart: nil)
-        URLProtocol.unregisterClass(C33URLProtocol.self)
-        super.tearDown()
+        try await super.tearDown()
+    }
+
+    /// J4.2 test transport: injected topo must reach its handler while shared prefetch gets a PNG.
+    func testProductSpec42InjectedTopoKeepsItsHandlerAlongsideSharedPrefetch() async throws {
+        let url = try XCTUnwrap(URL(string:
+            "https://caddie.example/topo.png?v=\(UUID().uuidString)"
+        ))
+        let ownBody = Data("injected handler".utf8)
+        C33URLProtocol.setHandlers(onStart: { proto in
+            XCTAssertEqual(proto.request.url, url)
+            proto.reply(202, ownBody)
+        })
+        let session = C33URLProtocol.session()
+        // Reproduce a store test registering its global capture after the bundle topo stub.
+        SharedNonTopoCapturingURLProtocol.registerForSharedSession(host: "caddie.example")
+        defer {
+            URLProtocol.unregisterClass(SharedNonTopoCapturingURLProtocol.self)
+            session.invalidateAndCancel()
+        }
+
+        let (injectedData, injectedResponse) = try await session.data(from: url)
+        let sharedLoaded = await TopoHoleImageStore.ensureLoaded(url)
+
+        XCTAssertEqual((injectedResponse as? HTTPURLResponse)?.statusCode, 202)
+        XCTAssertEqual(injectedData, ownBody)
+        XCTAssertTrue(sharedLoaded, "shared prefetch must receive a decoder-valid PNG")
+        XCTAssertTrue(TopoHoleImageStore.isMemoryCached(url))
+        XCTAssertTrue(SharedTopoURLProtocol.records().urls.contains(url))
     }
 
     func testStartCancelsPreviousCourseAndSendsWithoutWaitingForIt() async throws {
@@ -259,6 +290,7 @@ final class C33StartTests: XCTestCase {
         // injected 0.05 s budget must end the never-answered request: without a total budget it would
         // hang for the 120 s package timeout, and a hard-coded 30 s would also miss this wait.
         await fulfillment(of: [sent, stopped, failed], timeout: eventWait)
+        await start.value
         XCTAssertFalse(model.isPreparingRound)
         XCTAssertNil(model.pendingLiveHole)
         XCTAssertNotNil(model.roundStartFailure)
@@ -274,6 +306,8 @@ final class C33StartTests: XCTestCase {
         ) }
         defer { retry.cancel(); retrySubscription.cancel() }
         await fulfillment(of: [retryFailed], timeout: eventWait)
+        await retry.value
+        await model.stopRoundBackgroundWorkForTesting()
         XCTAssertNotNil(model.roundStartFailure)
     }
 
@@ -286,7 +320,7 @@ final class C33StartTests: XCTestCase {
         var now = Date(timeIntervalSince1970: 1_900_000_000)
         let client = SyncClient(
             baseURL: URL(string: "https://\(host)")!, session: session,
-            roundStartTimeoutInterval: 0.05
+            roundStartTimeoutInterval: 1
         )
         let model = LiveRoundAppModel(
             offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: client.baseURL,
@@ -446,7 +480,7 @@ final class C33StartTests: XCTestCase {
         let host = "prep-queue.example.test"
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let session = C33URLProtocol.session()
-        let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session, roundStartTimeoutInterval: 0.05)
+        let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session, roundStartTimeoutInterval: 1)
         let model = LiveRoundAppModel(
             offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: client.baseURL,
             watchBridge: nil, garminSessionStore: nil, syncClient: client,

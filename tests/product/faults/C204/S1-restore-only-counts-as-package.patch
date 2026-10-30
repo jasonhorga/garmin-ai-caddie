@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index dc1a315d..5b86839a 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2787,7 +2787,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
+                     _ACTIVE_COURSES[key] = tuple(sorted({int(value) for value in global_ids if int(value) > 0}))
+                 if selection is not None:
+                     _ACTIVE_SELECTIONS[key] = (str(selection[0]), str(selection[1]).strip().lower())
+-                if package_registration and not restore_only_registration:
++                if package_registration:
+                     _ACTIVE_PACKAGED_ROUNDS.add(key)
+                 if key not in _ACTIVE_START_TIMES and durable_starts.get(key) is not None:
+                     _ACTIVE_START_TIMES[key] = durable_starts[key]

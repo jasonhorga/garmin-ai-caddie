@@ -187,7 +187,7 @@ final class WatchTopoSenderTests: XCTestCase {
             ))
         }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         CapturingURLProtocol.requestHandler = { request in
             (HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 503, httpVersion: nil, headerFields: nil)!,
              Data(#"{"detail":"offline"}"#.utf8))
