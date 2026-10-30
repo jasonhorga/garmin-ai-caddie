@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
+import time
 from pathlib import Path
 
 from ai_caddie.history.history import OWNER_ID
 from ai_caddie.history.mobile_stats import PREVIOUS_WINDOW, build_mobile_previous, build_mobile_stats
-from ai_caddie.history.stats_cache import cached_build_history_stats, cached_load_history_data, history_input_signature
+from ai_caddie.history.stats_cache import (
+    cached_build_history_stats,
+    cached_history_stats_snapshot,
+    cached_load_history_data,
+    history_input_signature,
+)
 from ai_caddie.core.priority_work import background_work, yield_to_foreground
 
 from .data_source import load_history_data_for_mode
@@ -23,6 +30,8 @@ _WARM_LOCK = threading.Lock()
 # leave the member's first package cold. The per-player map still bounds duplicate work to one
 # worker for each data partition.
 _WARM_THREADS: dict[str, threading.Thread] = {}
+_WARM_FAILURES: dict[str, str] = {}
+_WARM_FAILURE_TIME: dict[str, float] = {}
 
 
 def load_history_stats_response(window: str = "all", *, player_id: str = OWNER_ID) -> HistoryStatsResponse:
@@ -39,6 +48,11 @@ def load_history_stats_response(window: str = "all", *, player_id: str = OWNER_I
             window=window,
         )
     )
+
+
+def load_history_stats_snapshot(*, player_id: str = OWNER_ID, window: str = "all") -> dict | None:
+    """Return an already-built stats projection for liveness probes without doing source I/O."""
+    return cached_history_stats_snapshot(player_id=player_id, window=window)
 
 
 def load_history_summary_response(*, player_id: str = OWNER_ID) -> HistoryStatsSummaryResponse:
@@ -149,13 +163,16 @@ def warm_stats_cache(player_id: str = OWNER_ID) -> bool:
     return True
 
 
-def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Thread:
+def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Thread | None:
     """Run :func:`warm_stats_cache` on a daemon thread and return it.
 
     Used after a successful sync so the ~10s recompute happens off the request path and
     does NOT block the ``/api/v2/sync/garmin`` response.
     """
     clean_player_id = str(player_id or OWNER_ID).strip() or OWNER_ID
+    if os.getenv("AI_CADDIE_READINESS_TRACE") == "1":
+        warm_stats_cache(player_id=clean_player_id)
+        return None
     with _WARM_LOCK:
         existing = _WARM_THREADS.get(clean_player_id)
         if existing is not None and existing.is_alive():
@@ -166,6 +183,17 @@ def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Threa
                 with background_work(unit_type="stats"):
                     thread.history_signature = history_input_signature(clean_player_id)
                     thread.warm_succeeded = warm_stats_cache(player_id=clean_player_id) is True
+                with _WARM_LOCK:
+                    if not thread.warm_succeeded:
+                        _WARM_FAILURES[clean_player_id] = "stats warm returned false"
+                        _WARM_FAILURE_TIME[clean_player_id] = time.time()
+                    else:
+                        _WARM_FAILURES.pop(clean_player_id, None)
+                        _WARM_FAILURE_TIME.pop(clean_player_id, None)
+            except Exception as exc:  # noqa: BLE001 - background warm must leave a retryable record
+                with _WARM_LOCK:
+                    _WARM_FAILURES[clean_player_id] = f"{exc.__class__.__name__}: {exc}"
+                    _WARM_FAILURE_TIME[clean_player_id] = time.time()
             finally:
                 with _WARM_LOCK:
                     if _WARM_THREADS.get(clean_player_id) is threading.current_thread():
@@ -181,3 +209,21 @@ def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Threa
         _WARM_THREADS[clean_player_id] = thread
         thread.start()
         return thread
+
+
+def history_warm_failure(player_id: str = OWNER_ID) -> str | None:
+    """Return the last failed background warm reason until a later warm succeeds."""
+    clean_player_id = str(player_id or OWNER_ID).strip() or OWNER_ID
+    with _WARM_LOCK:
+        return _WARM_FAILURES.get(clean_player_id)
+
+
+def history_warm_failure_details(player_id: str = OWNER_ID) -> dict[str, object] | None:
+    """Return the latest failed warm and timestamp while retries remain enabled."""
+    clean_player_id = str(player_id or OWNER_ID).strip() or OWNER_ID
+    with _WARM_LOCK:
+        reason = _WARM_FAILURES.get(clean_player_id)
+        failed_at = _WARM_FAILURE_TIME.get(clean_player_id)
+    if reason is None:
+        return None
+    return {"reason": reason, "failedAt": failed_at}

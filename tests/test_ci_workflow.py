@@ -1505,6 +1505,29 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("Test-environment upload opt-in", text)
         self.assertIn('UI.success("Signed IPA built; TestFlight upload was not requested.")', text)
         self.assertIn("def next_testflight_build_number!(api_key:)", text)
+
+    def test_G7_fastlane_preflights_before_build_and_retries_warming_with_budget(self) -> None:
+        """G7: backend failure is found before IPA work; warming retries are bounded."""
+        text = Path("fastlane/Fastfile").read_text(encoding="utf-8")
+        self.assertLess(text.index("backend = preflight_backend!"), text.index("build_app("))
+        self.assertIn("READINESS_TOTAL_TIMEOUT", text)
+        self.assertIn("READINESS_POLL_INTERVAL", text)
+        self.assertIn("READINESS_READ_TIMEOUT", text)
+        self.assertIn("READINESS_OPEN_TIMEOUT", text)
+        self.assertIn("BackendRetryableError", text)
+        self.assertIn("Errno::ECONNRESET", text)
+        self.assertIn("SocketError", text)
+        self.assertIn("readiness warming", text)
+        self.assertIn("elapsed_ms=", text)
+        self.assertIn("部署后预热未完成", text)
+        self.assertIn("backend readiness unavailable", text)
+        self.assertIn("backend readiness runtime degraded", text)
+        # G7 (C220 r2 B1): every runtime check that is still warming keeps the preflight waiting,
+        # not only history; mobile_package/reports warming must never open the upload.
+        self.assertNotIn('row["label"] == "history" && row["state"] == "warming"', text)
+        self.assertEqual(text.count('readiness.dig("checks")&.any? { |row| row["state"] == "warming" }'), 2)
+        # G7 (C220 r2 B2): immediate degraded failure honours the documented test-environment opt-in.
+        self.assertIn('if readiness["runtimeStatus"] == "degraded" && !allow_degraded_readiness', text)
         self.assertIn("initial_build_number: 0", text)
         self.assertIn("Using next App Store Connect TestFlight build number", text)
         self.assertNotIn('rescue => e\n      UI.important("No prior TestFlight build', text)
