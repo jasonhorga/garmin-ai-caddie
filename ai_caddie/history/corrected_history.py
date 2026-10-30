@@ -106,12 +106,25 @@ def hole_sides(row: dict[str, Any]) -> list[tuple[dict[str, Any], int, int, str]
     numbers = [int(hole.get("number") or 0) or index for index, hole in indexed_holes]
     out: list[tuple[dict[str, Any], int, int, str]] = []
     if row.get("merged"):
-        split = len(holes)
-        for index in range(len(holes)):
-            tail = numbers[index:]
-            if tail and tail == list(range(10, 10 + len(tail))):
-                split = index
-                break
+        # Normalized merged rows use display 1..9 then 10..18.  A missing hole makes
+        # the second run non-contiguous, so find its boundary from the first display
+        # number >= 10 instead of requiring a complete tail.  Legacy back-first rows
+        # carry localHole on the first card; their boundary is the first row without it.
+        if any(hole.get("localHole") for hole in holes):
+            split = next((index for index, hole in enumerate(holes) if not hole.get("localHole")), len(holes))
+        elif any(1 <= int(hole.get("number") or 0) <= 9 for hole in holes):
+            # Normalized 1..9 + 10..18 storage; a missing second-card hole leaves a gap
+            # but the first number at or above ten still identifies the boundary.
+            split = next((index for index, number in enumerate(numbers) if number >= 10), len(holes))
+        else:
+            # Legacy back-first storage repeats 10..18 for both cards.  Locate the
+            # contiguous trailing second card before falling back to a single card.
+            split = len(holes)
+            for index in range(len(holes)):
+                tail = numbers[index:]
+                if tail and tail == list(range(10, 10 + len(tail))):
+                    split = index
+                    break
         for index, hole in enumerate(holes):
             number = numbers[index]
             if index < split:
@@ -184,24 +197,34 @@ def corrected_rounds(
         refs = _round_refs(row)
         events = events_by_round.get(str(row.get("id"))) or []
         penalty_events = [e for e in events if e.get("op") in PENALTY_EVENT_OPS] if "penalty" in fields else []
-        holes: list[dict[str, Any]] = []
+        hole_entries: list[tuple[int, int, dict[str, Any]]] = []
         delta = 0
         added_total = 0
+        added_par = 0
         corrected_refs: list[str] = []
         changed = False
         display_numbers = {id(hole): display for hole, display, _physical, _side in hole_sides(row)}
-        for hole in row.get("holes") or []:
+        for source_index, hole in enumerate(row.get("holes") or []):
             number = display_numbers.get(id(hole))
             if not number:
-                holes.append(hole)
+                hole_entries.append((999, source_index, hole))
                 continue
             records = [r for ref in refs for r in hole_annotations.get(f"{ref}:{number}", [])]
+            # A restore annotation only fills a hole that was absent from Garmin.  If a
+            # later card supplies real strokes, leave that value visible so reconciliation
+            # can report the conflict instead of silently treating the restore as a correction.
+            records = [r for r in records if not (
+                r.get("kind") == "score_correction"
+                and isinstance(r.get("payload"), dict)
+                and r["payload"].get("restore") is True
+                and _int(hole.get("strokes")) is not None
+            )]
             kinds = {HOLE_ANNOTATION_FIELDS[str(r.get("kind"))] for r in records}
             if any(_int(e.get("hole")) == number and is_penalty_correction(penalty_events, position)
                    for position, e in enumerate(penalty_events)):
                 kinds.add("penalty")
             if not kinds:
-                holes.append(hole)
+                hole_entries.append((number, source_index, hole))
                 continue
             # The audited effective value: the same rule the correction log and spec 5.7 check use.
             (total, _total_winner), (putts, _putts_winner), (penalty, penalty_winner) = effective_hole(
@@ -224,7 +247,7 @@ def corrected_rounds(
                 corrected["_penaltyReason"] = _penalty_reason(penalty_winner)
             if kinds & {"total", "putts"}:
                 corrected["gir"] = _gir(corrected, _hole_par(row, corrected, number))
-            holes.append(corrected)
+            hole_entries.append((number, source_index, corrected))
             changed = True
         # A mobile score can refer to a physical hole whose Garmin card is absent.  Keep the
         # append-only annotation as the source of truth and materialize that display hole in the
@@ -246,31 +269,36 @@ def corrected_rounds(
             (total, _total_winner), (putts, _putts_winner), (penalty, penalty_winner) = effective_hole(
                 row, number, records, penalty_events
             )
+            # A hole without a score is not a materialized history hole.  Its putt and
+            # penalty evidence remains in the annotation log, but cannot enter any
+            # aggregate denominator on its own.  Synthetic holes also deliberately carry
+            # no putt/penalty fields; those facts are evidence until a score exists.
+            if "total" not in kinds or total is None:
+                continue
             synthetic: dict[str, Any] = {"number": number}
             par = _hole_par(row, synthetic, number)
-            if par is not None:
-                synthetic["par"] = par
-            if "total" in kinds and total is not None:
-                synthetic["strokes"] = total
-                synthetic["_scoreCorrected"] = True
-                corrected_refs.append(f"{row.get('id')}:{number}")
-                added_total += total
-            if "putts" in kinds and putts is not None:
-                synthetic["putts"] = putts
-                synthetic["_puttCorrected"] = True
-            if "penalty" in kinds and penalty is not None:
-                synthetic["penalties"] = penalty
-                synthetic["_penaltyCorrected"] = True
-                synthetic["_penaltyReason"] = _penalty_reason(penalty_winner)
-            holes.append(synthetic)
+            # Without a standard-par source we cannot safely place this physical hole in
+            # a score or to-par aggregate, so leave the correction as evidence only.
+            if par is None:
+                continue
+            synthetic["par"] = par
+            synthetic["strokes"] = total
+            synthetic["_scoreCorrected"] = True
+            corrected_refs.append(f"{row.get('id')}:{number}")
+            added_total += total
+            added_par += par
+            hole_entries.append((number, len(hole_entries), synthetic))
             changed = True
         if not changed:
             out.append(row)
             continue
+        holes = [hole for _number, _index, hole in sorted(hole_entries, key=lambda item: (item[0], item[1]))]
         row = {**row, "holes": holes}
         if corrected_refs:
             if _int(row.get("strokes")) is not None:
                 row["strokes"] = _int(row["strokes"]) + delta + added_total
+            if _int(row.get("par")) is not None:
+                row["par"] = _int(row["par"]) + added_par
             row["_scoreCorrectedRefs"] = corrected_refs
         if added_total:
             completed = _int(row.get("holesCompleted")) or 0

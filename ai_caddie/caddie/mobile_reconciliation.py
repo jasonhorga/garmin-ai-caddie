@@ -75,6 +75,16 @@ def _hole_scores(
         corrections_root=root,
     )
     round_row = projected.rounds[0] if projected.rounds else round_row
+    # Restore annotations have already been materialized by the corrected projection.  Do
+    # not feed them into effective_hole a second time: when a later Garmin card supplies
+    # real strokes, the projection intentionally keeps those strokes so reconciliation can
+    # expose the conflict.
+    annotation_records = [
+        record for record in annotation_records
+        if not (record.get("kind") == "score_correction"
+                and isinstance(record.get("payload"), dict)
+                and record["payload"].get("restore") is True)
+    ]
     correction_events = _round_correction_events(player_id, round_row, root=root)
     scores: dict[int, dict[str, Any]] = {}
     for _hole, number, _physical, _side in hole_sides(round_row):
@@ -418,7 +428,7 @@ def _annotation_suggestions(
                     target_type="hole",
                     target_id=f"{row.get('roundId') or ''}:{hole}",
                     kind="score_correction",
-                    payload={"from": None, "to": local_value, "sourceEventId": event_id},
+                    payload={"from": None, "to": local_value, "sourceEventId": event_id, "restore": True},
                     reason="Local score input fills a hole missing from synced Garmin facts.",
                 )
             )

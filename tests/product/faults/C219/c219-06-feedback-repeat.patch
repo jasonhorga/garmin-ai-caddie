@@ -5,7 +5,7 @@
      candidate_audits = [
          row for row in candidate_audits
 -        if str(row.get("decisionId") or "") not in applied_decision_ids
-+        if False
++        if True
      ]
      for row in local_only:
          row.setdefault("unmapped", False)
