@@ -135,6 +135,8 @@ J7.3 迁移制品细则：备份从临时文件创建、replace、元数据恢�
 ## 验收方式
 故障清单 = 每条承诺至少一处"改坏代码"，新套件必须红（例：2.5 默认洞放回推杆分母；5.1 锁定改读 sourceStartHole；5.12 去掉新鲜判断；3.4 去掉重放幂等；7.1 去掉球员作用域）。新测试在现产品上红 → 逐条判是产品 bug 还是承诺写错，修产品或改清单，不改测试迁就。新套件全绿 + 故障清单全红后，旧测试同一 PR 整批删。
 
+故障 runner 的基础设施契约（不单列 J/G 产品承诺）：Python unittest target 必须先在干净 worktree 的独立子进程中，用 unittest loader 确认能加载、没有加载错误或 `_FailedTest`，且至少含 1 条测试；失败记 `unavailable`，detail 为 `target 无法加载：<原因>`，不打补丁。打补丁后再次用同一探测确认可加载；补丁导致的 ImportError、SyntaxError 或测试消失同样记 `unavailable`，不能当作断言杀死。通过加载检查后，实际执行测试非 0 仍为 `killed`（含测试执行阶段的错误），全过为 `leaked`。`--run` 存在 unavailable、unappliable 或 leaked 时整体非 0 退出。`--check` 在干净树上同时检查补丁可用性及 Python target 加载；native-unit/native-ui target 静态核对 mobile/ios 对应测试 bundle 内 Swift 测试类及方法名（只核名字，不代表编译或执行通过），失效 target 列出并非 0 退出。disabled 条目继续跳过，python-script 不按 unittest target 探测。
+
 ## Jason 10-23 已定
 手表距离用码；开球后前/中/后按实时位置重算；Web 保留；成绩首页 = 四块 + "全部 N 场"链接（按现行上线）；旧"球场回顾页"RecentRoundReviewView 删除（连同路由与截图测试，不写承诺）。文档按此改一致（C19）。
 
