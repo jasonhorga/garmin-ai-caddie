@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import threading
+import time
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -41,15 +42,19 @@ class C195BackfillBackoffTests(unittest.TestCase):
             try:
                 worker.enqueue_all(downloaded=set())
                 delays = []
-                for expected_attempt in range(1, 8):
-                    self.assertTrue(worker.run_once())
-                    entry = worker.status()["garminReleaseBackoff"][0]
-                    self.assertEqual(entry["attempts"], expected_attempt)
-                    delays.append(entry["backoffSeconds"])
-                    now[0] = entry["retryAfter"]
-                    worker.enqueue_all(downloaded=set())
+                with patch.object(rb.logger, "warning") as warning:
+                    for expected_attempt in range(1, 8):
+                        self.assertTrue(worker.run_once())
+                        entry = worker.status()["garminReleaseBackoff"][0]
+                        self.assertEqual(entry["attempts"], expected_attempt)
+                        delays.append(entry["backoffSeconds"])
+                        first_failure = entry["firstFailureAt"]
+                        now[0] = entry["retryAfter"]
+                        worker.enqueue_all(downloaded=set())
+                        self.assertEqual(worker.status()["garminReleaseBackoff"][0]["firstFailureAt"], first_failure)
                 self.assertEqual(delays, [60, 120, 240, 480, 960, 1920, 3600])
-                self.assertEqual(worker.status()["garminReleaseBackoff"][0]["state"], "backoff")
+                self.assertEqual(worker.status()["garminReleaseBackoff"][0]["state"], "persistent")
+                self.assertEqual(warning.call_count, 7)
             finally:
                 worker.close()
 
@@ -127,6 +132,12 @@ class C195BackfillBackoffTests(unittest.TestCase):
 
 
 class C195HistoryWarmBackoffTests(unittest.TestCase):
+    def test_J42_backoff_helper_clamps_extreme_attempts(self):
+        """J4.2: an extreme retry count stays bounded and cannot kill the monitor."""
+        from server_v2.render_backfill import exponential_backoff_seconds
+
+        self.assertEqual(exponential_backoff_seconds(10**9), 3600.0)
+
     def test_J42_failed_history_warm_is_exponentially_deferred_without_sleep(self):
         """J4.2: repeated failed history warms do not rebuild on every 60-second tick."""
         from server_v2 import main
@@ -173,3 +184,52 @@ class C195HistoryWarmBackoffTests(unittest.TestCase):
             thread.join(1)
         self.assertFalse(thread.is_alive())
         self.assertEqual(calls, [60.0, 180.0, 360.0, 660.0])
+
+    def test_J42_monitor_resets_backoff_after_success(self):
+        """J4.2: three failed warms, one success, then a new failure retries after 60 seconds."""
+        from server_v2 import main
+
+        now = [0.0]
+        calls = []
+        signature_calls = [0]
+        outcomes = iter([False, False, False, True, False, False])
+        stop = threading.Event()
+
+        class CompletedWarm:
+            def __init__(self, succeeded):
+                self.is_alive = lambda: False
+                self.warm_succeeded = succeeded
+                self.history_signature = ("changed",)
+
+        def signature(_player):
+            signature_calls[0] += 1
+            if signature_calls[0] == 1:
+                return ("old",)
+            return ("after-success",) if now[0] >= 720.0 else ("changed",)
+
+        def warm(*, player_id):
+            calls.append(now[0])
+            return CompletedWarm(next(outcomes))
+
+        def wait(_interval):
+            now[0] += 60.0
+            time.sleep(0)
+            if now[0] >= 1020.0:
+                stop.set()
+                return True
+            return False
+
+        with (
+            patch.object(main, "_history_input_signature", side_effect=signature),
+            patch.object(main, "warm_stats_cache_in_background", side_effect=warm),
+        ):
+            thread = main._start_history_signature_monitor(
+                stop_event=stop,
+                interval_s=60.0,
+                player_id="c195-reset",
+                clock=lambda: now[0],
+                wait=wait,
+            )
+            thread.join(1)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(calls, [60.0, 180.0, 360.0, 660.0, 720.0, 840.0])
