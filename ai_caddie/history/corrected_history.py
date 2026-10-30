@@ -320,7 +320,10 @@ def corrected_rounds(
                 synthetic["localHole"] = _int(score_payload["restoreLocalHole"])
                 if _int(score_payload.get("restoreGlobalId")) is not None:
                     synthetic["sourceGlobalId"] = _int(score_payload["restoreGlobalId"])
-            if number >= 10 and isinstance(score_payload, dict) and _int(score_payload.get("restoreLocalHole")) != number:
+            front_gid = _int(row.get("frontNineGlobalCourseId") or row.get("globalId") or row.get("courseId"))
+            if number >= 10 and isinstance(score_payload, dict) and (
+                    _int(score_payload.get("restoreLocalHole")) != number
+                    or _int(score_payload.get("restoreGlobalId")) != front_gid):
                 added_back_gid = _int(score_payload.get("restoreGlobalId")) or added_back_gid
             corrected_refs.append(f"{row.get('id')}:{number}")
             added_total += total
