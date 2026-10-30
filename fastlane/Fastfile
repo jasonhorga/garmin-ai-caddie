@@ -192,7 +192,8 @@ platform :ios do
       end
       elapsed_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - attempt_started) * 1000).round(1)
       UI.message("backend readiness attempt #{attempts} elapsed_ms=#{elapsed_ms}")
-      warming = readiness.dig("checks")&.any? { |row| row["label"] == "history" && row["state"] == "warming" }
+      # G7: any runtime check (history, mobile_package, reports) still warming keeps waiting.
+      warming = readiness.dig("checks")&.any? { |row| row["state"] == "warming" }
       break unless warming
       waited = Process.clock_gettime(Process::CLOCK_MONOTONIC) - readiness_started
       break if waited >= READINESS_TOTAL_TIMEOUT
@@ -200,11 +201,11 @@ platform :ios do
       sleep([READINESS_POLL_INTERVAL, READINESS_TOTAL_TIMEOUT - waited].min)
     end
     UI.user_error!("backend readiness unavailable after #{READINESS_TOTAL_TIMEOUT}s (attempts=#{attempts})") unless readiness
-    if readiness.dig("checks")&.any? { |row| row["label"] == "history" && row["state"] == "warming" }
+    if readiness.dig("checks")&.any? { |row| row["state"] == "warming" }
       waited = [Process.clock_gettime(Process::CLOCK_MONOTONIC) - readiness_started, READINESS_TOTAL_TIMEOUT].min.round
       UI.user_error!("部署后预热未完成（已等 #{waited} s）；checks=#{readiness["checks"].inspect}")
     end
-    if readiness["runtimeStatus"] == "degraded"
+    if readiness["runtimeStatus"] == "degraded" && !allow_degraded_readiness
       UI.user_error!("backend readiness runtime degraded; checks=#{readiness["checks"].inspect}")
     end
     checks = readiness["checks"]
