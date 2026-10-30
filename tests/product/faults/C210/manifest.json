@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C210-01-ignore-fragments",
+      "patch": "tests/product/faults/C210/01-ignore-fragments.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_fragment_only_fault_is_loaded_applied_and_run",
+      "promise": "C210 fault-runner infrastructure"
+    },
+    {
+      "id": "tests-product-faults-C210-02-skip-duplicate-id-check",
+      "patch": "tests/product/faults/C210/02-skip-duplicate-id-check.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_duplicate_ids_report_both_manifest_files",
+      "promise": "C210 fault-runner infrastructure"
+    }
+  ]
+}
