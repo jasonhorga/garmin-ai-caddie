@@ -252,7 +252,9 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
         cases = [
             ("owner", owner_ladder, 377.0, 180.0, ["3W"]),
             ("owner_layup", owner_ladder, 396.0, 199.0, ["9I", "50"]),
-            ("trigger", trigger_ladder, 377.0, 180.0, ["3W"]),
+            # Synthetic trigger found on main: at 373 m the old layup helper made 58° (68 m)
+            # precede Aw (102 m); the shared tail now keeps the 3W advance as one coherent leg.
+            ("trigger", trigger_ladder, 373.0, 176.0, ["3W"]),
         ]
         for label, ladder, route_len, remaining_m, expected_tail in cases:
             with self.subTest(row=label):
