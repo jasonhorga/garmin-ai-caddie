@@ -4,6 +4,7 @@ import csv
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -656,19 +657,53 @@ class CIWorkflowTests(unittest.TestCase):
         steps = {step.get("name"): step for step in workflow["jobs"]["native-mobile"]["steps"]}
 
         native_gate = steps["J4.2 fixture DNS gate (native tests)"]["run"]
-        self.assertIn("test -f native-mobile-results/ios-app-xcodebuild.log", native_gate)
-        self.assertIn("no fixture test logs were produced", native_gate)
-        self.assertIn("exit 1", native_gate)
-        self.assertNotIn("exit 0", native_gate)
-
         product_steps = {
             step.get("name"): step
             for step in workflow["jobs"]["native-product-ui"]["steps"]
         }
         product_gate = product_steps["J4.2 fixture DNS gate (Product UI tests)"]["run"]
-        self.assertIn("test -f product-ui-results/xcodebuild.log", product_gate)
-        self.assertIn("exit 1", product_gate)
-        self.assertIn("check_native_fixture_dns.py product-ui-results/xcodebuild.log", product_gate)
+
+        repo_root = Path(__file__).resolve().parents[1]
+        gate_script = repo_root / ".github/scripts/check_native_fixture_dns.py"
+
+        def run_step(run_block: str, files: dict[str, str]) -> subprocess.CompletedProcess[str]:
+            with tempfile.TemporaryDirectory(prefix="native-dns-gate-") as directory:
+                root = Path(directory)
+                script = root / ".github/scripts/check_native_fixture_dns.py"
+                script.parent.mkdir(parents=True)
+                shutil.copyfile(gate_script, script)
+                for relative, content in files.items():
+                    path = root / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(content, encoding="utf-8")
+                return subprocess.run(
+                    ["bash", "-c", run_block],
+                    cwd=root,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+
+        native_missing_ios = run_step(
+            native_gate,
+            {"native-mobile-results/watch-xcodebuild.log": ""},
+        )
+        self.assertNotEqual(native_missing_ios.returncode, 0, native_missing_ios.stderr)
+        native_complete = run_step(
+            native_gate,
+            {
+                "native-mobile-results/ios-app-xcodebuild.log": "",
+                "native-mobile-results/watch-xcodebuild.log": "",
+            },
+        )
+        self.assertEqual(native_complete.returncode, 0, native_complete.stderr)
+        product_missing = run_step(product_gate, {})
+        self.assertNotEqual(product_missing.returncode, 0, product_missing.stderr)
+        product_complete = run_step(
+            product_gate,
+            {"product-ui-results/xcodebuild.log": ""},
+        )
+        self.assertEqual(product_complete.returncode, 0, product_complete.stderr)
 
     def test_native_review_capture_scope_exits_normally_after_post_round_evidence(self) -> None:
         workflow_path = Path(".github/workflows/native-mobile.yml")

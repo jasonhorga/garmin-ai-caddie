@@ -31,12 +31,14 @@ _ROUTE_MARKER_RE = re.compile(r"(?<![?\w])route=(?:shared|explicit)(?![\w-])|Cad
 def _is_shim_route_line(line: str) -> bool:
     """Return whether this line is the shim's own marked error message.
 
-    The shim prints its route marker together with ``origin=[...]``. Requiring
-    that message context keeps an incidental marker in a CFNetwork error,
-    query string, or assertion text actionable while accepting both route
-    spellings and the ``CaddieTestRoute=`` user-info field.
+    The shim prints its route marker together with ``origin=[...]`` plus the
+    stable offline description and ``CaddieTestOrigin=`` user-info field. The
+    latter two markers also survive a line splice, so use them to recognize the
+    same shim message when the route/origin text is split across lines.
     """
 
+    if "fixture intentionally offline; DNS disabled" in line or "CaddieTestOrigin=" in line:
+        return True
     if not _ROUTE_MARKER_RE.search(line):
         return False
     if "origin=[" in line:
