@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import hmac
 import logging
@@ -2238,7 +2238,8 @@ def mobile_round_package(
         ensure_geometry=ensure_geometry,
         player_id=player_id,
     )
-    _record_round_activity(player_id, round_id, global_ids=_package_course_ids(package), restore_only=True)
+    _record_round_activity(player_id, round_id, global_ids=_package_course_ids(package), restore_only=True,
+                           package_registration=True)
     return package
 
 
@@ -2469,6 +2470,12 @@ def _current_geometry_revision(global_id: int, hole: int) -> str | None:
 # Explicit finish releases it; a lost/offline client expires without a resident timer.
 _ACTIVE_ROUNDS: dict[tuple[str, str], float] = {}
 _ACTIVE_COURSES: dict[tuple[str, str], tuple[int, ...]] = {}
+_ACTIVE_EVENT_TIMES: dict[tuple[str, str], datetime] = {}
+# Kept for diagnostics only. Timestamp ordering is per player; a phone batch may contain both
+# ios-phone and relayed apple-watch events, so clientId never creates separate clock domains.
+_ACTIVE_EVENT_DEVICES: dict[tuple[str, str], str] = {}
+# Rounds whose own course package registered or renewed them: proven play, not a recovered upload.
+_ACTIVE_PACKAGED_ROUNDS: set[tuple[str, str]] = set()
 # The gid alone is insufficient for C157: a playing round is one ordered loop pairing and tee.
 # ``None`` means an older/recovered round has no proven selection and intentionally uses the gid
 # fallback for compatibility.
@@ -2493,9 +2500,16 @@ def _package_course_ids(package) -> list[int]:
     def field(value, name):
         return value.get(name) if isinstance(value, dict) else getattr(value, name, None)
 
+    def rows(value):
+        if isinstance(value, list):
+            return value
+        if isinstance(value, dict):
+            return [value]
+        return []
+
     values = [field(field(package, "course"), "globalId"), field(package, "globalId")]
-    values.extend(field(loop, "globalId") for loop in (field(package, "roundLoops") or []))
-    values.extend(field(hole, "sourceGlobalId") for hole in (field(package, "holes") or []))
+    values.extend(field(loop, "globalId") for loop in rows(field(package, "roundLoops")))
+    values.extend(field(hole, "sourceGlobalId") for hole in rows(field(package, "holes")))
     return _positive_course_ids(values)
 
 
@@ -2528,9 +2542,58 @@ def _event_round_course_ids(player_id: str, round_id: str) -> list[int]:
     return _positive_course_ids(gids)
 
 
+def _request_event_timestamp(request) -> tuple[datetime | None, str | None, bool | None]:
+    """Return the newest play-progress timestamp, its diagnostic device, and validity.
+
+    Naive ISO timestamps are UTC. Notes, photos, videos, and sync markers are accepted but do not
+    advance the active-play clock; score/club/putt/penalty/location are the play-progress kinds.
+    A late score edit of an old round is still ``score``; the package guard in
+    ``_record_round_activity`` keeps it from displacing the packaged current round.
+    """
+    events = getattr(request, "events", None)
+    if not events:
+        return None, None, None
+    parsed: list[datetime] = []
+    progress_kinds = {"score", "club", "putt", "penalty", "location"}
+    devices: set[str] = set()
+    for event in events:
+        raw = event.get("timestamp") if isinstance(event, dict) else getattr(event, "timestamp", None)
+        if not isinstance(raw, str) or not raw.strip():
+            return None, None, False
+        try:
+            value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            kind = event.get("kind") if isinstance(event, dict) else getattr(event, "kind", None)
+            if str(kind or "").strip().lower() in progress_kinds:
+                parsed.append(value)
+            raw_device = event.get("clientId") if isinstance(event, dict) else getattr(event, "clientId", None)
+            devices.add(str(raw_device or ""))
+        except (TypeError, ValueError):
+            return None, None, False
+    return (max(parsed) if parsed else None), (next(iter(devices)) if len(devices) == 1 else None), True
+
+
 def _latest_rounds_by_player() -> dict[str, tuple[str, str]]:
-    # Only course-bound rounds can own selected installs. Events never reorder first registration.
-    return {key[0]: key for key in _ACTIVE_ROUNDS if _ACTIVE_COURSES.get(key)}
+    # Timestamps share one player clock: the phone uploads its own and relayed Watch events in one
+    # batch. A newly packaged last registration without an event time is switch evidence and wins
+    # until its own event time exists. Equal timestamps use later registration order.
+    for key in list(_ACTIVE_EVENT_TIMES):
+        if key not in _ACTIVE_ROUNDS:
+            _ACTIVE_EVENT_TIMES.pop(key, None)
+            _ACTIVE_EVENT_DEVICES.pop(key, None)
+    candidates: dict[str, list[tuple[str, str]]] = {}
+    for key in _ACTIVE_ROUNDS:
+        candidates.setdefault(key[0], []).append(key)
+    latest: dict[str, tuple[str, str]] = {}
+    for player, keys in candidates.items():
+        current = keys[-1]
+        if current not in _ACTIVE_EVENT_TIMES:
+            latest[player] = current
+            continue
+        timed = [(key, _ACTIVE_EVENT_TIMES[key]) for key in keys if key in _ACTIVE_EVENT_TIMES]
+        latest[player] = max(timed, key=lambda item: (item[1], keys.index(item[0])))[0]
+    return latest
 
 
 def _publish_current_courses() -> None:
@@ -2549,7 +2612,11 @@ def _current_course_ids(player_id: str) -> tuple[int, ...]:
 def _record_round_activity(player_id: str, round_id: str | None, *, finished: bool = False,
                            global_ids: list[int] | tuple[int, ...] | None = None,
                            new_events: bool = False, restore_only: bool = False,
-                           selection: tuple[str, str] | None = None) -> None:
+                           selection: tuple[str, str] | None = None,
+                           event_timestamp: datetime | None = None,
+                           event_device: str | None = None,
+                           event_timestamp_valid: bool | None = None,
+                           package_registration: bool = False) -> None:
     if not round_id:
         return
     with _ACTIVE_ROUNDS_LOCK:
@@ -2559,26 +2626,77 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                 _ACTIVE_ROUNDS.pop(stale, None)
                 _ACTIVE_COURSES.pop(stale, None)
                 _ACTIVE_SELECTIONS.pop(stale, None)
+                _ACTIVE_EVENT_TIMES.pop(stale, None)
+                _ACTIVE_EVENT_DEVICES.pop(stale, None)
+                _ACTIVE_PACKAGED_ROUNDS.discard(stale)
         key = (str(player_id), str(round_id))
         latest = _latest_rounds_by_player().get(key[0])
         if finished:
-            # A finish retires itself and earlier registrations, never a later playing round.
+            own_timestamp = _ACTIVE_EVENT_TIMES.get(key)
             own = [old for old in _ACTIVE_ROUNDS if old[0] == key[0]]
             if key in own:
-                for old in own[:own.index(key) + 1]:
+                # Retire itself, every round with an earlier play time (any client), and earlier
+                # registrations without one; keep later play times and later registrations.
+                if own_timestamp is not None:
+                    key_index = own.index(key)
+                    retired = [old for index, old in enumerate(own)
+                               if old == key or (
+                                   _ACTIVE_EVENT_TIMES.get(old) is not None
+                                   and _ACTIVE_EVENT_TIMES[old] < own_timestamp
+                               ) or (
+                                   index < key_index
+                                   and _ACTIVE_EVENT_TIMES.get(old) is None
+                               )]
+                else:
+                    # No play time of its own yet (package-only round, or a legacy direct call):
+                    # registration order is the only evidence.
+                    retired = own[:own.index(key) + 1]
+                for old in retired:
                     _ACTIVE_ROUNDS.pop(old, None)
                     _ACTIVE_COURSES.pop(old, None)
                     _ACTIVE_SELECTIONS.pop(old, None)
+                    _ACTIVE_EVENT_TIMES.pop(old, None)
+                    _ACTIVE_EVENT_DEVICES.pop(old, None)
+                    _ACTIVE_PACKAGED_ROUNDS.discard(old)
         elif new_events or not str(round_id).startswith(("home-", "prep-library-", "watch-template-")):
-            # Uploads and round refreshes may be delayed for days. They can recover an idle API
-            # or renew this round, but cannot displace another course-bound playing round.
-            may_restore = not ((new_events or restore_only) and latest is not None and latest != key)
-            if may_restore and (key not in _ACTIVE_ROUNDS or latest == key or latest is None):
+            # Uploads and round refreshes may be delayed for days. A valid timestamp may replace an
+            # older event-recovered round, but an event from an old round (e.g. a late score edit)
+            # cannot displace a current round already proven by its course package.
+            current_timestamp = _ACTIVE_EVENT_TIMES.get(latest) if latest is not None else None
+            timed = event_timestamp_valid is True and event_timestamp is not None
+            if event_timestamp_valid is False:
+                logger.warning("active round event timestamp unavailable; using arrival order")
+            if latest is None or latest == key:
+                may_restore = True
+            elif timed:
+                # Another round's newer play time may take over only an event-recovered current
+                # round; once the current round has its own package, it yields to a new package
+                # or to its own earlier event time, never to an old round's upload.
+                may_restore = (
+                    latest not in _ACTIVE_PACKAGED_ROUNDS
+                    and current_timestamp is not None
+                    and event_timestamp >= current_timestamp
+                )
+            else:
+                # No usable play time (legacy/invalid timestamps, note-only batches, packages):
+                # arrival order, so uploads and round refreshes cannot displace the current round.
+                may_restore = not (new_events or restore_only)
+            # The current round renews its lease, course binding and selection on every package or
+            # event; an older registration is renewed only when its event time takes over.
+            if may_restore and (key not in _ACTIVE_ROUNDS or latest in (None, key) or timed):
                 _ACTIVE_ROUNDS[key] = now + 30 * 60
                 if global_ids:
                     _ACTIVE_COURSES[key] = tuple(sorted({int(value) for value in global_ids if int(value) > 0}))
                 if selection is not None:
                     _ACTIVE_SELECTIONS[key] = (str(selection[0]), str(selection[1]).strip().lower())
+                if package_registration:
+                    _ACTIVE_PACKAGED_ROUNDS.add(key)
+                if event_timestamp is not None:
+                    _ACTIVE_EVENT_TIMES[key] = max(
+                        event_timestamp, _ACTIVE_EVENT_TIMES.get(key, event_timestamp)
+                    )
+                    if event_device is not None:
+                        _ACTIVE_EVENT_DEVICES[key] = event_device
         _publish_current_courses()
 
 
@@ -2625,10 +2743,11 @@ def _playing_prep_matches(player_id: str, global_id: int, holes, tee: str | None
     a proven loop maps display holes to physical holes (including back-nine starts).
     """
     with _ACTIVE_ROUNDS_LOCK:
-        keys = [key for key, deadline in _ACTIVE_ROUNDS.items()
-                if key[0] == str(player_id) and deadline > time.monotonic()
-                and _ACTIVE_COURSES.get(key)]
-        key = keys[-1] if keys else None
+        key = _latest_rounds_by_player().get(str(player_id))
+        if key is not None and (
+            _ACTIVE_ROUNDS.get(key, 0) <= time.monotonic() or not _ACTIVE_COURSES.get(key)
+        ):
+            key = None
         if key is None or int(global_id) not in _ACTIVE_COURSES[key]:
             return False
         selection = _ACTIVE_SELECTIONS.get(key)
@@ -2660,6 +2779,9 @@ def nearby_work_blocked() -> bool:
                 _ACTIVE_ROUNDS.pop(key, None)
                 _ACTIVE_COURSES.pop(key, None)
                 _ACTIVE_SELECTIONS.pop(key, None)
+                _ACTIVE_EVENT_TIMES.pop(key, None)
+                _ACTIVE_EVENT_DEVICES.pop(key, None)
+                _ACTIVE_PACKAGED_ROUNDS.discard(key)
         _publish_current_courses()
         if _ACTIVE_ROUNDS:
             return True
@@ -3069,6 +3191,7 @@ def mobile_course_package(
                 round_loop_key(round_loops),
                 requested_tee_box,
             ),
+            package_registration=True,
         )
     # A package without an active round lease is a download/preview warm-up.  Keep a real
     # playing round's first-screen path on the foreground lane, while same-gid previews with a
@@ -3349,8 +3472,12 @@ def mobile_round_events(
     result = append_mobile_events_response(
         round_id, request, idempotency_key=idempotency_key, player_id=acting_player_id
     )
+    event_timestamp, event_device, event_timestamp_valid = _request_event_timestamp(request)
     _record_round_activity(acting_player_id, round_id, global_ids=_event_round_course_ids(acting_player_id, round_id),
-                           new_events=bool(getattr(request, "events", [])))
+                           new_events=bool(getattr(request, "events", [])),
+                           event_timestamp=event_timestamp,
+                           event_device=event_device,
+                           event_timestamp_valid=event_timestamp_valid)
     return result
 
 

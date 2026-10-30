@@ -1,0 +1,19 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2526,15 +2526,7 @@
+     candidates: dict[str, list[tuple[str, str]]] = {}
+     for key in _ACTIVE_ROUNDS:
+         candidates.setdefault(key[0], []).append(key)
+-    latest: dict[str, tuple[str, str]] = {}
+-    for player, keys in candidates.items():
+-        current = keys[-1]
+-        if current not in _ACTIVE_EVENT_TIMES:
+-            latest[player] = current
+-            continue
+-        timed = [(key, _ACTIVE_EVENT_TIMES[key]) for key in keys if key in _ACTIVE_EVENT_TIMES]
+-        latest[player] = max(timed, key=lambda item: (item[1], keys.index(item[0])))[0]
+-    return latest
++    return {player: keys[-1] for player, keys in candidates.items()}
+
+
+ def _publish_current_courses() -> None:

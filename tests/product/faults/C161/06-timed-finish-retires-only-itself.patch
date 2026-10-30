@@ -1,0 +1,18 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2580,14 +2580,7 @@
+                 # registrations without one; keep later play times and later registrations.
+                 if own_timestamp is not None:
+                     key_index = own.index(key)
+-                    retired = [old for index, old in enumerate(own)
+-                               if old == key or (
+-                                   _ACTIVE_EVENT_TIMES.get(old) is not None
+-                                   and _ACTIVE_EVENT_TIMES[old] < own_timestamp
+-                               ) or (
+-                                   index < key_index
+-                                   and _ACTIVE_EVENT_TIMES.get(old) is None
+-                               )]
++                    retired = [old for index, old in enumerate(own) if old == key]
+                 else:
+                     # No play time of its own yet (package-only round, or a legacy direct call):
+                     # registration order is the only evidence.
