@@ -92,7 +92,7 @@ jobs:
           if not payload.get("token") or not payload.get("playerId"):
               raise SystemExit("cold-start Apple auth returned no scoped session/player identity")
           PY
-          uv run uvicorn server_v2.main:app --host 127.0.0.1 --port 9000 > /tmp/ai-caddie-api.log 2>&1 &
+          uv run uvicorn server_v2.main:app --host 127.0.0.1 --port 9000 --ws none > /tmp/ai-caddie-api.log 2>&1 &
           echo $! > /tmp/ai-caddie-api.pid
           for attempt in {1..30}; do
             curl -fsS http://127.0.0.1:9000/api/v2/health && exit 0

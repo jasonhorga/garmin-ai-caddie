@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/geometry/topo_render.py b/ai_caddie/geometry/topo_render.py
+index 37e7dc29..89b9e354 100644
+--- a/ai_caddie/geometry/topo_render.py
++++ b/ai_caddie/geometry/topo_render.py
+@@ -1268,8 +1268,6 @@ def _run_render_cpu(compute: Callable[..., _RenderResult], *args, **kwargs) -> _
+         except BrokenProcessPool:
+             _discard_render_pool(pool)
+             return _compute_in_render_worker(compute, *args, **kwargs)
+-        except CancelledError:  # another caller discarded the pool before this one started
+-            return _compute_in_render_worker(compute, *args, **kwargs)
+ 
+ 
+ def _render_green_cold(gid: int, hole: int, crop: tuple[float, float, float, float], *, size: int) -> bytes:

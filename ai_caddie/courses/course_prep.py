@@ -26,7 +26,7 @@ from ai_caddie.core.data import available_prep_holes as available_prep_holes  # 
 from ai_caddie.caddie import club_bag as club_bag_service, club_catalog
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
 from ai_caddie.core.request_timing import mark
-from ai_caddie.courses.prep_work import checkpoint
+from ai_caddie.courses.prep_work import checkpoint, hole_boundary
 
 YARD = 1.09361
 MAX_SCATTER_SHOTS = 80  # newest rounds first; keeps the overlay readable and the payload small
@@ -3176,7 +3176,7 @@ def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, i
         )
     out = []
     for hole in requested_holes:
-        checkpoint()
+        hole_boundary()
         if int(hole) in cached:
             # Callers own the returned rows; never hand out the shared cached object.
             prep = copy.deepcopy(cached[int(hole)])

@@ -1,0 +1,10 @@
+--- a/ai_caddie/core/request_timing.py
++++ b/ai_caddie/core/request_timing.py
+@@ -73,6 +73,6 @@
+     route_path = str(path or "").partition("?")[0].partition("#")[0] or "/"
+     route_method = str(method or "GET").upper()
+-    key = (hashlib.blake2b(route_path.encode("utf-8", "surrogatepass"), digest_size=16).digest(), route_method)
++    key = (str(path or ""), route_method)
+     with _ROUTE_TEMPLATE_LOCK:
+         if key in _ROUTE_TEMPLATE_CACHE:
+             _ROUTE_TEMPLATE_CACHE.move_to_end(key)

@@ -407,7 +407,7 @@ final class RoundPlayOrderTests: XCTestCase {
         )
         XCTAssertTrue(
             LiveHolePagerSelectionLifecycle.shouldReset(
-                previousPath: [.history, .hole(6)], currentPath: [.history]
+                previousPath: [.start, .hole(6)], currentPath: [.start]
             )
         )
         XCTAssertFalse(

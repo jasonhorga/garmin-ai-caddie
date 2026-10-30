@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/geometry/topo_render.py b/ai_caddie/geometry/topo_render.py
+index 37e7dc29..ec0abde1 100644
+--- a/ai_caddie/geometry/topo_render.py
++++ b/ai_caddie/geometry/topo_render.py
+@@ -1181,7 +1181,7 @@ def _cpu_pool_admission(processes: int):
+             _cpu_slots = PrioritySlots(processes, reserve=1)
+         slots = _cpu_slots
+     priority = current_priority()
+-    if in_background():
++    if False:
+         priority = max(priority, NEARBY)
+     slots.acquire(priority)
+     try:

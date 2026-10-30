@@ -1,0 +1,11 @@
+--- a/ops/agenthub_deploy.py
++++ b/ops/agenthub_deploy.py
+@@ -927,7 +927,7 @@
+         if restored:
+             # The previous release is now serving; boot recovery must not select the
+             # failed revision named by the old record on its next invocation.
+-            write_release_state(cfg, previous.revision)
++            pass
+         if not restored:
+             docker("stop", "--time", STOP_TIMEOUT_SECONDS, previous.name, capture=True, check=False)
+             try:

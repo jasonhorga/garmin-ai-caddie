@@ -1,0 +1,28 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 7096a0c1..2b579d72 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -3155,9 +3155,13 @@ def mobile_course_package(
+         return package
+     # One Tee rule for the lease, the install identity and its priority: the requested Tee (Blue
+     # when omitted). The package's own teeBox is a response fact, not the registered selection.
++    package_tee_box = (
++        package_course.get("teeBox") if isinstance(package_course, dict)
++        else getattr(package_course, "teeBox", None)
++    )
+     job = course_install.enqueue(
+         global_id=int(global_id),
+-        tee_box=requested_tee_box,
++        tee_box=str(tee_box or package_tee_box or "blue"),
+         loop_key=round_loop_key(round_loops),
+         player_id=player_id,
+         refs=refs,
+@@ -3169,7 +3173,7 @@ def mobile_course_package(
+                 player_id,
+                 global_id,
+                 loop_key=round_loop_key(round_loops),
+-                tee_box=requested_tee_box,
++                tee_box=str(tee_box or package_tee_box or "blue"),
+             )
+             else NEARBY
+         ),

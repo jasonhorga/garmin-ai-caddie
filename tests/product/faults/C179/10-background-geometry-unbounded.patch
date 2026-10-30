@@ -1,0 +1,13 @@
+diff --git a/server_v2/map_startup.py b/server_v2/map_startup.py
+index c56239d5..ce2dfcb0 100644
+--- a/server_v2/map_startup.py
++++ b/server_v2/map_startup.py
+@@ -207,7 +207,7 @@ def _background_geometry(pool, ensure, gid: int, hole: int) -> dict:
+     foreground prepare, and never holding both workers, so a stalled background download leaves a
+     worker for the playing hole. The gate/child-process waits stay on the background threads.
+     """
+-    with _BACKGROUND_GEOMETRY:
++    if True:
+         return pool.submit(ensure, gid, hole, priority=NEARBY).result()
+ 
+ 

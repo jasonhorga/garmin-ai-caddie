@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 7096a0c1..58ae0412 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2945,7 +2945,7 @@ def run_course_install_job(identifier: str) -> None:
+ 
+             # The vector seed is this coordinator's own CPU: a background pass gives a live
+             # package the interpreter first. No vector/geometry lock is held at this point.
+-            yield_to_foreground()
++            pass
+             try:
+                 warm_requested_vectors(gid, hole)
+             except Exception:

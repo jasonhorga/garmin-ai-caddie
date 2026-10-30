@@ -1,0 +1,13 @@
+diff --git a/server_v2/map_startup.py b/server_v2/map_startup.py
+index c56239d5..1f1ab894 100644
+--- a/server_v2/map_startup.py
++++ b/server_v2/map_startup.py
+@@ -106,8 +106,6 @@ def _prefetch_nearby_releases(matches) -> int:
+         return 0
+     count = 0
+     for match in _nearest_three(matches):
+-        # Course boundary, outside the release lock /tees shares: pause while a package is live.
+-        yield_to_foreground()
+         if tee_requests_in_flight():
+             break
+         gid = int(match.global_id)

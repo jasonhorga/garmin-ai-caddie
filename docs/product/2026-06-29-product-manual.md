@@ -27,7 +27,7 @@ A **multi-user / family golf app**: an iOS phone app + an Apple Watch app + a we
 **Notable:** real, feature-rich AI-caddie glance. **Gaps:** no CoreLocation (no live distance), only an 18-pip ring (no hole/green vector), course data is phone-pushed (dies offline).
 
 ### iOS phone (15 screens) — `mobile/ios/AICaddie`
-`full-home` / `full-home-active` (round hub) · `full-start` (start a round) · `round-home` · `live-hole` / `full-hole` (in-round: green distance bar, caddie focus card, club strip, save hole) · `caddie-plan` (options table + avoid zones) · `hole-map` (the per-hole map) · `course-detail` / `full-prep-picker` (备战) · `stats` · `recent-review` / `full-review` (round 复盘) · `club-settings` (the club bag editor — *just shipped, with per-club distance*) · `dark-fixed` (dark mode).
+`full-home` / `full-home-active` (round hub) · `full-start` (start a round) · `round-home` · `live-hole` / `full-hole` (in-round: green distance bar, caddie focus card, club strip, save hole) · `caddie-plan` (options table + avoid zones) · `hole-map` (the per-hole map) · `course-detail` / `full-prep-picker` (备战) · `stats` · `club-settings` (the club bag editor — *just shipped, with per-club distance*) · `dark-fixed` (dark mode).
 **Notable:** the hole-map design-snapshot is schematic (a fairway strip + green circle); the real app renders actual CourseView geometry — the live-hole + caddie screens are the rich surface.
 
 ### Web dashboard — `web_v2`

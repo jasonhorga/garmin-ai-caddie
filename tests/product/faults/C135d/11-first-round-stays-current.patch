@@ -1,11 +1,19 @@
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2436,7 +2436,7 @@
-
- def _latest_rounds_by_player() -> dict[str, tuple[str, str]]:
-     # Only course-bound rounds can own selected installs. Events never reorder first registration.
--    return {key[0]: key for key in _ACTIVE_ROUNDS if _ACTIVE_COURSES.get(key)}
-+    return {key[0]: key for key in reversed(_ACTIVE_ROUNDS) if _ACTIVE_COURSES.get(key)}
+@@ -2526,15 +2526,7 @@
+     candidates: dict[str, list[tuple[str, str]]] = {}
+     for key in _ACTIVE_ROUNDS:
+         candidates.setdefault(key[0], []).append(key)
+-    latest: dict[str, tuple[str, str]] = {}
+-    for player, keys in candidates.items():
+-        current = keys[-1]
+-        if current not in _ACTIVE_EVENT_TIMES:
+-            latest[player] = current
+-            continue
+-        timed = [(key, _ACTIVE_EVENT_TIMES[key]) for key in keys if key in _ACTIVE_EVENT_TIMES]
+-        latest[player] = max(timed, key=lambda item: (item[1], keys.index(item[0])))[0]
+-    return latest
++    return {player: keys[-1] for player, keys in candidates.items()}
 
 
  def _publish_current_courses() -> None:

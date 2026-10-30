@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Callable
 from ai_caddie.core.request_timing import mark
 from ai_caddie.core import revisions
-from ai_caddie.courses.prep_work import checkpoint, cold_admission, cold_admission_factory
+from ai_caddie.courses.prep_work import checkpoint, cold_admission, cold_admission_factory, hole_boundary
 
 from ai_caddie.core.data import (
     CLUBS_BAG_FILE, CLUBS_FILE, DATA_DIR, HAZARD_DIR, MESH_DIR, OWNER_ID, SCORECARD_DIR, SHOT_DIR,
@@ -281,7 +281,7 @@ def cached_hole_preps(
     mark("prep_hole_revision")
     out: dict[int, Any] = {}
     for hole in holes:
-        checkpoint()
+        hole_boundary()
         hole = int(hole)
         key = ("hole", gid, hole, bool(render), bool(include_shots), player_id, variant)
         fingerprint = (shared, _requested_geometry_sig(gid, [hole]))

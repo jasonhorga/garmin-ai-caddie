@@ -7,7 +7,7 @@ from pathlib import Path
 from ai_caddie.history.history import OWNER_ID
 from ai_caddie.history.mobile_stats import PREVIOUS_WINDOW, build_mobile_previous, build_mobile_stats
 from ai_caddie.history.stats_cache import cached_build_history_stats, cached_load_history_data, history_input_signature
-from ai_caddie.core.priority_work import background_work
+from ai_caddie.core.priority_work import background_work, yield_to_foreground
 
 from .data_source import load_history_data_for_mode
 from .models import HistoryStatsResponse, HistoryStatsSummaryResponse, MobileStatsResponse
@@ -126,16 +126,23 @@ def warm_stats_cache(player_id: str = OWNER_ID) -> bool:
     endpoint would produce. Any failure is swallowed -- a warm must NEVER break the sync
     response or crash the background thread it runs on.
     """
+    # Each phase completes its own single-flight before the next starts; between phases a
+    # background warm pauses while a package is live (no-op when not an admitted unit).
+    phases = [
+        lambda: cached_load_history_data(player_id=player_id),
+        lambda: load_history_stats_response(player_id=player_id),
+        lambda: load_history_stats_response(window="last10", player_id=player_id),
+        lambda: load_history_stats_response(window="last20", player_id=player_id),
+        lambda: load_history_stats_response(window="12m", player_id=player_id),
+    ]
+    # B5 表现分析: each narrow window's mobile response also carries its previous comparable
+    # period (prev10 / prev20 / prev12m); build those too so the first analysis is a hit.
+    phases += [lambda window=window: load_mobile_stats_response(window=window, player_id=player_id)
+               for window in PREVIOUS_WINDOW]
     try:
-        cached_load_history_data(player_id=player_id)
-        load_history_stats_response(player_id=player_id)
-        load_history_stats_response(window="last10", player_id=player_id)
-        load_history_stats_response(window="last20", player_id=player_id)
-        load_history_stats_response(window="12m", player_id=player_id)
-        # B5 表现分析: each narrow window's mobile response also carries its previous comparable
-        # period (prev10 / prev20 / prev12m); build those too so the first analysis is a hit.
-        for window in PREVIOUS_WINDOW:
-            load_mobile_stats_response(window=window, player_id=player_id)
+        for phase in phases:
+            yield_to_foreground()
+            phase()
     except Exception:  # noqa: BLE001 - warming is best-effort and must not propagate
         logger.exception("stats cache warm failed")
         return False
@@ -156,7 +163,7 @@ def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Threa
 
         def run() -> None:
             try:
-                with background_work():
+                with background_work(unit_type="stats"):
                     thread.history_signature = history_input_signature(clean_player_id)
                     thread.warm_succeeded = warm_stats_cache(player_id=clean_player_id) is True
             finally:

@@ -1,0 +1,10 @@
+--- a/ai_caddie/core/request_timing.py
++++ b/ai_caddie/core/request_timing.py
+@@ -111,6 +111,6 @@
+         if not isinstance(template, str) or not template:
+             continue
+-        if match is Match.FULL:
++        if match in (Match.FULL, Match.PARTIAL):
+             return template
+         if match is Match.PARTIAL and partial is None:
+             partial = template

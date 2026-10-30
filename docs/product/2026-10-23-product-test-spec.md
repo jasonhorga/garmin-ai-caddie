@@ -109,7 +109,7 @@
 - G3 RUNBOOK §4 核对（exit 0 + `result=ok` 末行、只一个 release 容器、sync 镜像 revision = SHA、下一个 :37 sync 完成无新失败）。
 - G4 无同 revision sync 镜像时 sync 拒跑并告警，告警去重、恢复只报一次。
 - G5 部署失败自动恢复：health / 闸门 / sync 合约 / 公网 health 各自失败一遍，每遍都断言旧容器仍健康、对外服务不中断、数据卷未换；库不健康拒绝 deploy/rollback。
-- G6 重启策略：只有发布记录里当前在服务的发布容器是 `on-failure:3`（进程崩了自动拉起、最多 3 次），其余发布容器一律 `no`（换下的旧容器先改 `no` 再停，daemon 重启不会被拉起）；端口只绑 127.0.0.1、日志有上限（`docker inspect` 实测）。
+- G6 重启策略：只有发布记录里当前在服务的发布容器是 `on-failure:3`（进程崩了自动拉起、最多 3 次），其余发布容器一律 `no`（换下的旧容器先改 `no` 再停，daemon 重启不会被拉起）；`docker update` 被拒时不留第二个 `on-failure`，当前版本暂为 `no` 并告警，下次 deploy/rollback/up 校正；端口只绑 127.0.0.1、日志有上限（`docker inspect` 实测）。
 - G7 TestFlight 凭证：revision 匹配 → 允许上传；不匹配/缺失/格式坏 → 拒绝，且拒绝发生在任何上传副作用之前。
 - G8 冒烟子集（不是完整验收）：owner 开局→记 3 洞→结束→出现在成绩与复盘；成员凭据读不到该局；同步一局 fixture Garmin 局出现在全部球局。
 - 真机效果（GPS 精度、续航、挥杆准确率）靠 B7 评估与 Jason 实打，不在门里。

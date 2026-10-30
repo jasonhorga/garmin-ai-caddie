@@ -28,4 +28,5 @@ esac
 # psycopg-binary wheel and the fixture never started).
 exec uv run --frozen --python 3.12 python -m uvicorn server_v2.main:app \
   --host "$fixture_host" \
-  --port "${AI_CADDIE_FIXTURE_PORT:-9000}"
+  --port "${AI_CADDIE_FIXTURE_PORT:-9000}" \
+  --ws none

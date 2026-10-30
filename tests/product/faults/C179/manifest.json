@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C179-F2",
+      "patch": "tests/product/faults/C179/F2-abandon-leaves-ticket.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.ForegroundAdmissionTests.test_J42_abandoned_waiters_remove_fifo_tickets_for_followers",
+      "promise": "4.2"
+    }
+  ]
+}

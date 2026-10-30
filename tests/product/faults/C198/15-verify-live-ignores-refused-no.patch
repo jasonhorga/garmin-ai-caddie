@@ -1,12 +1,11 @@
-diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
 --- a/ops/agenthub_deploy.py
 +++ b/ops/agenthub_deploy.py
-@@ -912,7 +912,7 @@ def verify_live(cfg: Config, sha: str, current: Container, containers: list[Cont
+@@ -923,7 +923,7 @@
                  f"{previous.name} will not be marked on-failure")
              reason = f"{reason}; {current.name} kept restart policy {LIVE_RESTART_POLICY}"
          docker("stop", "--time", STOP_TIMEOUT_SECONDS, current.name, capture=True, check=False)
 -        restored = restore_previous(cfg, previous, live=replaced)
 +        restored = restore_previous(cfg, previous)
-         if not restored:
-             docker("stop", "--time", STOP_TIMEOUT_SECONDS, previous.name, capture=True, check=False)
-             try:
+         if restored:
+             # The previous release is now serving; boot recovery must not select the
+             # failed revision named by the old record on its next invocation.

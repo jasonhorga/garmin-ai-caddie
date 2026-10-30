@@ -176,7 +176,6 @@ public enum HubRoute: Hashable {
     /// 开始一场 with the home card's course (and its last tee) preselected.
     case startCourse(globalId: Int, teeBox: String?)
     case hole(Int)
-    case history
     case roundReview(roundRef: String, courseName: String?, globalId: Int?, backGlobalId: Int?, nine: String?, teeBox: String?)
 }
 
@@ -926,7 +925,6 @@ public struct RoundHomeView: View {
            let roundRef = environment["UITEST_REVIEW_ROUND_REF"],
            !roundRef.isEmpty {
             self._path = State(initialValue: [
-                .history,
                 .roundReview(
                     roundRef: roundRef,
                     courseName: environment["UITEST_REVIEW_COURSE_NAME"],
@@ -987,14 +985,6 @@ public struct RoundHomeView: View {
                     startRoundView(globalId: globalId, teeBox: teeBox)
                 case .hole(let number):
                     holePagerView(number)
-                case .history:
-                    if let package {
-                        RecentRoundReviewView(
-                            package: package,
-                            apiBaseURL: apiBaseURL,
-                            adminToken: adminToken
-                        )
-                    }
                 case .roundReview(let roundRef, let courseName, let globalId, let backGlobalId, let nine, let teeBox):
                     RoundReviewView(
                         roundRef: roundRef,
