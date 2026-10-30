@@ -29,6 +29,35 @@ final class StartRoundDiscoveryTests: XCTestCase {
             for: row, downloaded: [], catalogue: [a, b], downloads: [pending]), "等待下载")
         XCTAssertTrue(StartRoundPresentation.offlineRows([ready], excludingVenues: [row.venue]).isEmpty)
     }
+
+    /// J4.1/J4.2: a deduplicated upper venue row keeps the same retry/download action as its
+    /// hidden offline records; complete venues have no action.
+    func testVisibleVenueDownloadActionMatchesOfflineRecords() {
+        let a = loop(82001, venue: "Example", label: "A")
+        let b = loop(82002, venue: "Example", label: "B")
+        let row = StartCourseListRow(venue: "Example", segments: [a, b], source: .nearby)
+        let failedA = PrepCourseDownloadRecord(course: a, phase: .failed, errorText: "下载中断")
+        let failedB = PrepCourseDownloadRecord(course: b, phase: .failed, errorText: "下载中断")
+        let retry = StartRoundView.courseDownloadAction(for: row, downloads: [failedA, failedB])
+        XCTAssertEqual(retry, CourseDownloadAction(title: "重试", retrying: true))
+        XCTAssertEqual(
+            StartRoundView.offlineActionRecords(for: failedA, in: [failedA, failedB], retrying: true)
+                .map(\.id),
+            [failedA.id, failedB.id]
+        )
+
+        let queued = PrepCourseDownloadRecord(course: b, phase: .queued, downloadedHoles: 3, totalHoles: 9)
+        XCTAssertEqual(
+            StartRoundView.courseDownloadAction(for: row, downloads: [queued]),
+            CourseDownloadAction(title: "下载", retrying: false)
+        )
+        XCTAssertEqual(
+            StartRoundView.offlineActionRecords(for: queued, in: [queued], retrying: false).map(\.id),
+            [queued.id]
+        )
+        let ready = PrepCourseDownloadRecord(course: a, phase: .ready, downloadedHoles: 9, totalHoles: 9)
+        XCTAssertNil(StartRoundView.courseDownloadAction(for: row, downloads: [ready]))
+    }
     /// J4.1/J5.1: a recent A plus catalogue B/C is one 27-hole venue, with three opening nines.
     func testRecentVenueIncludesAllCatalogueNines() throws {
         let recent = loop(31832, venue: "沙河测试球会", label: "A")

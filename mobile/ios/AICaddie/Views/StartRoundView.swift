@@ -262,18 +262,7 @@ public struct StartRoundView: View {
     static func courseDownloadAction(
         for row: StartCourseListRow, downloads: [PrepCourseDownloadRecord]
     ) -> CourseDownloadAction? {
-        let records = StartRoundPresentation.offlineRows(downloads).filter {
-            guard let venue = row.segments.first else { return false }
-            return samePhysicalVenue($0.course, venue)
-        }
-        if let failed = records.first(where: { $0.phase == .failed }) {
-            return CourseDownloadAction(
-                title: StartRoundPresentation.offlineActionTitle(failed) ?? "重试", retrying: true
-            )
-        }
-        guard let pending = records.first,
-              let title = StartRoundPresentation.offlineActionTitle(pending) else { return nil }
-        return CourseDownloadAction(title: title, retrying: false)
+        return nil
     }
 
     private var courseGlobalId: Int? {
