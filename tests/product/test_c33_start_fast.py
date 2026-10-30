@@ -587,6 +587,40 @@ class ReworkTeeWarmTests(unittest.TestCase):
 
 
 class ReworkPreemptionTests(unittest.TestCase):
+    def test_J42_preemption_fixture_keeps_files_and_patches_until_workers_finish(self):
+        """J4.2: force the final vector callback to outlive the distance-order assertion."""
+        from ai_caddie.courses import vector_prep as vp
+        entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+        cleanup_observations = []
+
+        def delayed_warm(*args):
+            from ai_caddie.core.priority_work import current_priority
+            if current_priority() == NEARBY:
+                entered.set()
+                if not release.wait(10):
+                    raise AssertionError('test lane never released its final callback')
+                finished.set()
+
+        class Lane(PriorityExecutor):
+            def shutdown(self, *args, **kwargs):
+                # This signal lets the worker finish only when its owner starts joining it.
+                release.set()
+                return super().shutdown(*args, **kwargs)
+
+        class Directory(TemporaryDirectory):
+            def __exit__(self, *args):
+                entered.wait(2)
+                cleanup_observations.append(finished.is_set())
+                release.set()  # Also release the deliberately broken lifecycle on red/mutant.
+                return super().__exit__(*args)
+
+        with (patch(__name__ + '.PriorityExecutor', Lane),
+              patch(__name__ + '.TemporaryDirectory', Directory),
+              patch.object(vp, 'warm_requested_vectors', side_effect=delayed_warm)):
+            self.test_foreground_preempts_early_nearby_export_and_requeues_it()
+        self.assertTrue(entered.is_set(), 'the requeued nearby export must reach its final callback')
+        self.assertEqual(cleanup_observations, [True], 'directory cleanup started before the worker finished')
+
     def test_foreground_preempts_early_nearby_export_and_requeues_it(self):
         from ai_caddie.geometry import batch_prodgeometry_course as bp
         from ai_caddie.core import priority_work as pw
