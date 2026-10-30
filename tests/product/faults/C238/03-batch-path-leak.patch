@@ -1,0 +1,12 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -51,7 +51,7 @@
+ baseline_modules = dict(sys.modules)
+ for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
+     # Restore the batch baseline before each target so imports cannot leak forward.
+-    sys.path[:] = baseline_path
++    pass
+     sys.modules.clear()
+     sys.modules.update(baseline_modules)
+     try:

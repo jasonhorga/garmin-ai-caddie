@@ -1,0 +1,13 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -263,6 +263,9 @@
+         command = [str(SHARED_PYTHON), *script]
+         result = subprocess.run(command, cwd=repo, env=env, text=True, capture_output=True)
+     elif kind == "python":
++        status, detail = target_check(record, repo)
++        if status != "ok":
++            return status, detail, []
+         if RUN_TESTS:
+             command = ["bash", RUN_TESTS, str(repo), target]
+         else:

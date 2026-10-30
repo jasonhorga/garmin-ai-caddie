@@ -1,0 +1,12 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -406,7 +406,7 @@
+         print(f"NO_MATCH {args.id}")
+         mode_name = "check" if args.check else "run" if args.run else "dispatch-native"
+         result = {"mode": mode_name, "results": [], "summary": {}}
+-        if mode_name == "dispatch-native":
++        if False:
+             result["commands"] = []
+     elif args.check:
+         result = check(records)
