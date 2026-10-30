@@ -346,6 +346,19 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         with patch.object(self.main, "finish_mobile_round_response", return_value=SimpleNamespace()):
             self.main.mobile_round_finish(rid, SimpleNamespace(), acting_player_id="fixture")
 
+    def _finish_persisted(self, rid, gid):
+        from ai_caddie.caddie.mobile_live import round_events
+        from ai_caddie.rounds.round_ingest import ingest_round
+
+        ingest_round(
+            "fixture",
+            round_events(rid, root=self.root, player_id="fixture"),
+            {"courseGlobalId": gid, "courseName": "fixture"},
+            idempotency_key=f"mobile-finish:{rid}",
+            root=self.root,
+        )
+        self._finish(rid)
+
     def test_timestamp_n1_courseless_live_round_survives_old_deferred_finish(self):
         """J4.2 active-round admission: event time beats deferred-finish arrival order."""
         self._post_events("watch-live", "live-1", timestamp="2026-10-29T10:00:00Z")
@@ -558,7 +571,7 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
                 rid = f"finished-idle-{kind}"
                 self._identity(rid, 456)
                 self._post_events(rid, "start", timestamp="2026-10-29T08:00:00Z")
-                self._finish(rid)
+                self._finish_persisted(rid, 456)
                 self._post_events(rid, kind, timestamp="2026-10-29T12:00:00Z",
                                   kind=kind, payload=payload)
                 self.assertNotIn(("fixture", rid), self.main._ACTIVE_ROUNDS)
@@ -575,7 +588,7 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
                 rid = f"finished-active-{kind}"
                 self._identity(rid, 456)
                 self._post_events(rid, "start", timestamp="2026-10-29T08:00:00Z")
-                self._finish(rid)
+                self._finish_persisted(rid, 456)
                 self._post_events(rid, kind, timestamp="2026-10-29T12:00:00Z",
                                   kind=kind, payload=payload)
                 self.assertNotIn(("fixture", rid), self.main._ACTIVE_ROUNDS)
@@ -598,7 +611,7 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         """J4.2: a recovered live round's durable opening time beats a finished old edit."""
         self._identity("finished-old", 456)
         self._post_events("finished-old", "old-start", timestamp="2026-10-29T08:00:00Z")
-        self._finish("finished-old")
+        self._finish_persisted("finished-old", 456)
         self._identity("live-round", 123)
         self._post_events("live-round", "live-start", timestamp="2026-10-29T10:00:00Z")
         for name in ("_ACTIVE_ROUNDS", "_ACTIVE_COURSES", "_ACTIVE_EVENT_TIMES", "_ACTIVE_EVENT_DEVICES",
@@ -616,7 +629,7 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         """J4.2: a finished old round is rejected using its persisted minimum play time."""
         self._identity("finished-old", 456)
         self._post_events("finished-old", "old-start", timestamp="2026-10-29T08:00:00Z")
-        self._finish("finished-old")
+        self._finish_persisted("finished-old", 456)
         self.package(123, "live-round")
         self._post_events("live-round", "live-start", timestamp="2026-10-29T10:00:00Z")
         self._post_events("finished-old", "old-edit", timestamp="2026-10-29T10:30:00Z")
