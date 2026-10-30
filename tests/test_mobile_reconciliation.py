@@ -63,6 +63,18 @@ class MobileReconciliationTests(unittest.TestCase):
                 [row["id"] for row in result["annotationSuggestions"]],
                 [f"score-{n}:score-correction" for n in range(10, 19)],
             )
+            applied = apply_mobile_reconciliation_suggestions(
+                "partial", data, root=root, annotations_root=root,
+                data_loader=lambda: data,
+            )
+            self.assertEqual(applied["appliedCount"], 9)
+            records = list_annotation_records(root=root)
+            self.assertEqual(
+                [record["targetId"] for record in records],
+                [f"partial:{n}" for n in range(10, 19)],
+            )
+            after = reconcile_mobile_round_events("partial", data, root=root)
+            self.assertEqual(after["conflicts"], [])
 
     def test_j1_3_back_start_nonmerged_unnumbered_card_falls_back_to_display_axis(self) -> None:
         # J1.3: without source hole numbers, a standalone back-nine card falls back to its own
