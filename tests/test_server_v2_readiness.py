@@ -87,8 +87,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
             calls.append(player_id)
             return len(calls) > 1
 
-        with patch.object(history_stats, "warm_stats_cache", side_effect=warm), \
-             patch.object(history_stats, "WARM_RETRY_DELAY_S", 0, create=True):
+        with patch.object(history_stats, "warm_stats_cache", side_effect=warm):
             first = history_stats.warm_stats_cache_in_background(player_id="readiness-retry")
             self.assertIsNotNone(first)
             first.join(timeout=5)

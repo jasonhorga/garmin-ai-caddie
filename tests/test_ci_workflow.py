@@ -1321,6 +1321,12 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("部署后预热未完成", text)
         self.assertIn("backend readiness unavailable", text)
         self.assertIn("backend readiness runtime degraded", text)
+        # G7 (C220 r2 B1): every runtime check that is still warming keeps the preflight waiting,
+        # not only history; mobile_package/reports warming must never open the upload.
+        self.assertNotIn('row["label"] == "history" && row["state"] == "warming"', text)
+        self.assertEqual(text.count('readiness.dig("checks")&.any? { |row| row["state"] == "warming" }'), 2)
+        # G7 (C220 r2 B2): immediate degraded failure honours the documented test-environment opt-in.
+        self.assertIn('if readiness["runtimeStatus"] == "degraded" && !allow_degraded_readiness', text)
         self.assertIn("initial_build_number: 0", text)
         self.assertIn("Using next App Store Connect TestFlight build number", text)
         self.assertNotIn('rescue => e\n      UI.important("No prior TestFlight build', text)
