@@ -9,6 +9,8 @@ the first successful generation write.
 from __future__ import annotations
 
 import json
+import logging
+import re
 import sys
 import time
 from pathlib import Path
@@ -18,6 +20,7 @@ import requests
 
 from ai_caddie.core.data import atomic_write_json, atomic_write_json_if_changed
 from ai_caddie.core.revisions import bump_revision
+from ai_caddie.connectors.redaction import sanitize_secret_text
 from ai_caddie.garmin.garmin_auth import auth_headers, ensure_web_auth
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,11 +33,114 @@ SHOT_DIR = DATA_DIR / "shots"
 # gitignored + private-root-symlinked); this is canonical sync output alongside summary.json.
 CLUBS_BAG_FILE = DATA_DIR / "club_bag.json"
 
+logger = logging.getLogger(__name__)
+
 GOLF_BASE = "https://connect.garmin.cn/golf-api/gcs-golfcommunity/api/v2"
 
 
 class GarminAuthExpired(RuntimeError):
     """Raised when Garmin CN web-session auth expires during a fetch run."""
+
+
+_DIFF_VALUE_LIMIT = 80
+_DIFF_FIELD_LIMIT = 32
+_PRIVATE_FIELD = re.compile(r"(?:player|user|member|owner)(?:[_-]?id)?$", re.IGNORECASE)
+
+
+def _diff_path(path: str, part: str | int) -> str:
+    if isinstance(part, int):
+        return f"{path}[{part}]"
+    safe_part = "<redacted>" if _PRIVATE_FIELD.fullmatch(part) else part
+    return f"{path}.{safe_part}" if path else safe_part
+
+
+def _diff_value(value: Any, *, field: str | None = None) -> str:
+    """Render a bounded, non-JSON value for a diagnostic diff line."""
+    type_name = type(value).__name__
+    if field is not None and _PRIVATE_FIELD.fullmatch(field):
+        return f"{type_name}:<redacted>"
+    if value is None:
+        return "NoneType:null"
+    if isinstance(value, (dict, list, tuple)):
+        return f"{type_name}[{len(value)}]"
+    rendered = sanitize_secret_text(repr(value).replace("\n", "\\n").replace("\r", "\\r"), limit=_DIFF_VALUE_LIMIT)
+    if len(rendered) > _DIFF_VALUE_LIMIT:
+        rendered = rendered[:_DIFF_VALUE_LIMIT - 3] + "..."
+    return f"{type_name}:{rendered}"
+
+
+def _field_diffs(before: Any, after: Any, path: str = "root", *, _field: str | None = None) -> list[tuple[str, Any, Any, str | None]]:
+    """Return deterministic field-level differences without serializing whole payloads."""
+    if isinstance(before, dict) and isinstance(after, dict):
+        changes: list[tuple[str, Any, Any, str | None]] = []
+        for key in sorted(set(before) | set(after), key=str):
+            child_path = _diff_path(path, str(key))
+            if key not in before:
+                changes.append((child_path, None, after[key], str(key)))
+            elif key not in after:
+                changes.append((child_path, before[key], None, str(key)))
+            else:
+                changes.extend(_field_diffs(before[key], after[key], child_path, _field=str(key)))
+            if len(changes) >= _DIFF_FIELD_LIMIT:
+                return changes[:_DIFF_FIELD_LIMIT]
+        return changes
+    if isinstance(before, list) and isinstance(after, list):
+        changes = []
+        for index in range(max(len(before), len(after))):
+            child_path = _diff_path(path, index)
+            if index >= len(before):
+                changes.append((child_path, None, after[index], _field))
+            elif index >= len(after):
+                changes.append((child_path, before[index], None, _field))
+            else:
+                changes.extend(_field_diffs(before[index], after[index], child_path, _field=_field))
+            if len(changes) >= _DIFF_FIELD_LIMIT:
+                return changes[:_DIFF_FIELD_LIMIT]
+        return changes
+    if type(before) is type(after) and before == after:
+        return []
+    return [(path, before, after, _field)]
+
+
+def _format_field_diffs(diffs: list[tuple[str, Any, Any, str | None]]) -> str:
+    if not diffs:
+        return "diff=unavailable"
+    fields = []
+    for path, before, after, field in diffs:
+        fields.append(
+            f"path={path} before={_diff_value(before, field=field)} after={_diff_value(after, field=field)}"
+        )
+    return "diffs=" + "; ".join(fields)
+
+
+def _read_json_for_diff(path: Path) -> tuple[bool, Any]:
+    try:
+        return True, json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return False, None
+
+
+def _write_shot_cache_if_changed(
+    path: Path,
+    payload: Any,
+    *,
+    log_key: str | None = None,
+    logged_keys: set[str] | None = None,
+) -> bool:
+    """Write a shot response and emit one bounded diff line when an existing response changed."""
+    had_previous, before = _read_json_for_diff(path)
+    saved = atomic_write_json_if_changed(path, payload)
+    should_log = (
+        saved
+        and had_previous
+        and (logged_keys is None or log_key is None or log_key not in logged_keys)
+    )
+    if should_log:
+        diffs = _field_diffs(before, payload)
+        logger.info("garmin_sync_round_changed %s", _format_field_diffs(diffs))
+        if logged_keys is not None and log_key is not None:
+            logged_keys.add(log_key)
+    return saved
 
 
 def make_session(*, force_refresh_auth: bool = False) -> requests.Session:
@@ -238,6 +344,7 @@ def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = Fal
         SHOT_DIR.mkdir(exist_ok=True, parents=True)
 
     auth_failures = 0  # consecutive 401/403; abort if too many
+    logged_round_diffs: set[str] = set()
 
     for i, card in enumerate(cards, 1):
         sid = card.get("id") or card.get("scorecardId")
@@ -316,7 +423,12 @@ def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = Fal
                     # Atomic replace: the club-profile cache fingerprints shot files by inode/size/
                     # mtime/ctime, which an in-place rewrite can leave unchanged. A pin-only file is
                     # re-fetched every sync; leave it untouched when Garmin returns the same payload.
-                    saved = atomic_write_json_if_changed(shot_out, r.json())
+                    saved = _write_shot_cache_if_changed(
+                        shot_out,
+                        r.json(),
+                        log_key=str(sid),
+                        logged_keys=logged_round_diffs,
+                    )
                     auth_failures = 0
                     print(f"     shots for {sid} {'saved' if saved else 'unchanged'}")
                 elif r.status_code == 400:

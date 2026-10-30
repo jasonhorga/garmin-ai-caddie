@@ -121,6 +121,16 @@ def geometry_coverage_for_hole(
     else:
         missing_data.append({"label": "meshes", "reason": "prodgeometry mesh file missing"})
 
+    # Distance export can fail independently after hazards have been published. Keep the
+    # mesh/topo drawable, while package/install consumers can still see and repair that gap.
+    from ai_caddie.geometry.batch_prodgeometry_course import distances_path
+
+    distances = distances_path(int(global_id), int(local_hole))
+    if distances.is_file():
+        evidence.append({"label": "distances", "ref": _display_path(distances)})
+    else:
+        missing_data.append({"label": "distances", "reason": "prodgeometry distance file missing"})
+
     current_authority: bool | None = None
     authority_observation = "not_required"
     if require_current_authority and has_meshes:

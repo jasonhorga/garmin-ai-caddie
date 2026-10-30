@@ -1,0 +1,11 @@
+--- a/ai_caddie/geometry/batch_prodgeometry_course.py
++++ b/ai_caddie/geometry/batch_prodgeometry_course.py
+@@ -379,8 +379,6 @@
+         job = _DERIVATIVE_JOBS.get(target)
+         running = job is not None and not job.done()
+     status = load_derivatives_status(mesh_file) or {}
+-    if status.get("identity") != identity:
+-        status = {}
+     row = {
+         "failureCount": int(status.get("failureCount") or 0),
+         "lastErrorType": status.get("lastErrorType"),
