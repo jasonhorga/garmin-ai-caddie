@@ -54,6 +54,8 @@
 
 J4.2 离线下载反馈细则：正在准备/下载的行显示状态或进度，不显示「继续下载」按钮；重复请求同一活跃任务时保留任务与已下载洞数，立即显示「已在进行」。服务端 queued/running 显示「服务器准备中 geometryReady/totalHoles 洞」，有 progress 时附百分比；轮询间隔的 queued 行仍显示该进度且无下载按钮。每个任务从首次观察起计时，heartbeatAt 改变（非空）、progress 增加、geometryReady 或 topoReady 增加，均重置无进展窗口；jobId/generation 改变视为新任务。连续 **600 秒（含边界）**无上述进展才转 failed，显示「服务器准备没有进展，点重试」。有进展可等待超过 600 秒，不设总耗时上限；无 heartbeat/progress 的旧服务端同样有 600 秒窗口。快照及窗口跨轮询持久化，显式重试清空窗口；普通行更新时间/重复点击不重置。备战开局先取得 beginRoundPreparation 的前台门控，再排后台下载/预取，不创建随后立即取消的 worker。
 
+J4.2 当前局 finish 守卫 I/O：一批 1 条或多条事件的守卫 index 读取次数不随事件数增长；守卫冷读最多 1 次，同玩家 index 文件版本未变化时后续批次不额外读取。对未 finish 的当前局，整条 append 路径冷批次最多读 2 次（append 刷新 + finish 守卫），后续版本未变每批最多读 1 次（append 刷新）；已 finish 局的历史重新物化 I/O 不计入此上界。守卫缓存以版本 key（mtime_ns/ctime_ns/size/inode）中的 inode 区分不同玩家或数据根的 index，文件版本变化后重新读取；命中缓存仍须判断本局 finish，同一 Idempotency-Key 重试已 finish 局的编辑也不得登记活跃局。包请求读不到开局时间时不缓存 miss，之后积压事件到达按持久最小开局时间比较；finish 也清理未登记在内存中的局的开局时间缓存，重新请求 round 包时重新读取持久开局时间用于接替判断。
+
 J4.2 Garmin 底图恢复细则：release 403 使用 60、120、240、480、960、1920、3600 秒封顶退避。
 已有 history monitor 每 60 秒检查 journal，`retryAfter <= 当前墙钟` 才允许自动非 force 重试，
 与历史签名变化、统计预热的退避独立。每 tick 最多取最早到期的 2 个 release（同到期按 key 排序），

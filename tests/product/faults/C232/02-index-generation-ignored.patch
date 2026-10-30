@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index f68a6a71..191a35e5 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2662,7 +2662,7 @@ def _durable_round_is_finished(player_id: str, round_id: str) -> bool:
+             generation = None
+         with _FINISH_INDEX_CACHE_LOCK:
+             cached = _FINISH_INDEX_CACHE.get(player_id)
+-        if cached is not None and cached[:2] == (str(path), generation):
++        if cached is not None and cached[0] == str(path):
+             index = cached[2]
+         else:
+             # I/O stays outside both selector and cache locks. If a writer races this read, the

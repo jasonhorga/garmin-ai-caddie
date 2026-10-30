@@ -117,7 +117,7 @@
       "id": "C204-M16-finish-clears-cache",
       "patch": "tests/product/faults/C204/M16-finish-keeps-cache.patch",
       "kind": "python",
-      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_finish_clears_round_start_cache",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_restart_unregistered_finish_evicts_opening_cache_for_round_package",
       "promise": "4.2"
     }
   ]
