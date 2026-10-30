@@ -2045,6 +2045,48 @@ struct LiveMapPreparingPill: View {
     }
 }
 
+/// Pure policies shared by the live-hole view and native tests. Keeping these decisions outside
+/// SwiftUI state makes the optional Garmin layer and the F/M/B readout easy to verify offline.
+enum LiveGarminRasterPolicy {
+    static let preferenceKey = "liveGarminRasterEnabled"
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: preferenceKey)
+    }
+
+    static func shouldFetch(enabled: Bool, requestStarted: Bool) -> Bool {
+        enabled && !requestStarted
+    }
+
+    static func displayedRaster(
+        enabled: Bool,
+        raster: GarminRasterResponse?
+    ) -> GarminRasterResponse? {
+        enabled ? raster : nil
+    }
+}
+
+struct LiveGreenRangeYards: Equatable {
+    let front: Int?
+    let middle: Int?
+    let back: Int?
+}
+
+enum LiveGreenRangePresentation {
+    static func resolve(
+        live: LiveGreenRangeYards?,
+        staticFallback: LiveGreenRangeYards
+    ) -> LiveGreenRangeYards {
+        guard let live,
+              live.front != nil,
+              live.middle != nil,
+              live.back != nil else {
+            return staticFallback
+        }
+        return live
+    }
+}
+
 /// A selected obstacle the bitmap on screen cannot place (yet). Its distances remain in the hazard
 /// bar; this explains the empty map instead of leaving it silently blank.
 struct LiveHazardMapNotice: View {
@@ -2069,9 +2111,12 @@ struct LiveMapPreparingSurface: View {
     let holeNumber: Int
     var par: Int? = nil
     var yards: Int? = nil
+    var failed = false
+    var onRetry: (() -> Void)? = nil
 
     var body: some View {
-        HoleMapWaitingPage(holeNumber: holeNumber, par: par, yards: yards)
+        HoleMapWaitingPage(holeNumber: holeNumber, par: par, yards: yards,
+                           failed: failed, onRetry: onRetry)
             .accessibilityIdentifier("live-map-preparing-surface")
     }
 }
@@ -2083,6 +2128,8 @@ struct HoleMapWaitingPage: View {
     let holeNumber: Int
     let par: Int?
     let yards: Int?
+    var failed = false
+    var onRetry: (() -> Void)? = nil
 
     var body: some View {
         ZStack {
@@ -2096,9 +2143,21 @@ struct HoleMapWaitingPage: View {
                     .font(.system(size: 15, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(LivePlayStyle.ink60)
-                ProgressView()
-                    .tint(LivePlayStyle.ink)
-                    .padding(.top, 14)
+                if failed {
+                    Text("地图暂时不可用")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(LivePlayStyle.ink60)
+                    if let onRetry {
+                        Button("重试") { onRetry() }
+                            .buttonStyle(.borderedProminent)
+                            .tint(LivePlayStyle.accent)
+                            .accessibilityIdentifier("live-map-retry")
+                    }
+                } else {
+                    ProgressView()
+                        .tint(LivePlayStyle.ink)
+                        .padding(.top, 14)
+                }
             }
             .padding(.horizontal, 24)
             .multilineTextAlignment(.center)
@@ -2106,7 +2165,7 @@ struct HoleMapWaitingPage: View {
         // The page header already exposes the hole number. Keep this loading surface as one
         // status element so its visual hole label is not reported as a second "第 N 洞" heading.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("第 \(holeNumber) 洞地图准备中")
+        .accessibilityLabel(failed ? "第 \(holeNumber) 洞地图暂时不可用" : "第 \(holeNumber) 洞地图准备中")
     }
 
     var title: String {

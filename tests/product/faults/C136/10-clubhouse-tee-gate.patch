@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -4028,7 +4028,7 @@
+             guard point.count >= 2 else { return nil }
+             return liveCoordinate(forOverlayPixel: CGPoint(x: point[0], y: point[1]))
+         }
+-        return Self.isTeeShotOffTheHole(
++        return false && Self.isTeeShotOffTheHole(
+             shotsRecorded: recordedNonPuttShotCount,
+             shotType: selectedShotType,
+             fix: currentCoordinateForLogic,

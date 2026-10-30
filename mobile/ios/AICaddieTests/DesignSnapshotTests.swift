@@ -15,6 +15,11 @@ final class DesignSnapshotTests: XCTestCase {
         ensureC156TopoBundleStub()
     }
 
+    override func tearDown() {
+        UserDefaults.standard.removeObject(forKey: LiveGarminRasterPolicy.preferenceKey)
+        super.tearDown()
+    }
+
     func testLiveCaddieClubIdentityIsStableAcrossRenderPasses() {
         let first = LiveCaddieStrip.Club(name: "三号木", sub: "192 码", on: true)
         let second = LiveCaddieStrip.Club(name: "三号木", sub: "192 码", on: true)
@@ -1035,6 +1040,17 @@ final class DesignSnapshotTests: XCTestCase {
                     dark: true
                 )
             }
+            try captureScreen(
+                NavigationStack {
+                    CurrentHoleView(
+                        package: mappedPackage,
+                        hole: firstHole,
+                        snapshotState: .init(caddieRoutes: routes, garminRasterEnabled: false)
+                    )
+                },
+                named: "full-hole-map-garmin-off",
+                dark: true
+            )
             // README 地图降级契约: without the precise topo the live hole draws the factual route and
             // the geometry it already has (green outline, obstacle facts), immediately.
             let greenOutlineJSON = (0..<24).map { index -> String in
@@ -1120,7 +1136,8 @@ final class DesignSnapshotTests: XCTestCase {
                         snapshotState: .init(
                             selectsFirstHazard: true,
                             caddieRoutes: routes,
-                            garminRaster: partialRasterDescriptor
+                            garminRaster: partialRasterDescriptor,
+                            garminRasterEnabled: true
                         ),
                         caddieBaseURL: partialRasterBaseURL
                     )
@@ -1136,7 +1153,8 @@ final class DesignSnapshotTests: XCTestCase {
                         hole: firstHole,
                         snapshotState: .init(
                             caddieRoutes: routes,
-                            garminRaster: partialRasterDescriptor
+                            garminRaster: partialRasterDescriptor,
+                            garminRasterEnabled: true
                         ),
                         caddieBaseURL: partialRasterBaseURL
                     )
@@ -1772,7 +1790,8 @@ final class DesignSnapshotTests: XCTestCase {
         GarminRasterImageStore.preload(image, for: rasterURL)
         let state = CurrentHoleView.SnapshotState(
             garminRaster: descriptor,
-            currentCoordinate: CLLocationCoordinate2D(latitude: 40.0005, longitude: 116.0005)
+            currentCoordinate: CLLocationCoordinate2D(latitude: 40.0005, longitude: 116.0005),
+            garminRasterEnabled: true
         )
         try captureScreen(
             NavigationStack {

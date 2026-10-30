@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C136-18",
+      "patch": "tests/product/faults/C136/18-full-builds-every-hole.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_cold_full_selected_tee_bounds_work_and_persists_exact_distances",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-19",
+      "patch": "tests/product/faults/C136/19-current-vector-not-persisted.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_cold_full_selected_tee_bounds_work_and_persists_exact_distances",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-20",
+      "patch": "tests/product/faults/C136/20-vector-skips-background-gate.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_selected_vector_waits_for_background_admission_before_building",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-21",
+      "patch": "tests/product/faults/C136/21-vector-foreground-priority.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_selected_vector_uses_selected_course_priority",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-22",
+      "patch": "tests/product/faults/C136/22-vector-provider-unregistered.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_mobile_course_package_keeps_selected_vector_pending_after_background_enqueue",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-23",
+      "patch": "tests/product/faults/C136/23-vector-future-not-recorded.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_mobile_course_package_keeps_selected_vector_pending_after_background_enqueue",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-24",
+      "patch": "tests/product/faults/C136/24-map-probes-every-tee.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_2_map_only_cache_queries_are_bounded_per_physical_hole",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C136-25",
+      "patch": "tests/product/faults/C136/25-map-only-builds-current-hole.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_mobile_course_package_keeps_selected_vector_pending_after_background_enqueue",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C136-26",
+      "patch": "tests/product/faults/C136/26-enrichment-omits-priority-hole.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testPersonalEnrichmentRequestCarriesCurrentTenthHole",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C136-27",
+      "patch": "tests/product/faults/C136/27-full-ignores-priority-ten.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_full_package_synchronously_builds_requested_tenth_hole",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C136-28",
+      "patch": "tests/product/faults/C136/28-tee-request-uses-moved-pin.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j5_4_restored_pin_keeps_tee_request_and_manual_distance_separate",
+      "promise": "J5.4"
+    }
+  ]
+}

@@ -250,9 +250,17 @@ def prepare_priority_hole(
         # The canonical package resolver also accepts proven durable round layouts. When the
         # provider has no release, leave that decision to it rather than rejecting valid history.
         metadata_ms = (time.perf_counter() - started) * 1000
-        from ai_caddie.caddie.analysis import tee_set_for_box
+        from ai_caddie.caddie.analysis import resolve_selected_tee_set, tee_set_for_box
+        from ai_caddie.caddie.mobile_live import _load_mobile_hazards
         from ai_caddie.courses.vector_prep import request_vector_tee
-        tee_set = tee_set_for_box(gid, str(tee_box or "blue"), colour_fallback=False)
+        requested_box = str(tee_box or "blue").strip().lower()
+        hazards = _load_mobile_hazards(gid, hole)
+        tee_set = resolve_selected_tee_set(hazards, requested_box, global_id=gid)
+        if tee_set is None:
+            # A cold hazard export has no selected position yet. Keep the same release resolver's
+            # canonical fallback for the cache key; this is the only safe default until geometry
+            # publishes a selected Tee anchor.
+            tee_set = tee_set_for_box(gid, requested_box, colour_fallback=False)
         request_vector_tee(gid, hole, tee_set)
         result = ensure_prodgeometry(gid, hole)
         geometry_ms = (time.perf_counter() - started) * 1000 - metadata_ms

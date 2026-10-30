@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -4272,6 +4272,7 @@
+             // parallel, but let the first caddie response use that context immediately instead of
+             // making the player wait for a second prep GET/render request.
+             async let mapResult = loadHoleMap()
++            await loadGarminRasterIfNeeded()
+             await loadCaddieDecision(syncClub: syncClub, allowCachedDecision: true)
+             guard !Task.isCancelled else { return }
+             #if DEBUG

@@ -1,0 +1,15 @@
+--- a/ai_caddie/caddie/analysis.py
++++ b/ai_caddie/caddie/analysis.py
+@@ -189,11 +189,11 @@
+             tee_box,
+             colour_fallback=False,
+         )
+         return release_set if release_set in available else None
+     resolved_global_id = global_id if global_id is not None else (hazards or {}).get("globalId")
+-    requested = tee_set_for_box(resolved_global_id, tee_box, colour_fallback=False)
++    requested = TEE_SET_BY_BOX["blue"]
+     release_tees: list[dict[str, Any]] = []
+     if resolved_global_id is not None:
+         try:
+             from ai_caddie.courses.course_reference import courseview_tees
+ 

@@ -1,0 +1,11 @@
+diff --git a/ai_caddie/caddie/mobile_live.py b/ai_caddie/caddie/mobile_live.py
+--- a/ai_caddie/caddie/mobile_live.py	2026-10-28 21:07:47.018050251 +0000
++++ b/ai_caddie/caddie/mobile_live.py	2026-10-28 21:07:46.992049954 +0000
+@@ -155,6 +155,7 @@
+     try:
+         from ai_caddie.caddie.analysis import resolve_selected_tee_set
+
++        _ = course_prep.hole_render.load_mesh(int(global_id), int(local_hole))
+         hazards = _load_mobile_hazards(int(global_id), int(local_hole))
+         tee_set = resolve_selected_tee_set(hazards, requested, global_id=global_id)
+         if tee_set is None:

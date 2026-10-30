@@ -1428,12 +1428,7 @@ def _warm_course_prep(
     Tee set, so warm the Tee the player last used there (resolved exactly like the endpoint does);
     without a known Tee the default Blue entry is warmed as before.
     """
-    from ai_caddie.caddie.analysis import tee_set_for_box
     from ai_caddie.courses import course_prep
-
-    tee_set = None
-    if tee_box and str(tee_box).strip().lower() not in {"", "unknown"}:
-        tee_set = tee_set_for_box(int(global_id), tee_box, colour_fallback=False)
 
     if delay_s > 0:
         _PREP_WARM_DELAY_EVENT.wait(delay_s)
@@ -1450,14 +1445,14 @@ def _warm_course_prep(
             render=False,
             include_missing=True,
             player_id=player_id,
-            tee_set=tee_set,
+            tee_box=tee_box,
         )
     finally:
         _PREP_WARM_LOCK.release()
     logger.info(
-        "prep_warm gid=%s tee_set=%s holes=%s duration_ms=%s",
+        "prep_warm gid=%s tee_box=%s holes=%s duration_ms=%s",
         int(global_id),
-        tee_set,
+        tee_box,
         len(holes),
         int((time.perf_counter() - started) * 1000),
     )
@@ -1596,14 +1591,6 @@ def _build_course_prep_nine(global_id, holes, render, include_shots, tee, player
     requested = holes or course_prep.available_prep_holes(global_id)
     # ``tee`` is the player's Tee choice (e.g. "white"). Playing facts follow that Tee; without it
     # (older clients) the route stays on Blue exactly as before.
-    tee_set = None
-    if tee and tee.strip().lower() not in {"", "unknown"}:
-        from ai_caddie.caddie.analysis import tee_set_for_box
-
-        # Release-only: without cached release metadata the colour table can name the wrong set
-        # (e.g. a course whose Red release Tee is set 4), so stay on Blue rather than guess.
-        tee_set = tee_set_for_box(int(global_id), tee, colour_fallback=False)
-
     # prep_nine rebuilds all-hole mesh geometry (~19s for a 9-hole course) on every request; cache the
     # response by filesystem fingerprint so 备战 opens instantly until geometry / shots / clubs change.
     def _build() -> dict:
@@ -1619,8 +1606,22 @@ def _build_course_prep_nine(global_id, holes, render, include_shots, tee, player
         checkpoint()
         # Shot scatter is the player's OWN past end positions only: prep_nine reads solely the
         # threaded player_id's tree, so a member sees their own shots and never the owner's.
-        nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
-                                     include_shots=include_shots, player_id=player_id, tee_set=tee_set)
+        nine = course_prep.prep_nine(
+            global_id,
+            requested,
+            ladder=ladder,
+            render=render,
+            include_missing=True,
+            include_shots=include_shots,
+            player_id=player_id,
+            tee_box=tee,
+        )
+        selected_sets = {
+            int(row["teeSet"])
+            for row in nine
+            if isinstance(row, dict) and row.get("teeSet") is not None
+        }
+        tee_set = next(iter(selected_sets)) if len(selected_sets) == 1 else None
         mark_request_stage("prep_holes")
         checkpoint()
         payload = {
@@ -1658,7 +1659,7 @@ def _build_course_prep_nine(global_id, holes, render, include_shots, tee, player
     return prep_cache.cached_course_prep(
         global_id=global_id, requested=requested, render=render,
         include_shots=include_shots, player_id=player_id, build=_build,
-        variant=f"prep:tee{tee_set}",
+        variant=f"prep:box{str(tee or '').strip().lower()}",
     )
 
 

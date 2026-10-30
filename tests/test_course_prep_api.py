@@ -62,18 +62,16 @@ class CoursePrepApiTests(unittest.TestCase):
     def test_prep_endpoint_measures_playing_facts_from_the_requested_tee(self) -> None:
         with patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \
                 patch.object(course_reference, "courseview_release_info", return_value=None), \
-                patch("ai_caddie.caddie.analysis.tee_set_for_box", return_value=5) as resolve, \
                 patch.object(course_prep, "prep_nine", return_value=[self._prep_row()]) as prep_nine:
             default = self.client.get("/api/v2/courses/31870/prep?render=false")
             red = self.client.get("/api/v2/courses/31870/prep?render=false&tee=red")
             unknown = self.client.get("/api/v2/courses/31870/prep?render=false&tee=unknown")
 
         self.assertEqual([default.status_code, red.status_code, unknown.status_code], [200, 200, 200])
-        resolve.assert_called_once_with(31870, "red", colour_fallback=False)
         self.assertIsNone(default.json()["teeSet"])
-        self.assertEqual(red.json()["teeSet"], 5)
-        # The default and "unknown" requests share the Blue build; the red Tee is a separate one.
-        self.assertEqual([call.kwargs["tee_set"] for call in prep_nine.call_args_list], [None, 5])
+        self.assertIsNone(red.json()["teeSet"])
+        # The resolver now lives in prep_nine so every hole can apply the same release default.
+        self.assertEqual([call.kwargs["tee_box"] for call in prep_nine.call_args_list], [None, "red", "unknown"])
 
     def test_prep_endpoint_resolves_tee_from_release_metadata_only(self) -> None:
         red_release = [{"name": "Red", "gender": "MEN", "index": 4}]
@@ -86,12 +84,12 @@ class CoursePrepApiTests(unittest.TestCase):
                     patch.object(course_prep, "prep_nine", return_value=[self._prep_row()]) as prep_nine:
                 response = self.client.get("/api/v2/courses/31870/prep?render=false&tee=red")
             self.assertEqual(response.status_code, 200)
-            results[label] = (response.json()["teeSet"], prep_nine.call_args.kwargs["tee_set"])
+            results[label] = (response.json()["teeSet"], prep_nine.call_args.kwargs["tee_box"])
 
         # This course's Red release Tee is set 4, not the colour table's 5.
-        self.assertEqual(results["release"], (4, 4))
-        # Without release metadata the colour table could name the wrong set: stay on Blue.
-        self.assertEqual(results["missing"], (None, None))
+        self.assertEqual(results["release"], (None, "red"))
+        # The endpoint forwards the box; prep_nine owns the shared release/colour resolution.
+        self.assertEqual(results["missing"], (None, "red"))
 
     def test_prep_endpoint_contract(self) -> None:
         with patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \

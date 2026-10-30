@@ -19,6 +19,10 @@ final class ProductLiveHolePageTests: XCTestCase {
             ["clubName": "8I", "sampleSize": 24, "median_m": 121, "p10_m": 115, "p90_m": 127],
         ]
         json["clubProfiles"] = profiles
+        var holes = try XCTUnwrap(json["holes"] as? [[String: Any]])
+        holes[0]["teeLatitude"] = 0.0
+        holes[0]["teeLongitude"] = 0.0
+        json["holes"] = holes
         // One pixel/metre, affine equatorial anchors (100 m = 0.000899321606 degrees).
         let prep: [String: Any] = [
             "hole": 1, "par": 4, "par_source": "synthetic", "blue_yards": 351, "route_len_m": 320.9,
@@ -97,7 +101,7 @@ final class ProductLiveHolePageTests: XCTestCase {
             window.rootViewController = nil
             probe.refresh = nil; probe.request = nil; probe.routes = nil; probe.source = nil
             probe.planningDistance = nil; probe.offlineDecision = nil; probe.offlineRequest = nil
-            probe.mapTargetDistance = nil; probe.setTarget = nil
+            probe.mapTargetDistance = nil; probe.setTarget = nil; probe.setFix = nil
             session.invalidateAndCancel()
             C33URLProtocol.setHandlers(onStart: nil)
         }
@@ -131,7 +135,23 @@ final class ProductLiveHolePageTests: XCTestCase {
             let route = try XCTUnwrap(CaddiePlanSequence.selectedSequence(from: try XCTUnwrap(offline())))
             XCTAssertEqual(route.steps.map(\.clubName), ["Driver", "8I"])
             XCTAssertGreaterThanOrEqual(route.steps.last?.routeOffsetM ?? 0, 306.2)
-            XCTAssertEqual(try XCTUnwrap(probe.planningDistance)() ?? -1, 320.9, accuracy: 0.1)
+            XCTAssertEqual(try XCTUnwrap(probe.planningDistance)() ?? -1, 284.3, accuracy: 0.1,
+                           "J5.4 before leaving the selected Tee, planning keeps static middle")
+            // At the dogleg's first bend: hand-specified route station 135.5 leaves 185.4 m;
+            // straight range to (304.3,350) is hypot(174.3,100) = 200.9221 m.
+            let setFix = try XCTUnwrap(probe.setFix)
+            setFix(LocationFix(
+                coordinate: CLLocationCoordinate2D(latitude: 0.000899321606, longitude: 0.000989253767),
+                horizontalAccuracyM: 5, altitudeM: nil, capturedAt: "2026-10-01T00:01:00Z"
+            ))
+            let movedRequest = try XCTUnwrap(request())
+            guard case .number(let movedDistance)? = movedRequest.context["distanceToPin_m"] else {
+                return XCTFail("moved wire distance missing")
+            }
+            XCTAssertEqual(movedDistance, 200.9221, accuracy: 0.1,
+                           "after leaving Tee the endpoint retains straight GPS range")
+            XCTAssertEqual(try XCTUnwrap(probe.planningDistance)() ?? -1, 185.4, accuracy: 0.1,
+                           "J5.4/C164b after leaving Tee local planning uses remaining route")
         }
     }
 

@@ -136,6 +136,49 @@ _load_mobile_hazards.cache_clear = _load_mobile_hazards_cached.cache_clear
 _load_mobile_hazards.cache_info = _load_mobile_hazards_cached.cache_info
 
 
+def _release_selected_tee_anchor(
+    global_id: int | None,
+    local_hole: int | None,
+    tee_box: str | None,
+) -> tuple[float, float, float] | None:
+    """Return the selected release Tee's WGS84 anchor and target distance.
+
+    Package construction is map-only and must not decode a mesh. The compact hazard export is
+    the same release authority used by ``/prep`` and carries the selected Tee position and route
+    length, so it is sufficient for the package anchor and nominal yards.
+    """
+    if not global_id or not local_hole or not tee_box:
+        return None
+    requested = str(tee_box).strip().lower()
+    if requested in {"", "unknown"}:
+        return None
+    try:
+        from ai_caddie.caddie.analysis import resolve_selected_tee_set
+
+        hazards = _load_mobile_hazards(int(global_id), int(local_hole))
+        tee_set = resolve_selected_tee_set(hazards, requested, global_id=global_id)
+        if tee_set is None:
+            return None
+        tees = hazards.get("tees") if isinstance(hazards, dict) else None
+        selected = next((row for row in (tees or []) if tee_set in (row.get("sets") or [])), None)
+        position = selected.get("position") if isinstance(selected, dict) else None
+        route_length = float((selected or {}).get("target_distance_m") or 0.0)
+        if not isinstance(position, (list, tuple)) or len(position) < 2 or route_length <= 0:
+            return None
+        ref_lat = float(hazards["refLat"])
+        ref_lon = float(hazards["refLon"])
+        latitude, longitude = local_to_world(
+            float(position[0]), float(position[1]), ref_lat=ref_lat, ref_lon=ref_lon
+        )
+        if not all(math.isfinite(value) for value in (latitude, longitude, route_length)):
+            return None
+        if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+            return None
+        return latitude, longitude, float(route_length)
+    except (OSError, KeyError, TypeError, ValueError, OverflowError, AttributeError):
+        return None
+
+
 def _event_cursor(
     round_id: str,
     *,
@@ -1153,7 +1196,7 @@ def _package_holes(
             )
             try:
                 geometry = {"hazards": _load_mobile_hazards(int(source_gid), int(source_local))}
-                selected_tee = _selected_tee(geometry, tee_box)
+                selected_tee = _selected_tee(geometry, tee_box, colour_fallback=False)
                 target_distance_m = float((selected_tee or {}).get("target_distance_m"))
                 if target_distance_m > 0:
                     yards = int(round(target_distance_m * 1.09361))
@@ -1171,6 +1214,12 @@ def _package_holes(
                         tee_longitude = longitude
             except (OSError, TypeError, ValueError, OverflowError):
                 pass
+            # The scorecard template above is allowed to be from an earlier Tee. Rebind the
+            # package anchor and nominal length to the same release route that /prep uses whenever
+            # that geometry is available; the compact hazard export remains the fallback only.
+            if release_anchor := _release_selected_tee_anchor(source_gid, source_local, tee_box):
+                tee_latitude, tee_longitude, selected_route_length = release_anchor
+                yards = int(round(selected_route_length * 1.09361))
         # A prior round's `ready` describes what existed when that round was ingested; it is not
         # authority for today's Garmin release.  Resolve the physical hole against the current
         # current cached release before advertising precise facts to a live client.
@@ -1200,7 +1249,13 @@ def _package_holes(
     return holes
 
 
-def _course_prep_package(global_id: int, holes: list[dict[str, Any]], *, player_id: str = OWNER_ID) -> dict[str, Any] | None:
+def _course_prep_package(
+    global_id: int,
+    holes: list[dict[str, Any]],
+    *,
+    player_id: str = OWNER_ID,
+    tee_box: str | None = None,
+) -> dict[str, Any] | None:
     if not global_id:
         return None
     hole_numbers = [int(row["number"]) for row in holes if row.get("number")]
@@ -1214,7 +1269,7 @@ def _course_prep_package(global_id: int, holes: list[dict[str, Any]], *, player_
     try:
         prep_rows = course_prep.prep_nine(
             int(global_id), holes=hole_numbers, ladder=ladder, render=False, include_missing=True,
-            player_id=player_id,
+            player_id=player_id, tee_box=tee_box,
         )
     except Exception:
         return {
@@ -1273,6 +1328,13 @@ def _has_drawable_route_seed(row: dict[str, Any] | None) -> bool:
     if not isinstance(row, dict):
         return False
     route = row.get("route")
+    # A cached vector from another Tee may safely provide the Tee-independent map surfaces while
+    # its route and distances are withheld until the selected Tee is built. This keeps the map
+    # visible without displaying another Tee's numbers.
+    if not isinstance(route, list) or len(route) < 2:
+        overlay = row.get("map", {}).get("overlay") if isinstance(row.get("map"), dict) else None
+        surfaces = overlay.get("surfaces") if isinstance(overlay, dict) else None
+        return isinstance(surfaces, list) and bool(surfaces)
     if not isinstance(route, list) or len(route) < 2:
         return False
     local_points = [
@@ -1319,11 +1381,82 @@ def _has_drawable_route_seed(row: dict[str, Any] | None) -> bool:
     return isinstance(projection, dict) and projection.get("available") is True
 
 
+def _tee_independent_vector(vector: dict[str, Any]) -> dict[str, Any]:
+    """Keep map geometry from a cached Tee while withholding its route and distance facts."""
+    out = dict(vector)
+    out.pop("route", None)
+    for key in (
+        "teeSet",
+        "teeYards",
+        "blue_yards",
+        "route_len_m",
+        "greenDistances",
+        "steps",
+        "cautions",
+        "candidateRoutes",
+        "carryTargets",
+    ):
+        out.pop(key, None)
+    map_value = out.get("map")
+    if isinstance(map_value, dict):
+        map_copy = dict(map_value)
+        overlay = map_copy.get("overlay")
+        if isinstance(overlay, dict):
+            overlay_copy = dict(overlay)
+            overlay_copy.pop("route", None)
+            overlay_copy.pop("ln", None)
+            map_copy["overlay"] = overlay_copy
+        out["map"] = map_copy
+    hazards = out.get("hazards")
+    if isinstance(hazards, dict):
+        hazard_copy = dict(hazards)
+        details = hazard_copy.get("details")
+        if isinstance(details, list):
+            cleaned_details = []
+            for detail in details:
+                if not isinstance(detail, dict):
+                    continue
+                detail_copy = dict(detail)
+                for key in ("frontM", "backM", "frontRouteM", "backRouteM", "sideM"):
+                    detail_copy.pop(key, None)
+                cleaned_details.append(detail_copy)
+            hazard_copy["details"] = cleaned_details
+        out["hazards"] = hazard_copy
+    missing = [row for row in (out.get("missingData") or []) if isinstance(row, dict)]
+    missing.append({"label": "tee_route", "reason": "selected Tee vector is pending; Tee-independent map geometry is shown"})
+    out["missingData"] = missing
+    return out
+
+
+def _cached_map_vector_for_selected_tee(
+    global_id: int,
+    local_hole: int,
+    *,
+    selected_set: int | None,
+    hazards: dict[str, Any] | None,
+    coverage: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Borrow only Tee-independent geometry when the selected Tee vector is absent.
+
+    Production may have persisted a Blue vector while a later round selects another Tee. Probe
+    Blue first, then every Tee set present in the compact hazard export; the returned row is
+    stripped by the caller before it reaches the client, so borrowed route and distance facts can
+    never masquerade as the selected Tee's facts.
+    """
+    from ai_caddie.caddie.analysis import resolve_selected_tee_set, tee_set_for_box
+    blue_set = resolve_selected_tee_set(hazards, "blue", global_id=global_id)
+    if blue_set is None:
+        blue_set = tee_set_for_box(global_id, "blue", colour_fallback=True)
+    from ai_caddie.courses.vector_prep import cached_map_vector_hole
+    return cached_map_vector_hole(global_id, local_hole, coverage=coverage, preferred_tee=blue_set)
+
+
 def first_hole_lightweight_course_prep(
     package: dict[str, Any],
     *,
     player_id: str = OWNER_ID,
     map_only: bool = False,
+    priority_hole: int | None = None,
 ) -> dict[str, Any] | None:
     """Read persisted vectors and lightweight CourseView seeds for every playable hole.
 
@@ -1348,11 +1481,24 @@ def first_hole_lightweight_course_prep(
     prep_kwargs: dict[str, Any] = {"player_id": player_id}
     if ladder:
         prep_kwargs["ladder"] = ladder
+    selected_tee_box = str(course.get("teeBox") or "").strip()
+    current = next((row for row in holes if _safe_int(row.get("number")) == priority_hole), None)
+    current_source = (
+        (_safe_int(current.get("sourceGlobalId") or course.get("globalId")),
+         _safe_int(current.get("sourceLocalHole") or current.get("number")))
+        if current else None
+    )
+    # Map-only polls never spend foreground CPU; they enqueue every missing selected-Tee vector,
+    # including the displayed hole, so a lost job is repaired by the next poll.
+    if map_only:
+        current_source = None
 
     # Composite rounds can show the same physical local hole twice (A+A). Build it once and
     # renumber the returned factual row for each display hole instead of doing duplicate work.
     by_source: dict[tuple[int, int], dict[str, Any] | None] = {}
+    pending_sources: set[tuple[int, int]] = set()
     tee_sets: dict[int, int | None] = {}
+    tee_facts_bound: dict[int, bool] = {}
     seeded_rows: list[dict[str, Any]] = []
     missing_rows: list[dict[str, Any]] = []
     for package_hole in holes:
@@ -1364,42 +1510,103 @@ def first_hole_lightweight_course_prep(
         source_key = (source_global_id, source_local_hole)
         if source_key not in by_source:
             vector = None
+            selected_vector_pending = False
             # The install/foreground path already persisted factual vectors. Reuse them before
             # trying the optional CourseView catalogue or rebuilding a frame for every package.
             from ai_caddie.core.data import mesh_path
             if mesh_path(source_global_id, source_local_hole).exists():
                 try:
                     from ai_caddie.courses.vector_prep import cached_vector_hole
-                    from ai_caddie.caddie.analysis import tee_set_for_box
+                    from ai_caddie.caddie.analysis import resolve_selected_tee_set
 
                     if source_global_id not in tee_sets:
-                        tee_sets[source_global_id] = tee_set_for_box(
-                            source_global_id, str(course.get("teeBox") or "blue"), colour_fallback=False,
+                        requested_box = str(course.get("teeBox") or "").strip()
+                        hazards = _load_mobile_hazards(source_global_id, source_local_hole)
+                        tee_sets[source_global_id] = resolve_selected_tee_set(
+                            hazards, requested_box or "blue", global_id=source_global_id
                         )
-                    vector = cached_vector_hole(
-                        source_global_id, source_local_hole, tee_set=tee_sets[source_global_id],
-                        build_if_missing=False,
+                        tee_facts_bound[source_global_id] = (
+                            requested_box in {"", "unknown"}
+                            or tee_sets[source_global_id] is not None
+                        )
+                    selected_set = tee_sets.get(source_global_id)
+                    coverage = geometry_coverage_for_hole(
+                        source_global_id, source_local_hole,
+                        require_current_authority=True, refresh_release=False,
                     )
-                    if not _has_drawable_route_seed(vector):
-                        blue_tee = tee_set_for_box(source_global_id, "blue", colour_fallback=False)
-                        if blue_tee != tee_sets[source_global_id]:
-                            vector = cached_vector_hole(source_global_id, source_local_hole,
-                                                        tee_set=blue_tee, build_if_missing=False)
+                    vector = cached_vector_hole(
+                        source_global_id, source_local_hole, tee_set=selected_set,
+                        coverage=coverage, build_if_missing=False,
+                    )
+                    if vector is not None and not tee_facts_bound.get(source_global_id, True):
+                        vector = _tee_independent_vector(vector)
+                    selected_vector_pending = (
+                        vector is None and selected_set is not None
+                        and coverage.get("coverage") == "ready"
+                    )
+                    if vector is None and (
+                        selected_set is not None or selected_tee_box not in {"", "unknown"}
+                    ):
+                        # Only the requested display hole may spend foreground CPU. Persist it
+                        # through the same authority-bound cache as /prep/startup, so later package
+                        # rebuilds never repeat the mesh work. Other holes yield to foreground work.
+                        if selected_set is not None:
+                            from ai_caddie.courses.vector_prep import enqueue_vector_hole
+                            if source_key == current_source:
+                                vector = cached_vector_hole(
+                                    source_global_id, source_local_hole, tee_set=selected_set,
+                                    build_if_missing=True,
+                                )
+                            else:
+                                enqueue_vector_hole(source_global_id, source_local_hole, selected_set)
+                        if vector is None and not map_only and not selected_vector_pending:
+                            prep_call_kwargs = dict(prep_kwargs)
+                            if selected_tee_box:
+                                prep_call_kwargs["tee_set"] = selected_set
+                            try:
+                                vector = course_prep.lightweight_prep_hole(
+                                    source_global_id, source_local_hole, **prep_call_kwargs
+                                )
+                            except Exception:
+                                vector = None
+                    if vector is None and (selected_set is not None or selected_tee_box not in {"", "unknown"}):
+                        # Reuse an existing vector only for Tee-independent geometry. Never
+                        # expose that vector's route, F/M/B or nominal yardage as today's
+                        # selected Tee facts.
+                        fallback_vector = _cached_map_vector_for_selected_tee(
+                            source_global_id,
+                            source_local_hole,
+                            selected_set=selected_set,
+                            hazards=hazards, coverage=coverage,
+                        )
+                        if isinstance(fallback_vector, dict):
+                            vector = _tee_independent_vector(fallback_vector)
                 except Exception:
                     pass
+            if selected_vector_pending and (vector is None or not vector.get("greenDistances")):
+                pending_sources.add(source_key)
             try:
                 by_source[source_key] = vector
-                if vector is None and not map_only:
+                if vector is None and not selected_vector_pending and not map_only and (
+                    not selected_tee_box or tee_sets.get(source_global_id) is not None
+                ):
+                    prep_call_kwargs = dict(prep_kwargs)
+                    if selected_tee_box:
+                        prep_call_kwargs["tee_set"] = tee_sets.get(source_global_id)
                     by_source[source_key] = course_prep.lightweight_prep_hole(
-                        source_global_id,
-                        source_local_hole,
-                        **prep_kwargs,
+                        source_global_id, source_local_hole, **prep_call_kwargs
                     )
             except Exception:
                 # A missing CourseView cache is a per-hole degradation. Do not throw away routes
                 # that were successfully extracted for the other holes in the same package.
                 by_source[source_key] = None
         prep = by_source[source_key]
+        if source_key in pending_sources:
+            # Reuse the existing client package-polling mechanism even when physical geometry
+            # itself is installed and only the selected Tee vector is still warming.
+            package_hole["geometryState"] = "pending"
+            # The HTTP route re-judges this using the in-flight provider cadence (30 seconds).
+            package_hole["retryAfterEpoch"] = time.time() + _GEOMETRY_INSTALL_POLL_SECONDS
 
         if not _has_drawable_route_seed(prep):
             missing_rows.append({
@@ -2466,10 +2673,14 @@ def _minimal_live_course_facts(
     ]
     prep_facts: dict[str, Any] = {}
     try:
+        resolved_tee_set = course_prep.resolve_tee_set_for_hole(
+            int(global_id), int(local_hole), tee_box
+        )
         prep = course_prep.lightweight_prep_hole(
             int(global_id),
             int(local_hole),
             ladder=ladder or None,
+            tee_set=resolved_tee_set,
             player_id=player_id,
         )
     except Exception:
@@ -3729,7 +3940,11 @@ def build_live_round_package(
             0,
         )
     )
-    course_prep_package = _course_prep_package(course_global_id, holes, player_id=player_id) if (preparation_mode == "course" and include_course_prep) else None
+    course_prep_package = (
+        _course_prep_package(course_global_id, holes, player_id=player_id, tee_box=tee_box)
+        if (preparation_mode == "course" and include_course_prep)
+        else None
+    )
     # A course package may omit full prep while still attaching a first-hole lightweight package
     # at the API boundary.  When prep is available here, make its structured shot chain the same
     # source consumed by the live decision planner.
@@ -3955,6 +4170,7 @@ def _geometry_only_course_template(
             selected_tee = _selected_tee(
                 {"hazards": _load_mobile_hazards(int(global_id), local_hole)},
                 tee_box,
+                colour_fallback=False,
             )
             target_distance_m = float((selected_tee or {}).get("target_distance_m"))
             if target_distance_m > 0:

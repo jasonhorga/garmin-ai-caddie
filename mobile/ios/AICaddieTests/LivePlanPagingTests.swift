@@ -269,6 +269,12 @@ final class LivePlanPagingTests: XCTestCase {
         let forwardTee = CLLocationCoordinate2D(latitude: 45.5106, longitude: 10.4771)   // 70 m up the line
         let fairway = CLLocationCoordinate2D(latitude: 45.5120, longitude: 10.4774)      // ~31 m off the line
         XCTAssertTrue(CurrentHoleView.isTeeShotOffTheHole(shotsRecorded: 0, shotType: "tee", fix: carPark, route: route))
+        XCTAssertFalse(CurrentHoleView.isTeeShotOffTheHole(
+            shotsRecorded: 0, shotType: "tee", fix: route[0], route: route
+        ), "on the routed tee the current coordinate remains on the hole")
+        XCTAssertTrue(CurrentHoleView.isTeeShotOffTheHole(
+            shotsRecorded: 0, shotType: "tee", fix: carPark, route: route
+        ), "the clubhouse/car park must not be sent as the hole location")
         XCTAssertFalse(CurrentHoleView.isTeeShotOffTheHole(shotsRecorded: 0, shotType: "Tee", fix: forwardTee, route: route),
                        "a forward tee is on the hole")
         XCTAssertFalse(CurrentHoleView.isTeeShotOffTheHole(shotsRecorded: 0, shotType: "tee", fix: fairway, route: route),

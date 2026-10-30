@@ -2053,6 +2053,167 @@
       "promise": "4.2"
     },
     {
+      "id": "tests-product-faults-C197-01-no-field-diff",
+      "patch": "tests/product/faults/C197/01-no-field-diff.patch",
+      "kind": "python",
+      "target": "tests.product.test_j1_sync.SyncProductTests.test_j1_1_pin_only_rewrite_logs_one_redacted_field_diff",
+      "promise": "J1.1"
+    },
+    {
+      "id": "tests-product-faults-C197-02-player-id-log",
+      "patch": "tests/product/faults/C197/02-player-id-log.patch",
+      "kind": "python",
+      "target": "tests.product.test_j1_sync.SyncProductTests.test_j1_1_pin_only_rewrite_logs_one_redacted_field_diff",
+      "promise": "J1.1"
+    },
+    {
+      "id": "tests-product-faults-C136-01",
+      "patch": "tests/product/faults/C136/01-garmin-disabled-model.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_garmin_disabled_model_sends_no_raster_request",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C136-01a",
+      "patch": "tests/product/faults/C136/01a-garmin-disabled-hole-gate.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_garmin_disabled_hole_view_sends_no_raster_request",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C136-02",
+      "patch": "tests/product/faults/C136/02-garmin-slow-blocks-hole.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_real_hole_loader_keeps_surface_visible_during_prep",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C136-03",
+      "patch": "tests/product/faults/C136/03-hole-switch-full-package.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_2_switching_holes_uses_map_only_without_full_package",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C136-04",
+      "patch": "tests/product/faults/C136/04-prep-hang-waits.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_map_spinner_stops_after_prep_success_or_failure",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C136-05",
+      "patch": "tests/product/faults/C136/05-map-spinner-never-terminal.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_real_hole_loader_keeps_surface_visible_during_prep",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C136-06",
+      "patch": "tests/product/faults/C136/06-planning-distance-static-after-shot.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j5_4_selected_tee_static_golden_and_atomic_live_fallback",
+      "promise": "J5.4"
+    },
+    {
+      "id": "tests-product-faults-C136-07",
+      "patch": "tests/product/faults/C136/07-package-anchor-decodes-mesh.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_package_selected_tee_anchor_and_prep_distances_share_release_route",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-08",
+      "patch": "tests/product/faults/C136/08-prep-drops-selected-tee.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_package_and_prep_use_same_selected_release_tee_on_real_paths",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-09",
+      "patch": "tests/product/faults/C136/09-blue-tee-fallback.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_package_and_prep_use_same_selected_release_tee_on_real_paths",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-10",
+      "patch": "tests/product/faults/C136/10-prep-drops-tee-box.patch",
+      "kind": "python",
+      "target": "tests.test_course_prep_api.CoursePrepApiTests.test_prep_endpoint_measures_playing_facts_from_the_requested_tee",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-11",
+      "patch": "tests/product/faults/C136/11-release-missing-uses-colour.patch",
+      "kind": "python",
+      "target": "tests.test_course_tees.CourseTeeOptionsTests.test_missing_release_tee_uses_release_blue_instead_of_colour_table",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-12",
+      "patch": "tests/product/faults/C136/12-fallback-selected-only.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_selected_tee_cache_miss_borrows_any_cached_geometry_before_blank_map",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-13",
+      "patch": "tests/product/faults/C136/13-course-prep-drops-tee.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_package_and_prep_use_same_selected_release_tee_on_real_paths",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-14",
+      "patch": "tests/product/faults/C136/14-course-prep-straight-distance.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_full_package_prefers_selected_precise_distance_seed_before_map_fallback",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-05e",
+      "patch": "tests/product/faults/C136/05-garmin-raster-failure.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testProductSpec45RasterFailureStopsVisibleSpinner",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C136-11a",
+      "patch": "tests/product/faults/C136/10-clubhouse-tee-gate.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j5_4_selected_tee_static_golden_and_atomic_live_fallback",
+      "promise": "J5.4"
+    },
+    {
+      "id": "tests-product-faults-C136-11b",
+      "patch": "tests/product/faults/C136/11-fairway-coordinate-gate.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j5_4_selected_tee_static_golden_and_atomic_live_fallback",
+      "promise": "J5.4"
+    },
+    {
+      "id": "tests-product-faults-C136-15",
+      "patch": "tests/product/faults/C136/15-hole-switch-inherits-backoff.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_2_hole_switch_preempts_old_backoff_but_map_failures_back_off",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C136-16",
+      "patch": "tests/product/faults/C136/16-map-retry-resets-backoff.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_2_hole_switch_preempts_old_backoff_but_map_failures_back_off",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C136-17",
+      "patch": "tests/product/faults/C136/17-hole-switch-ignores-server-deadline.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_2_hole_switch_respects_server_geometry_deadline",
+      "promise": "J4.2"
+    },
+    {
       "id": "tests-product-faults-C134-5a-nearby-expansion",
       "patch": "tests/product/faults/C134/5a-nearby-expansion.patch",
       "kind": "native-unit",
@@ -2127,14 +2288,14 @@
       "patch": "tests/product/faults/C134/block3-map-only-intent.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/TemplateAcquisitionTests/testDownloadWhileMapOnlyIntentIsInFlightUsesAnIndependentFullPackage",
-      "promise": "挡3"
+      "promise": "\u63213"
     },
     {
       "id": "tests-product-faults-C134-N5-intent-followup",
       "patch": "tests/product/faults/C134/N5-start-intent-followup.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/TemplateAcquisitionTests/testStartPrepIntentContinuesAsWholeCourseOfflineDownload",
-      "promise": "N5①"
+      "promise": "N5\u2460"
     },
     {
       "id": "tests-product-faults-C134-r11-topo-status-retries",
@@ -2149,20 +2310,6 @@
       "kind": "native-unit",
       "target": "AICaddieTests/TemplateAcquisitionTests/testDownloadWhileMapOnlyIntentIsInFlightUsesAnIndependentFullPackage",
       "promise": "C134-r11"
-    },
-    {
-      "id": "tests-product-faults-C197-01-no-field-diff",
-      "patch": "tests/product/faults/C197/01-no-field-diff.patch",
-      "kind": "python",
-      "target": "tests.product.test_j1_sync.SyncProductTests.test_j1_1_pin_only_rewrite_logs_one_redacted_field_diff",
-      "promise": "J1.1"
-    },
-    {
-      "id": "tests-product-faults-C197-02-player-id-log",
-      "patch": "tests/product/faults/C197/02-player-id-log.patch",
-      "kind": "python",
-      "target": "tests.product.test_j1_sync.SyncProductTests.test_j1_1_pin_only_rewrite_logs_one_redacted_field_diff",
-      "promise": "J1.1"
     },
     {
       "id": "tests-product-faults-C159-01",

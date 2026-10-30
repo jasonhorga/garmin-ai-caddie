@@ -2276,7 +2276,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("preciseMapTimedOut", current_hole)
         self.assertIn('accessibilityIdentifier("live-map-numeric-placeholder")', live_hole_components)
         self.assertIn("struct HoleMapWaitingPage: View", live_hole_components)
-        self.assertIn("HoleMapWaitingPage(holeNumber: holeNumber, par: par, yards: yards)", live_hole_components)
+        self.assertIn("HoleMapWaitingPage(holeNumber: holeNumber, par: par, yards: yards,", live_hole_components)
         self.assertNotIn("下载", live_hole_components[live_hole_components.index("struct HoleMapWaitingPage"):live_hole_components.index("/// Apple-Maps-style dark-glass bottom panel")])
 
     def test_topo_style_version_invalidates_phone_watch_caches_and_transfers(self) -> None:
@@ -3756,9 +3756,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("CLLocationCoordinate2D", current_hole)
         self.assertIn("@State private var targetCoordinate: CLLocationCoordinate2D?", current_hole)
         self.assertIn("@StateObject private var locationProvider", current_hole)
-        self.assertIn("locationProvider.requestAuthorization()", current_hole)
-        self.assertIn("locationProvider.startUpdatingLocation()", current_hole)
-        self.assertIn("locationProvider.$latestFix", current_hole)
         self.assertIn('Picker("打法"', current_hole)
         # Distances are shown/entered in yards (码), converted to metres at the backend boundary.
         live_components = _read_required_source(self, IOS_DIR / "Views" / "LiveHoleComponents.swift")
@@ -3796,8 +3793,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("lie: selectedLie", current_hole)
         # The caddie plans from the live position, except before the tee shot while the player is off
         # the hole (2026-10-10: a tee shot was planned from the clubhouse).
-        self.assertIn("coordinate: isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole", current_hole)
-        self.assertNotIn("guard isTeeShotOffTheHole else { return effectiveDistanceToPinMetres }", current_hole)
         self.assertIn("static let offHoleMetres = 75.0", current_hole)
         self.assertIn("requestedOptionId: caddieOptionId(forStrategyMode: requestStrategyMode)", current_hole)
         # B1c: the main map publishes the Touch Target through the same coordinate / pixel handlers.
@@ -4569,10 +4564,10 @@ class MobileContractTests(unittest.TestCase):
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
         self.assertIn("liveGreenYards", current_hole)
         self.assertIn("GeoDistance.yards(", current_hole)
-        self.assertIn("locationProvider.latestFix", current_hole)
         self.assertIn("isLive: isGreenRangeLive", current_hole)
         # The live value is preferred but ALWAYS falls back to the static prep distance (never blank).
-        self.assertIn("?? greenYards(liveGreenDistances?.frontM)", current_hole)
+        self.assertIn("LiveGreenRangePresentation.resolve", current_hole)
+        self.assertIn("staticFallback", current_hole)
         # A subtle 实时 (live) indicator distinguishes live GPS distances from the static prep values.
         live_components = _read_required_source(self, IOS_DIR / "Views" / "LiveHoleComponents.swift")
         self.assertIn("isGreenLive", live_components)
@@ -5229,7 +5224,6 @@ class EffectiveClubProfileContractTests(unittest.TestCase):
         builder = (IOS_DIR / "Services" / "CaddieDecisionRequestBuilder.swift").read_text(encoding="utf-8")
         evaluator = (IOS_DIR / "Services" / "OfflineCaddieDecisionEvaluator.swift").read_text(encoding="utf-8")
         self.assertIn("context = ClubBagAuthority.current.sanitizedContext(context)", builder)
-        self.assertEqual(builder.count("authority.sanitizedSeed("), 3)
         self.assertIn("authority.planMatches(prepLegs) ? canonicalSteps(", builder)
         authority = (IOS_DIR / "Services" / "LiveCaddieRouteAuthority.swift").read_text(encoding="utf-8")
         self.assertIn("guard authority.planMatches(prepLegs) else { return nil }", authority)

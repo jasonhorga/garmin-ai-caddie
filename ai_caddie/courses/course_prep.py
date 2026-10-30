@@ -2247,6 +2247,17 @@ def _installed_tee_in_frame(
     return tee if gap <= _LIGHTWEIGHT_TEE_MAX_ROUTE_GAP_M else None
 
 
+def resolve_tee_set_for_hole(global_id: int, local_hole: int, tee_box: str | None) -> int | None:
+    """Return the same effective Tee set used by the mobile package anchor."""
+    try:
+        from ai_caddie.caddie.analysis import resolve_selected_tee_set
+
+        hazards = read_json(hazard_path(int(global_id), int(local_hole)))
+        return resolve_selected_tee_set(hazards, tee_box, global_id=global_id)
+    except (OSError, TypeError, ValueError, OverflowError, AttributeError):
+        return None
+
+
 def _route_from_tee(tee: tuple[float, float], route: list[tuple[float, float]]) -> list[tuple[float, float]]:
     rebuilt = [tee]
     for point in _route_points_ahead_of_tee(tee, route):
@@ -2444,6 +2455,7 @@ def lightweight_prep_hole(
     *,
     ladder=None,
     par_record=None,
+    tee_set: int | None = None,
     player_id: str = OWNER_ID,
 ) -> dict | None:
     """Build the factual CourseView-only map without touching precise mesh geometry.
@@ -2461,6 +2473,7 @@ def lightweight_prep_hole(
         ladder=resolved_ladder,
         par_record=resolved_par,
         render=True,
+        tee_set=tee_set,
     )
     return value if isinstance(value, dict) else None
 
@@ -3121,7 +3134,8 @@ def _missing_hole(global_id: int, local_hole: int, par_record=None) -> dict:
 
 
 def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, include_missing: bool = False,
-              include_shots: bool = False, player_id: str = OWNER_ID, tee_set: int | None = None) -> list:
+              include_shots: bool = False, player_id: str = OWNER_ID, tee_set: int | None = None,
+              tee_box: str | None = None) -> list:
     """Pre-round prep for every hole of a nine that has geometry.
 
     Par is cache-first: the stored ``data/courses/<gid>.json`` record, else ``resolve_par``
@@ -3152,6 +3166,13 @@ def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, i
             apply_overrides=(player_id == OWNER_ID),
         )
     cached: dict[int, object] = {}
+    # Resolve each physical hole through the same release-aware resolver used by the mobile
+    # package. A Tee can be absent on one hole, in which case the resolver chooses the shared
+    # default for that hole instead of reusing another hole's geometry set.
+    tee_sets = {
+        int(hole): (resolve_tee_set_for_hole(global_id, int(hole), tee_box) if tee_box else tee_set)
+        for hole in requested_holes
+    }
     if not render and not include_shots:
         # The factual (render=False) per-hole prep is what the course package, iPhone, Watch and
         # prep-tips all consume, each with a different hole grouping.  Share it per hole; the
@@ -3168,10 +3189,10 @@ def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, i
             render=False,
             include_shots=False,
             player_id=player_id,
-            variant=f"prep-hole:{ladder_digest}:tee{tee_set}",
+            variant=f"prep-hole:{ladder_digest}:tee{tee_set}:box{str(tee_box or '').strip().lower()}",
             build_hole=lambda hole: prep_hole(
                 global_id, hole, ladder=ladder, par_record=par_record, render=False,
-                include_shots=False, player_id=player_id, shot_rows=None, tee_set=tee_set,
+                include_shots=False, player_id=player_id, shot_rows=None, tee_set=tee_sets.get(int(hole)),
             ),
         )
     out = []
@@ -3184,7 +3205,7 @@ def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, i
             prep = prep_hole(global_id, hole, ladder=ladder, par_record=par_record, render=render,
                              include_shots=include_shots, player_id=player_id,
                              shot_rows=shots_by_hole.get(int(hole), []) if include_shots else None,
-                             tee_set=tee_set)
+                             tee_set=tee_sets.get(int(hole)))
         if prep is not None:
             out.append(prep.to_dict() if include_missing and hasattr(prep, "to_dict") else prep)
         elif include_missing:

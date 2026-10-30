@@ -153,7 +153,82 @@ def tee_set_for_box(
     return tee_set
 
 
-def _selected_tee(geometry: dict[str, Any], tee_box: str | None = None) -> dict[str, Any] | None:
+def resolve_selected_tee_set(
+    hazards: dict[str, Any] | None,
+    tee_box: str | None,
+    *,
+    global_id: Any = None,
+) -> int | None:
+    """Resolve the effective Tee set shared by package and CoursePrep builders.
+
+    A named release Tee wins when this hole carries that set. If the release exists but does not
+    publish the requested name, all callers use its Blue row, then its first row; the canonical
+    colour table is consulted only when no release list exists. An explicit ``unknown`` choice
+    remains unresolved when the release list is unavailable. This keeps the package anchor,
+    CoursePrep route and F/M/B distances on one factual origin without inventing a different Tee.
+    """
+    rows = [row for row in (hazards or {}).get("tees") or [] if isinstance(row, dict)]
+    available: list[int] = []
+    for row in rows:
+        for raw in row.get("sets") or []:
+            try:
+                value = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if value not in available:
+                available.append(value)
+    if not available:
+        return None
+    requested_box = str(tee_box or "").strip().lower()
+    if requested_box == "unknown":
+        # An unresolved player choice may use the picker default only when the
+        # release itself supplies that authority. Without it, keep the tee
+        # unresolved instead of silently fabricating Blue facts.
+        release_set = tee_set_for_box(
+            global_id if global_id is not None else (hazards or {}).get("globalId"),
+            tee_box,
+            colour_fallback=False,
+        )
+        return release_set if release_set in available else None
+    resolved_global_id = global_id if global_id is not None else (hazards or {}).get("globalId")
+    requested = tee_set_for_box(resolved_global_id, tee_box, colour_fallback=False)
+    release_tees: list[dict[str, Any]] = []
+    if resolved_global_id is not None:
+        try:
+            from ai_caddie.courses.course_reference import courseview_tees
+
+            release_tees = list(courseview_tees(int(resolved_global_id), allow_fetch=False) or [])
+        except Exception:
+            release_tees = []
+    if requested is None and release_tees:
+        used: set[str] = set()
+        release_rows = [
+            (_release_tee_box_key(row.get("name"), row.get("index"), used), row)
+            for row in release_tees
+            if isinstance(row, dict)
+        ]
+        default_row = next((row for key, row in release_rows if key == "blue"), None)
+        if default_row is None and release_rows:
+            default_row = release_rows[0][1]
+        try:
+            requested = int(default_row["index"]) if default_row is not None else None
+        except (KeyError, TypeError, ValueError, OverflowError):
+            requested = None
+    elif requested is None and str(tee_box or "").strip().lower() != "unknown":
+        requested = tee_set_for_box(resolved_global_id, tee_box, colour_fallback=True)
+    if requested in available:
+        return requested
+    if TEE_SET_BY_BOX["blue"] in available:
+        return TEE_SET_BY_BOX["blue"]
+    return available[0]
+
+
+def _selected_tee(
+    geometry: dict[str, Any],
+    tee_box: str | None = None,
+    *,
+    colour_fallback: bool = True,
+) -> dict[str, Any] | None:
     hazards = geometry.get("hazards") or {}
     tees = hazards.get("tees") or []
     tees = [t for t in tees if t.get("position")]
@@ -162,7 +237,7 @@ def _selected_tee(geometry: dict[str, Any], tee_box: str | None = None) -> dict[
 
     requested = str(tee_box or "").strip().lower()
     global_id = hazards.get("globalId") or geometry.get("globalId")
-    tee_set = tee_set_for_box(global_id, tee_box) if requested else None
+    tee_set = resolve_selected_tee_set(hazards, tee_box, global_id=global_id)
     if tee_set is not None:
         match = next((t for t in tees if tee_set in (t.get("sets") or [])), None)
         if match:
@@ -171,6 +246,8 @@ def _selected_tee(geometry: dict[str, Any], tee_box: str | None = None) -> dict[
     if requested == "unknown":
         return None
 
+    if not colour_fallback:
+        return None
     return max(tees, key=lambda t: float(t.get("target_distance_m") or 0.0))
 
 

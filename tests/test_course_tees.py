@@ -16,7 +16,12 @@ from unittest.mock import call, patch
 from fastapi.testclient import TestClient
 
 from ai_caddie.caddie import analysis
-from ai_caddie.caddie.analysis import _normalize_tee_color, _selected_tee, course_tee_options
+from ai_caddie.caddie.analysis import (
+    _normalize_tee_color,
+    _selected_tee,
+    course_tee_options,
+    resolve_selected_tee_set,
+)
 from server_v2.main import app
 
 
@@ -153,6 +158,26 @@ class CourseTeeOptionsTests(unittest.TestCase):
             selected = _selected_tee(geometry, "unknown")
 
         self.assertIsNone(selected)
+
+    def test_missing_release_tee_uses_release_blue_instead_of_colour_table(self) -> None:
+        """J4.4: a named Tee absent from release metadata shares the release default everywhere."""
+        hazards = {
+            "globalId": 31832,
+            "tees": [
+                {"sets": [2], "position": [0.0, 0.0], "target_distance_m": 361.0},
+                # Set 4 is deliberately present: the old colour fallback would choose it for Gold.
+                {"sets": [4], "position": [0.0, 50.0], "target_distance_m": 292.0},
+            ],
+        }
+        release_tees = [
+            {"name": "Black", "gender": "MEN", "index": 1},
+            {"name": "Blue", "gender": "MEN", "index": 2},
+            {"name": "White", "gender": "MEN", "index": 3},
+            {"name": "Red", "gender": "MEN", "index": 4},
+        ]
+        with patch("ai_caddie.courses.course_reference.courseview_tees", return_value=release_tees):
+            self.assertEqual(resolve_selected_tee_set(hazards, "gold", global_id=31832), 2)
+            self.assertEqual(_selected_tee({"hazards": hazards}, "gold")["sets"], [2])
 
     def test_yardage_summed_per_set_across_holes(self) -> None:
         # 2 holes, each with black(set1)=300m, blue(set2)=280m, red(set5)=250m.

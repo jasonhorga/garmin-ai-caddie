@@ -1,0 +1,10 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -4404,5 +4404,5 @@
+             return nil
+         }
+-        let selectedMapDistance = lastTargetEditKind == "pin" ? greenPinDistanceMetres : mapTargetDistanceMetres
++        let selectedMapDistance = lastTargetEditKind == "pin" ? greenPinDistanceMetres : nil
+         return (selectedMapDistance ?? effectiveDistanceToPinMetres).flatMap { greenYards($0) }
+     }

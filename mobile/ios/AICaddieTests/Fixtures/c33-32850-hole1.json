@@ -320,7 +320,66 @@
     }
   ],
   "loopKey": "32850:all",
-  "caddieContextSeeds": [],
+  "caddieContextSeeds": [
+    {
+      "hole": 1,
+      "sourceRef": "c33-fixture:1",
+      "shotTypes": [
+        "tee",
+        "approach",
+        "recovery"
+      ],
+      "requiredLiveInputs": [
+        "currentLocation",
+        "lie"
+      ],
+      "enrichmentState": "deferred",
+      "context": {
+        "roundId": "c33-fixture",
+        "source": "live_round_package",
+        "sourceRef": "c33-fixture:1",
+        "courseName": "27人俱樂部",
+        "hole": 1,
+        "globalId": 32850,
+        "localHole": 1,
+        "teeBox": "blue",
+        "par": 4,
+        "yards": 419,
+        "geometry": {
+          "coverage": "ready",
+          "hasHazards": false,
+          "hasMeshes": false,
+          "hazardCount": 0,
+          "hazards": []
+        },
+        "hazards": [],
+        "candidateRoutes": [],
+        "clubProfiles": {}
+      },
+      "selectedOfflineOptionId": null,
+      "offlineOptions": [],
+      "evidence": [
+        {
+          "label": "live_round_package",
+          "value": "offline_seed_deferred"
+        }
+      ],
+      "missingData": [
+        {
+          "label": "caddie_enrichment",
+          "reason": "route and hazard evidence will be hydrated when this hole opens"
+        },
+        {
+          "label": "current_location",
+          "reason": "live GPS fixes distance and angle at decision time"
+        },
+        {
+          "label": "lie",
+          "reason": "live input or vision context fixes lie for approach and recovery decisions"
+        }
+      ]
+    }
+  ],
   "clubProfiles": [],
   "caddieDecisionEndpoint": "/api/v2/caddie/decision",
   "offlinePackageStatus": {
