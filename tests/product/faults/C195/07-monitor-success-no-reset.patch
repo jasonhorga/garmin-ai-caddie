@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 43b1b5f3..0bbc40df 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -316,7 +316,7 @@ def _start_history_signature_monitor(
+                     if not pending.is_alive():
+                         if pending.warm_succeeded:
+                             previous = pending.history_signature
+-                            retry_attempts = 0
++                            pass
+                             retry_after = float("-inf")
+                         else:
+                             retry_attempts += 1

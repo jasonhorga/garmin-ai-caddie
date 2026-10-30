@@ -1,0 +1,13 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index 99f45262..4b486f93 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -783,7 +783,7 @@ class RenderBackfill:
+                     self._state["garminForbiddenReleases"][release_key] = dict(
+                         globalId=exc.global_id, release=exc.release, attempts=attempts,
+                         retryAfter=retry_after, backoffSeconds=delay, error=error,
+-                        firstFailureAt=previous.get("firstFailureAt") or failed_at,
++                        firstFailureAt=None,
+                         lastFailureAt=failed_at,
+                         state="persistent" if delay >= GARMIN_403_BACKOFF_MAX_SECONDS else "backoff")
+                     affected = [k for k, row in self._state["tasks"].items()
