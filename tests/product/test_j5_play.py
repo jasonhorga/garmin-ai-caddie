@@ -19,6 +19,7 @@ from tests.event_log_io import count_log_reads
 
 from ai_caddie.caddie.decision import build_decision_plan
 from ai_caddie.caddie import mobile_live
+from ai_caddie.courses import course_prep
 from ai_caddie.courses.tee_result import classify_tee_result
 from ai_caddie.geometry import geometry_evidence
 from ai_caddie.rounds import swing_candidates
@@ -235,6 +236,33 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
                                                                          "includeExplanation": False})
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
+
+    def test_j4_6_course_prep_tail_matches_online_tail_club_order(self):
+        """J4.6: CoursePrep and online tail keep continuation carries non-increasing."""
+        # Evidence ladder: Jason's 410-yard (377 m) Par 4 at global_id 31688, hole 5.
+        owner_ladder = [
+            ("Driver", 197), ("3W", 170), ("3H", 157), ("5I", 142), ("6I", 132),
+            ("7I", 128), ("8I", 121), ("9I", 109), ("Pw", 107), ("Aw", 102),
+            ("50", 84), ("54", 48), ("58", 35),
+        ]
+        # This sparse bag exercises the old layup branch: it selected 58 (68 m), then 8I (121 m).
+        trigger_ladder = [("Driver", 197), ("3W", 160), ("8I", 121), ("Aw", 102), ("58", 68)]
+        from ai_caddie.caddie.decision import _sequence_tail
+
+        for label, ladder in (("owner", owner_ladder), ("trigger", trigger_ladder)):
+            with self.subTest(row=label):
+                steps, *_ = course_prep._strategy(
+                    4, 377.0, {"water_carry": [], "bunkers": [], "details": []}, ladder,
+                )
+                rows = [
+                    {"clubName": name, "median_m": carry, "p10_m": carry, "p90_m": carry, "sampleSize": 20}
+                    for name, carry in ladder[1:]
+                ]
+                online_tail = _sequence_tail(rows, 180.0, forbid_driver=True)
+                self.assertEqual([row["clubName"] for row in online_tail], ["3W"])
+                self.assertEqual([step["club"] for step in steps], ["Driver", "3W"])
+                carries = [step["targetCarry_m"] for step in steps]
+                self.assertEqual(carries, sorted(carries, reverse=True))
 
     def test_j5_11_dogleg_uses_route_stations_for_hazards_and_two_shot_finish(self):
         self.install_route_geometry()
