@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C220-F1",
+      "patch": "tests/product/faults/C220/01-readiness-does-not-warm.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_G7_readiness_cold_history_returns_warming_without_waiting_for_stats_build",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C220-F2",
+      "patch": "tests/product/faults/C220/02-warming-is-gate-failure.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_G7_readiness_accepts_warming_as_non_failing_runtime_state",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C220-F3",
+      "patch": "tests/product/faults/C220/03-disk-snapshot-unavailable.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_cache_warmup.CacheWarmupTests.test_G7_stale_disk_snapshot_is_readable_without_rebuilding_stats",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C220-F4",
+      "patch": "tests/product/faults/C220/04-c432-background-trace.patch",
+      "kind": "python",
+      "target": "tests.acceptance.test_card_432_readiness_image_paths.ReadinessRuntimePathTests.test_collect_defaults_to_the_script_checkout_and_honours_root",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C220-F5",
+      "patch": "tests/product/faults/C220/05-fastlane-warming-opens.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_G7_fastlane_preflights_before_build_and_retries_warming_with_budget",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C220-F6",
+      "patch": "tests/product/faults/C220/06-reports-reenters-stats.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_G7_readiness_reports_uses_snapshot_without_waiting_for_stats_build",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C220-F7",
+      "patch": "tests/product/faults/C220/07-warm-failure-sticks.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_G7_failed_warm_retries_after_backoff_and_clears_failure",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C220-F8",
+      "patch": "tests/product/faults/C220/08-preflight-waits-history-only.patch",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_G7_fastlane_preflights_before_build_and_retries_warming_with_budget",
+      "kind": "python",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C220-F9",
+      "patch": "tests/product/faults/C220/09-degraded-ignores-opt-in.patch",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_G7_fastlane_preflights_before_build_and_retries_warming_with_budget",
+      "kind": "python",
+      "promise": "G7"
+    }
+  ]
+}

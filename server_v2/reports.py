@@ -258,11 +258,16 @@ def generate_club_report_response(club_name: str, *, player_id: str = OWNER_ID) 
     return _report_response(report, kind="club", subject_id=club_name)
 
 
-def load_trend_report_response(period: str, *, player_id: str = OWNER_ID) -> ReviewReportResponse:
+def load_trend_report_response(
+    period: str,
+    *,
+    player_id: str = OWNER_ID,
+    stats: dict[str, object] | None = None,
+) -> ReviewReportResponse:
     stored = latest_report_record("trend", period, root=REPORT_ROOT, player_id=player_id)
     if stored and isinstance(stored.get("report"), dict):
         return _report_response(stored["report"], kind="trend", subject_id=period)
-    facts = build_trend_report_facts(_history_stats_dict(player_id), period)
+    facts = build_trend_report_facts(stats if stats is not None else _history_stats_dict(player_id), period)
     report = generate_deterministic_report(facts)
     return _report_response(report, kind="trend", subject_id=period)
 

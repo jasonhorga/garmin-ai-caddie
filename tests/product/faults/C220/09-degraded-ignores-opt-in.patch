@@ -1,0 +1,13 @@
+diff --git a/fastlane/Fastfile b/fastlane/Fastfile
+index 84fa09dd..2bda929e 100644
+--- a/fastlane/Fastfile
++++ b/fastlane/Fastfile
+@@ -205,7 +205,7 @@ platform :ios do
+       waited = [Process.clock_gettime(Process::CLOCK_MONOTONIC) - readiness_started, READINESS_TOTAL_TIMEOUT].min.round
+       UI.user_error!("部署后预热未完成（已等 #{waited} s）；checks=#{readiness["checks"].inspect}")
+     end
+-    if readiness["runtimeStatus"] == "degraded" && !allow_degraded_readiness
++    if readiness["runtimeStatus"] == "degraded"
+       UI.user_error!("backend readiness runtime degraded; checks=#{readiness["checks"].inspect}")
+     end
+     checks = readiness["checks"]

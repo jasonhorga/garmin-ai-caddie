@@ -76,6 +76,7 @@ _GEOMETRY_SIG_TTL_S = 1.5
 
 _lock = threading.Lock()
 _cache: dict[tuple, tuple[Any, Any]] = {}
+_cache_source_revisions: dict[tuple, str] = {}
 _CORRECTED_CACHE: dict[tuple, Any] = {}
 _load_cache: dict[str, tuple[Any, Any]] = {}
 # Loading the scorecard/shot files is itself expensive on a cold process. Share that read among
@@ -101,7 +102,7 @@ _PERSISTENT_CACHE_MAX_BYTES = 64 * 1024 * 1024
 # caller serialize and write that projection synchronously: the request only needs the in-memory
 # value, while this bounded/coalescing writer makes it available to the next process restart.
 _PERSISTENT_WRITER_CONDITION = threading.Condition()
-_PERSISTENT_WRITER_PENDING: dict[Path, tuple[tuple, Any]] = {}
+_PERSISTENT_WRITER_PENDING: dict[Path, tuple[tuple, Any, str | None]] = {}
 _PERSISTENT_WRITER_ACTIVE = 0
 _PERSISTENT_WRITER_THREAD: threading.Thread | None = None
 
@@ -145,7 +146,7 @@ def _read_persistent_value(path: Path | None, fingerprint: tuple) -> Any | None:
     return value if isinstance(value, dict) else None
 
 
-def _write_persistent_value(path: Path | None, fingerprint: tuple, value: Any) -> None:
+def _write_persistent_value(path: Path | None, fingerprint: tuple, value: Any, source_revision: str | None = None) -> None:
     """Write one cache entry atomically.
 
     This function runs only on the dedicated writer thread.  Compact encoding matters here: the
@@ -158,6 +159,7 @@ def _write_persistent_value(path: Path | None, fingerprint: tuple, value: Any) -
     payload = {
         "schema": _PERSISTENT_CACHE_SCHEMA,
         "fingerprint": _cache_digest(fingerprint),
+        "sourceRevision": source_revision,
         "value": value,
     }
     encoded = json.dumps(
@@ -184,10 +186,10 @@ def _persistent_writer_loop() -> None:
         with _PERSISTENT_WRITER_CONDITION:
             while not _PERSISTENT_WRITER_PENDING:
                 _PERSISTENT_WRITER_CONDITION.wait()
-            path, (fingerprint, value) = _PERSISTENT_WRITER_PENDING.popitem()
+            path, (fingerprint, value, source_revision) = _PERSISTENT_WRITER_PENDING.popitem()
             _PERSISTENT_WRITER_ACTIVE += 1
         try:
-            _write_persistent_value(path, fingerprint, value)
+            _write_persistent_value(path, fingerprint, value, source_revision)
         except (OSError, TypeError, ValueError):
             # A read-only/private-volume deployment should still serve the request from the process
             # cache. Persistent warming is an optimization, never a correctness dependency.
@@ -198,7 +200,9 @@ def _persistent_writer_loop() -> None:
                 _PERSISTENT_WRITER_CONDITION.notify_all()
 
 
-def _enqueue_persistent_value(path: Path | None, fingerprint: tuple, value: Any) -> None:
+def _enqueue_persistent_value(
+    path: Path | None, fingerprint: tuple, value: Any, source_revision: str | None = None
+) -> None:
     """Queue a cache write without extending the caller's package latency.
 
     At most one pending value per path is retained.  If a sync invalidates stats while an older
@@ -209,7 +213,7 @@ def _enqueue_persistent_value(path: Path | None, fingerprint: tuple, value: Any)
         return
     global _PERSISTENT_WRITER_THREAD
     with _PERSISTENT_WRITER_CONDITION:
-        _PERSISTENT_WRITER_PENDING[path] = (fingerprint, value)
+        _PERSISTENT_WRITER_PENDING[path] = (fingerprint, value, source_revision)
         if (
             _PERSISTENT_WRITER_THREAD is None
             or not _PERSISTENT_WRITER_THREAD.is_alive()
@@ -492,6 +496,7 @@ def clear(player_id: str | None = None) -> None:
     with _lock:
         if player_id is None:
             _cache.clear()
+            _cache_source_revisions.clear()
             _CORRECTED_CACHE.clear()
             _load_cache.clear()
             # Do not wake or remove an active leader. It will publish normally; callers that arrive
@@ -502,6 +507,7 @@ def clear(player_id: str | None = None) -> None:
             _CORRECTED_CACHE.pop(key, None)
         for key in [k for k in _cache if isinstance(k, tuple) and k and k[0] == player_id]:
             _cache.pop(key, None)
+            _cache_source_revisions.pop(key, None)
 
 
 def history_input_signature(player_id: str = OWNER_ID) -> tuple:
@@ -626,22 +632,91 @@ def cached_build_history_stats(
             value = _read_persistent_value(persistent_path, fingerprint)
             mark("stats_disk")
             if value is None:
+                # Capture the source revision before the expensive build. If history changes while
+                # the projection is being computed, the persisted revision stays old and the next
+                # readiness snapshot correctly advertises stale evidence.
+                source_revision_before = history_source_revision(player_id)
                 value = _build_history_stats(
                     _windowed_history_data(data, window),
                     data_mode=data_mode,
                     player_id=player_id,
                     **roots,
                 )
-                _enqueue_persistent_value(persistent_path, fingerprint, value)
+                _enqueue_persistent_value(
+                    persistent_path,
+                    fingerprint,
+                    value,
+                    source_revision_before,
+                )
                 mark("stats_build")
         except BaseException as exc:  # never strand waiters after a failed stats build
             error = exc
         with _lock:
             if error is None:
                 _cache[key] = (fingerprint, value)
+                if value is not None:
+                    _cache_source_revisions[key] = locals().get("source_revision_before", history_source_revision(player_id))
             if _inflight.get(key) is event:
                 del _inflight[key]
             event.set()
         if error is not None:
             raise error
         return value
+
+
+def cached_history_stats_snapshot(
+    *, player_id: str = OWNER_ID, window: str = "all"
+) -> dict[str, Any] | None:
+    """Return the newest already-built stats projection without loading or rebuilding history.
+
+    Readiness must remain a liveness probe during a cold start.  It may use an in-memory or
+    persistent projection, even when its source fingerprint is old, while the normal request path
+    continues to enforce exact fingerprint matching.  The caller receives enough provenance to
+    show that stale data was served and can schedule the ordinary background warmer.
+    """
+    # ``cached_build_history_stats`` keys by resolved data mode.  A readiness probe cannot afford
+    # to load the source files just to discover that mode, so inspect both supported projections.
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for data_mode in ("local", "fixture"):
+        # server_v2.history_stats supplies Path(".") for each evidence root.
+        key = (player_id, data_mode, ".", ".", ".", ".", window)
+        with _lock:
+            hit = _cache.get(key)
+        if hit is not None and isinstance(hit[1], dict):
+            stored_revision = _cache_source_revisions.get(key)
+            current_revision = history_source_revision(player_id)
+            candidates.append((time.time(), {
+                "value": hit[1],
+                "dataMode": data_mode,
+                "revision": stored_revision or current_revision,
+                "stale": bool(stored_revision and stored_revision != current_revision),
+                "source": "memory",
+            }))
+        path = _persistent_cache_path(key)
+        if path is None:
+            continue
+        try:
+            stat = path.stat()
+            if stat.st_size > _PERSISTENT_CACHE_MAX_BYTES:
+                continue
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict) or payload.get("schema") != _PERSISTENT_CACHE_SCHEMA:
+            continue
+        value = payload.get("value")
+        if not isinstance(value, dict):
+            continue
+        revision = history_source_revision(player_id)
+        stored_revision = str(payload.get("sourceRevision") or "").strip()
+        candidates.append((stat.st_mtime, {
+            "value": value,
+            "dataMode": data_mode,
+            "revision": stored_revision or revision,
+            "stale": not stored_revision or stored_revision != revision,
+            "source": "disk",
+        }))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]

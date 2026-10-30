@@ -3689,6 +3689,7 @@ def build_live_round_package(
     hole_numbers_override: list[int] | None = None,
     allow_weather_fetch: bool = True,
     stats_data: HistoryData | None = None,
+    stats_projection: dict[str, Any] | None = None,
     stats_window: str = "all",
     priority_holes: list[int] | None = None,
     defer_non_priority_enrichment: bool = False,
@@ -3709,15 +3710,21 @@ def build_live_round_package(
     stats_source = stats_data if stats_data is not None else source
     # First-map requests have no personal projection. Do not fingerprint/read history or make
     # a statistical default look like a recommendation; clients fetch the full package separately.
-    stats = {"clubs": [], "courses": [], "holes": []} if map_only else cached_build_history_stats(
-        stats_source,
-        data_mode=data_mode,
-        player_id=player_id,
-        annotations_root=annotation_lookup_root,
-        weather_root=root,
-        reports_root=root,
-        decision_audit_root=root,
-        window=stats_window,
+    stats = (
+        {"clubs": [], "courses": [], "holes": []}
+        if map_only
+        else stats_projection
+        if stats_projection is not None
+        else cached_build_history_stats(
+            stats_source,
+            data_mode=data_mode,
+            player_id=player_id,
+            annotations_root=annotation_lookup_root,
+            weather_root=root,
+            reports_root=root,
+            decision_audit_root=root,
+            window=stats_window,
+        )
     )
     mark_request_stage("mobile_stats")
     requested_id = str(round_id)
