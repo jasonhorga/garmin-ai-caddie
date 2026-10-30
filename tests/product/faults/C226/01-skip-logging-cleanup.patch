@@ -1,11 +1,11 @@
 diff --git a/tests/test_server_v2_mobile.py b/tests/test_server_v2_mobile.py
-index 858b5d37..306b3744 100644
+index 16b33229..8d5a6072 100644
 --- a/tests/test_server_v2_mobile.py
 +++ b/tests/test_server_v2_mobile.py
-@@ -27,2 +27,6 @@ from tests.service_logging import ServiceLoggingIsolationMixin
+@@ -28,2 +28,6 @@ from tests.service_logging import ServiceLoggingIsolationMixin
  class ServerV2MobileTests(ServiceLoggingIsolationMixin, unittest.TestCase):
 +    @classmethod
 +    def setUpClass(cls):
 +        pass
 +
-     def test_mobile_event_store_corrupt_logs_generic_warning(self) -> None:
+     def test_mobile_course_package_keeps_selected_vector_pending_after_background_enqueue(self) -> None:
