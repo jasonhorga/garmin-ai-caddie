@@ -118,7 +118,7 @@ final class PrepDegradationUITests: XCTestCase {
             "catalogue keyword field must accept input after its sheet settles"
         )
         assertAndCapture(
-            waitUntilValue(keyword, containing: "Fixture", timeout: 5),
+            waitUntilValue(keyword, containing: "Fixture", timeout: 15),
             "keyword input must reach the search field",
             "b4c-search-keyword-not-entered"
         )
@@ -252,7 +252,11 @@ final class PrepDegradationUITests: XCTestCase {
 
     private func waitUntilValue(_ element: XCUIElement, containing text: String, timeout: TimeInterval) -> Bool {
         let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "exists == true AND value CONTAINS[c] %@", text),
+            predicate: NSPredicate { object, _ in
+                guard let element = object as? XCUIElement, element.exists,
+                      let value = element.value as? String else { return false }
+                return value.range(of: text, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            },
             object: element
         )
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed

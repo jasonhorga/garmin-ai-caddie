@@ -117,7 +117,7 @@ final class PrepRoundStateTests: XCTestCase {
         let lock = NSLock()
         var priorities: [Int] = []
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             if request.url?.path == "/api/v2/mobile/courses/\(package.course.globalId)/package" {
@@ -219,7 +219,7 @@ final class PrepRoundStateTests: XCTestCase {
         let lock = NSLock()
         var packageRequests = 0
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)

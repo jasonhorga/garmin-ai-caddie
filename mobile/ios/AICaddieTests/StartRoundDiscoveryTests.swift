@@ -753,7 +753,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         }
         defer { CapturingURLProtocol.requestHandler = nil }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         // The SyncClient calls behind LiveRoundAppModel.nearbyCourses / loadCourseTees. The model
         // itself is not used: its new-area pass may ask /tees in the background on its own.
         let client = SyncClient(

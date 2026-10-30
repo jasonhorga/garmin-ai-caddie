@@ -160,7 +160,7 @@ final class PinSheetTests: XCTestCase {
 
     func testTheClientPostsThePhotosAuthenticatedAndDecodesTheSheet() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         var captured: URLRequest?
         var body: [String: Any] = [:]
         CapturingURLProtocol.requestHandler = { request in

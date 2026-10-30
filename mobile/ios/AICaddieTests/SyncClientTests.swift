@@ -62,7 +62,7 @@ private final class LockedTimingCapture: @unchecked Sendable {
 final class SyncClientTests: XCTestCase {
     func testClientTimingInjectsRequestIdAndReadsServerTotal() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let store = ClientTimingStore(fileURL: FileManager.default.temporaryDirectory
             .appendingPathComponent("c90-timing-\(UUID().uuidString).jsonl"))
@@ -105,7 +105,7 @@ final class SyncClientTests: XCTestCase {
     /// it must never reach URLSession transport.
     func testCancelledRequestSamplesTimingBeforeTransportCheck() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let gate = SyncTimingRequestGate()
         let entered = expectation(description: "request gate entered")
@@ -149,7 +149,7 @@ final class SyncClientTests: XCTestCase {
     /// Product spec 8.4: diagnostics must not add a request to an ordinary business operation.
     func testProductSpec84OrdinaryRequestDoesNotUploadTiming() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let capture = LockedTimingCapture()
         let payload = Data(
@@ -184,7 +184,7 @@ final class SyncClientTests: XCTestCase {
     /// Product spec 8.4: the upload is a bounded array of the seven server-approved fields.
     func testProductSpec84UploadContract() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let capture = LockedTimingCapture()
         let uploadSeen = expectation(description: "client timing upload")
@@ -239,7 +239,7 @@ final class SyncClientTests: XCTestCase {
     /// Product spec 8.4: a foreground start suppresses upload until the start ends.
     func testProductSpec84ForegroundStartSuppressesUploadUntilEnd() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let capture = LockedTimingCapture()
         let uploadSeen = expectation(description: "upload after foreground start")
@@ -282,7 +282,7 @@ final class SyncClientTests: XCTestCase {
     /// Product spec 8.4: two clients using one store share the same throttle state.
     func testProductSpec84InjectedStoreSharesThrottleAcrossClients() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let capture = LockedTimingCapture()
         let uploadSeen = expectation(description: "one shared upload")
@@ -317,7 +317,7 @@ final class SyncClientTests: XCTestCase {
     /// Product spec 8.4: overlapping begin calls own one global foreground gate.
     func testProductSpec84OverlappingForegroundOwnersBalanceTheGlobalGate() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let capture = LockedTimingCapture()
         let uploadSeen = expectation(description: "upload after overlapping start owners end")
@@ -353,7 +353,7 @@ final class SyncClientTests: XCTestCase {
     /// Product spec 8.4: releasing a client cannot leave the process-wide start gate stuck.
     func testProductSpec84ReleasedClientClearsForegroundGate() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let capture = LockedTimingCapture()
         let uploadSeen = expectation(description: "upload after client release")
@@ -386,7 +386,7 @@ final class SyncClientTests: XCTestCase {
     /// Product spec 8.4: one record waits for the first 60-second interval when below threshold.
     func testProductSpec84SinglePendingRecordWaitsForInterval() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let capture = LockedTimingCapture()
         let payload = Data(
@@ -534,7 +534,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchRoundPackageAttachesAdminTokenHeader() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let fixtureURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -566,7 +566,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchRoundPackageSendsCapturedAtQuery() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let fixtureURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -598,7 +598,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchCoursePackageSendsPriorityHoleQuery() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let fixtureURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -628,7 +628,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchCoursePrepRenderFalseSendsQueryItem() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = """
         {"schema":"ai-caddie-course-prep-v1","globalId":31870,"holeCount":0,"clubs":[],"holes":[]}
@@ -658,7 +658,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchCourseGeometryCoverageUsesCheapSelectedHoleProbe() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = Data(
             #"{"schema":"ai-caddie-course-geometry-coverage-v1","globalId":31870,"coverage":"partial","readyHoles":1,"partialHoles":0,"totalHoles":2,"holes":[{"globalId":31870,"localHole":1,"coverage":"ready"},{"globalId":31870,"localHole":4,"coverage":"missing"}]}"#.utf8
@@ -701,7 +701,7 @@ final class SyncClientTests: XCTestCase {
 
     func testSearchCoursesFetchesMetadataWithoutPreparingAssets() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = Data(
             #"{"schema":"ai-caddie-course-search-v1","query":"Mission Hills","matches":[{"globalId":10283,"name":"Mission Hills · A","holes":9,"city":"深圳","province":"广东","ratio":0.98,"latitude":22.7401328,"longitude":114.0714097,"distanceKm":0.4},{"globalId":10284,"name":"Mission Hills · B","holes":null,"city":"深圳","province":"广东","ratio":0.94,"latitude":null,"longitude":null,"distanceKm":null}]}"#.utf8
@@ -753,7 +753,7 @@ final class SyncClientTests: XCTestCase {
 
     func testSearchCoursesRetriesTransientTLSHandshakeWithoutRelaxingCertificateErrors() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = Data(
             #"{"schema":"ai-caddie-course-search-v1","query":"北京丽宫","matches":[{"globalId":31793,"name":"北京丽宫体育公园高尔夫俱乐部","holes":18,"city":"北京","province":"北京","ratio":1.0,"latitude":40.0455,"longitude":116.5462,"distanceKm":null}]}"#.utf8
@@ -790,7 +790,7 @@ final class SyncClientTests: XCTestCase {
 
     func testNearbyCoursesUsesProviderWideRadiusEndpoint() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = Data(
             #"{"schema":"ai-caddie-course-nearby-v1","radiusKm":50,"matches":[{"globalId":31669,"name":"Shenzhen Mission Hills ~ Els","holes":9,"city":"Shenzhen","province":"Guangdong","ratio":0,"latitude":22.7402,"longitude":114.0715,"distanceKm":0.0}]}"#.utf8
@@ -837,7 +837,7 @@ final class SyncClientTests: XCTestCase {
             SyncClient.courseDiscoveryRequestTimeoutInterval * 2
         )
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = Data(
             #"{"schema":"ai-caddie-course-nearby-v1","radiusKm":50,"matches":[]}"#.utf8
@@ -872,7 +872,7 @@ final class SyncClientTests: XCTestCase {
 
     func testNearbyCoursesCapsTheRetryAtTheRemainingForegroundBudget() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         var now: TimeInterval = 100
         var attemptTimeouts: [TimeInterval] = []
@@ -910,7 +910,7 @@ final class SyncClientTests: XCTestCase {
 
     func testNearbyCoursesStopsWhenTheRetryDelayIsCancelled() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         var attempts = 0
         CapturingURLProtocol.requestHandler = { _ in
@@ -935,7 +935,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchCoursePrepCanRequestSmallHoleBatch() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = """
         {"schema":"ai-caddie-course-prep-v1","globalId":31870,"holeCount":0,"clubs":[],"holes":[]}
@@ -967,7 +967,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchHolePrepRequestsOneLightweightHole() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = Data(
             #"{"schema":"ai-caddie-course-prep-v1","globalId":3881,"holeCount":1,"clubs":[],"holes":[{"hole":4,"par":4,"par_source":"courseview","blue_yards":197,"route_len_m":180,"route":[],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]}}]}"#.utf8
@@ -1001,7 +1001,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchCourseTeesRequestsReleaseMetadata() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = Data(
             #"{"schema":"ai-caddie-course-tees-v1","globalId":10283,"defaultTeeBox":"blue","tees":[{"teeBox":"blue","name":"Blue","set":1,"yards":6828,"holeCount":18,"default":true}]}"#.utf8
@@ -1035,7 +1035,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchCourseTeesRetriesOnlyTransientReleaseFailures() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = Data(
             #"{"schema":"ai-caddie-course-tees-v1","globalId":10283,"defaultTeeBox":"blue","tees":[{"teeBox":"blue","name":"Blue","set":1,"yards":6828,"holeCount":18,"default":true}]}"#.utf8
@@ -1084,7 +1084,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchRoundDetailRetriesTransientTLSHandshake() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = Data(#"{"roundRef":"17553539","found":true,"scorecard":[],"phaseSummary":[],"missingData":[]}"#.utf8)
         var attempts = 0
@@ -1118,7 +1118,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchRoundDetailRetriesTransientHTTPStatuses() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = Data(#"{"roundRef":"round-retry","found":true}"#.utf8)
         var attempts = 0
@@ -1148,7 +1148,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchRoundDetailDoesNotRetryNotFound() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         var attempts = 0
         CapturingURLProtocol.requestHandler = { request in
@@ -1179,7 +1179,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchCoursePackageWithGeometryAllowsLongFirstDownload() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let fixtureURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -1218,7 +1218,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchCoursePackageCanQueueGeometryWithoutBlockingFirstOpen() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let fixtureURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -1258,7 +1258,7 @@ final class SyncClientTests: XCTestCase {
 
     func testCoursePackageUsesCompletePackageTimeoutWithoutLegacyQuery() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let fixtureURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -1297,7 +1297,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchColdCoursePackageRetriesTransientTimeout() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let fixtureURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -1339,7 +1339,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchHomeCoursePackageCanSkipEventCursor() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let fixtureURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -1375,7 +1375,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchEventReplayUsesClientCursorQuery() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = """
         {
@@ -1436,7 +1436,7 @@ final class SyncClientTests: XCTestCase {
 
     func testAckEventCursorPostsClientSequence() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = """
         {
@@ -1480,7 +1480,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchMobileStatsSendsSelectedWindowAndDecodesNewTrendEvidence() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = """
         {
@@ -1529,7 +1529,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchHistoryRoundsSendsClosedFiltersAndDecodesArchive() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = """
         {
@@ -1575,7 +1575,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchCourseInstallStatusDecodesHoleStagesAndSendsCompositeLoops() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = Data(
             """
@@ -1643,7 +1643,7 @@ final class SyncClientTests: XCTestCase {
 
     func testPrepRevalidationProbeMaps404ToMissingWithoutRetry() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let requestLock = NSLock()
         var requestCount = 0
@@ -1684,7 +1684,7 @@ final class SyncClientTests: XCTestCase {
     func testRunGarminSyncUsesOwnerRouteAndRequestsShotData() async throws {
         await MainActor.run { SessionStore.shared.signOut() }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = Data(
             #"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"queued","jobId":"garmin-sync-owner","statusUrl":"/api/v2/sync/garmin/jobs/garmin-sync-owner","createdAt":"2026-08-20T12:30:00Z","updatedAt":"2026-08-20T12:30:00Z","startedAt":null,"completedAt":null,"detail":"queued","reauthRequired":false,"errorCode":null,"snapshot":null,"safeMeta":{}}"#.utf8
@@ -1726,7 +1726,7 @@ final class SyncClientTests: XCTestCase {
         }
         defer { SessionStore.shared.signOut() }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = Data(
             #"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"queued","jobId":"garmin-sync-member","statusUrl":"/api/v2/players/p_member/sync/garmin/jobs/garmin-sync-member","createdAt":"2026-08-20T12:30:00Z","updatedAt":"2026-08-20T12:30:00Z","startedAt":null,"completedAt":null,"detail":"queued","reauthRequired":false,"errorCode":null,"snapshot":null,"safeMeta":{}}"#.utf8
@@ -1760,7 +1760,7 @@ final class SyncClientTests: XCTestCase {
     func testRunGarminSyncDecodesTerminalReauthenticationJob() async throws {
         await MainActor.run { SessionStore.shared.signOut() }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = Data(
             #"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"reauth_required","jobId":"garmin-sync-reauth","statusUrl":"/api/v2/sync/garmin/jobs/garmin-sync-reauth","createdAt":"2026-08-20T12:30:00Z","updatedAt":"2026-08-20T12:30:01Z","startedAt":"2026-08-20T12:30:00Z","completedAt":"2026-08-20T12:30:01Z","detail":"expired","reauthRequired":true,"errorCode":"reauth_required","snapshot":null,"safeMeta":{}}"#.utf8
@@ -1789,7 +1789,7 @@ final class SyncClientTests: XCTestCase {
     func testWaitForGarminSyncJobPollsUntilTerminal() async throws {
         await MainActor.run { SessionStore.shared.signOut() }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let queued = Data(#"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"queued","jobId":"garmin-sync-poll","statusUrl":"/api/v2/sync/garmin/jobs/garmin-sync-poll","createdAt":"2026-08-20T12:30:00Z","updatedAt":"2026-08-20T12:30:00Z","startedAt":null,"completedAt":null,"detail":"queued","reauthRequired":false,"errorCode":null,"snapshot":null,"safeMeta":{}}"#.utf8)
         let ready = Data(#"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"ready","jobId":"garmin-sync-poll","statusUrl":"/api/v2/sync/garmin/jobs/garmin-sync-poll","createdAt":"2026-08-20T12:30:00Z","updatedAt":"2026-08-20T12:30:02Z","startedAt":"2026-08-20T12:30:00Z","completedAt":"2026-08-20T12:30:02Z","detail":"done","reauthRequired":false,"errorCode":null,"snapshot":null,"safeMeta":{}}"#.utf8)
@@ -1815,7 +1815,7 @@ final class SyncClientTests: XCTestCase {
 
     func testFetchGarminSyncStatusDecodesAuthoritativeLastRun() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let payload = Data(
             #"{"schema":"ai-caddie-sync-status-v2","lastRun":{"state":"ready","detail":"done","updatedAt":"2026-08-20T12:30:00Z"}}"#.utf8
@@ -1844,7 +1844,7 @@ final class SyncClientTests: XCTestCase {
 
     func testNonSuccessResponseThrowsTypedErrorWithStatusAndBody() async throws {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(
@@ -2045,7 +2045,7 @@ final class SyncClientTests: XCTestCase {
     ) async throws -> LiveRoundPackage {
         let body = try JSONSerialization.data(withJSONObject: object)
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let expectedPath = viaRoundRoute
             ? "/api/v2/mobile/rounds/live-round-1/package"

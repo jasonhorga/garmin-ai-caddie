@@ -27,6 +27,9 @@ final class ProductFixtureServer: @unchecked Sendable {
     private let listener: NWListener
     private var state = State()
     private var paths: [String] = []
+    // Queue-confined response gate: never block the listener while a UI assertion runs.
+    private var statsResponsesHeld = false
+    private var pendingStatsSends: [@Sendable () -> Void] = []
     private let sourcePackage: [String: Any]
     /// A plain topo raster sized like the template overlay; served only while coverage is ready.
     private let topoPNG: Data
@@ -114,7 +117,20 @@ final class ProductFixtureServer: @unchecked Sendable {
         }
     }
 
-    func configure(_ next: State) { queue.sync { state = next; paths = []; samples = [] } }
+    func configure(_ next: State) {
+        queue.sync {
+            releaseStatsResponsesOnQueue()
+            state = next; paths = []; samples = []
+        }
+    }
+    func holdStatsResponses() { queue.sync { statsResponsesHeld = true } }
+    func releaseStatsResponses() { queue.sync { releaseStatsResponsesOnQueue() } }
+    private func releaseStatsResponsesOnQueue() {
+        statsResponsesHeld = false
+        let sends = pendingStatsSends
+        pendingStatsSends.removeAll()
+        sends.forEach { $0() }
+    }
     func requestedPaths() -> [String] { queue.sync { paths } }
     func lastSample() -> Sample? { queue.sync { samples.last } }
     deinit { listener.cancel() }
@@ -151,8 +167,15 @@ final class ProductFixtureServer: @unchecked Sendable {
             var response = Data("HTTP/1.1 \(code) \(code == 200 ? "OK" : "Unavailable")\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
             response.append(body)
             let payload = response
-            let send = { connection.send(content: payload, completion: .contentProcessed { _ in connection.cancel() }) }
-            let delay = target.hasPrefix("/api/v2/history/stats/mobile") ? self.state.statsResponseDelay : 0
+            let send: @Sendable () -> Void = {
+                connection.send(content: payload, completion: .contentProcessed { _ in connection.cancel() })
+            }
+            let isStats = target.hasPrefix("/api/v2/history/stats/mobile")
+            if isStats && self.statsResponsesHeld {
+                self.pendingStatsSends.append(send)
+                return
+            }
+            let delay = isStats ? self.state.statsResponseDelay : 0
             if delay > 0 { self.queue.asyncAfter(deadline: .now() + delay, execute: send) } else { send() }
         }
     }

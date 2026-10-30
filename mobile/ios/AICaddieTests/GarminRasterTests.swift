@@ -1150,7 +1150,7 @@ final class GarminRasterTests: XCTestCase {
 
     func testRaster500AndTimeoutAreOrdinaryErrors() async {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [GarminRasterStubURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(GarminRasterStubURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let client = SyncClient(baseURL: URL(string: "https://example.test")!, session: session)
         for mode in [GarminRasterStubURLProtocol.Mode.serverError, .timeout] {
@@ -1183,9 +1183,9 @@ final class GarminRasterTests: XCTestCase {
             )!
             return (response, webp)
         }
-        URLProtocol.registerClass(CapturingURLProtocol.self)
+        SharedNonTopoCapturingURLProtocol.registerForSharedSession(host: "garmin-webp.example.test")
         defer {
-            URLProtocol.unregisterClass(CapturingURLProtocol.self)
+            URLProtocol.unregisterClass(SharedNonTopoCapturingURLProtocol.self)
             CapturingURLProtocol.requestHandler = nil
         }
 

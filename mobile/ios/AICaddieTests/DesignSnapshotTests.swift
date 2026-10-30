@@ -10,6 +10,11 @@ import XCTest
 /// collects `Documents/design-snapshots/*.png` from the simulator container and
 /// uploads them as the `design-snapshots` artifact.
 final class DesignSnapshotTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        ensureC156TopoBundleStub()
+    }
+
     func testLiveCaddieClubIdentityIsStableAcrossRenderPasses() {
         let first = LiveCaddieStrip.Club(name: "三号木", sub: "192 码", on: true)
         let second = LiveCaddieStrip.Club(name: "三号木", sub: "192 码", on: true)
@@ -1807,8 +1812,23 @@ final class DesignSnapshotTests: XCTestCase {
     /// was the dark-green ground (26, 46, 30) with only a corner spinner, and asserted nothing.
     @MainActor
     func testCaptureGarminRasterLoading() throws {
-        // A reserved .test host never answers, so the capture stays on the loading frame.
-        let url = URL(string: "https://garmin-loading.example.test/api/v2/courses/1/holes/1/garmin-raster.webp?v=asset-loading-sky1")!
+        // Hold this test's own shared request so the screenshot observes loading, independently
+        // of the bundle's immediate offline fallback. Release the worker even if capture throws.
+        let url = try XCTUnwrap(URL(string:
+            "https://garmin-loading.example.test/api/v2/courses/1/holes/1/garmin-raster.webp?v=asset-loading-\(UUID().uuidString)"
+        ))
+        let gate = TestRequestGate()
+        CapturingURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url, url)
+            gate.wait()
+            throw URLError(.cancelled)
+        }
+        SharedNonTopoCapturingURLProtocol.registerForSharedSession(host: "garmin-loading.example.test")
+        defer {
+            gate.release()
+            URLProtocol.unregisterClass(SharedNonTopoCapturingURLProtocol.self)
+            CapturingURLProtocol.requestHandler = nil
+        }
         let png = try captureScreen(
             GarminRasterStandaloneView(
                 url: url,

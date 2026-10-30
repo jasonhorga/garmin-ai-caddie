@@ -419,7 +419,7 @@ final class RoundEditModelTests: XCTestCase {
     func testPuttCorrectionTargetsTheCanonicalRound() async throws {
         var targetId: String?
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         CapturingURLProtocol.requestHandler = { request in
             if request.httpMethod == "POST" {
                 let body = try CapturingURLProtocol.requestBodyData(from: request)
@@ -758,7 +758,7 @@ final class RoundEditModelTests: XCTestCase {
         handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
     ) -> RoundEditModel {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         CapturingURLProtocol.requestHandler = handler
         let courseMap = CoursePrepMap(
             image: includeEmbeddedImage ? "data:image/png;base64,AA==" : nil,

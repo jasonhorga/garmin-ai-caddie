@@ -13,6 +13,161 @@ func validOnePixelPNGData() -> Data {
     )!
 }
 
+/// Reserved fixture namespaces used across the native tests, including interpolated host names.
+/// Official Garmin/OAuth hosts and loopback fixture servers are deliberately outside this policy.
+enum TestFixtureHosts {
+    static func contains(_ url: URL?) -> Bool {
+        guard let host = url?.host?.lowercased() else { return false }
+        let reservedRoots = ["test", "example", "invalid", "example.com", "example.net", "example.org"]
+        return host == "evilgarmin.com" || reservedRoots.contains {
+            host == $0 || host.hasSuffix("." + $0)
+        }
+    }
+
+    static func origin(of request: URLRequest) -> String {
+        let host = request.url?.host ?? "unknown-host"
+        let token = request.value(forHTTPHeaderField: "X-Codex-Test-Token") ?? "unscoped"
+        return "host=\(host) scope=\(token)"
+    }
+}
+
+/// Only the final protocol of explicit sessions asserts. Shared best-effort work uses the separate
+/// offline protocol below, so an old background request cannot fail the next test by association.
+final class UnhandledTestURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool {
+        guard TestFixtureHosts.contains(request.url) else { return false }
+        XCTFail("route=explicit origin=[\(TestFixtureHosts.origin(of: request))] "
+            + "No test URLProtocol handled \(request.url?.absoluteString ?? "missing URL")")
+        return true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
+    }
+
+    override func stopLoading() {}
+}
+
+/// Process-wide fallback for production's shared/default clients. Match the old transport failure
+/// code without DNS or its platform-generated log text. A later test-specific global handler wins.
+final class SharedOfflineTestURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool {
+        TestFixtureHosts.contains(request.url)
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let error = URLError(.cannotFindHost, userInfo: [
+            NSLocalizedDescriptionKey: "route=shared origin=[\(TestFixtureHosts.origin(of: request))] "
+                + "fixture intentionally offline; DNS disabled",
+            "CaddieTestRoute": "shared",
+            "CaddieTestOrigin": TestFixtureHosts.origin(of: request),
+        ])
+        client?.urlProtocol(self, didFailWithError: error)
+    }
+
+    override func stopLoading() {}
+}
+
+/// Install before constructing the session, rather than waiting for its first canInit callback.
+/// Protocol classes are tried in array order, so the test's handler always has first refusal.
+func testProtocolClasses(_ handler: URLProtocol.Type) -> [AnyClass] {
+    ensureC156TopoBundleStub()
+    return [handler, UnhandledTestURLProtocol.self]
+}
+
+/// Bundle-wide interceptor for the production topo prefetch, which intentionally uses
+/// URLSession.shared. Explicit test sessions keep their protocol classes and therefore retain
+/// their own request handlers and assertions.
+final class SharedTopoURLProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private static var urls = Set<URL>()
+    private static var requestCount = 0
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        return TestFixtureHosts.contains(request.url)
+            && request.url?.path.hasSuffix("/topo.png") == true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        Self.lock.withLock {
+            Self.urls.insert(url)
+            Self.requestCount += 1
+        }
+        let response = HTTPURLResponse(
+            url: url, statusCode: 200, httpVersion: nil,
+            headerFields: ["Content-Type": "image/png"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: validOnePixelPNGData())
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+
+    static func resetRecords() {
+        lock.withLock {
+            urls.removeAll()
+            requestCount = 0
+        }
+    }
+
+    static func records() -> (urls: Set<URL>, count: Int) {
+        lock.withLock { (urls, requestCount) }
+    }
+}
+
+/// Session helpers register before traffic and keep the shared topo and offline stubs alive
+/// through process exit. Explicit sessions retain their own protocol order and handlers.
+private final class C156TopoBundleObserver: NSObject, XCTestObservation {
+    override init() {
+        URLProtocol.registerClass(SharedOfflineTestURLProtocol.self)
+        URLProtocol.registerClass(SharedTopoURLProtocol.self)
+        super.init()
+    }
+
+    func testBundleWillStart(_ testBundle: Bundle) {
+        URLProtocol.registerClass(SharedOfflineTestURLProtocol.self)
+        URLProtocol.registerClass(SharedTopoURLProtocol.self)
+    }
+
+    func testBundleDidFinish(_ testBundle: Bundle) {
+        // Detached image loads can outlive XCTest's bundle callback. Keep both stubs installed
+        // until process exit so late retries still cannot fall through to a real network lookup.
+    }
+}
+
+/// The first touch can come from a URLProtocol/URLSession background thread, but XCTest only
+/// accepts observer registration on the main thread. The stub itself is registered in init on
+/// any thread; the observer is hopped to main without
+/// blocking, so a test waiting on the main thread cannot deadlock against it.
+private let c156TopoBundleObserver: C156TopoBundleObserver = {
+    let observer = C156TopoBundleObserver()
+    if Thread.isMainThread {
+        XCTestObservationCenter.shared.addTestObserver(observer)
+    } else {
+        DispatchQueue.main.async {
+            XCTestObservationCenter.shared.addTestObserver(observer)
+        }
+    }
+    return observer
+}()
+
+/// Swift file globals are lazy. Protocol/session helpers must explicitly touch the observer
+/// before starting traffic; declaring the global alone does not bootstrap the bundle.
+func ensureC156TopoBundleStub() {
+    _ = c156TopoBundleObserver
+}
+
 /// Contract-valid lightweight prep used by tests that exercise the whole-course installer.
 /// Keep this in the shared test support so every fixture uses the same decoder-shaped payload.
 func offlinePrepResponseData(
@@ -69,7 +224,7 @@ final class TestRequestGate: @unchecked Sendable {
 /// Shared URLProtocol stub for client tests: install on an ephemeral `URLSessionConfiguration` and
 /// set `requestHandler` to inspect the outgoing request + return a canned response. Used by
 /// `SyncClientTests` and `AppleAuthClientTests` (so it must not be `private` to one file).
-final class CapturingURLProtocol: URLProtocol {
+class CapturingURLProtocol: URLProtocol {
     static let tokenHeader = "X-Codex-Test-Token"
     private static let handlerLock = NSLock()
     private static var storedRequestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
@@ -155,7 +310,8 @@ final class CapturingURLProtocol: URLProtocol {
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
-        true
+        ensureC156TopoBundleStub()
+        return true
     }
 
     override class func canonicalRequest(for request: URLRequest) -> URLRequest {
@@ -195,18 +351,39 @@ final class CapturingURLProtocol: URLProtocol {
     }
 }
 
+/// Only the tests of production stores need a global capture protocol. Keep topo with the bundle
+/// stub even when this class is registered later; injected sessions still use CapturingURLProtocol
+/// itself, which accepts topo and preserves the owning test's handler.
+final class SharedNonTopoCapturingURLProtocol: CapturingURLProtocol {
+    private static let registrationLock = NSLock()
+    private static var registeredHost: String?
+
+    static func registerForSharedSession(host: String) {
+        ensureC156TopoBundleStub()
+        registrationLock.withLock { registeredHost = host.lowercased() }
+        URLProtocol.registerClass(SharedNonTopoCapturingURLProtocol.self)
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        ensureC156TopoBundleStub()
+        let ownsHost = registrationLock.withLock { registeredHost == request.url?.host?.lowercased() }
+        return ownsHost && !SharedTopoURLProtocol.canInit(with: request)
+    }
+}
+
 /// A handler token belongs to one test's URLSession. Requests carrying an old token fail closed
 /// after that scope is released, so a delayed request can never enter the next test's handler.
 final class CapturingURLProtocolScope {
     let token: String
 
     init(handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)) {
+        ensureC156TopoBundleStub()
         token = CapturingURLProtocol.installScopedHandler(handler)
     }
 
     func configuration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         configuration.httpAdditionalHeaders = [CapturingURLProtocol.tokenHeader: token]
         return configuration
     }
@@ -228,6 +405,73 @@ final class CapturingURLProtocolTests: XCTestCase {
         super.tearDown()
     }
 
+    #if !SWIFT_PACKAGE
+    /// J4.2 test transport: a missed fixture request must fail XCTest before any DNS attempt.
+    func testProductSpec42AnUnhandledFixtureRequestFailsDuringProtocolSelection() throws {
+        for host in ["unhandled.example.test", "caddie.example", "caddie.example.com", "example.invalid", "protocol.test"] {
+            let url = try XCTUnwrap(URL(string: "https://\(host)/topo.png"))
+            var request = URLRequest(url: url)
+            request.setValue("originating-test", forHTTPHeaderField: CapturingURLProtocol.tokenHeader)
+            XCTExpectFailure("The explicit-session protocol must report missing fixture interception") {
+                let claimed = UnhandledTestURLProtocol.canInit(with: request)
+                XCTAssertTrue(claimed, "claim the request so URLSession cannot fall through to DNS")
+            }
+        }
+    }
+    #endif
+
+    /// J4.2/J8: shared best-effort work keeps its former offline error without consulting DNS,
+    /// including a previous test's host while a newer test has a global capture installed.
+    func testProductSpec42SharedFixtureFallbackPreservesOfflineErrors() async throws {
+        ensureC156TopoBundleStub()
+        CapturingURLProtocol.requestHandler = { request in
+            XCTFail("another test's shared request reached this test's handler")
+            return (HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 202,
+                                    httpVersion: nil, headerFields: nil)!, Data())
+        }
+        SharedNonTopoCapturingURLProtocol.registerForSharedSession(host: "current-owner.example.test")
+        defer { URLProtocol.unregisterClass(SharedNonTopoCapturingURLProtocol.self) }
+        let paths = ["/garmin-raster.webp", "/api/v2/players/me/clubs/bag",
+                     "/api/v2/history/clubs/bag", "/api/v2/caddie/decision", "/prep", "/weather"]
+        for host in ["old-owner.example.test", "caddie.example", "caddie.example.com", "example.invalid"] {
+            for path in paths {
+                let url = try XCTUnwrap(URL(string: "https://\(host)\(path)"))
+                do {
+                    _ = try await URLSession.shared.data(from: url)
+                    XCTFail("shared fixture requests must preserve the offline transport failure")
+                } catch let error as URLError {
+                    XCTAssertEqual(error.code, .cannotFindHost)
+                    XCTAssertEqual((error as NSError).userInfo["CaddieTestRoute"] as? String, "shared")
+                    XCTAssertTrue(error.localizedDescription.contains("route=shared"))
+                    XCTAssertFalse(error.localizedDescription.contains("hostname could not be found"))
+                }
+            }
+        }
+    }
+
+    /// J4.2: injecting a session keeps raster and bag responses with that test's handler.
+    func testProductSpec42InjectedRasterAndBagKeepTheirOwnHandler() async throws {
+        let body = Data("own fixture".utf8)
+        let scope = CapturingURLProtocolScope { request in
+            (HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 202,
+                             httpVersion: nil, headerFields: nil)!, body)
+        }
+        let session = URLSession(configuration: scope.configuration())
+        defer { session.invalidateAndCancel() }
+        for path in ["/garmin-raster.jpg", "/api/v2/players/me/clubs/bag"] {
+            let url = try XCTUnwrap(URL(string: "https://caddie.example\(path)"))
+            let (data, response) = try await session.data(from: url)
+            XCTAssertEqual(data, body)
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 202)
+        }
+    }
+
+    /// J4.2 test transport: the guard must preserve access to the local fixture server.
+    func testProductSpec42TheFixtureGuardLeavesLoopbackServersAvailable() throws {
+        let url = try XCTUnwrap(URL(string: "http://localhost/fixture"))
+        XCTAssertFalse(UnhandledTestURLProtocol.canInit(with: URLRequest(url: url)))
+    }
+
     func testAHandlerWaitingOnOneRequestDoesNotBlockAnotherRequest() async throws {
         let heldStarted = expectation(description: "held request entered its handler")
         let fastFinished = expectation(description: "fast request finished while held request waits")
@@ -243,7 +487,7 @@ final class CapturingURLProtocolTests: XCTestCase {
             return (response, Data())
         }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let held = Task { try await session.data(from: URL(string: "https://protocol.test/held")!) }
 
@@ -271,7 +515,7 @@ final class CapturingURLProtocolTests: XCTestCase {
             return (response, Data())
         }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         let oldRequest = Task { try await session.data(from: URL(string: "https://protocol.test/old")!) }
 
@@ -307,7 +551,7 @@ final class CapturingURLProtocolTests: XCTestCase {
             return (response, Data())
         }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         configuration.httpAdditionalHeaders = ["X-Codex-Test-Token": staleToken]
         let session = URLSession(configuration: configuration)
         do {
