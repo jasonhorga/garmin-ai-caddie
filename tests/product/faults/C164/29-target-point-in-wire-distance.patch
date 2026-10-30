@@ -1,8 +1,13 @@
 diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+index 1d334da..d5c8b87 100644
 --- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 +++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -6450,3 +6450,3 @@
+@@ -6726,7 +6726,7 @@ public struct CurrentHoleView: View {
+     /// Like the local planning helper, tee requests ignore a moved flag unless a distance is typed.
+     private var effectiveDistanceToPinMetres: Double? {
          LiveCaddieDistance.resolve(
--            manualM: distanceToPinMetres ?? greenPinDistanceMetres,
-+            manualM: distanceToPinMetres ?? mapTargetDistanceMetres ?? greenPinDistanceMetres,
+-            manualM: distanceToPinMetres
++            manualM: distanceToPinMetres ?? mapTargetDistanceMetres
+                 ?? (selectedShotType.caseInsensitiveCompare("tee") == .orderedSame ? nil : greenPinDistanceMetres),
              liveMiddleM: liveGreenMetres?.middle,
+             staticMiddleM: liveGreenDistances?.middleM,

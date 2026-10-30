@@ -6723,9 +6723,11 @@ public struct CurrentHoleView: View {
 
     /// The backend/event distance remains GPS/manual distance to the flag. A Touch Target is a
     /// display-only aim point; it never changes this wire value or the whole-hole tee plan.
+    /// Like the local planning helper, tee requests ignore a moved flag unless a distance is typed.
     private var effectiveDistanceToPinMetres: Double? {
         LiveCaddieDistance.resolve(
-            manualM: distanceToPinMetres ?? greenPinDistanceMetres,
+            manualM: distanceToPinMetres
+                ?? (selectedShotType.caseInsensitiveCompare("tee") == .orderedSame ? nil : greenPinDistanceMetres),
             liveMiddleM: liveGreenMetres?.middle,
             staticMiddleM: liveGreenDistances?.middleM,
             holeYards: hole.yards

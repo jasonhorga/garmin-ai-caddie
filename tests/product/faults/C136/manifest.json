@@ -70,6 +70,13 @@
       "kind": "python",
       "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_full_package_synchronously_builds_requested_tenth_hole",
       "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C136-28",
+      "patch": "tests/product/faults/C136/28-tee-request-uses-moved-pin.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j5_4_restored_pin_keeps_tee_request_and_manual_distance_separate",
+      "promise": "J5.4"
     }
   ]
 }

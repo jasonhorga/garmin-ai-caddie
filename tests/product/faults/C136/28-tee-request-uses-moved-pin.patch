@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+index 1d334da..a0c80ac 100644
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -6727,7 +6727,7 @@ public struct CurrentHoleView: View {
+     private var effectiveDistanceToPinMetres: Double? {
+         LiveCaddieDistance.resolve(
+             manualM: distanceToPinMetres
+-                ?? (selectedShotType.caseInsensitiveCompare("tee") == .orderedSame ? nil : greenPinDistanceMetres),
++                ?? greenPinDistanceMetres,
+             liveMiddleM: liveGreenMetres?.middle,
+             staticMiddleM: liveGreenDistances?.middleM,
+             holeYards: hole.yards
