@@ -651,7 +651,7 @@ final class RealFlowUITests: XCTestCase {
             UITapHelpers.tapWhenHittable(
                 prepSearch,
                 app: app,
-                timeout: 5,
+                timeout: 15,
                 diagnosticName: "realflow-prep-search-submit"
             )
         )

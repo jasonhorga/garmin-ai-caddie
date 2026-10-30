@@ -7657,6 +7657,10 @@ public final class LiveRoundAppModel: ObservableObject {
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
             return []
         }
+        // Exercise /tees failure with catalogue and nearby still online, as on a slow course release.
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_COURSE_TEES_FAILURE"] == "1" {
+            return []
+        }
         // Deterministic regression seam for the exact cold-release race: while Tee authority is in
         // flight, Start must remain disabled instead of launching a second request into the same
         // connection queue. It is absent from Release/TestFlight.

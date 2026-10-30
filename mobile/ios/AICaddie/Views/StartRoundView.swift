@@ -570,7 +570,9 @@ public struct StartRoundView: View {
     }
 
     /// The selected course's Tee rows: those its nearby/search row carried (the server's cached
-    /// `/tees` answer) at once with no request (C87); otherwise `request` (GET /tees), nil when unusable.
+    /// `/tees` answer) at once with no request (C87); otherwise `request` (GET /tees).
+    /// An empty answer marks failure and returns nil so the current Tee is kept; a stale/cancelled
+    /// nil answer is not a failure. Only nonempty rows may be applied as a refresh.
     static func courseTeeRows(
         globalId: Int,
         carried: [Int: [CourseTee]],
@@ -589,11 +591,11 @@ public struct StartRoundView: View {
         let rows = await request(globalId)
         setLoading(false)
         setFailed(rows?.isEmpty == true)
-        return rows
+        return rows?.isEmpty == false ? rows : nil
     }
 
     /// GET /tees for the selected course. Nil when the answer is stale (course changed, task
-    /// cancelled) or empty. An empty refresh enters retry state even with a remembered colour.
+    /// cancelled); an empty answer is passed to courseTeeRows to enter retry without changing Tee.
     private func requestTees(globalId: Int, requestToken: UUID) async -> [CourseTee]? {
         fetchedTees = []
         let tees = await onLoadCourseTees(globalId)
