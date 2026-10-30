@@ -293,6 +293,8 @@ def _start_boot_background_work() -> None:
 def _start_history_signature_monitor(
     *, stop_event: threading.Event | None = None, interval_s: float = 60.0,
     player_id: str = OWNER_ID, initial_warm: threading.Thread | None = None,
+    clock: Callable[[], float] | None = None,
+    wait: Callable[[float], bool] | None = None,
 ) -> threading.Thread:
     """Watch one player's sync-owned files; boot watches owner, member syncs warm explicitly.
 
@@ -300,11 +302,13 @@ def _start_history_signature_monitor(
     remain different and get another pass, including when this monitor joined an existing warm.
     """
     stop = stop_event or threading.Event()
+    clock = clock or time.time
+    wait_for_stop = wait or stop.wait
 
     def monitor() -> None:
         previous = _history_input_signature(player_id)
         pending = initial_warm
-        while not stop.wait(max(0.01, float(interval_s))):
+        while not wait_for_stop(max(0.01, float(interval_s))):
             try:
                 if pending is not None:
                     if not pending.is_alive():

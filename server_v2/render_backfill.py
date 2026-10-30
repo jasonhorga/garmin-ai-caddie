@@ -142,6 +142,7 @@ class RenderBackfill:
                  render_topo: Callable[[int, int], Any] | None = None,
                  render_garmin: Callable[[int, int, str], Any] | None = None,
                  should_yield: Callable[[], bool] | None = None,
+                 clock: Callable[[], float] | None = None,
                  wait_seconds: float = .25) -> None:
         self.state_path = Path(state_path or os.environ.get("AI_CADDIE_RENDER_BACKFILL_STATE", _DEFAULT_STATE))
         self._events_path = self.state_path.with_suffix(self.state_path.suffix + ".events.jsonl")
@@ -154,6 +155,7 @@ class RenderBackfill:
         self._render_topo = render_topo or self._default_render_topo
         self._render_garmin = render_garmin or self._default_render_garmin
         self._should_yield = should_yield
+        self._clock = clock or time.time
         self._wait_seconds = max(0.0, float(wait_seconds))
         self._lock = threading.RLock()
         self._unit_lock = threading.Lock()
