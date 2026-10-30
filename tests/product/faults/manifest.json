@@ -1965,7 +1965,7 @@
       "id": "tests-product-faults-C179-R6",
       "patch": "tests/product/faults/C179/own-mutants/R6-paused-prep-ignores-disconnect.patch",
       "kind": "python",
-      "target": "tests.product.test_c154b.RouteAdmissionTests.test_J42_disconnected_cold_prep_stops_waiting_at_the_gate",
+      "target": "tests.product.test_c154b.RouteAdmissionTests.test_J42_disconnected_cold_prep_stops_between_holes",
       "promise": "4.2"
     },
     {
