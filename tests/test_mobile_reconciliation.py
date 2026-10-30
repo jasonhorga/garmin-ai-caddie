@@ -141,14 +141,15 @@ class MobileReconciliationTests(unittest.TestCase):
             }], shots=[])
             result = reconcile_mobile_round_events("d18-events", data, root=root)
 
-        self.assertEqual([(row["kind"], row["hole"]) for row in result["localOnly"] if row["hole"] >= 12],
+        self.assertEqual([(row["kind"], row["hole"]) for row in result["localOnly"]
+                          if row["hole"] >= 12 and row["kind"] != "score"],
                          [("putt", 12), ("penalty", 13), ("note", 14), ("club", 15)])
         self.assertEqual([(row["kind"], row["targetId"]) for row in result["annotationSuggestions"]],
                          [("caddie_feedback", "decision-15")])
 
-    def test_j1_3_missing_garmin_card_keeps_phone_evidence_without_score_suggestions(self) -> None:
+    def test_j1_3_missing_garmin_card_restores_missing_scores(self) -> None:
         # J1.3: an 18-hole phone round and a nine-hole Garmin upload share exactly holes 1..9;
-        # the missing back-nine phone scores remain evidence only (restoration belongs to C219).
+        # saved identity lets the missing back-nine scores become real corrected history.
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             _save_identity(root, "partial", [(55555, "front"), (55555, "back")])
@@ -164,22 +165,24 @@ class MobileReconciliationTests(unittest.TestCase):
             self.assertEqual([r["ref"] for r in result["matched"]],
                              [f"partial:{n}" for n in range(1, 10)])
             self.assertEqual([r["hole"] for r in result["localOnly"]], list(range(10, 19)))
-            self.assertTrue(all(r["unmapped"] for r in result["localOnly"]))
+            self.assertTrue(all(not r["unmapped"] for r in result["localOnly"]))
             self.assertEqual([r["phoneHole"] for r in result["localOnly"]], list(range(10, 19)))
             self.assertEqual(result["conflicts"], [])
-            self.assertEqual(result["annotationSuggestions"], [])
+            suggestions = [row for row in result["annotationSuggestions"]
+                           if row["kind"] == "score_correction"]
+            self.assertEqual([row["targetId"] for row in suggestions],
+                             [f"partial:{n}" for n in range(10, 19)])
             applied = apply_mobile_reconciliation_suggestions(
-                "partial", data, root=root, annotations_root=root,
+                "partial", data, suggestion_ids=[row["id"] for row in suggestions],
+                root=root, annotations_root=root,
                 data_loader=lambda: data,
             )
-            self.assertEqual(applied["appliedCount"], 0)
-            self.assertEqual(list_annotation_records(root=root), [])
+            self.assertEqual(applied["appliedCount"], 9)
             after = reconcile_mobile_round_events("partial", data, root=root, annotations_root=root)
-            self.assertEqual(after["localOnly"], result["localOnly"])
             self.assertEqual(after["annotationSuggestions"], [])
             actual = corrected_history_data(data, annotations_root=root).rounds[0]
             self.assertEqual([(h["number"], h["strokes"]) for h in actual["holes"]],
-                             [(n, 5) for n in range(1, 10)])
+                             [(n, 5) for n in range(1, 19)])
 
     def test_j1_3_back_start_nonmerged_unnumbered_card_falls_back_to_display_axis(self) -> None:
         # J1.3: without source hole numbers, a standalone back-nine card falls back to its own
@@ -265,14 +268,16 @@ class MobileReconciliationTests(unittest.TestCase):
             result = reconcile_mobile_round_events("back-start-partial", data, root=root)
 
             self.assertEqual([row["hole"] for row in result["matched"]], list(range(10, 19)))
-            self.assertEqual([row["hole"] for row in result["localOnly"]], list(range(10, 19)))
-            self.assertEqual(result["annotationSuggestions"], [])
+            self.assertEqual([row["hole"] for row in result["localOnly"]], list(range(1, 10)))
+            self.assertEqual([row["targetId"] for row in result["annotationSuggestions"]],
+                             [f"back-start-partial:{n}" for n in range(1, 10)])
             applied = apply_mobile_reconciliation_suggestions(
                 "back-start-partial", data, root=root, annotations_root=root,
                 data_loader=lambda: data,
             )
-            self.assertEqual(applied["appliedCount"], 0)
-            after = reconcile_mobile_round_events("back-start-partial", data, root=root)
+            self.assertEqual(applied["appliedCount"], 9)
+            after = reconcile_mobile_round_events("back-start-partial", data, root=root,
+                                                  annotations_root=root)
             self.assertEqual(after["conflicts"], [])
             self.assertEqual(after["annotationSuggestions"], [])
 
@@ -361,10 +366,12 @@ class MobileReconciliationTests(unittest.TestCase):
                 "holes": [{"number": n, "strokes": 4} for n in range(10, 19)],
             }], shots=[])
             result = reconcile_mobile_round_events("rotated-feedback", data, root=root)
-            self.assertTrue(all(r["unmapped"] for r in result["localOnly"]))
+            self.assertTrue(all(not r["unmapped"] for r in result["localOnly"]))
             self.assertEqual([(r["kind"], r["targetId"]) for r in result["annotationSuggestions"]],
-                             [("caddie_feedback", "dec-12")])
-            self.assertEqual([r["hole"] for r in result["candidateDecisionAudits"]], [12])
+                             [("score_correction", f"rotated-feedback:{n}") for n in range(1, 10)]
+                             + [("putt_correction", "rotated-feedback:3")]
+                             + [("caddie_feedback", "dec-12")])
+            self.assertEqual([r["hole"] for r in result["candidateDecisionAudits"]], [3])
 
     def test_j1_3_back_start_eighteen_with_only_unnumbered_first_card_keeps_evidence(self) -> None:
         # J1.3: nine unnumbered rows use display 1..9; phone 10..18 stay evidence only.
@@ -1329,16 +1336,9 @@ class MobileReconciliationTests(unittest.TestCase):
 
         suggestions = {row["id"]: row for row in result["annotationSuggestions"]}
         self.assertEqual(result["summary"]["localOnlyCount"], 2)
-        self.assertEqual(result["summary"]["annotationSuggestionCount"], 2)
-        self.assertEqual(suggestions["offline-score:score-correction"]["targetId"], "live-local:4")
-        self.assertEqual(suggestions["offline-score:score-correction"]["payload"]["from"], None)
-        self.assertEqual(suggestions["offline-score:score-correction"]["payload"]["to"], 5)
-        self.assertEqual(suggestions["offline-putt:putt-correction"]["targetId"], "live-local:4")
-        self.assertEqual(suggestions["offline-putt:putt-correction"]["payload"]["to"], 2)
-        self.assertEqual(applied["appliedCount"], 2)
-        annotations = {row["kind"]: row for row in applied["annotations"]}
-        self.assertEqual(annotations["score_correction"]["targetId"], "live-local:4")
-        self.assertEqual(annotations["putt_correction"]["targetId"], "live-local:4")
+        self.assertEqual(result["summary"]["annotationSuggestionCount"], 0)
+        self.assertEqual(suggestions, {})
+        self.assertEqual(applied["appliedCount"], 0)
 
     def test_reconciliation_matches_scorecard_id_club_name_shots(self) -> None:
         data = HistoryData(
@@ -1670,6 +1670,7 @@ class MobileReconciliationTests(unittest.TestCase):
                 decision_audit_root=root,
             )
             audits = list_decision_audits(root=root)
+            after = reconcile_mobile_round_events("900001", fixture_history_data(), root=root)
 
         self.assertEqual(result["appliedCount"], 1)
         self.assertEqual(result["decisionAuditCount"], 1)
@@ -1678,6 +1679,7 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(audits[0]["classification"], "execution")
         self.assertEqual(audits[0]["sourceRef"], "900001:3")
         self.assertEqual(audits[0]["actualShotRefs"], ["900001:3:1"])
+        self.assertEqual(after["annotationSuggestions"], [])
 
     def test_apply_reconciliation_resolves_online_decision_id_without_embedded_copy(self) -> None:
         with TemporaryDirectory() as tmp:

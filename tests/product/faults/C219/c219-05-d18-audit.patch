@@ -1,0 +1,11 @@
+--- a/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:41:32.935831940 +0000
++++ b/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:43:11.901819419 +0000
+@@ -558,7 +558,7 @@
+         # update the audit's hole to the Garmin display axis while preserving the pre-map behavior
+         # for an unmapped phone hole.
+         audit = _candidate_audit(event)
+-        if audit:
++        if audit and hole in scores:
+             candidate_audits.append(audit)
+         if hole_map is not None:
+             if hole not in hole_map:

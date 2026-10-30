@@ -7,7 +7,12 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from ai_caddie.reports.annotations import add_annotation, list_annotations, validate_annotation
-from ai_caddie.caddie.decision import audit_decision, latest_decision_record, store_decision_audit
+from ai_caddie.caddie.decision import (
+    audit_decision,
+    latest_decision_record,
+    list_decision_audits,
+    store_decision_audit,
+)
 from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
 from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.caddie.mobile_live import mobile_event_log
@@ -60,6 +65,16 @@ def _hole_scores(
     annotation_records = list_annotation_records(
         root=annotations_root if annotations_root is not None else root, player_id=player_id,
     )
+    # Re-read the corrected projection so annotations for a Garmin-missing hole materialize a
+    # synthetic scorecard row before the next reconciliation pass.
+    from ai_caddie.history.corrected_history import corrected_history_data
+    projected = corrected_history_data(
+        HistoryData(raw_rounds=[], rounds=[round_row], shots=[]),
+        player_id=player_id,
+        annotations_root=annotations_root if annotations_root is not None else root,
+        corrections_root=root,
+    )
+    round_row = projected.rounds[0] if projected.rounds else round_row
     correction_events = _round_correction_events(player_id, round_row, root=root)
     scores: dict[int, dict[str, Any]] = {}
     for _hole, number, _physical, _side in hole_sides(round_row):
@@ -142,6 +157,10 @@ def _reconciliation_hole_map(
 
     visits: dict[tuple[int, int], int] = {}
     mapping: dict[int, int] = {}
+    display_keys: dict[int, set[tuple[int, int]]] = {}
+    for key, displays in garmin_visits.items():
+        for display in displays:
+            display_keys.setdefault(display, set()).add(key)
     for hole in sorted(identity["holes"], key=lambda row: row["number"]):
         key = (hole["sourceGlobalId"], hole["sourceLocalHole"])
         visit = visits.get(key, 0)
@@ -149,6 +168,40 @@ def _reconciliation_hole_map(
         candidates = garmin_visits.get(key, [])
         if visit < len(candidates):
             mapping[hole["number"]] = candidates[visit]
+    if not mapping:
+        return mapping
+
+    # A partial card still tells us the display axis for its missing sibling card. Complete the
+    # expected phone -> display mapping from observed loop offsets, while refusing a display row
+    # already occupied by another physical course/visit.
+    loops = identity.get("roundLoops") or []
+    bases: dict[int, int] = {}
+    for phone_hole, display in mapping.items():
+        loop_index, offset = divmod(phone_hole - 1, 9)
+        base = display - offset
+        if base in (1, 10):
+            bases.setdefault(loop_index, base)
+    for loop_index, loop in enumerate(loops):
+        if loop.get("half") == "back":
+            default_base = 10
+        elif loop.get("half") == "all":
+            default_base = 1 + (9 if loop_index else 0)
+        else:
+            default_base = 1
+        bases.setdefault(loop_index, default_base)
+    identity_by_number = {int(hole["number"]): hole for hole in identity["holes"]}
+    for phone_hole, identity_hole in identity_by_number.items():
+        if phone_hole in mapping:
+            continue
+        loop_index, offset = divmod(phone_hole - 1, 9)
+        display = bases.get(loop_index, loop_index * 9 + 1) + offset
+        physical_key = (
+            _safe_int(identity_hole.get("sourceGlobalId")),
+            _safe_int(identity_hole.get("sourceLocalHole")),
+        )
+        if display in display_keys and physical_key not in display_keys[display]:
+            continue
+        mapping[phone_hole] = display
     return mapping
 
 
@@ -519,9 +572,9 @@ def reconcile_mobile_round_events(
                 hole = hole_map[hole]
                 if audit:
                     audit["hole"] = hole
-        elif identity is not None and hole not in scores:
-            # Legacy unnumbered cards use the display axis, but absent card rows cannot consume
-            # hole corrections. Keep the phone evidence without suggesting an ineffective write.
+        elif hole not in scores:
+            # Without a mapped scorecard row there is no safe target for an old identity-less
+            # stream (or a standalone unnumbered card). Keep the event as evidence only.
             local_only.append(_unmapped_local_only_row(event, payload, kind=kind, hole=hole))
             continue
 
@@ -695,6 +748,16 @@ def reconcile_mobile_round_events(
         row for row in annotation_suggestions
         if row.get("kind") == "caddie_feedback"
         or str((row.get("payload") or {}).get("sourceEventId") or "") not in unsafe_event_ids
+    ]
+    applied_decision_ids = {
+        str(row.get("decisionId") or "")
+        for row in list_decision_audits(root=root, player_id=player_id)
+        if row.get("decisionId")
+    }
+    annotation_suggestions = [
+        row for row in annotation_suggestions
+        if row.get("kind") != "caddie_feedback"
+        or str(row.get("targetId") or "") not in applied_decision_ids
     ]
     return {
         "schema": "ai-caddie-mobile-reconciliation-v1",

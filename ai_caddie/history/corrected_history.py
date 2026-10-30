@@ -186,6 +186,7 @@ def corrected_rounds(
         penalty_events = [e for e in events if e.get("op") in PENALTY_EVENT_OPS] if "penalty" in fields else []
         holes: list[dict[str, Any]] = []
         delta = 0
+        added_total = 0
         corrected_refs: list[str] = []
         changed = False
         display_numbers = {id(hole): display for hole, display, _physical, _side in hole_sides(row)}
@@ -225,14 +226,56 @@ def corrected_rounds(
                 corrected["gir"] = _gir(corrected, _hole_par(row, corrected, number))
             holes.append(corrected)
             changed = True
+        # A mobile score can refer to a physical hole whose Garmin card is absent.  Keep the
+        # append-only annotation as the source of truth and materialize that display hole in the
+        # corrected projection so every history reader sees the restored score.
+        annotated_missing: dict[int, list[dict[str, Any]]] = {}
+        for record in annotations or []:
+            if (record.get("targetType") == "hole"
+                    and record.get("kind") in wanted):
+                target = str(record.get("targetId") or "")
+                for ref in refs:
+                    prefix = f"{ref}:"
+                    if target.startswith(prefix):
+                        number = _int(target[len(prefix):])
+                        if number is not None and number > 0 and number not in display_numbers.values():
+                            annotated_missing.setdefault(number, []).append(record)
+        for number in sorted(annotated_missing):
+            records = annotated_missing[number]
+            kinds = {HOLE_ANNOTATION_FIELDS[str(r.get("kind"))] for r in records}
+            (total, _total_winner), (putts, _putts_winner), (penalty, penalty_winner) = effective_hole(
+                row, number, records, penalty_events
+            )
+            synthetic: dict[str, Any] = {"number": number}
+            par = _hole_par(row, synthetic, number)
+            if par is not None:
+                synthetic["par"] = par
+            if "total" in kinds and total is not None:
+                synthetic["strokes"] = total
+                synthetic["_scoreCorrected"] = True
+                corrected_refs.append(f"{row.get('id')}:{number}")
+                added_total += total
+            if "putts" in kinds and putts is not None:
+                synthetic["putts"] = putts
+                synthetic["_puttCorrected"] = True
+            if "penalty" in kinds and penalty is not None:
+                synthetic["penalties"] = penalty
+                synthetic["_penaltyCorrected"] = True
+                synthetic["_penaltyReason"] = _penalty_reason(penalty_winner)
+            holes.append(synthetic)
+            changed = True
         if not changed:
             out.append(row)
             continue
         row = {**row, "holes": holes}
         if corrected_refs:
             if _int(row.get("strokes")) is not None:
-                row["strokes"] = _int(row["strokes"]) + delta
+                row["strokes"] = _int(row["strokes"]) + delta + added_total
             row["_scoreCorrectedRefs"] = corrected_refs
+        if added_total:
+            completed = _int(row.get("holesCompleted")) or 0
+            row["holesCompleted"] = max(completed, max(display_numbers.values(), default=0),
+                                         max(annotated_missing, default=0))
         out.append(row)
     return out
 

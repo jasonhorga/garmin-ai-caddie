@@ -1,0 +1,12 @@
+--- a/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:41:32.935831940 +0000
++++ b/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:43:11.905819534 +0000
+@@ -756,8 +756,7 @@
+     }
+     annotation_suggestions = [
+         row for row in annotation_suggestions
+-        if row.get("kind") != "caddie_feedback"
+-        or str(row.get("targetId") or "") not in applied_decision_ids
++        if True
+     ]
+     return {
+         "schema": "ai-caddie-mobile-reconciliation-v1",

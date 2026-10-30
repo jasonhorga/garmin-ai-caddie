@@ -1,0 +1,11 @@
+--- a/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:41:32.935831940 +0000
++++ b/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:43:11.891819131 +0000
+@@ -572,7 +572,7 @@
+                 hole = hole_map[hole]
+                 if audit:
+                     audit["hole"] = hole
+-        elif hole not in scores:
++        elif identity is not None and hole not in scores:
+             # Without a mapped scorecard row there is no safe target for an old identity-less
+             # stream (or a standalone unnumbered card). Keep the event as evidence only.
+             local_only.append(_unmapped_local_only_row(event, payload, kind=kind, hole=hole))

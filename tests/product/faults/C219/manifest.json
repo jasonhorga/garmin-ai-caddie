@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C219-01-missing-map-restoration",
+      "patch": "tests/product/faults/C219/c219-01-missing-map.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_missing_garmin_card_restores_scores_end_to_end",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-02-missing-history-projection",
+      "patch": "tests/product/faults/C219/c219-02-missing-history.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_missing_garmin_card_restores_scores_end_to_end",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-03-legacy-missing-suggestions",
+      "patch": "tests/product/faults/C219/c219-03-legacy-suggestions.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_legacy_without_identity_does_not_offer_ineffective_missing_scores",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-04-unnumbered-nonscore-suggestions",
+      "patch": "tests/product/faults/C219/c219-04-d18-nonscore.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_unnumbered_missing_card_preserves_non_score_evidence_and_feedback",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-05-unnumbered-audit-dropped",
+      "patch": "tests/product/faults/C219/c219-05-d18-audit.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_unnumbered_missing_card_preserves_non_score_evidence_and_feedback",
+      "promise": "7.2"
+    },
+    {
+      "id": "tests-product-faults-C219-06-feedback-repeats",
+      "patch": "tests/product/faults/C219/c219-06-feedback-repeat.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_apply_reconciliation_persists_caddie_feedback_as_decision_audit",
+      "promise": "7.2"
+    }
+  ]
+}
