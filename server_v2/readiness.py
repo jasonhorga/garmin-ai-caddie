@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,10 @@ EXTERNAL_RELEASE_EVIDENCE_SCHEMA = "ai-caddie-phase6-external-readiness-v1"
 EXTERNAL_RELEASE_EVIDENCE_MAX_AGE = timedelta(days=3)
 ROADMAP_COMPLETION_PLAN = Path("docs/superpowers/plans/2026-06-05-roadmap-and-test-plan.md")
 ROADMAP_COMPLETION_STATUS_SCHEMA = "ai-caddie-roadmap-completion-status-v1"
+
+_MOBILE_READINESS_LOCK = threading.Lock()
+_MOBILE_READINESS: dict[str, Any] = {}
+_MOBILE_READINESS_THREADS: dict[str, threading.Thread] = {}
 
 VISION_CONFIRMATION_STATES = ["unconfirmed", "confirmed", "player_confirmed", "manual_confirmed", "rejected"]
 PACKAGING_LABELS = frozenset(
@@ -972,6 +977,111 @@ def _offline_seed_quality(package: Any) -> dict[str, Any]:
     }
 
 
+def _mobile_readiness_evidence(package: Any) -> tuple[str, dict[str, Any]]:
+    """Summarise a background package warm for the cheap readiness response."""
+    package_ready = _mobile_package_runtime_ready(package)
+    seed_quality = _offline_seed_quality(package)
+    readiness_checks = list(getattr(package, "readinessChecks", []) or [])
+    weather_evidence = next(
+        (row for row in readiness_checks if isinstance(row, dict) and row.get("label") == "weather"),
+        {},
+    )
+    evidence = {
+        "contractSchema": LIVE_ROUND_PACKAGE_CONTRACT.as_posix(),
+        "roundId": package.roundId,
+        "holes": len(package.holes),
+        "caddieDecisionEndpoint": package.caddieDecisionEndpoint,
+        "offlinePackageStatus": package.offlinePackageStatus,
+        "sourceCoverage": package.sourceCoverage,
+        "geometryCoverage": package.geometryCoverage,
+        "readinessChecks": package.readinessChecks,
+        "runtimeGate": {
+            "state": "ready" if package_ready else "degraded",
+            "required": ["schema", "sourceCoverage", "geometryCoverage"],
+        },
+        "weatherEvidence": weather_evidence,
+        "caddieSeedCount": len(package.caddieContextSeeds),
+        "offlineSeedQuality": seed_quality,
+        "cachedCaddieRules": package.cachedCaddieRules,
+        "missingDataCount": len(package.missingData),
+        "missingDataLabels": sorted(
+            {
+                str(row.get("label") or "")
+                for row in package.missingData
+                if isinstance(row, dict) and str(row.get("label") or "").strip()
+            }
+        ),
+        "stale": False,
+        "source": "background",
+    }
+    return ("ready" if package_ready else "degraded"), evidence
+
+
+def warm_mobile_readiness_in_background(stats_snapshot: dict[str, Any]) -> threading.Thread | None:
+    """Build the correction and mobile-seed projection outside the readiness request."""
+    revision = str(stats_snapshot.get("revision") or "")
+    value = stats_snapshot.get("value") if isinstance(stats_snapshot, dict) else None
+    if not isinstance(value, dict):
+        return None
+    with _MOBILE_READINESS_LOCK:
+        current = _MOBILE_READINESS.get("me")
+        existing = _MOBILE_READINESS_THREADS.get("me")
+        if current is not None and current.get("revision") == revision and existing is not None and existing.is_alive():
+            return existing
+        if current is not None and current.get("revision") == revision and current.get("state") in {"ready", "degraded"}:
+            return None
+        _MOBILE_READINESS["me"] = {
+            "state": "warming",
+            "revision": revision,
+            "evidence": {"stale": True, "revision": revision, "source": "background"},
+        }
+
+        def run() -> None:
+            try:
+                round_id = _first_round_id(value)
+                package = build_mobile_round_package_response(
+                    round_id,
+                    stats_data=value,
+                    allow_weather_fetch=False,
+                )
+                state, evidence = _mobile_readiness_evidence(package)
+            except Exception as exc:  # noqa: BLE001 - readiness reports background failure
+                state = "degraded"
+                evidence = {
+                    "stale": True,
+                    "revision": revision,
+                    "source": "background",
+                    "reason": f"{exc.__class__.__name__}: {exc}",
+                }
+            with _MOBILE_READINESS_LOCK:
+                _MOBILE_READINESS["me"] = {
+                    "state": state,
+                    "revision": revision,
+                    "evidence": evidence,
+                }
+                _MOBILE_READINESS_THREADS.pop("me", None)
+
+        thread = threading.Thread(target=run, name="readiness-mobile-warm", daemon=True)
+        _MOBILE_READINESS_THREADS["me"] = thread
+        thread.start()
+        return thread
+
+
+def _mobile_readiness_status(stats_snapshot: dict[str, Any] | None) -> dict[str, Any]:
+    revision = str(stats_snapshot.get("revision") or "") if isinstance(stats_snapshot, dict) else ""
+    with _MOBILE_READINESS_LOCK:
+        status = dict(_MOBILE_READINESS.get("me") or {})
+    if status.get("revision") == revision and status.get("state") in {"ready", "degraded"}:
+        return status
+    if isinstance(stats_snapshot, dict):
+        warm_mobile_readiness_in_background(stats_snapshot)
+    return {
+        "state": "warming",
+        "revision": revision,
+        "evidence": {"stale": True, "revision": revision, "source": "background"},
+    }
+
+
 def build_readiness_response() -> dict[str, Any]:
     checks: list[dict[str, Any]] = [
         _check(
@@ -991,10 +1101,12 @@ def build_readiness_response() -> dict[str, Any]:
         stats_snapshot = snapshot
         if snapshot is None:
             warm_failure = history_warm_failure_details()
+            warm_error = _start_history_warm()
+            history_state = "degraded" if warm_error else "warming"
             checks.append(
                 _check(
                     "history",
-                    "degraded" if warm_failure else "warming",
+                    history_state,
                     "History statistics warm failed; retrying in the background."
                     if warm_failure else "History statistics are warming in the background.",
                     {
@@ -1007,7 +1119,6 @@ def build_readiness_response() -> dict[str, Any]:
                 )
             )
             stats = None
-            warm_error = _start_history_warm()
             if warm_error:
                 checks[-1]["state"] = "degraded"
                 checks[-1]["detail"] = "History statistics failed to start warming."
@@ -1133,67 +1244,22 @@ def build_readiness_response() -> dict[str, Any]:
         checks.append(_check("private_snapshot_acceptance", "error", exc.__class__.__name__))
 
     try:
-        package_stats = stats_last20_snapshot.get("value") if isinstance(stats_last20_snapshot, dict) else None
-        if not isinstance(package_stats, dict):
-            checks.append(
-                _check(
-                    "mobile_package",
-                    "warming",
-                    "Live round package statistics are warming in the background.",
-                    {"stale": True, "revision": None, "source": None},
-                )
-            )
-            package = None
-        else:
-            round_id = _first_round_id(package_stats)
-            package = build_mobile_round_package_response(
-                round_id,
-                stats_data=package_stats,
-                allow_weather_fetch=False,
-            )
-        if package is not None:
-            package_ready = _mobile_package_runtime_ready(package)
-            seed_quality = _offline_seed_quality(package)
-            readiness_checks = list(getattr(package, "readinessChecks", []) or [])
-            weather_evidence = next(
-                (row for row in readiness_checks if isinstance(row, dict) and row.get("label") == "weather"),
-                {},
-            )
-            checks.append(
-                _check(
-                    "mobile_package",
-                    "ready" if package_ready else "degraded",
+        mobile_status = _mobile_readiness_status(stats_last20_snapshot)
+        mobile_state = str(mobile_status.get("state") or "warming")
+        checks.append(
+            _check(
+                "mobile_package",
+                mobile_state,
+                "Live round package statistics and seeds are warming in the background."
+                if mobile_state == "warming"
+                else (
                     "Live round package generation is contract-backed for runtime map and caddie use."
-                    if package_ready
-                    else "Live round package generation is missing a runtime contract, source round, or course geometry.",
-                    {
-                        "contractSchema": LIVE_ROUND_PACKAGE_CONTRACT.as_posix(),
-                        "roundId": package.roundId,
-                        "holes": len(package.holes),
-                        "caddieDecisionEndpoint": package.caddieDecisionEndpoint,
-                        "offlinePackageStatus": package.offlinePackageStatus,
-                        "sourceCoverage": package.sourceCoverage,
-                        "geometryCoverage": package.geometryCoverage,
-                        "readinessChecks": package.readinessChecks,
-                        "runtimeGate": {
-                            "state": "ready" if package_ready else "degraded",
-                            "required": ["schema", "sourceCoverage", "geometryCoverage"],
-                        },
-                        "weatherEvidence": weather_evidence,
-                        "caddieSeedCount": len(package.caddieContextSeeds),
-                        "offlineSeedQuality": seed_quality,
-                        "cachedCaddieRules": package.cachedCaddieRules,
-                        "missingDataCount": len(package.missingData),
-                        "missingDataLabels": sorted(
-                            {
-                                str(row.get("label") or "")
-                                for row in package.missingData
-                                if isinstance(row, dict) and str(row.get("label") or "").strip()
-                            }
-                        ),
-                    },
-                )
+                    if mobile_state == "ready"
+                    else "Live round package generation is missing a runtime contract, source round, or course geometry."
+                ),
+                mobile_status.get("evidence") or {"stale": True, "revision": None, "source": None},
             )
+        )
     except Exception as exc:  # pragma: no cover - defensive health surface
         checks.append(_check("mobile_package", "error", exc.__class__.__name__))
 

@@ -677,6 +677,7 @@ def cached_history_stats_snapshot(
     # ``cached_build_history_stats`` keys by resolved data mode.  A readiness probe cannot afford
     # to load the source files just to discover that mode, so inspect both supported projections.
     candidates: list[tuple[float, dict[str, Any]]] = []
+    memory_candidates: list[tuple[float, dict[str, Any]]] = []
     for data_mode in ("local", "fixture"):
         # server_v2.history_stats supplies Path(".") for each evidence root.
         key = (player_id, data_mode, ".", ".", ".", ".", window)
@@ -685,13 +686,22 @@ def cached_history_stats_snapshot(
         if hit is not None and isinstance(hit[1], dict):
             stored_revision = _cache_source_revisions.get(key)
             current_revision = history_source_revision(player_id)
-            candidates.append((time.time(), {
+            memory_candidates.append((time.time(), {
                 "value": hit[1],
                 "dataMode": data_mode,
                 "revision": stored_revision or current_revision,
                 "stale": bool(stored_revision and stored_revision != current_revision),
                 "source": "memory",
             }))
+    # A process-local projection is authoritative for this request.  In particular, do not
+    # deserialize the potentially 20 MB persistent projection after finding a memory hit; readiness
+    # is a liveness probe and must not turn a cache hit into synchronous disk I/O.
+    if memory_candidates:
+        memory_candidates.sort(key=lambda item: item[0], reverse=True)
+        return memory_candidates[0][1]
+
+    for data_mode in ("local", "fixture"):
+        key = (player_id, data_mode, ".", ".", ".", ".", window)
         path = _persistent_cache_path(key)
         if path is None:
             continue
