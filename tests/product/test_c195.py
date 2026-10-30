@@ -41,19 +41,28 @@ class C195BackfillBackoffTests(unittest.TestCase):
             worker = self._worker(Path(directory), clock=lambda: now[0], render=render)
             try:
                 worker.enqueue_all(downloaded=set())
-                delays = []
+                delays, states, firsts, lasts = [], [], [], []
                 with patch.object(rb.logger, "warning") as warning:
                     for expected_attempt in range(1, 8):
                         self.assertTrue(worker.run_once())
                         entry = worker.status()["garminReleaseBackoff"][0]
                         self.assertEqual(entry["attempts"], expected_attempt)
                         delays.append(entry["backoffSeconds"])
+                        states.append(entry["state"])
+                        firsts.append(entry["firstFailureAt"])
+                        lasts.append(entry["lastFailureAt"])
                         first_failure = entry["firstFailureAt"]
                         self.assertIsNotNone(first_failure)
                         now[0] = entry["retryAfter"]
                         worker.enqueue_all(downloaded=set())
                         self.assertEqual(worker.status()["garminReleaseBackoff"][0]["firstFailureAt"], first_failure)
                 self.assertEqual(delays, [60, 120, 240, 480, 960, 1920, 3600])
+                # Short outages read as backoff; only the capped (1 h) delay reads as persistent.
+                self.assertEqual(states, ["backoff"] * 6 + ["persistent"])
+                # First failure is the 1000 s start for the whole streak; last failure is each retry time
+                # (1000 + cumulative 60,120,240,480,960,1920 s).
+                self.assertEqual(firsts, [1000.0] * 7)
+                self.assertEqual(lasts, [1000.0, 1060.0, 1180.0, 1420.0, 1900.0, 2860.0, 4780.0])
                 self.assertEqual(worker.status()["garminReleaseBackoff"][0]["state"], "persistent")
                 self.assertEqual(warning.call_count, 7)
             finally:

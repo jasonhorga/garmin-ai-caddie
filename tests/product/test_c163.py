@@ -847,14 +847,18 @@ class MonitorLifecycleTests(unittest.TestCase):
         revision = ["new"]
         signature_calls = [0]
         outcomes = iter([False, True])
+        warm_at = []
 
         def signature(_):
             signature_calls[0] += 1
             return ("old",) if signature_calls[0] == 1 else (revision[0],)
 
         def wait(_interval):
+            # Let the real warm worker finish before the fake clock advances (no scheduling race).
+            for worker in threading.enumerate():
+                if worker.name == "stats-cache-warm-fixture-retry":
+                    worker.join(5)
             now[0] += 60.0
-            time.sleep(0)
             if now[0] >= 300.0:
                 stop.set()
                 return True
@@ -863,7 +867,8 @@ class MonitorLifecycleTests(unittest.TestCase):
         with (
             patch.object(main, "_history_input_signature", side_effect=signature),
             patch.object(hs, "history_input_signature", side_effect=lambda player: (revision[0],)),
-            patch.object(hs, "warm_stats_cache", side_effect=lambda player_id: next(outcomes)) as warm_mock,
+            patch.object(hs, "warm_stats_cache",
+                         side_effect=lambda player_id: (warm_at.append(now[0]), next(outcomes))[1]) as warm_mock,
         ):
             thread = main._start_history_signature_monitor(
                 stop_event=stop,
@@ -875,6 +880,8 @@ class MonitorLifecycleTests(unittest.TestCase):
             thread.join(1)
         self.assertFalse(thread.is_alive())
         self.assertEqual(warm_mock.call_count, 2)
+        # Failure seen on the 120 s tick -> 60 s backoff -> retry at 180 s; success is then acknowledged.
+        self.assertEqual(warm_at, [60.0, 180.0])
 
 
 if __name__ == "__main__":
