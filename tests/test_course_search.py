@@ -392,7 +392,22 @@ class CourseSearchEndpointTests(unittest.TestCase):
     def _client(self):
         from fastapi.testclient import TestClient
         from server_v2.main import app
-        return TestClient(app)
+        from server_v2 import map_startup
+
+        case = self
+
+        class DiscoveryClient(TestClient):
+            def get(self, *args, **kwargs):
+                response = super().get(*args, **kwargs)
+                # The HTTP response only schedules discovery. Wait on the test side before
+                # inspecting calls or releasing provider mocks; the app never joins this worker.
+                worker = map_startup._NEARBY_DISPATCH_THREAD
+                if worker is not None:
+                    worker.join(timeout=2)
+                    case.assertFalse(worker.is_alive(), "fixture nearby dispatch did not finish")
+                return response
+
+        return DiscoveryClient(app)
 
     def test_search_endpoint_returns_matches(self) -> None:
         from ai_caddie.courses import course_search
@@ -753,6 +768,7 @@ class CourseSearchEndpointTests(unittest.TestCase):
             patch.object(server_main.course_search, "courseview_nearby", return_value=canned),
             patch.object(server_main, "_reconcile_player_course_matches", return_value=canned),
             patch("server_v2.map_startup.enqueue_nearby") as prewarm,
+            patch("server_v2.map_startup.prefetch_nearby_releases"),
         ):
             response = self._client().get(
                 "/api/v2/courses/nearby",

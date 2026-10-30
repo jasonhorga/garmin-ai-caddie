@@ -1,0 +1,187 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C223-01-ingest-aim",
+      "patch": "tests/product/faults/C223/01-ingest-aim.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_aim_alone_keeps_ingest_and_backfill_gir_unknown",
+      "promise": "2.5 aims are not observed landings"
+    },
+    {
+      "id": "tests-product-faults-C223-02-backfill-aim",
+      "patch": "tests/product/faults/C223/02-backfill-aim.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_aim_alone_keeps_ingest_and_backfill_gir_unknown",
+      "promise": "2.5 backfill preserves unknown aim-only holes"
+    },
+    {
+      "id": "tests-product-faults-C223-03-persisted-club",
+      "patch": "tests/product/faults/C223/03-persisted-club.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_putter_name_and_green_lie_survive_persistence",
+      "promise": "2.5 real persisted putter names supply evidence"
+    },
+    {
+      "id": "tests-product-faults-C223-04-incomplete-log",
+      "patch": "tests/product/faults/C223/04-incomplete-log.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_incomplete_putter_log_stays_unknown",
+      "promise": "2.5 incomplete logs cannot invent a putt total"
+    },
+    {
+      "id": "tests-product-faults-C223-05-putt-boundary",
+      "patch": "tests/product/faults/C223/05-putt-boundary.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_putt_count_shortcut_precedes_geometry",
+      "promise": "2.5 regulation includes equality"
+    },
+    {
+      "id": "tests-product-faults-C223-06-scorecard-reread",
+      "patch": "tests/product/faults/C223/06-scorecard-reread.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_apply_skips_files_rewritten_during_evaluation",
+      "promise": "2.5 scorecard evidence and digest share one snapshot"
+    },
+    {
+      "id": "tests-product-faults-C223-07-shots-reread",
+      "patch": "tests/product/faults/C223/07-shots-reread.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_apply_skips_files_rewritten_during_evaluation",
+      "promise": "2.5 shots evidence and digest share one snapshot"
+    },
+    {
+      "id": "tests-product-faults-C223-08-error-exit",
+      "patch": "tests/product/faults/C223/08-error-exit.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_apply_errors_return_failure_status",
+      "promise": "2.5 failed apply returns nonzero"
+    },
+    {
+      "id": "tests-product-faults-C223-09-empty-mode",
+      "patch": "tests/product/faults/C223/09-empty-mode.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_empty_apply_reports_requested_mode",
+      "promise": "2.5 reports reflect the requested mode"
+    },
+    {
+      "id": "tests-product-faults-C223-10-failed-backup-manifest",
+      "patch": "tests/product/faults/C223/10-failed-backup-manifest.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_failed_write_backup_is_manifested",
+      "promise": "2.5 failed writes retain a listed original backup"
+    },
+    {
+      "id": "tests-product-faults-C223-11-malformed-count",
+      "patch": "tests/product/faults/C223/11-malformed-count.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_manual_round_count_excludes_malformed_scorecards",
+      "promise": "2.5 malformed files are not usable manual rounds"
+    },
+    {
+      "id": "tests-product-faults-C223-12-off-green-putter",
+      "patch": "tests/product/faults/C223/12-off-green-putter.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_putter_name_and_green_lie_survive_persistence",
+      "promise": "2.5 a putter stroke off the green is not a putt"
+    },
+    {
+      "id": "tests-product-faults-C223-13-ignore-entered-putts",
+      "patch": "tests/product/faults/C223/13-ignore-entered-putts.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_recorded_putts_precede_aim_geometry",
+      "promise": "2.5 entered putts decide GIR before geometry"
+    },
+    {
+      "id": "tests-product-faults-C223-14-partial-putt-tail",
+      "patch": "tests/product/faults/C223/14-partial-putt-tail.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_unrecognized_stroke_after_putt_uses_observed_landing",
+      "promise": "2.5 an unrecognized stroke after the first putt must not turn GIR into a miss"
+    },
+    {
+      "id": "tests-product-faults-C223-15-extra-putt-positions",
+      "patch": "tests/product/faults/C223/15-extra-putt-positions.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_duplicate_putt_location_does_not_invent_gir",
+      "promise": "2.5 duplicate positions cannot supply an invented putt total"
+    },
+    {
+      "id": "tests-product-faults-C223-16-persisted-partial-tail",
+      "patch": "tests/product/faults/C223/16-persisted-partial-tail.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_custom_putter_name_loses_type_without_inventing_a_miss",
+      "promise": "2.5 a persisted custom putter losing its type must remain unknown without geometry"
+    },
+    {
+      "id": "tests-product-faults-C223-17-last-position-landing",
+      "patch": "tests/product/faults/C223/17-last-position-landing.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_ingest_regulation_landing_is_next_start_not_last",
+      "promise": "2.5 the regulation landing is the next shot start, never the last recorded start (review O2)"
+    },
+    {
+      "id": "tests-product-faults-C223-18-success-exit-failure",
+      "patch": "tests/product/faults/C223/18-success-exit-failure.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_successful_apply_returns_zero",
+      "promise": "2.5 a successful apply must exit zero (review O10)"
+    },
+    {
+      "id": "tests-product-faults-C223-19-unknown-first-putt",
+      "patch": "tests/product/faults/C223/19-unknown-first-putt.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_unrecognized_first_putt_uses_observed_landing",
+      "promise": "2.5 a first putt without club evidence must not become an invented miss"
+    },
+    {
+      "id": "tests-product-faults-C223-20-ingest-penalty-index",
+      "patch": "tests/product/faults/C223/20-ingest-penalty-index.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_penalty_strokes_make_landing_index_unknown",
+      "promise": "2.5 penalty strokes invalidate the ingest regulation-position index"
+    },
+    {
+      "id": "tests-product-faults-C223-21-backfill-penalty-index",
+      "patch": "tests/product/faults/C223/21-backfill-penalty-index.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_penalty_strokes_make_landing_index_unknown",
+      "promise": "2.5 penalty strokes invalidate the backfill regulation-position index"
+    },
+    {
+      "id": "tests-product-faults-C223-22-ingest-extra-index",
+      "patch": "tests/product/faults/C223/22-ingest-extra-index.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_duplicate_position_before_regulation_landing_stays_unknown",
+      "promise": "2.5 extra positions cannot identify the ingest regulation landing"
+    },
+    {
+      "id": "tests-product-faults-C223-23-backfill-extra-index",
+      "patch": "tests/product/faults/C223/23-backfill-extra-index.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_duplicate_position_before_regulation_landing_stays_unknown",
+      "promise": "2.5 extra positions cannot identify the backfill regulation landing"
+    },
+    {
+      "id": "tests-product-faults-C223-24-aim-own-start",
+      "patch": "tests/product/faults/C223/24-aim-own-start.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_classifiable_aim_start_is_not_a_landing",
+      "promise": "2.5 a classifiable regulation-shot start is not its landing (review R6)"
+    },
+    {
+      "id": "tests-product-faults-C223-25-unrecognized-green-prefix",
+      "patch": "tests/product/faults/C223/25-unrecognized-green-prefix.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_unrecognized_green_stroke_before_putt_uses_landing",
+      "promise": "2.5 a green stroke of unknown type before the first recognized putt makes the total unknown"
+    },
+    {
+      "id": "tests-product-faults-C223-26-default-fairway-putter-guard",
+      "patch": "tests/product/faults/C223/26-no-putt-like-guard.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_default_fairway_putter_uses_observed_landing",
+      "promise": "2.5 a putter-like stroke on the default fairway lie keeps first-putt evidence unknown"
+    }
+  ]
+}

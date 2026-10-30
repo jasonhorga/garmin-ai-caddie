@@ -1,0 +1,11 @@
+--- a/ai_caddie/courses/vector_prep.py
++++ b/ai_caddie/courses/vector_prep.py
+@@ -83,7 +83,7 @@
+ 
+     key = (str(_CACHE_DIR), int(global_id), int(local_hole), int(tee_set))
+     future = _BACKGROUND_VECTOR_POOL.submit_keyed(
+-        ("selected-tee-vector",) + key, build, priority=SELECTED_COURSE,
++        ("selected-tee-vector",) + key, build, priority=0,
+     )
+     with _VECTOR_FUTURES_LOCK:
+         _VECTOR_FUTURES[key] = future

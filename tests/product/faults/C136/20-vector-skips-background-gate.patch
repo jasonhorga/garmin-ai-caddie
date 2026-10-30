@@ -1,0 +1,16 @@
+--- a/ai_caddie/courses/vector_prep.py
++++ b/ai_caddie/courses/vector_prep.py
+@@ -76,10 +76,9 @@
+     request_vector_tee(global_id, local_hole, tee_set)
+ 
+     def build():
+-        with background_work():
+-            return cached_vector_hole(
+-                global_id, local_hole, tee_set=tee_set, use_process_pool=True,
+-            )
++        return cached_vector_hole(
++            global_id, local_hole, tee_set=tee_set, use_process_pool=True,
++        )
+ 
+     key = (str(_CACHE_DIR), int(global_id), int(local_hole), int(tee_set))
+     future = _BACKGROUND_VECTOR_POOL.submit_keyed(

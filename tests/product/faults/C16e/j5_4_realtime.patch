@@ -1,10 +1,10 @@
 --- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 +++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -4562,7 +4562,7 @@
+@@ -5051,7 +5051,7 @@
                  return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
              }
              return teeAnchorCoordinate
--        case .liveGPS: return locationProvider.latestFix?.coordinate
+-        case .liveGPS: return activeLocationProvider.latestFix?.coordinate
 +        case .liveGPS: return teeAnchorCoordinate
          case .fallback: return nil
          }

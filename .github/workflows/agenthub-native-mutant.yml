@@ -145,7 +145,7 @@ jobs:
           all_watch = bool(values) and all(value.startswith("AICaddieWatchTests/") for value in values)
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"ios={'false' if all_ui or all_watch else 'true'}\n")
-              output.write(f"watch={'false' if all_ui else 'true'}\n")
+              output.write(f"watch={'true' if all_watch or not values else 'false'}\n")
           PY
       - name: Test iPhone scheme
         id: ios
@@ -155,6 +155,12 @@ jobs:
         env:
           ONLY_TESTING: ${{ inputs.only_testing }}
         run: |
+          # Warm the selected destination while xcodebuild compiles. Keep xcodebuild
+          # authoritative for failures, including an unavailable simulator.
+          (
+            xcrun simctl boot "$IOS_UDID" || true
+            xcrun simctl bootstatus "$IOS_UDID" -b
+          ) > "$RUNNER_TEMP/native-ios-boot.log" 2>&1 &
           args=(test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddie \

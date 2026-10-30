@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/caddie/mobile_live.py b/ai_caddie/caddie/mobile_live.py
+--- a/ai_caddie/caddie/mobile_live.py
++++ b/ai_caddie/caddie/mobile_live.py
+@@ -1491,7 +1491,7 @@
+     # Map-only polls never spend foreground CPU; they enqueue every missing selected-Tee vector,
+     # including the displayed hole, so a lost job is repaired by the next poll.
+     if map_only:
+-        current_source = None
++        pass
+
+     # Composite rounds can show the same physical local hole twice (A+A). Build it once and
+     # renumber the returned factual row for each display hole instead of doing duplicate work.

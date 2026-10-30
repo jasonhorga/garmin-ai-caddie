@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -2369,8 +2369,7 @@
+                         ensureGeometry: false,
+                         backgroundGeometry: true,
+                         includeEventCursor: false,
+-                        requestKind: .background,
+-                        priorityHole: self.liveRoundState?.activeHole ?? snapshot.holes.first?.number
++                        requestKind: .background
+                     )
+                     guard !Task.isCancelled else { break }
+                     if self.mergeRoundEnrichment(full) { break }

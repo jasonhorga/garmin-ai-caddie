@@ -1028,6 +1028,84 @@ final class LiveRoundAppModelTests: XCTestCase {
         model.finishRoundPreparationForTesting(second)
     }
 
+    /// J4.2: real queue + fake SyncClient transport + injected clock, without wall-clock sleeps.
+    func testOfflinePreparationPollingPersistsProgressThenFailsAndCanRetry() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try nineHoleFixturePackage()
+        let fetched = source.replacingCoursePrep(nil)
+        let course = MobileCourseOption(
+            globalId: source.course.globalId, name: "Fixture Links", holes: 9, teeBox: source.course.teeBox
+        )
+        let packageData = try JSONEncoder().encode(fetched)
+        let status = CourseInstallStatus(
+            schema: "course-install/v1", jobId: "stalled-fixture", globalId: course.globalId,
+            teeBox: course.teeBox ?? "blue", loopKey: fetched.loopKey, phase: "running", stage: "geometry",
+            progress: 67, heartbeatAt: "2026-01-01T00:00:00Z", totalHoles: 9, geometryReady: 6, topoReady: 0
+        )
+        let statusData = try JSONEncoder().encode(status)
+        let requestLock = NSLock()
+        var packageRequests = 0
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let body: Data
+            if url.path.hasSuffix("/package") {
+                let count = requestLock.withLock { packageRequests += 1; return packageRequests }
+                // Bound the old no-timeout behaviour: its fourth fetch fails rather than hanging CI.
+                guard count <= 3 else { throw URLError(.notConnectedToInternet) }
+                body = packageData
+            } else if url.path.hasSuffix("/install/status") {
+                body = statusData
+            } else if url.path.hasSuffix("/prep") {
+                let holes = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                    .filter { $0.name == "holes" }.compactMap { $0.value.flatMap(Int.init) } ?? []
+                body = try offlinePrepResponseData(for: fetched, localHoles: holes, geometryCoverage: "partial")
+            } else { throw URLError(.unsupportedURL) }
+            return (HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
+                                    headerFields: ["Content-Type": "application/json"])!, body)
+        }
+        let client = SyncClient(baseURL: URL(string: "https://prep-progress.example.test")!, session: session,
+                                retrySleep: { _ in })
+        let model = LiveRoundAppModel(
+            offlineStore: store, apiBaseURL: client.baseURL, watchBridge: nil, garminSessionStore: nil,
+            syncClient: client, offlineGeometryRetryDelaysNanoseconds: [], prepStatusProbeRetryDelayNanoseconds: 0,
+            networkPathObserver: nil
+        )
+        var observations = 0
+        model.prepDownloadNow = {
+            let seconds: TimeInterval = observations == 0 ? 0 : observations == 1 ? 599 : 600
+            observations += 1
+            return Date(timeIntervalSince1970: seconds)
+        }
+        var displayedProgress = false
+        let subscription = model.$prepCourseDownloads.sink { rows in
+            if let row = rows.first, StartRoundPresentation.offlineStatusText(row) == "服务器准备中 6/9 洞 · 67%" {
+                displayedProgress = true
+            }
+        }
+        model.downloadPrepCourse(course)
+        await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertTrue(displayedProgress)
+        XCTAssertEqual(observations, 3)
+        XCTAssertEqual(requestLock.withLock { packageRequests }, 3)
+        let failed = try XCTUnwrap(model.prepCourseDownloads.first)
+        XCTAssertEqual(failed.phase, .failed)
+        XCTAssertEqual(failed.errorText, "服务器准备没有进展，点重试")
+        XCTAssertEqual(try store.loadPrepCourseDownloads().first?.serverPreparation?.geometryReady, 6)
+        model.retryPrepCourseDownload(id: failed.id)
+        XCTAssertNil(model.prepCourseDownloads.first?.serverPreparation, "explicit retry starts a new inactivity window")
+        XCTAssertNil(model.prepCourseDownloads.first?.errorText)
+        subscription.cancel()
+        await model.stopRoundBackgroundWorkForTesting()
+        client.invalidateForTesting()
+        session.invalidateAndCancel()
+        CapturingURLProtocol.requestHandler = nil
+        try? FileManager.default.removeItem(at: directory)
+    }
+
     /// J4.2: each asset stage probes once; only the worker's three failed verdicts end the job.
     func testPrepStatusProbeFailsThreeTimesThenCanRetryAndClearFailure() async throws {
         let directory = FileManager.default.temporaryDirectory

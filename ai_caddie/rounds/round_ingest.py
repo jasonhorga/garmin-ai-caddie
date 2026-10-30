@@ -456,6 +456,7 @@ def _build_scorecard(
                 if acc.putts_entered
                 else _shot_putt_count(acc.shots, total_strokes=acc.strokes)
             ),
+            penalties=acc.penalties,
         )
     for number, acc, global_id, local_hole, par in scored:
         resolved_putts = acc.putts if acc.putts_entered else _shot_putt_count(
@@ -614,6 +615,7 @@ class _IngestGeometry:
         total_strokes: int | None,
         *,
         putts: int | None = None,
+        penalties: int | None = None,
     ) -> None:
         """Count one scored hole's mesh uses: one per position :func:`_geometry_inputs` gives it,
         the positions :func:`_derive_gir_fairway` classifies."""
@@ -621,7 +623,7 @@ class _IngestGeometry:
             return
         uses = sum(
             position is not None
-            for position in _geometry_inputs(par, shots, total_strokes, putts=putts)
+            for position in _geometry_inputs(par, shots, total_strokes, putts=putts, penalties=penalties)
         )
         if uses:
             key = (int(global_id), int(local_hole))
@@ -672,8 +674,8 @@ class _IngestGeometry:
 
 def _shot_end_deg(shots: list[dict[str, Any]], idx: int) -> tuple[float, float] | None:
     """End position ``(lat, lon)`` in DEGREES of the shot at ``idx``: the start of the next
-    shot on the hole, or -- for the last recorded shot -- its target/aim. Shared with
-    :func:`_build_shots_file` so the surface we classify is the exact endpoint we persist."""
+    shot on the hole, or -- for the last recorded shot -- its target/aim.
+    Used to persist display endpoints; GIR must only use an observed next-shot start."""
     if idx + 1 < len(shots):
         nxt = shots[idx + 1]
         return (nxt["lat"], nxt["lon"])
@@ -739,20 +741,45 @@ def _classify_end_kind(
     return str(kind)
 
 
-def _shot_putt_count(shots: list[dict[str, Any]], *, total_strokes: int | None = None) -> int | None:
-    """Count explicit putt shots only when the recorded shot log covers the score."""
-    if total_strokes is not None and len(shots) < total_strokes:
+def _shot_putt_count(
+    shots: list[dict[str, Any]],
+    *,
+    total_strokes: int | None = None,
+    club_details: list[dict[str, Any]] | None = None,
+) -> int | None:
+    """Count explicit green putts only in an exact-length log with a recognized putt tail.
+
+    In-memory ``club`` retains shotType="putt" and the club name/lie. Persisted rows keep
+    ``startLoc.lie`` and ``clubId`` -> ``clubDetails``, but their shotType is only
+    TEE/APPROACH/RECOVERY. A custom putter name may therefore lose its putt evidence on disk.
+    Before the first putt, every stroke must have a known lie off the green; afterwards every
+    stroke must be a recognized putt. Otherwise callers try the observed regulation landing.
+    Extra or missing positions also make the putt total unknown.
+    """
+    if total_strokes is not None and len(shots) != total_strokes:
         return None
+    clubs = {row.get("id"): row for row in (club_details or []) if isinstance(row, dict)}
     count = 0
     for shot in shots:
-        club = shot.get("club") if isinstance(shot, dict) else None
-        if not isinstance(club, dict):
+        if not isinstance(shot, dict):
             continue
-        shot_type = str(club.get("shotType") or club.get("type") or "").strip().lower()
-        club_name = str(club.get("clubName") or club.get("club") or "").strip().lower()
-        lie = str(club.get("lie") or "").strip().lower()
-        if lie == "green" and ("putt" in shot_type or "putt" in club_name or club_name in {"putter", "pt", "推杆"}):
+        club = shot.get("club")
+        if isinstance(club, dict):
+            shot_type = str(club.get("shotType") or club.get("type") or "").strip().lower()
+            club_name = str(club.get("clubName") or club.get("club") or "").strip().lower()
+            lie = str(club.get("lie") or "").strip().lower()
+        else:
+            club = clubs.get(shot.get("clubId"), {})
+            shot_type = str(shot.get("shotType") or "").strip().lower()
+            club_name = str(club.get("name") or "").strip().lower()
+            lie = str((shot.get("startLoc") or {}).get("lie") or "").strip().lower()
+        putt_like = "putt" in shot_type or "putt" in club_name or club_name in {"putter", "pt", "推杆"}
+        if lie == "green" and putt_like:
             count += 1
+        elif count or putt_like or lie in {"", "unknown", "green"}:
+            # A putter stroke from a non-green lie may be a default/unadjusted lie.
+            # An unrecognized green/unknown-lie stroke could be an unseen first putt.
+            return None
     return count or None
 
 
@@ -762,6 +789,7 @@ def _geometry_inputs(
     total_strokes: int | None,
     *,
     putts: int | None = None,
+    penalties: int | None = None,
 ) -> tuple[tuple[float, float] | None, tuple[float, float] | None]:
     """``(gir_end, tee_point)``: the positions one hole classifies against its mesh, ``None`` when
     that classification does not run. ``gir_end`` is the regulation shot's end (none when the hole
@@ -770,10 +798,15 @@ def _geometry_inputs(
     if par is None or par < 3:
         return None, None
     gir_end = None
-    if putts is None or total_strokes is None:
+    # Penalties and extra taps break the correspondence between position and stroke indices.
+    index_reliable = not penalties and (total_strokes is None or len(shots) <= total_strokes)
+    if (putts is None or total_strokes is None) and index_reliable:
         if total_strokes is None or total_strokes > par - 2:
             reg_idx = par - 3  # 0-indexed regulation-stroke shot (par3->0, par4->1, par5->2)
-            gir_end = _shot_end_deg(shots, reg_idx) if 0 <= reg_idx < len(shots) else None
+            # The last recorded shot's target is an aim, never evidence of where it landed.
+            if 0 <= reg_idx and reg_idx + 1 < len(shots):
+                landing = shots[reg_idx + 1]
+                gir_end = (landing["lat"], landing["lon"])
     tee_point = (shots[1]["lat"], shots[1]["lon"]) if par >= 4 and len(shots) >= 2 else None
     return gir_end, tee_point
 
@@ -786,6 +819,7 @@ def _derive_gir_fairway(
     total_strokes: int | None,
     *,
     putts: int | None = None,
+    penalties: int | None = None,
     geometry: _IngestGeometry | None = None,
 ) -> tuple[bool | None, str | None]:
     """REAL green-in-regulation and fairway-hit for one hole. Returns ``(gir, fairway)``.
@@ -796,9 +830,10 @@ def _derive_gir_fairway(
     reaching the green in ``par - 2`` strokes:
       * par 3 -> 1 stroke, par 4 -> 2, par 5 -> 3.
       * total hole strokes <= par-2  ->  holed out in regulation-or-better -> gir True.
-      * otherwise classify the END surface of the regulation-stroke shot, ``shots[par-3]``
-        (0-indexed: par3->shots[0], par4->shots[1], par5->shots[2]); gir = (kind == "green").
-      * that shot absent / surface unclassifiable  ->  gir None (not determinable; never guess).
+      * otherwise classify the observed landing: the next shot's start, ``shots[par-2]``
+        (0-indexed: par3->shots[1], par4->shots[2], par5->shots[3]); gir = (kind == "green").
+      * penalties, extra positions, no next-shot start or unclassifiable surface -> gir None;
+        an aim is not a landing. Recorded putts and holed-out scores still take precedence.
 
     The tee result exists ONLY for par 4/5 (there is no fairway off a par-3 tee): the second
     recorded position (the second shot, or the first putt when there was none) against the hole's
@@ -819,8 +854,8 @@ def _derive_gir_fairway(
         return gir, fairway
     if geometry is None:
         geometry = _IngestGeometry(None)
-        geometry.plan(global_id, local_hole, par, shots, total_strokes, putts=putts)
-    gir_end, tee_point = _geometry_inputs(par, shots, total_strokes, putts=putts)
+        geometry.plan(global_id, local_hole, par, shots, total_strokes, putts=putts, penalties=penalties)
+    gir_end, tee_point = _geometry_inputs(par, shots, total_strokes, putts=putts, penalties=penalties)
 
     if putts is not None and total_strokes is not None:
         gir = total_strokes - putts <= par - 2
@@ -878,7 +913,8 @@ def _enrich_hole_gir_fairway(
     if putts is _PUTTS_UNSET:
         putts = _as_int(hole.get("putts"))
     gir, fairway = _derive_gir_fairway(
-        global_id, local_hole, par, shots, total_strokes, putts=putts, geometry=geometry
+        global_id, local_hole, par, shots, total_strokes, putts=putts,
+        penalties=_as_int(hole.get("penalties")), geometry=geometry
     )
     if gir is not None and hole.get("gir") is None:
         hole["gir"] = gir

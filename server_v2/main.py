@@ -1428,12 +1428,7 @@ def _warm_course_prep(
     Tee set, so warm the Tee the player last used there (resolved exactly like the endpoint does);
     without a known Tee the default Blue entry is warmed as before.
     """
-    from ai_caddie.caddie.analysis import tee_set_for_box
     from ai_caddie.courses import course_prep
-
-    tee_set = None
-    if tee_box and str(tee_box).strip().lower() not in {"", "unknown"}:
-        tee_set = tee_set_for_box(int(global_id), tee_box, colour_fallback=False)
 
     if delay_s > 0:
         _PREP_WARM_DELAY_EVENT.wait(delay_s)
@@ -1450,14 +1445,14 @@ def _warm_course_prep(
             render=False,
             include_missing=True,
             player_id=player_id,
-            tee_set=tee_set,
+            tee_box=tee_box,
         )
     finally:
         _PREP_WARM_LOCK.release()
     logger.info(
-        "prep_warm gid=%s tee_set=%s holes=%s duration_ms=%s",
+        "prep_warm gid=%s tee_box=%s holes=%s duration_ms=%s",
         int(global_id),
-        tee_set,
+        tee_box,
         len(holes),
         int((time.perf_counter() - started) * 1000),
     )
@@ -1596,14 +1591,6 @@ def _build_course_prep_nine(global_id, holes, render, include_shots, tee, player
     requested = holes or course_prep.available_prep_holes(global_id)
     # ``tee`` is the player's Tee choice (e.g. "white"). Playing facts follow that Tee; without it
     # (older clients) the route stays on Blue exactly as before.
-    tee_set = None
-    if tee and tee.strip().lower() not in {"", "unknown"}:
-        from ai_caddie.caddie.analysis import tee_set_for_box
-
-        # Release-only: without cached release metadata the colour table can name the wrong set
-        # (e.g. a course whose Red release Tee is set 4), so stay on Blue rather than guess.
-        tee_set = tee_set_for_box(int(global_id), tee, colour_fallback=False)
-
     # prep_nine rebuilds all-hole mesh geometry (~19s for a 9-hole course) on every request; cache the
     # response by filesystem fingerprint so 备战 opens instantly until geometry / shots / clubs change.
     def _build() -> dict:
@@ -1619,8 +1606,22 @@ def _build_course_prep_nine(global_id, holes, render, include_shots, tee, player
         checkpoint()
         # Shot scatter is the player's OWN past end positions only: prep_nine reads solely the
         # threaded player_id's tree, so a member sees their own shots and never the owner's.
-        nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
-                                     include_shots=include_shots, player_id=player_id, tee_set=tee_set)
+        nine = course_prep.prep_nine(
+            global_id,
+            requested,
+            ladder=ladder,
+            render=render,
+            include_missing=True,
+            include_shots=include_shots,
+            player_id=player_id,
+            tee_box=tee,
+        )
+        selected_sets = {
+            int(row["teeSet"])
+            for row in nine
+            if isinstance(row, dict) and row.get("teeSet") is not None
+        }
+        tee_set = next(iter(selected_sets)) if len(selected_sets) == 1 else None
         mark_request_stage("prep_holes")
         checkpoint()
         payload = {
@@ -1658,7 +1659,7 @@ def _build_course_prep_nine(global_id, holes, render, include_shots, tee, player
     return prep_cache.cached_course_prep(
         global_id=global_id, requested=requested, render=render,
         include_shots=include_shots, player_id=player_id, build=_build,
-        variant=f"prep:tee{tee_set}",
+        variant=f"prep:box{str(tee or '').strip().lower()}",
     )
 
 
@@ -2499,11 +2500,14 @@ _ACTIVE_EVENT_TIMES: dict[tuple[str, str], datetime] = {}
 # package guard needs the round's opening time so a newly started offline round can replace an older
 # packaged round without allowing a late edit from that older round to take it back.
 _ACTIVE_START_TIMES: dict[tuple[str, str], datetime] = {}
-# Durable opening times are read from the append-only mobile log after a restart.  Cache both
-# timestamps and misses so a round blocked by the package guard does not reread its whole journal
-# on every late event.
+# Durable opening times are read from the append-only mobile log after a restart. Cache only
+# timestamps, not misses: a restore probe can arrive before an unregistered round's first events.
 _ROUND_START_CACHE: dict[tuple[str, str], datetime | None] = {}
 _ROUND_START_CACHE_LOCK = threading.Lock()
+# One finish-index snapshot per player, bound to its root and on-disk generation. Event appends
+# already inspect the index for history refresh; unchanged generations need no second full read.
+_FINISH_INDEX_CACHE: dict[str, tuple[str, tuple[int, ...] | None, dict[str, Any]]] = {}
+_FINISH_INDEX_CACHE_LOCK = threading.Lock()
 # Kept for diagnostics only. Timestamp ordering is per player; a phone batch may contain both
 # ios-phone and relayed apple-watch events, so clientId never creates separate clock domains.
 _ACTIVE_EVENT_DEVICES: dict[tuple[str, str], str] = {}
@@ -2654,7 +2658,22 @@ def _durable_round_is_finished(player_id: str, round_id: str) -> bool:
     from . import mobile
 
     try:
-        index = round_ingest._load_index(player_id, mobile.MOBILE_ROOT)
+        path = round_ingest._index_path(player_id, mobile.MOBILE_ROOT)
+        try:
+            stat = path.stat()
+            generation = (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
+        except FileNotFoundError:
+            generation = None
+        with _FINISH_INDEX_CACHE_LOCK:
+            cached = _FINISH_INDEX_CACHE.get(player_id)
+        if cached is not None and cached[:2] == (str(path), generation):
+            index = cached[2]
+        else:
+            # I/O stays outside both selector and cache locks. If a writer races this read, the
+            # next request observes its new generation; failures never populate the cache.
+            index = round_ingest._load_index(player_id, mobile.MOBILE_ROOT)
+            with _FINISH_INDEX_CACHE_LOCK:
+                _FINISH_INDEX_CACHE[player_id] = (str(path), generation, index)
     except Exception as exc:
         # The event append must remain usable if an old/corrupt optional index cannot be read.
         logger.warning("round finish index unavailable; treating round as unfinished (%s)",
@@ -2719,8 +2738,8 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
     durable_starts: dict[tuple[str, str], datetime | None] = {}
     if not finished and (timed_request or package_registration):
         # Snapshot keys before taking the global selector lock, then perform all journal reads here.
-        # The active dictionaries are process-local coordination state; a stale snapshot only costs
-        # an extra cache lookup and never changes the admission decision's safety.
+        # This is a best-effort snapshot: a concurrently registered round may be absent, so its
+        # durable opening time may remain unknown for this admission decision.
         keys_to_read = {key}
         keys_to_read.update(
             existing for existing in list(_ACTIVE_ROUNDS)
@@ -2825,7 +2844,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                     _ACTIVE_START_TIMES[key] = durable_starts[key]
                 if event_timestamp is not None:
                     if key not in _ACTIVE_START_TIMES:
-                        _ACTIVE_START_TIMES[key] = durable_starts.get(key) or event_timestamp
+                        _ACTIVE_START_TIMES[key] = event_timestamp
                     else:
                         _ACTIVE_START_TIMES[key] = min(_ACTIVE_START_TIMES[key], event_timestamp)
                     _ACTIVE_EVENT_TIMES[key] = max(

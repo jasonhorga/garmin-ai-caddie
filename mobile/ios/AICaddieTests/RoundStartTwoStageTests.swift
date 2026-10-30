@@ -33,6 +33,48 @@ final class RoundStartTwoStageTests: XCTestCase {
         try await super.tearDown()
     }
 
+    /// J4.2: establish the foreground gate before enqueueing the durable whole-course download.
+    func testPrepStartDoesNotCreateAndImmediatelyCancelADownloadWorker() throws {
+        C33URLProtocol.setHandlers(onStart: { $0.reply(404) })
+        let fixture = makeModel(host: "prep-start-order.example.test")
+        let model = fixture.model
+        let course = MobileCourseOption(globalId: c85CourseId, name: "Fixture Links", holes: 9, teeBox: "blue")
+        XCTAssertTrue(model.openPrepCourse(course))
+        // Synchronous before any actor yield: a worker created then cancelled is still a bug,
+        // even if its URL request never reached the transport.
+        XCTAssertEqual(model.prepWorkerStartsForTesting, 0)
+        XCTAssertEqual(model.prepWorkerCancellationsForTesting, 0)
+        XCTAssertEqual(model.prepCourseDownloads.first { !$0.isIntentPrefetch }?.phase, .queued)
+        XCTAssertEqual(try fixture.store.loadPrepCourseDownloads().filter { !$0.isIntentPrefetch }.count, 1)
+    }
+
+    /// J4.2: an explicit repeated request attaches to the held task and immediately changes copy.
+    func testActiveOfflineDownloadRequestShowsFeedbackWithoutRestarting() async throws {
+        let host = "prep-active-feedback.example.test"
+        let held = C85HeldRequests()
+        let sent = expectation(description: "whole-course download is active")
+        let once = C33FirstMatch()
+        let requests = C85RequestLog()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            requests.append(proto.request)
+            held.hold(proto)
+            if once.claim() { sent.fulfill() }
+        }, onStop: { held.forget($0) })
+        let fixture = makeModel(host: host, held: held)
+        let model = fixture.model
+        let course = MobileCourseOption(globalId: c85CourseId, name: "Fixture Links", holes: 9, teeBox: "blue")
+        model.downloadPrepCourse(course)
+        await fulfillment(of: [sent], timeout: eventWait)
+        model.downloadPrepCourse(course)
+        let row = try XCTUnwrap(model.prepCourseDownloads.first)
+        XCTAssertEqual(StartRoundPresentation.offlineStatusText(row), "正在下载，已在进行")
+        XCTAssertNil(StartRoundPresentation.offlineActionTitle(row))
+        XCTAssertEqual(model.prepWorkerStartsForTesting, 1)
+        XCTAssertEqual(model.prepWorkerCancellationsForTesting, 0)
+        XCTAssertEqual(requests.all.count, 1)
+        XCTAssertEqual(row.downloadedHoles, 0)
+    }
+
     func testMapOnlyPackageRequestCarriesTheWatchContract() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
@@ -290,6 +332,9 @@ final class RoundStartTwoStageTests: XCTestCase {
         })
         let fixture = makeModel(host: host)
         let model = fixture.model
+        // C136 makes Garmin imagery opt-in; this legacy C85 pass test explicitly exercises the
+        // enabled path so it remains a test of ordering rather than the default preference.
+        model.garminRasterPreloadingEnabled = { true }
         let downloads = C85DownloadLog()
         model.garminRasterDownloader = { url in
             downloads.urls.append(url)
@@ -591,6 +636,9 @@ final class RoundStartTwoStageTests: XCTestCase {
         })
         let fixture = makeModel(host: host, held: held)
         let model = fixture.model
+        // C136 makes the ahead-of-play Garmin layer opt-in; this stop-boundary test explicitly
+        // exercises cancellation of the enabled raster pass.
+        model.garminRasterPreloadingEnabled = { true }
         fixture.client.requestDataGateForTesting = { request in
             guard request.url?.path == "/api/v2/courses/\(c85CourseId)/install/status",
                   installStatusGateOnce.claim() else { return }
@@ -876,6 +924,35 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertFalse(model.package?.clubProfiles.isEmpty ?? true)
     }
 
+    /// J4.2: the deferred personal package follows the playing hole even when starting on 10.
+    func testPersonalEnrichmentRequestCarriesCurrentTenthHole() async throws {
+        let host = "j4-personal-tenth.example.test"
+        let roundId = "j4-personal-tenth"
+        let template = try package(roundId: roundId, mapOnly: true)
+        let map = try XCTUnwrap(LiveRoundPackage.projecting(
+            [.init(globalId: c85CourseId, half: "front"), .init(globalId: c85CourseId, half: "front")],
+            templates: [c85CourseId: template], roundId: roundId
+        ))
+        let fullSent = expectation(description: "personal package for playing hole 10")
+        let once = C33FirstMatch()
+        let log = C85RequestLog()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host,
+                  proto.request.url?.path == "/api/v2/mobile/courses/\(c85CourseId)/package",
+                  c33Query(proto.request, "map_only") != "true" else { proto.reply(404); return }
+            log.append(proto.request)
+            if once.claim() { fullSent.fulfill() }
+            proto.reply(503)
+        })
+        let fixture = makeModel(host: host)
+        fixture.model.enterPrepMode(with: map, hole: 10)
+        XCTAssertTrue(fixture.model.startRoundFromFirstStroke(startHole: 10))
+        await fulfillment(of: [fullSent], timeout: eventWait)
+        XCTAssertEqual(fixture.model.liveRoundState?.activeHole, 10)
+        XCTAssertEqual(log.all.first.flatMap { c33Query($0, "priority_hole") }, "10",
+                       "J4.2 enrichment must warm the playing hole, not default hole 1")
+    }
+
     /// The fallback behind the hook: once a test has invalidated the client, a request fails with
     /// `CancellationError` instead of creating a task in the invalidated session (NSGenericException).
     func testAnInvalidatedClientRefusesRequestsBeforeTheSession() async throws {
@@ -962,6 +1039,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         let rasterStarted = rasterGate.map { _ in expectation(description: "raster task held") }
         let rasterStartedOnce = C33FirstMatch()
         if let rasterGate {
+            fixture.model.garminRasterPreloadingEnabled = { true }
             fixture.model.garminRasterDownloader = { _ in
                 if rasterStartedOnce.claim() { rasterStarted?.fulfill() }
                 await rasterGate.wait()

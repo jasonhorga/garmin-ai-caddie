@@ -1,0 +1,15 @@
+diff --git a/ai_caddie/rounds/round_ingest.py b/ai_caddie/rounds/round_ingest.py
+index 88c3c88d..1548a964 100644
+--- a/ai_caddie/rounds/round_ingest.py
++++ b/ai_caddie/rounds/round_ingest.py
+@@ -790,9 +790,7 @@ def _geometry_inputs(
+         if total_strokes is None or total_strokes > par - 2:
+             reg_idx = par - 3  # 0-indexed regulation-stroke shot (par3->0, par4->1, par5->2)
+             # The last recorded shot's target is an aim, never evidence of where it landed.
+-            if 0 <= reg_idx and reg_idx + 1 < len(shots):
+-                landing = shots[reg_idx + 1]
+-                gir_end = (landing["lat"], landing["lon"])
++            gir_end = _shot_end_deg(shots, reg_idx) if 0 <= reg_idx < len(shots) else None
+     tee_point = (shots[1]["lat"], shots[1]["lon"]) if par >= 4 and len(shots) >= 2 else None
+     return gir_end, tee_point
+ 

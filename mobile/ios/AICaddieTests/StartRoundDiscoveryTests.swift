@@ -3,6 +3,126 @@ import AICaddieDomain
 @testable import AICaddie
 
 final class StartRoundDiscoveryTests: XCTestCase {
+    /// J4.2: server counts are distinct from locally downloaded holes; copy uses server facts.
+    func testOfflinePreparationShowsServerProgressAndHidesResumeAction() throws {
+        var row = prepFeedbackRow()
+        row.applyServerPreparation(prepFeedbackStatus(progress: 67, geometry: 12), at: Date(timeIntervalSince1970: 0))
+        let visible = try XCTUnwrap(StartRoundPresentation.offlineRows([row]).first)
+        XCTAssertEqual(StartRoundPresentation.offlineStatusText(visible), "服务器准备中 12/18 洞 · 67%")
+        XCTAssertEqual(row.downloadedHoles, 0, "server geometry is not a local offline download")
+        XCTAssertNil(StartRoundPresentation.offlineActionTitle(visible))
+        row.phase = .queued // The same job between polls still has progress, not a resume button.
+        XCTAssertNil(StartRoundPresentation.offlineActionTitle(row))
+        XCTAssertEqual(StartRoundPresentation.offlineStatusText(row), "服务器准备中 12/18 洞 · 67%")
+        row.serverPreparation = nil
+        XCTAssertEqual(StartRoundPresentation.offlineActionTitle(row), "下载")
+        for phase in [PrepCourseDownloadPhase.preparing, .downloading] {
+            row.phase = phase
+            XCTAssertNil(StartRoundPresentation.offlineActionTitle(row))
+        }
+        row.phase = .failed
+        XCTAssertEqual(StartRoundPresentation.offlineActionTitle(row), "重试")
+    }
+
+    /// J4.2/J4.1: one venue row sums its ready loop and server preparation of the other loop.
+    func testOfflinePreparationProgressIncludesEveryLoopOfTheVisibleVenue() throws {
+        let ready = PrepCourseDownloadRecord(
+            course: loop(8100, venue: "Fixture Links", label: "A"), phase: .ready, downloadedHoles: 9, totalHoles: 9
+        )
+        var preparing = PrepCourseDownloadRecord(course: loop(8101, venue: "Fixture Links", label: "B"))
+        let status = CourseInstallStatus(
+            schema: "course-install/v1", jobId: "loop-b", globalId: 8101, teeBox: "blue",
+            loopKey: "8101:all", phase: "running", stage: "geometry", totalHoles: 9, geometryReady: 6, topoReady: 0
+        )
+        preparing.applyServerPreparation(status, at: Date(timeIntervalSince1970: 0))
+        let row = try XCTUnwrap(StartRoundPresentation.offlineRows([ready, preparing]).first)
+        XCTAssertEqual(StartRoundPresentation.offlineStatusText(row), "服务器准备中 15/18 洞")
+        XCTAssertNil(StartRoundPresentation.offlineActionTitle(row))
+    }
+
+    /// J4.2: optional progress fields remain compatible with rows saved by older apps.
+    func testOfflinePreparationRestoresLegacyRowsWithoutServerProgress() throws {
+        let data = try JSONEncoder().encode(prepFeedbackRow())
+        var fields = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        fields.removeValue(forKey: "serverPreparation")
+        let legacy = try JSONSerialization.data(withJSONObject: fields)
+        let row = try JSONDecoder().decode(PrepCourseDownloadRecord.self, from: legacy)
+        XCTAssertNil(row.serverPreparation)
+        XCTAssertEqual(StartRoundPresentation.offlineStatusText(row), "等待下载")
+        XCTAssertEqual(StartRoundPresentation.offlineActionTitle(row), "下载")
+    }
+
+    /// J4.2: 600 seconds is the specified inactivity boundary, independent of updatedAt.
+    func testOfflinePreparationFailsAtTenMinutesWithoutProgress() throws {
+        for heartbeat in [nil, "2026-01-01T00:00:00Z"] as [String?] {
+            var row = prepFeedbackRow()
+            let status = prepFeedbackStatus(heartbeat: heartbeat)
+            row.applyServerPreparation(status, at: Date(timeIntervalSince1970: 0))
+            row.updatedAt = Date(timeIntervalSince1970: 599)
+            row.applyServerPreparation(status, at: Date(timeIntervalSince1970: 599))
+            XCTAssertEqual(row.phase, .preparing)
+            // A persisted observation must survive relaunch/requeue without resetting the clock.
+            let restored = try JSONDecoder().decode(PrepCourseDownloadRecord.self, from: JSONEncoder().encode(row))
+            row = restored
+            row.applyServerPreparation(status, at: Date(timeIntervalSince1970: 600))
+            XCTAssertEqual(row.phase, .failed)
+            XCTAssertEqual(row.errorText, "服务器准备没有进展，点重试")
+            XCTAssertEqual(StartRoundPresentation.offlineActionTitle(row), "重试")
+        }
+    }
+
+    /// J4.2: heartbeat, percent, geometry and topo each independently keep a cold course alive.
+    func testOfflinePreparationWaitsWhileAnyServerProgressAdvances() {
+        for signal in 0..<4 {
+            var row = prepFeedbackRow()
+            for tick in 0...4 {
+                let status = prepFeedbackStatus(
+                    progress: signal == 1 ? tick : 0,
+                    geometry: signal == 2 ? tick : 0,
+                    topo: signal == 3 ? tick : 0,
+                    heartbeat: signal == 0 ? "heartbeat-\(tick)" : nil
+                )
+                row.applyServerPreparation(status, at: Date(timeIntervalSince1970: Double(tick * 599)))
+                XCTAssertEqual(row.phase, .preparing, "ongoing work may exceed ten minutes overall")
+            }
+            let last = prepFeedbackStatus(
+                progress: signal == 1 ? 4 : 0, geometry: signal == 2 ? 4 : 0,
+                topo: signal == 3 ? 4 : 0, heartbeat: signal == 0 ? "heartbeat-4" : nil
+            )
+            row.applyServerPreparation(last, at: Date(timeIntervalSince1970: 4 * 599 + 600))
+            XCTAssertEqual(row.phase, .failed, "the window restarts at the last actual progress")
+        }
+    }
+
+    /// J4.2: a different server job/generation gets a fresh window, including older servers.
+    func testOfflinePreparationNewJobGetsItsOwnInactivityWindow() {
+        for newJob in [false, true] {
+            var row = prepFeedbackRow()
+            row.applyServerPreparation(prepFeedbackStatus(), at: Date(timeIntervalSince1970: 0))
+            let status = prepFeedbackStatus(job: newJob ? "replacement" : "job", generation: newJob ? 1 : 2)
+            row.applyServerPreparation(status, at: Date(timeIntervalSince1970: 600))
+            XCTAssertEqual(row.phase, .preparing)
+            row.applyServerPreparation(status, at: Date(timeIntervalSince1970: 1200))
+            XCTAssertEqual(row.phase, .failed)
+        }
+    }
+
+    private func prepFeedbackRow() -> PrepCourseDownloadRecord {
+        PrepCourseDownloadRecord(course: MobileCourseOption(globalId: 8100, name: "Fixture Links", holes: 18, teeBox: "blue"))
+    }
+
+    private func prepFeedbackStatus(
+        progress: Int? = nil, geometry: Int = 0, topo: Int = 0,
+        heartbeat: String? = nil, job: String = "job", generation: Int? = 1
+    ) -> CourseInstallStatus {
+        CourseInstallStatus(
+            schema: "course-install/v1", jobId: job, globalId: 8100,
+            teeBox: "blue", loopKey: "8100:front+8100:back", phase: "running", stage: "geometry",
+            progress: progress, heartbeatAt: heartbeat, generation: generation,
+            totalHoles: 18, geometryReady: geometry, topoReady: topo
+        )
+    }
+
     func testOpeningPageIsCourseUnlessACourseIsPassed() {
         XCTAssertEqual(StartRoundView.openingPage(initialPage: nil, defaultCourseGlobalId: nil), .course)
         XCTAssertEqual(StartRoundView.openingPage(initialPage: nil, defaultCourseGlobalId: 31795), .setup)

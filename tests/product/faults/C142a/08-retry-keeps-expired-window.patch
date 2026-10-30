@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 6becb66c..b1a2ba77 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -6753,7 +6753,6 @@ public final class LiveRoundAppModel: ObservableObject {
+         updatePrepCourseDownload(id: id) { record in
+             record.phase = .queued
+             record.errorText = nil
+-            record.serverPreparation = nil
+         }
+         refreshDownloadedCourseOptions()
+         startPrepCourseDownloadQueueIfNeeded(userRequested: id)

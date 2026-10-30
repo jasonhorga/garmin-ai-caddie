@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/vector_prep.py b/ai_caddie/courses/vector_prep.py
+--- a/ai_caddie/courses/vector_prep.py
++++ b/ai_caddie/courses/vector_prep.py
+@@ -159,6 +159,9 @@
+     # Do not reuse a row if authority changed while the batch was being read.
+     if (prep_cache._requested_geometry_sig(gid, [hole]) != geometry_sig
+             or prep_cache._course_data_sig(gid) != course_sig):
++        return None
++    candidates = [row for row in candidates if row.get("teeSet") == preferred_tee]
++    if not candidates:
+         return None
+     return min(candidates, key=lambda row: (row.get("teeSet") != preferred_tee,
+                                             str(row.get("teeSet"))))

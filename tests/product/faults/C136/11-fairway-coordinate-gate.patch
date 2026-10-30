@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -5921,7 +5921,7 @@
+                 distanceToPinM: (recordedNonPuttShotCount == 0 && !hasLeftSelectedTee) || isTeeShotOffTheHole
+                     ? caddiePlanningDistanceMetres : effectiveDistanceToPinMetres,
+                 lie: selectedLie,
+-                coordinate: caddieRequestCoordinate,
++                coordinate: hasLeftSelectedTee ? nil : liveCoordinateForCurrentHole,
+                 // Keep the flag coordinate in the server contract: the decision service uses it
+                 // when distanceToPin_m is unavailable. Pixel-only edits remain signature-only.
+                 targetCoordinate: wireTargetCoordinate,

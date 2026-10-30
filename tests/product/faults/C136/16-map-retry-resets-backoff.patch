@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -7165,7 +7165,7 @@
+         }
+         // A player selecting a hole starts a new priority, including one queued while a request
+         // was in flight. Recursive retries keep their own exponential backoff instead.
+-        let startsNewPriority = (mapOnly && !isRetry) || pendingGeometryMapOnlyRequested
++        let startsNewPriority = mapOnly || pendingGeometryMapOnlyRequested
+         let requestedMapOnly = mapOnly || pendingGeometryMapOnlyRequested
+         pendingGeometryMapOnlyRequested = false
+         guard let syncClient else {

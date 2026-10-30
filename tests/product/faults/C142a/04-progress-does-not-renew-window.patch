@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Models/MobileCourseOptions.swift b/mobile/ios/AICaddie/Models/MobileCourseOptions.swift
+index 37acd7e1..e5b25b19 100644
+--- a/mobile/ios/AICaddie/Models/MobileCourseOptions.swift
++++ b/mobile/ios/AICaddie/Models/MobileCourseOptions.swift
+@@ -724,7 +724,7 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
+             || status.geometryReady > (previous?.geometryReady ?? 0)
+             || status.topoReady > (previous?.topoReady ?? 0)
+         // Only server evidence advances this clock. Local updates, polls and duplicate taps do not.
+-        let lastProgressAt = advanced ? now : (previous?.lastProgressAt ?? now)
++        let lastProgressAt = previous?.lastProgressAt ?? now
+         let highestProgress = max(status.progress ?? -1, sameJob ? (previous?.progress ?? -1) : -1)
+         serverPreparation = PrepServerPreparationProgress(
+             jobId: status.jobId, generation: status.generation,

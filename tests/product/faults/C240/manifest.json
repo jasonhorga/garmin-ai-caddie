@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C240-01-nonforce-keeps-completed",
+      "patch": "tests/product/faults/C240/01-nonforce-keeps-completed.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_scan_clears_completed_breaker_before_close",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C240-02-cleanup-keys-by-asset",
+      "patch": "tests/product/faults/C240/02-cleanup-keys-by-asset.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_partial_release_keeps_history_and_uses_release_identity",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C240-03-due-keys-by-asset",
+      "patch": "tests/product/faults/C240/03-due-keys-by-asset.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_partial_release_keeps_history_and_uses_release_identity",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C240-04-cleanup-after-save",
+      "patch": "tests/product/faults/C240/04-cleanup-after-save.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_scan_clears_completed_breaker_before_close",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C240-05-success-keys-by-asset",
+      "patch": "tests/product/faults/C240/05-success-keys-by-asset.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_partial_release_keeps_history_and_uses_release_identity",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C240-06-enqueue-missing-asset",
+      "patch": "tests/product/faults/C240/06-enqueue-missing-asset.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_missing_asset_waits_for_source_without_rendering_none",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C240-07-due-missing-asset",
+      "patch": "tests/product/faults/C240/07-due-missing-asset.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_missing_asset_waits_for_source_without_rendering_none",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C240-08-due-enqueues-missing-asset",
+      "patch": "tests/product/faults/C240/08-due-enqueues-missing-asset.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.ReleaseRecoveryTests.test_J42_due_release_renders_only_holes_with_available_assets",
+      "promise": "4.2"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 6becb66c..85af817c 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -7509,7 +7509,8 @@ public final class LiveRoundAppModel: ObservableObject {
+                     // response alone is not evidence of ongoing work.
+                     let observedAt = prepDownloadNow()
+                     updatePrepCourseDownload(id: id, generation: generation) { state in
+-                        state.applyServerPreparation(serverStatus, at: observedAt)
++                        state.phase = .preparing
++                        state.errorText = nil
+                     }
+                     if prepCourseDownloads.first(where: { $0.id == id })?.phase == .failed { return }
+                     try await Task.sleep(nanoseconds: prepStatusProbeRetryDelayNanoseconds)

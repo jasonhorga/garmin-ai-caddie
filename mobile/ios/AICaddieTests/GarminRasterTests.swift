@@ -5,6 +5,23 @@ import UIKit
 import XCTest
 @testable import AICaddie
 
+
+private actor GarminRasterRetryGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var released = false
+
+    func wait() async {
+        if released { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func release() {
+        released = true
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
 private final class GarminRasterStubURLProtocol: URLProtocol {
     enum Mode { case serverError, timeout }
     static var mode: Mode = .serverError
@@ -31,6 +48,66 @@ private final class GarminRasterStubURLProtocol: URLProtocol {
 /// Card 454: the phone can use Garmin's raster while CourseView geometry is pending and can
 /// transfer the player's viewport/points when the precise image arrives.
 final class GarminRasterTests: XCTestCase {
+    /// Product spec 4.5: Garmin is an optional live-hole layer; opting out must avoid both its
+    /// descriptor request and its display state while the factual/precise map remains usable.
+    func testProductSpec45GarminOptOutDoesNotFetchOrDisplay() {
+        XCTAssertFalse(
+            LiveGarminRasterPolicy.shouldFetch(enabled: false, requestStarted: false),
+            "Garmin disabled must not start a descriptor request"
+        )
+        XCTAssertNil(
+            LiveGarminRasterPolicy.displayedRaster(
+                enabled: false,
+                raster: GarminRasterResponse(available: true, imageUrl: "/garmin.png")
+            ),
+            "Garmin disabled must stay out of the map state"
+        )
+    }
+
+    /// Product spec 4.5: selecting the optional Garmin layer keeps the request independent from the
+    /// live map and allows one in-flight descriptor request.
+    func testProductSpec45GarminOptInStartsOneRequest() {
+        XCTAssertTrue(LiveGarminRasterPolicy.shouldFetch(enabled: true, requestStarted: false))
+        XCTAssertFalse(LiveGarminRasterPolicy.shouldFetch(enabled: true, requestStarted: true))
+    }
+
+    /// Product spec 4.5: the model-owned ahead-of-play pass follows the same persisted opt-in and
+    /// has no implicit request when the preference has never been written.
+    func testProductSpec45GarminPreloadPreferenceDefaultsOff() throws {
+        let suiteName = "c136-garmin-preference-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { UserDefaults().removePersistentDomain(forName: suiteName) }
+        XCTAssertFalse(LiveGarminRasterPolicy.isEnabled(defaults: defaults))
+        defaults.set(true, forKey: LiveGarminRasterPolicy.preferenceKey)
+        XCTAssertTrue(LiveGarminRasterPolicy.isEnabled(defaults: defaults))
+    }
+
+    /// Product spec 4.5: a failed/timeout raster request immediately leaves a usable factual or
+    /// numeric surface; its later retry must never own the hole screen's visible loading state.
+    @MainActor
+    func testProductSpec45RasterFailureStopsVisibleSpinner() async {
+        let url = URL(string: "https://c136.example.test/raster-timeout.jpg")!
+        let retryStarted = expectation(description: "retry backoff started")
+        let gate = GarminRasterRetryGate()
+        let store = GarminRasterImageStore(
+            sleep: { _ in
+                retryStarted.fulfill()
+                await gate.wait()
+            },
+            loader: { _ in nil }
+        )
+        let loading = Task { @MainActor in await store.load(url) }
+        await fulfillment(of: [retryStarted], timeout: 2)
+        XCTAssertEqual(store.failedURL, url)
+        XCTAssertFalse(store.isLoading, "the failed attempt clears the visible spinner before retry")
+        // The store retries until success, so a loader that always fails never finishes on its
+        // own: end the display process (as leaving the hole does) before opening the backoff.
+        loading.cancel()
+        await gate.release()
+        await loading.value
+        XCTAssertFalse(store.isLoading)
+    }
+
     private func projection(
         originPixel: CGPoint,
         xPixel: CGPoint,

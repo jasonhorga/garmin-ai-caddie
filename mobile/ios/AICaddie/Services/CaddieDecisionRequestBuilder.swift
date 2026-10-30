@@ -24,6 +24,36 @@ public enum LiveCaddieDistance {
         if let staticMiddleM, staticMiddleM.isFinite, staticMiddleM > 0 { return staticMiddleM }
         return nil
     }
+
+    /// The live view's opening-shot planning source. Before the first shot, a fix still at the
+    /// selected Tee uses the static prep middle; a fix that has left the Tee while remaining on
+    /// the routed hole uses GPS. Manual input remains authoritative.
+    public static func planningDistance(
+        recordedShotCount: Int,
+        hasLeftSelectedTee: Bool,
+        manualM: Double?,
+        liveMiddleM: Double?,
+        staticMiddleM: Double?,
+        holeYards: Int?
+    ) -> Double? {
+        // A fresh tee request uses the selected tee until the player has either recorded a
+        // stroke or moved more than the tee threshold. Once either condition is true, the live
+        // GPS middle distance is the planning source (manual/flag input remains authoritative).
+        guard recordedShotCount == 0 && !hasLeftSelectedTee else {
+            return resolve(
+                manualM: manualM,
+                liveMiddleM: liveMiddleM,
+                staticMiddleM: staticMiddleM,
+                holeYards: holeYards
+            )
+        }
+        return resolve(
+            manualM: manualM,
+            liveMiddleM: nil,
+            staticMiddleM: staticMiddleM,
+            holeYards: holeYards
+        )
+    }
 }
 
 public struct LiveCaddieInput {

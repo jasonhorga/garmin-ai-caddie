@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/courses/vector_prep.py b/ai_caddie/courses/vector_prep.py
+--- a/ai_caddie/courses/vector_prep.py
++++ b/ai_caddie/courses/vector_prep.py
+@@ -114,7 +114,7 @@
+     add_hole_plan_provider(selected_vector_plan)
+
+ 
+-_register_hole_plan_provider()
++# no provider registration
+
+ 
+ def warm_requested_vectors(global_id: int, local_hole: int) -> None:

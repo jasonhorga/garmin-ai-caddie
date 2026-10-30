@@ -124,7 +124,7 @@ class GirFairwayDerivationTests(unittest.TestCase):
 
     def test_derive_uses_degrees_so_in_green_tee_is_gir(self) -> None:
         """(c) End-to-end units check through the helper: a par-3 tee ending on the green -> GIR True."""
-        shots = [_shot(TEE_C, target_local=GREEN_C)]  # lone tee, aims & ends on green
+        shots = [_shot(TEE_C, target_local=GREEN_C), _shot(GREEN_C)]  # observed landing
         with _patch_geometry(self.geo_dir):
             gir, fairway = round_ingest._derive_gir_fairway(GID, 1, 3, shots, total_strokes=3)
         self.assertIs(gir, True)
@@ -148,7 +148,8 @@ class GirFairwayDerivationTests(unittest.TestCase):
         GIR is True; the score proxy ``score <= par`` would wrongly say False."""
         shots = [
             _shot(TEE_C),                            # tee (ends in fairway)
-            _shot(FAIRWAY_C, target_local=GREEN_C),  # approach: last shot, END = target = green
+            _shot(FAIRWAY_C, target_local=GREEN_C),  # approach aims at the green
+            _shot(GREEN_C),                           # observed approach landing
         ]
         with _patch_geometry(self.geo_dir):
             gir, _ = round_ingest._derive_gir_fairway(GID, 1, 4, shots, total_strokes=5)
@@ -185,7 +186,7 @@ class GirFairwayDerivationTests(unittest.TestCase):
         """(e, helper) No geometry files -> gir/fairway both None (never guess)."""
         empty = Path(self._tmp.name) / "empty"
         empty.mkdir()
-        shots = [_shot(TEE_C), _shot(FAIRWAY_C, target_local=GREEN_C)]
+        shots = [_shot(TEE_C), _shot(FAIRWAY_C, target_local=GREEN_C), _shot(GREEN_C)]
         with _patch_geometry(empty, fairway_outline=False):
             gir, fairway = round_ingest._derive_gir_fairway(GID, 1, 4, shots, total_strokes=5)
         self.assertIsNone(gir)
@@ -208,7 +209,7 @@ class GirFairwayDerivationTests(unittest.TestCase):
         (self.geo_dir / f"gid{GID}_h02_hazards.json").write_text(
             json.dumps({"refLat": REF_LAT, "refLon": REF_LON, "hazards": []})
         )
-        shots = [_shot(TEE_C), _shot(FAIRWAY_C, target_local=(203.0, 203.0))]
+        shots = [_shot(TEE_C), _shot(FAIRWAY_C, target_local=(203.0, 203.0)), _shot((203.0, 203.0))]
         with _patch_geometry(self.geo_dir):
             gir, _fairway = round_ingest._derive_gir_fairway(
                 GID, 2, 4, shots, total_strokes=5
@@ -274,7 +275,7 @@ class GirFairwayIngestIntegrationTests(unittest.TestCase):
         sc_path = self.root / "data" / "players" / "p_friend" / "scorecards" / f"{rid}.json"
         raw = read_json(sc_path)
         hole = raw["scorecardDetails"][0]["scorecard"]["holes"][0]
-        # Tee ended in fairway -> hit; approach ended on green (last-shot target) -> GIR True.
+        # Tee landed in fairway -> hit; recorded 4 strokes - 2 putts -> GIR True.
         self.assertEqual(hole["number"], 1)
         self.assertIs(hole["gir"], True)
         self.assertEqual(hole["fairway"], "hit")
@@ -329,6 +330,10 @@ class GirFairwayIngestIntegrationTests(unittest.TestCase):
         events[0] = {**events[0], "payload": {"clubName": "Putter", "shotType": "putt", "lie": "Green"}}
         events[2] = {**events[2], "payload": {"clubName": "Putter", "shotType": "putt", "lie": "Green"}}
         events[-1] = {**events[-1], "payload": {"strokes": 5}}
+        green_lat, green_lon = _deg(GREEN_C)
+        events.insert(-1, {"hole": 1, "kind": "location", "payload": {
+            "latitude": green_lat, "longitude": green_lon,
+        }})  # J2.5: actual third start is the regulation landing; 3 logged shots < 5 strokes.
         with _patch_geometry(self.geo_dir):
             summary = round_ingest.ingest_round(
                 "p_friend",

@@ -1,0 +1,13 @@
+diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
+index 38e3f93a..42c2eb57 100644
+--- a/ops/backfill_manual_gir.py
++++ b/ops/backfill_manual_gir.py
+@@ -71,7 +71,7 @@ def _location_degrees(location: Any) -> tuple[float, float] | None:
+ def _landing(rows: list[dict[str, Any]], index: int) -> tuple[tuple[float, float] | None, str]:
+     if index + 1 < len(rows):
+         return _location_degrees(rows[index + 1].get("startLoc")), "nextShotStart"
+-    return None, "lastShotAim"
++    return _location_degrees(rows[index].get("endLoc")), "lastShotAim"
+ 
+ 
+ def _geometry_classification(

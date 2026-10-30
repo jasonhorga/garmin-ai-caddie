@@ -137,6 +137,7 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self.enterContext(patch.object(main, "_ACTIVE_EVENT_DEVICES", {}))
         self.enterContext(patch.object(main, "_ACTIVE_START_TIMES", {}))
         self.enterContext(patch.object(main, "_ROUND_START_CACHE", {}, create=True))
+        self.enterContext(patch.object(main, "_FINISH_INDEX_CACHE", {}))
         self.enterContext(patch.object(main, "_ACTIVE_PACKAGED_ROUNDS", set()))
         self.enterContext(patch.object(main, "_ACTIVE_SELECTIONS", {}))
         self.enterContext(patch.object(ci, "_CURRENT_COURSE_IDS", type(ci._CURRENT_COURSE_IDS)()))
@@ -600,6 +601,114 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
                 self.assertNotIn(("fixture", rid), self.main._ACTIVE_ROUNDS)
                 self.assertEqual(self.main._current_course_ids("fixture"), (123,))
 
+    def test_restart_event_recovered_live_round_rejects_finished_old_score_edit(self):
+        """J4.2: a finished edit cannot replace event-only recovery before any package arrives."""
+        self._identity("old-finished", 456)
+        self._post_events("old-finished", "o1", timestamp="2026-10-29T08:00:00Z")
+        self._finish_persisted("old-finished", 456)
+        self._identity("live-round", 123)
+        self._post_events("live-round", "l1", timestamp="2026-10-29T10:00:00Z")
+        for name in ("_ACTIVE_ROUNDS", "_ACTIVE_COURSES", "_ACTIVE_EVENT_TIMES",
+                     "_ACTIVE_EVENT_DEVICES", "_ACTIVE_SELECTIONS", "_ACTIVE_START_TIMES",
+                     "_ROUND_START_CACHE"):
+            getattr(self.main, name).clear()
+        self.main._ACTIVE_PACKAGED_ROUNDS.clear()
+        self._post_events("live-round", "l2", timestamp="2026-10-29T10:40:00Z")
+        self._post_events("old-finished", "o-edit", timestamp="2026-10-29T10:50:00Z")
+        self.assertNotIn(("fixture", "old-finished"), self.main._ACTIVE_ROUNDS)
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
+    def test_restore_probe_then_old_backlog_cannot_take_packaged_current_round(self):
+        """J4.2: a pre-event restore miss cannot hide an older backlog's opening time."""
+        from server_v2.models import LiveRoundEventBatchRequest
+
+        self._identity("live", 123)
+        self.package(123, "live")
+        self._post_events("live", "l1", timestamp="2026-10-29T08:30:00Z")
+        self._identity("old", 456)
+        self.round_package("old", 456)  # Restore probes the opening time before any progress exists.
+        self.assertNotIn(("fixture", "old"), self.main._ACTIVE_ROUNDS)
+        body = LiveRoundEventBatchRequest(
+            roundId="old",
+            events=[
+                self._event("old", "backlog-start", timestamp="2026-10-29T07:00:00Z"),
+                self._event("old", "backlog-edit", timestamp="2026-10-29T10:00:00Z"),
+            ],
+        )
+        self.main.mobile_round_events("old", body, "backlog", acting_player_id="fixture")
+        # J4.2 compares opening times for packaged play: 07:00 < 08:30, despite the 10:00 edit.
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+        self.assertNotIn(("fixture", "old"), self.main._ACTIVE_ROUNDS)
+
+    def test_retried_finished_edit_batch_stays_rejected_on_cached_index(self):
+        """J4.2: retrying a finished edit with the same Idempotency-Key cannot revive play."""
+        self._identity("retry", 456)
+        self._post_events("retry", "start", timestamp="2026-10-29T08:00:00Z")
+        self._finish_persisted("retry", 456)
+        self._post_events("retry", "edit", timestamp="2026-10-29T12:00:00Z")
+        self.assertNotIn(("fixture", "retry"), self.main._ACTIVE_ROUNDS)
+        # Same event and Idempotency-Key: append is idempotent, leaving the index generation warm.
+        self._post_events("retry", "edit", timestamp="2026-10-29T12:00:00Z")
+        self.assertNotIn(("fixture", "retry"), self.main._ACTIVE_ROUNDS)
+        self.assertEqual(self.main._current_course_ids("fixture"), ())
+        self.assertFalse(self.main.nearby_work_blocked())
+
+    def test_event_batch_finish_index_reads_are_bounded_and_reused(self):
+        """J4.2: cold batch <=2 index loads; unchanged warm batch <=1, for 1 or 32 events.
+
+        One append refresh is required; the finish guard may read once cold and zero times warm.
+        These bounds come from the current-round I/O budget, independently of event count.
+        """
+        # Materialize a different round so this budget covers an existing full index file.
+        self._identity("index-old", 456)
+        self._post_events("index-old", "old-start", timestamp="2026-10-29T08:00:00Z")
+        self._finish_persisted("index-old", 456)
+        self._identity("index-live", 123)
+        with patch.object(self.main.round_ingest, "_load_index",
+                          wraps=self.main.round_ingest._load_index) as read:
+            self._post_events("index-live", "cold", timestamp="2026-10-29T10:00:00Z")
+            self.assertLessEqual(read.call_count, 2)
+            for count in (1, 32):
+                with self.subTest(events=count):
+                    read.reset_mock()
+                    self._post_events("index-live", f"warm-{count}",
+                                      timestamp="2026-10-29T10:01:00Z",
+                                      client_ids=("apple-watch",) * count)
+                    self.assertGreaterEqual(read.call_count, 1)
+                    self.assertLessEqual(read.call_count, 1)
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
+    def test_finish_index_cache_observes_new_persistent_finish(self):
+        """J4.2: warming an unfinished index cannot hide a subsequent durable finish."""
+        self._identity("index-finished", 456)
+        self._post_events("index-finished", "start", timestamp="2026-10-29T08:00:00Z")
+        self._finish_persisted("index-finished", 456)
+        self._post_events("index-finished", "edit", timestamp="2026-10-29T12:00:00Z")
+        self.assertNotIn(("fixture", "index-finished"), self.main._ACTIVE_ROUNDS)
+        self.assertFalse(self.main.nearby_work_blocked())
+
+    def test_restart_unregistered_finish_evicts_opening_cache_for_round_package(self):
+        """J4.2: finish without a lease evicts the opening time before the next round-package request."""
+        self._identity("old-unregistered", 456)
+        self._post_events("old-unregistered", "start", timestamp="2026-10-29T08:00:00Z")
+        for name in ("_ACTIVE_ROUNDS", "_ACTIVE_COURSES", "_ACTIVE_EVENT_TIMES",
+                     "_ACTIVE_EVENT_DEVICES", "_ACTIVE_SELECTIONS", "_ACTIVE_START_TIMES",
+                     "_ROUND_START_CACHE"):
+            getattr(self.main, name).clear()
+        self.main._ACTIVE_PACKAGED_ROUNDS.clear()
+        self.package(123, "live-round")
+        self._post_events("live-round", "live", timestamp="2026-10-29T10:00:00Z")
+        # A delayed restore reads the durable opening time but cannot register behind live play.
+        self.round_package("old-unregistered", 456)
+        self.assertNotIn(("fixture", "old-unregistered"), self.main._ACTIVE_ROUNDS)
+        self._finish_persisted("old-unregistered", 456)
+        with patch.object(self.main, "_round_start_timestamp",
+                          wraps=self.main._round_start_timestamp) as read:
+            self.round_package("old-unregistered", 456)
+        # One reread proves direct finish evicted the cached 08:00 opening time.
+        self.assertEqual(read.call_count, 1)
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
     def test_restart_packaged_old_round_yields_to_newer_offline_start(self):
         """J4.2: package takeover compares the candidate and current opening times from the log."""
         self._identity("round-old", 456)
@@ -634,11 +743,11 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self._post_events("offline-new", "new-start", timestamp="2026-10-29T10:00:00Z")
         self.assertEqual(self.main._current_course_ids("fixture"), (456,))
 
-    def test_restart_live_round_history_blocks_finished_old_edit(self):
+    def test_restart_live_round_history_blocks_unfinished_old_edit(self):
         """J4.2: a recovered live round's durable opening time beats an unfinished old edit."""
-        self._identity("finished-old", 456)
-        self._post_events("finished-old", "old-start", timestamp="2026-10-29T08:00:00Z")
-        self._post_events("finished-old", "old-late-progress", timestamp="2026-10-29T12:00:00Z")
+        self._identity("unfinished-old", 456)
+        self._post_events("unfinished-old", "old-start", timestamp="2026-10-29T08:00:00Z")
+        self._post_events("unfinished-old", "old-late-progress", timestamp="2026-10-29T12:00:00Z")
         self.main._ROUND_START_CACHE.clear()
         self._identity("live-round", 123)
         self._post_events("live-round", "live-start", timestamp="2026-10-29T10:00:00Z")
@@ -650,20 +759,16 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
                                   holes=[{"sourceGlobalId": 123}], eventCursor={})
         with patch.object(self.main, "build_mobile_round_package_response", return_value=package):
             self.main.mobile_round_package("live-round", player_id="fixture")
-        self._post_events("finished-old", "old-edit", timestamp="2026-10-29T10:30:00Z")
+        self._post_events("unfinished-old", "old-edit", timestamp="2026-10-29T10:30:00Z")
         self.assertEqual(self.main._current_course_ids("fixture"), (123,))
 
-    def test_finished_old_edit_uses_durable_opening_time_for_guard(self):
-        """J4.2: a finished old round is rejected using its persisted minimum play time."""
+    def test_finished_old_edit_is_rejected_before_opening_time_comparison(self):
+        """J4.2: the persistent finish guard rejects edits before the package guard."""
         self._identity("finished-old", 456)
         self._post_events("finished-old", "old-start", timestamp="2026-10-29T08:00:00Z")
         self._post_events("finished-old", "old-late-progress", timestamp="2026-10-29T12:00:00Z")
         self.main._ROUND_START_CACHE.clear()
         self._finish_persisted("finished-old", 456)
-        self.assertEqual(
-            self.main._cached_round_start_timestamp("fixture", "finished-old"),
-            datetime.fromisoformat("2026-10-29T08:00:00+00:00"),
-        )
         self.package(123, "live-round")
         self._post_events("live-round", "live-start", timestamp="2026-10-29T10:00:00Z")
         self._post_events("finished-old", "old-edit", timestamp="2026-10-29T10:30:00Z")
@@ -705,13 +810,13 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self.assertNotIn(key, self.main._ACTIVE_START_TIMES)
         self.assertNotIn(key, self.main._ROUND_START_CACHE)
 
-    def test_cached_missing_start_is_refreshed_after_finish_and_reopen(self):
-        """J4.2: a pre-event package miss cannot hide a later durable opening time."""
-        self.round_package("round-l", 123)
+    def test_course_package_before_events_then_finish_and_reopen_allows_newer_start(self):
+        """J4.2: finish/reopen discovers the start behind the course-package guard (Y5)."""
+        self.package(123, "round-l")
         self._identity("round-l", 123)
         self._post_events("round-l", "l1", timestamp="2026-10-29T10:00:00Z")
         self._finish_persisted("round-l", 123)
-        self.round_package("round-l", 123)
+        self.package(123, "round-l")
         self._identity("round-n", 456)
         self._post_events("round-n", "n1", timestamp="2026-10-29T11:00:00Z")
         self.assertEqual(self.main._current_course_ids("fixture"), (456,))

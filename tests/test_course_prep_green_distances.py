@@ -74,6 +74,24 @@ class CoursePrepGreenDistancesTest(unittest.TestCase):
         self.assertLessEqual(out["middleM"], out["backM"])
         self.assertEqual(out["middleYd"], course_prep.yd(201.0))
 
+    def test_selected_tee_route_start_is_the_distance_golden(self):
+        # A forward Tee 40 m up the same hole must shorten every F/M/B fact by that station.
+        # This is the regression that previously produced a tens-of-yards mismatch between the
+        # package Tee/phone and the /prep card.
+        route = [(0.0, 40.0), (0.0, 320.0)]
+        green = {
+            "Green.drc": {
+                "positions": [
+                    [-3.0, 5.0, 276.0], [3.0, 5.0, 276.0],
+                    [3.0, 5.0, 286.0], [-3.0, 5.0, 286.0],
+                ],
+                "faces": [[0, 1, 2], [0, 2, 3]],
+            }
+        }
+        out = course_prep._green_distances(green, route)
+        self.assertEqual((out["frontM"], out["middleM"], out["backM"]), (236.0, 241.0, 246.0))
+        self.assertEqual(out["middleYd"], course_prep.yd(241.0))
+
     def test_neighbour_green_is_ignored(self):
         # the neighbour component sits ~95m from the tee; selecting it would make frontM < 150.
         # frontM ~196 proves the component nearest route[-1] (this hole's green) was chosen.

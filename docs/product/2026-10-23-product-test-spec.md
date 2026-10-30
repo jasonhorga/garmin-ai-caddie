@@ -52,6 +52,10 @@
 | 4.5 | 地图三档降级（精确/只有路线/什么都没）在备战、手机、手表同一规则：没图先画路线、图到原地替换且不重置缩放/平移/选中/目标点/旗位；连路线都没有是等待页不进空白洞 | 进洞白屏；补图后缩放跳回 | S 每洞状态 + V 三档 × 三端 |
 | 4.6 | 备战逐洞三个方案三条真不同路线，选中方案决定路线与球杆顺序；可换发球台；同洞推荐与打球屏开球时一致且等于 golden；无球童种子只画事实链 | 三方案同一条线；备战说 5 木打球屏说 3 木 | S 有/无种子/无球包 + V 布局边界 |
 
+J4.2 离线下载反馈细则：正在准备/下载的行显示状态或进度，不显示「继续下载」按钮；重复请求同一活跃任务时保留任务与已下载洞数，立即显示「已在进行」。服务端 queued/running 显示「服务器准备中 geometryReady/totalHoles 洞」，有 progress 时附百分比；轮询间隔的 queued 行仍显示该进度且无下载按钮。每个任务从首次观察起计时，heartbeatAt 改变（非空）、progress 增加、geometryReady 或 topoReady 增加，均重置无进展窗口；jobId/generation 改变视为新任务。连续 **600 秒（含边界）**无上述进展才转 failed，显示「服务器准备没有进展，点重试」。有进展可等待超过 600 秒，不设总耗时上限；无 heartbeat/progress 的旧服务端同样有 600 秒窗口。快照及窗口跨轮询持久化，显式重试清空窗口；普通行更新时间/重复点击不重置。备战开局先取得 beginRoundPreparation 的前台门控，再排后台下载/预取，不创建随后立即取消的 worker。
+
+J4.2 当前局 finish 守卫 I/O：一批 1 条或多条事件的守卫 index 读取次数不随事件数增长；守卫冷读最多 1 次，同玩家 index 文件版本未变化时后续批次不额外读取。对未 finish 的当前局，整条 append 路径冷批次最多读 2 次（append 刷新 + finish 守卫），后续版本未变每批最多读 1 次（append 刷新）；已 finish 局的历史重新物化 I/O 不计入此上界。守卫缓存以版本 key（mtime_ns/ctime_ns/size/inode）中的 inode 区分不同玩家或数据根的 index，文件版本变化后重新读取；命中缓存仍须判断本局 finish，同一 Idempotency-Key 重试已 finish 局的编辑也不得登记活跃局。包请求读不到开局时间时不缓存 miss，之后积压事件到达按持久最小开局时间比较；finish 也清理未登记在内存中的局的开局时间缓存，重新请求 round 包时重新读取持久开局时间用于接替判断。
+
 J4.2 Garmin 底图恢复细则：release 403 使用 60、120、240、480、960、1920、3600 秒封顶退避。
 已有 history monitor 每 60 秒检查 journal，`retryAfter <= 当前墙钟` 才允许自动非 force 重试，
 与历史签名变化、统计预热的退避独立。每 tick 最多取最早到期的 2 个 release（同到期按 key 排序），
@@ -61,7 +65,9 @@ J4.2 Garmin 底图恢复细则：release 403 使用 60、120、240、480、960�
 到期判定只考虑仍有 Garmin 待补洞的 release；没有待补洞的遗留熔断记录不得触发空跑 worker。
 tick worker 运行期间收到的 admin force POST，须在当前 pass 后执行一次全量 force 扫描，不得降级为只补到期 release。
 admin force 对仍有待补洞的 release 只重置重试门槛和 attempts，保留 `firstFailureAt`、`lastFailureAt`；下一次 403 更新 last 并保持 first。
-force 扫描发现洞已由别处补好、release 不再有 Garmin 待补洞时，删除该 release 熔断记录并持久化，状态页不留 attempts=0 的旧 403；之后再发生 403，首次失败时间从这次新失败重新计。
+任何全量扫描（含开机非 force 和 admin force）发现洞已由别处补好、release 不再有 Garmin 待补洞时，删除该 release 熔断记录并在扫描返回前持久化，不依赖 worker 后续 close；状态页不留旧 403。之后再发生 403，首次失败时间从这次新失败重新计。
+仍有部分洞待补时保留该 release 的熔断和 firstFailureAt；熔断的清理、到期判定和成功清除均按 globalId + garminRelease 标识，不能用逐洞 assetVersion 代替（两者可以不同）。
+release 元数据仍在但洞无可用 URL/本地栅格、assetVersion=None 时，已有熔断的洞仍保留待恢复状态与失败历史，但在全量扫描和到期重试中均不入队 render；该 release 所有待补洞都无 source 时，不触发到期 worker，同 release 尚有 source 的洞仍可按期恢复。后续扫描发现可用 source 后再恢复版本明确的任务。没有熔断且没有 source 的洞维持 skipped。
 旧 journal 的 `blocked` 加载后按 attempts 的当前退避档重算为 backoff/persistent，缺失的首次失败时间用
 `firstFailureAt: "unknown"` 表示，后续重试/重启仍保持未知，不伪造为最近失败时间。
 状态接口的 `garminReleaseBackoff[].firstFailureAt` 类型为数字时间戳（Unix 秒）或字符串 `"unknown"`，调用方必须兼容两种类型，不改变现有格式。

@@ -1,11 +1,14 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -5804,8 +5804,6 @@
-                 guard self.package?.roundId == roundId,
-                       self.liveRoundState?.roundId == roundId,
-                       self.package?.course.globalId == globalId else { return }
+@@ -7340,10 +7340,7 @@
+                     Self.tracePendingGeometry("return identity-after-error")
+                     return
+                 }
 -                self.pendingGeometryRefreshExecuting = false
--                self.schedulePendingGeometryRefresh(for: self.package ?? snapshot)
+-                self.schedulePendingGeometryRefresh(
+-                    for: self.package ?? snapshot, mapOnly: requestedMapOnly, isRetry: true
+-                )
++
              }
          }
      }

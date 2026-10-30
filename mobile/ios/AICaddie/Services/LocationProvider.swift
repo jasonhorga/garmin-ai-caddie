@@ -111,6 +111,12 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     }
 
     #if DEBUG
+    /// Install a deterministic fix for in-process product tests. Production builds do not expose
+    /// mutation of the provider's latest fix.
+    public func setFixForTesting(_ fix: LocationFix?) {
+        latestFix = fix
+    }
+
     /// Move the deterministic simulator fix while a real multi-hole UI journey advances. The guard
     /// keeps this inert unless the process was launched with UITEST_GPS_LAT/LON; Release/TestFlight
     /// builds do not compile this entry point at all.
