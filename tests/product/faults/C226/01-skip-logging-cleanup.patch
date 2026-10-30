@@ -1,0 +1,8 @@
+diff --git a/tests/test_server_v2_mobile.py b/tests/test_server_v2_mobile.py
+index 5749a811..a1aa66af 100644
+--- a/tests/test_server_v2_mobile.py
++++ b/tests/test_server_v2_mobile.py
+@@ -3642,3 +3642,2 @@ class ServerV2MobileTests(unittest.TestCase):
+     def test_mobile_start_hole_422_names_actual_round_limit(self) -> None:
+-        self.enterContext(preserve_service_logging())
+         event = {

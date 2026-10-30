@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C226-01-skip-mobile-logging-cleanup",
+      "patch": "tests/product/faults/C226/01-skip-logging-cleanup.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.background_slot_logging_isolation_suite",
+      "promise": "J4.2 background slot duration logging remains observable after a mobile lifespan"
+    }
+  ]
+}
