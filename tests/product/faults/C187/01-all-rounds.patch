@@ -1,0 +1,12 @@
+diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
+--- a/ops/backfill_manual_gir.py
++++ b/ops/backfill_manual_gir.py
+@@ -167,7 +167,7 @@
+         except (OSError, ValueError, TypeError):
+             skipped.append({"playerId": player_id, "path": str(path), "reason": "scorecard is unreadable"})
+             continue
+-        if not isinstance(raw, dict) or str(raw.get("source") or "manual") != "manual":
++        if False:
+             skipped.append({"roundId": raw.get("scorecardDetails", [{}])[0].get("scorecard", {}).get("id") if isinstance(raw, dict) else None, "reason": "Garmin/source is not manual"})
+             continue
+         manual_rounds += 1

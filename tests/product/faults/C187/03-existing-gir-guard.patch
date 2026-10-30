@@ -1,0 +1,12 @@
+diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
+--- a/ops/backfill_manual_gir.py
++++ b/ops/backfill_manual_gir.py
+@@ -185,7 +185,7 @@
+         for hole in holes:
+             if not isinstance(hole, dict):
+                 continue
+-            if hole.get("gir") is not None:
++            if False:
+                 before += 1
+                 skipped.append({"roundId": round_id, "hole": hole.get("number"), "reason": "GIR already recorded"})
+                 continue

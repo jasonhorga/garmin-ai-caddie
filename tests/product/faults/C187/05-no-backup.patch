@@ -1,0 +1,13 @@
+diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
+--- a/ops/backfill_manual_gir.py
++++ b/ops/backfill_manual_gir.py
+@@ -234,9 +234,6 @@
+                     target = next((hole for hole in holes if hole.get("number") == change["hole"]), None)
+                     if target is not None and target.get("gir") is None and target.get("putts") is None:
+                         target["gir"] = change["newGir"]
+-                backup = path.with_name(path.name + ".bak")
+-                if not backup.exists():
+-                    shutil.copy2(path, backup)
+                 round_ingest._atomic_write_json(path, raw)
+             round_ingest._invalidate_cache(player)
+ 

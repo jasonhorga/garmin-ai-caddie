@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C187-01-all-rounds",
+      "patch": "tests/product/faults/C187/01-all-rounds.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_dry_run_lists_only_missing_putt_gir_and_writes_nothing",
+      "promise": "J2.8 manual GIR backfill excludes Garmin rounds"
+    },
+    {
+      "id": "tests-product-faults-C187-02-putts-guard",
+      "patch": "tests/product/faults/C187/02-putts-guard.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_dry_run_lists_only_missing_putt_gir_and_writes_nothing",
+      "promise": "J2.8 manual GIR backfill requires missing putts"
+    },
+    {
+      "id": "tests-product-faults-C187-03-existing-gir-guard",
+      "patch": "tests/product/faults/C187/03-existing-gir-guard.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_apply_updates_manual_gir_leaves_guarded_rows_and_garmin_byte_identical",
+      "promise": "J2.8 existing GIR values remain unchanged"
+    },
+    {
+      "id": "tests-product-faults-C187-04-dry-run-writes",
+      "patch": "tests/product/faults/C187/04-dry-run-writes.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_dry_run_lists_only_missing_putt_gir_and_writes_nothing",
+      "promise": "J2.8 dry-run is read-only"
+    },
+    {
+      "id": "tests-product-faults-C187-05-no-backup",
+      "patch": "tests/product/faults/C187/05-no-backup.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_apply_updates_manual_gir_leaves_guarded_rows_and_garmin_byte_identical",
+      "promise": "J2.8 apply backs up changed scorecards"
+    },
+    {
+      "id": "tests-product-faults-C187-06-ignore-selected-component",
+      "patch": "tests/product/faults/C187/06-ignore-selected-component.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_dry_run_lists_only_missing_putt_gir_and_writes_nothing",
+      "promise": "J2.8 GIR uses selected Green.drc connected component"
+    },
+    {
+      "id": "tests-product-faults-C187-07-stats-summary",
+      "patch": "tests/product/faults/C187/07-stats-summary.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_apply_updates_manual_gir_leaves_guarded_rows_and_garmin_byte_identical",
+      "promise": "J2.8 GIR denominator change matches the dry-run list"
+    }
+  ]
+}

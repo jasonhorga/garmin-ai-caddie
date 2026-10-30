@@ -1,0 +1,12 @@
+diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
+--- a/ops/backfill_manual_gir.py
++++ b/ops/backfill_manual_gir.py
+@@ -101,7 +101,7 @@
+         point = core_data.wgs84_to_local(endpoint[0], endpoint[1], float(ref_lat), float(ref_lon))
+     except (TypeError, ValueError, OverflowError):
+         return None, "landing coordinate is invalid"
+-    surface = _mesh_gir_surface_match(point, _mesh_surface_rows(meshes), selected_component=selected)
++    surface = _mesh_gir_surface_match(point, _mesh_surface_rows(meshes), selected_component=None)
+     kind = (surface or {}).get("kind")
+     if kind == "green":
+         return True, "landing is inside the selected Green.drc connected component triangle"

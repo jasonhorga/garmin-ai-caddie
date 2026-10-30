@@ -1,0 +1,12 @@
+diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
+--- a/ops/backfill_manual_gir.py
++++ b/ops/backfill_manual_gir.py
+@@ -244,7 +244,7 @@
+ def backfill(*, root: Path | str | None = None, apply: bool = False) -> dict[str, Any]:
+     runtime_root = _runtime_root(root)
+     report, mutations = _scan(runtime_root)
+-    if apply and mutations:
++    if True and mutations:
+         _apply(runtime_root, report, mutations)
+         report["mode"] = "apply"
+     return report

@@ -1,0 +1,12 @@
+diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
+--- a/ops/backfill_manual_gir.py
++++ b/ops/backfill_manual_gir.py
+@@ -189,7 +189,7 @@
+                 before += 1
+                 skipped.append({"roundId": round_id, "hole": hole.get("number"), "reason": "GIR already recorded"})
+                 continue
+-            if hole.get("putts") is not None:
++            if False:
+                 skipped.append({"roundId": round_id, "hole": hole.get("number"), "reason": "putts already recorded"})
+                 continue
+             gir, basis = _evaluate_hole(root, raw, hole, shot_data)

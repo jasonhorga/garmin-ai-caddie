@@ -9,23 +9,256 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
+import sys
 from pathlib import Path
 from typing import Any
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+from ai_caddie.core import data as core_data
+from ai_caddie.geometry.geometry_evidence import _mesh_gir_surface_match, _mesh_surface_rows
+from ai_caddie.geometry.measure_prodgeometry_distances import bind_selected_green_target
+from ai_caddie.rounds import round_ingest
+
+
+def _runtime_root(root: Path | str | None) -> Path:
+    return Path(root).expanduser() if root is not None else Path(
+        os.environ.get("AI_CADDIE_ROOT") or core_data.ROOT
+    )
+
+
+def _int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number
+
+
+def _hole_par(raw: dict[str, Any], hole: dict[str, Any], number: int) -> int | None:
+    direct = _int(hole.get("par"))
+    if direct is not None:
+        return direct
+    snapshots = raw.get("courseSnapshots") or []
+    snapshot = snapshots[0] if snapshots and isinstance(snapshots[0], dict) else {}
+    pars = snapshot.get("holePars")
+    if pars is None:
+        pars = raw.get("holePars")
+    if isinstance(pars, list):
+        return _int(pars[number - 1]) if 0 < number <= len(pars) else None
+    if isinstance(pars, str) and 0 < number <= len(pars) and pars[number - 1].isdigit():
+        return int(pars[number - 1])
+    return None
+
+
+def _location_degrees(location: Any) -> tuple[float, float] | None:
+    if not isinstance(location, dict):
+        return None
+    lat = core_data.semicircle_to_deg(location.get("lat"))
+    lon = core_data.semicircle_to_deg(location.get("lon"))
+    if lat is None or lon is None:
+        return None
+    return float(lat), float(lon)
+
+
+def _landing(rows: list[dict[str, Any]], index: int) -> tuple[float, float] | None:
+    if index + 1 < len(rows):
+        return _location_degrees(rows[index + 1].get("startLoc"))
+    return _location_degrees(rows[index].get("endLoc"))
+
+
+def _geometry_classification(
+    root: Path,
+    raw: dict[str, Any],
+    number: int,
+    endpoint: tuple[float, float],
+) -> tuple[bool | None, str]:
+    ref = core_data.round_hole_ref(raw, number)
+    if ref.global_id is None:
+        return None, "course global id is missing"
+    mesh_path = root / "output" / "prodgeometry" / f"gid{int(ref.global_id)}_h{int(ref.local_hole):02d}_meshes.json"
+    hazard_path = root / "output" / "prodgeometry_hazards" / f"gid{int(ref.global_id)}_h{int(ref.local_hole):02d}_hazards.json"
+    if not mesh_path.exists():
+        return None, f"selected Green.drc geometry is missing ({mesh_path.name})"
+    try:
+        meshes = core_data.read_json(mesh_path)
+        hazards = core_data.read_json(hazard_path) if hazard_path.exists() else {}
+    except (OSError, ValueError, TypeError):
+        return None, "selected Green.drc geometry is unreadable"
+    if not isinstance(meshes, dict):
+        return None, "selected Green.drc geometry has no mesh object"
+    rebound = bind_selected_green_target(hazards, meshes, include_selected_component=True) or {}
+    selected = rebound.get("_selectedGreenComponent") if "_selectedGreenComponent" in rebound else None
+    ref_lat = hazards.get("refLat") if isinstance(hazards, dict) else None
+    ref_lon = hazards.get("refLon") if isinstance(hazards, dict) else None
+    mesh_hole = meshes.get("hole") if isinstance(meshes.get("hole"), dict) else {}
+    ref_lat = ref_lat if ref_lat is not None else mesh_hole.get("RefLat")
+    ref_lon = ref_lon if ref_lon is not None else mesh_hole.get("RefLon")
+    if ref_lat is None or ref_lon is None:
+        return None, "selected Green.drc geometry has no WGS84 reference"
+    try:
+        point = core_data.wgs84_to_local(endpoint[0], endpoint[1], float(ref_lat), float(ref_lon))
+    except (TypeError, ValueError, OverflowError):
+        return None, "landing coordinate is invalid"
+    surface = _mesh_gir_surface_match(point, _mesh_surface_rows(meshes), selected_component=selected)
+    kind = (surface or {}).get("kind")
+    if kind == "green":
+        return True, "landing is inside the selected Green.drc connected component triangle"
+    if kind is not None:
+        return False, f"landing is outside the selected Green.drc component ({kind})"
+    return None, "landing is not classifiable against the selected Green.drc component"
+
+
+def _evaluate_hole(root: Path, raw: dict[str, Any], hole: dict[str, Any], shot_data: dict[str, Any] | None) -> tuple[bool | None, str]:
+    number = _int(hole.get("number"))
+    if number is None or number <= 0:
+        return None, "hole number is missing"
+    par = _hole_par(raw, hole, number)
+    strokes = _int(hole.get("strokes"))
+    if par is None:
+        return None, "hole par is missing"
+    if strokes is None:
+        return None, "hole strokes are missing"
+    if strokes <= par - 2:
+        return True, f"strokes {strokes} are at or below the regulation limit par-2={par - 2}"
+    rows = [
+        shot
+        for hole_row in (shot_data or {}).get("holeShots", []) or []
+        if isinstance(hole_row, dict) and _int(hole_row.get("holeNumber")) == number
+        for shot in (hole_row.get("shots") or [])
+        if isinstance(shot, dict)
+    ]
+    required_index = par - 3
+    if required_index < 0 or required_index >= len(rows):
+        return None, f"regulation landing shot {required_index + 1} is missing"
+    endpoint = _landing(rows, required_index)
+    if endpoint is None:
+        return None, f"regulation landing shot {required_index + 1} has no endpoint"
+    return _geometry_classification(root, raw, number, endpoint)
+
+
+def _scorecard_files(root: Path) -> list[tuple[str, Path]]:
+    players = root / "data" / "players"
+    if not players.is_dir():
+        return []
+    rows: list[tuple[str, Path]] = []
+    for player_dir in sorted(players.iterdir()):
+        if not player_dir.is_dir() or player_dir.is_symlink():
+            continue
+        for path in sorted((player_dir / "scorecards").glob("*.json")):
+            rows.append((player_dir.name, path))
+    # Include the flat Garmin export in the read-only scan so the command proves it was skipped.
+    # It can never be an apply target: only ``data/players/<id>`` is a manual storage partition.
+    rows.extend(("__garmin__", path) for path in sorted((root / "data" / "scorecards").glob("*.json")))
+    return rows
+
+
+def _scan(root: Path) -> tuple[dict[str, Any], dict[Path, list[dict[str, Any]]]]:
+    changes: list[dict[str, Any]] = []
+    unresolved: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    mutations: dict[Path, list[dict[str, Any]]] = {}
+    before = 0
+    manual_rounds = 0
+    for player_id, path in _scorecard_files(root):
+        try:
+            raw = core_data.read_json(path)
+        except (OSError, ValueError, TypeError):
+            skipped.append({"playerId": player_id, "path": str(path), "reason": "scorecard is unreadable"})
+            continue
+        if not isinstance(raw, dict) or str(raw.get("source") or "manual") != "manual":
+            skipped.append({"roundId": raw.get("scorecardDetails", [{}])[0].get("scorecard", {}).get("id") if isinstance(raw, dict) else None, "reason": "Garmin/source is not manual"})
+            continue
+        manual_rounds += 1
+        details = raw.get("scorecardDetails") or []
+        scorecard = details[0].get("scorecard") if details and isinstance(details[0], dict) else None
+        if not isinstance(scorecard, dict):
+            continue
+        round_id = scorecard.get("id")
+        shot_path = path.parent.parent / "shots" / path.name
+        try:
+            shot_data = core_data.read_json(shot_path) if shot_path.exists() else None
+        except (OSError, ValueError, TypeError):
+            shot_data = None
+        holes = scorecard.get("holes") or []
+        for hole in holes:
+            if not isinstance(hole, dict):
+                continue
+            if hole.get("gir") is not None:
+                before += 1
+                skipped.append({"roundId": round_id, "hole": hole.get("number"), "reason": "GIR already recorded"})
+                continue
+            if hole.get("putts") is not None:
+                skipped.append({"roundId": round_id, "hole": hole.get("number"), "reason": "putts already recorded"})
+                continue
+            gir, basis = _evaluate_hole(root, raw, hole, shot_data)
+            if gir is None:
+                unresolved.append({"roundId": round_id, "hole": hole.get("number"), "oldGir": None, "newGir": None, "reason": basis})
+                continue
+            change = {"playerId": player_id, "roundId": round_id, "hole": hole.get("number"), "oldGir": None, "newGir": bool(gir), "basis": basis, "path": str(path)}
+            changes.append(change)
+            mutations.setdefault(path, []).append(change)
+        # A missing GIR is not a recorded denominator, so only existing values count here.
+    after = before + len(changes)
+    report = {
+        "mode": "dry-run",
+        "changes": changes,
+        "unresolved": unresolved,
+        "skipped": skipped,
+        "summary": {
+            "manualRounds": manual_rounds,
+            "changes": len(changes),
+            "unresolved": len(unresolved),
+            "girRecordedBefore": before,
+            "girRecordedAfter": after,
+        },
+    }
+    return report, mutations
+
+
+def _apply(root: Path, report: dict[str, Any], mutations: dict[Path, list[dict[str, Any]]]) -> None:
+    by_player: dict[str, list[tuple[Path, list[dict[str, Any]]]]] = {}
+    for path, rows in mutations.items():
+        player = path.parent.parent.name
+        by_player.setdefault(player, []).append((path, rows))
+    for player, files in by_player.items():
+        if any(path.parent.parent.parent != root / "data" / "players" for path, _rows in files):
+            raise RuntimeError("refusing to apply GIR changes outside manual player storage")
+        with round_ingest._player_ingest_lock(player, root):
+            for path, rows in files:
+                raw = core_data.read_json(path)
+                details = raw["scorecardDetails"][0]["scorecard"]
+                holes = details.get("holes") or []
+                for change in rows:
+                    target = next((hole for hole in holes if hole.get("number") == change["hole"]), None)
+                    if target is not None and target.get("gir") is None and target.get("putts") is None:
+                        target["gir"] = change["newGir"]
+                backup = path.with_name(path.name + ".bak")
+                if not backup.exists():
+                    shutil.copy2(path, backup)
+                round_ingest._atomic_write_json(path, raw)
+            round_ingest._invalidate_cache(player)
+
 
 def backfill(*, root: Path | str | None = None, apply: bool = False) -> dict[str, Any]:
-    """Return a dry-run report; ``apply=True`` is the only write mode.
-
-    The initial implementation is deliberately a no-op seam.  It is replaced after the product
-    test is committed and shown red, preserving the先红再修 workflow for this one-shot operation.
-    """
-    return {"mode": "apply" if apply else "dry-run", "changes": [], "summary": {}}
-
+    runtime_root = _runtime_root(root)
+    report, mutations = _scan(runtime_root)
+    if apply and mutations:
+        _apply(runtime_root, report, mutations)
+        report["mode"] = "apply"
+    return report
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=None, help="runtime root containing data/ and output/")
-    parser.add_argument("--apply", action="store_true", help="write changes after backing up each file")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true", help="print the change report without writing (default)")
+    mode.add_argument("--apply", action="store_true", help="write changes after backing up each file")
     args = parser.parse_args(argv)
     print(json.dumps(backfill(root=args.root, apply=args.apply), ensure_ascii=False, indent=2))
     return 0

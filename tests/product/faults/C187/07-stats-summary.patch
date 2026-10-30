@@ -1,0 +1,12 @@
+diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
+--- a/ops/backfill_manual_gir.py
++++ b/ops/backfill_manual_gir.py
+@@ -204,7 +204,7 @@
+             changes.append(change)
+             mutations.setdefault(path, []).append(change)
+         # A missing GIR is not a recorded denominator, so only existing values count here.
+-    after = before + len(changes)
++    after = before
+     report = {
+         "mode": "dry-run",
+         "changes": changes,
