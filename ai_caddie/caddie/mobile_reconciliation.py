@@ -560,6 +560,11 @@ def reconcile_mobile_round_events(
         audit = _candidate_audit(event)
         if audit:
             candidate_audits.append(audit)
+        if identity is None and hole_map is None and hole not in scores:
+            # Legacy unnumbered cards use the display axis, but absent card rows cannot consume
+            # hole corrections. Keep the phone evidence without suggesting an ineffective write.
+            local_only.append(_unmapped_local_only_row(event, payload, kind=kind, hole=hole))
+            continue
         if hole_map is not None:
             if hole not in hole_map:
                 # An empty map with competing Garmin facts remains C76's unresolved identity.
@@ -572,11 +577,6 @@ def reconcile_mobile_round_events(
                 hole = hole_map[hole]
                 if audit:
                     audit["hole"] = hole
-        elif identity is None and hole not in scores:
-            # Legacy unnumbered cards use the display axis, but absent card rows cannot consume
-            # hole corrections. Keep the phone evidence without suggesting an ineffective write.
-            local_only.append(_unmapped_local_only_row(event, payload, kind=kind, hole=hole))
-            continue
         elif identity is not None and hole not in scores:
             # Legacy unnumbered cards use the display axis, but absent card rows cannot consume
             # hole corrections. Keep the phone evidence without suggesting an ineffective write.
@@ -738,6 +738,15 @@ def reconcile_mobile_round_events(
         row.setdefault("unmapped", False)
         event_id = str(row.get("eventId") or "")
         row["phoneHole"] = phone_holes.get(event_id, row.get("phoneHole", row.get("hole")))
+    applied_decision_ids = {
+        str(row.get("decisionId") or "")
+        for row in list_decision_audits(root=root, player_id=player_id)
+        if row.get("decisionId")
+    }
+    candidate_audits = [
+        row for row in candidate_audits
+        if str(row.get("decisionId") or "") not in applied_decision_ids
+    ]
     annotation_suggestions = _annotation_suggestions(
         conflicts=conflicts,
         local_only=local_only,
@@ -749,20 +758,10 @@ def reconcile_mobile_round_events(
         for row in local_only
         if row.get("unmapped")
     }
-    applied_decision_ids = {
-        str(row.get("decisionId") or "")
-        for row in list_decision_audits(root=root, player_id=player_id)
-        if row.get("decisionId")
-    }
     annotation_suggestions = [
         row for row in annotation_suggestions
         if row.get("kind") == "caddie_feedback"
         or str((row.get("payload") or {}).get("sourceEventId") or "") not in unsafe_event_ids
-    ]
-    annotation_suggestions = [
-        row for row in annotation_suggestions
-        if row.get("kind") != "caddie_feedback"
-        or str(row.get("targetId") or "") not in applied_decision_ids
     ]
     return {
         "schema": "ai-caddie-mobile-reconciliation-v1",

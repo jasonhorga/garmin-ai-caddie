@@ -1,12 +1,11 @@
---- a/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:49:01.100626158 +0000
-+++ b/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:49:01.227628995 +0000
-@@ -761,8 +761,7 @@
+--- a/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:54:52.762837212 +0000
++++ b/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:54:52.855838983 +0000
+@@ -745,7 +745,7 @@
+     }
+     candidate_audits = [
+         row for row in candidate_audits
+-        if str(row.get("decisionId") or "") not in applied_decision_ids
++        if False
      ]
-     annotation_suggestions = [
-         row for row in annotation_suggestions
--        if row.get("kind") != "caddie_feedback"
--        or str(row.get("targetId") or "") not in applied_decision_ids
-+        if True
-     ]
-     return {
-         "schema": "ai-caddie-mobile-reconciliation-v1",
+     annotation_suggestions = _annotation_suggestions(
+         conflicts=conflicts,

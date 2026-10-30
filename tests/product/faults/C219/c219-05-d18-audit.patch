@@ -1,5 +1,5 @@
---- a/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:49:01.100626158 +0000
-+++ b/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:49:01.221628861 +0000
+--- a/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:54:52.762837212 +0000
++++ b/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:54:52.851838907 +0000
 @@ -558,7 +558,7 @@
          # update the audit's hole to the Garmin display axis while preserving the pre-map behavior
          # for an unmapped phone hole.
@@ -7,5 +7,5 @@
 -        if audit:
 +        if audit and hole in scores:
              candidate_audits.append(audit)
-         if hole_map is not None:
-             if hole not in hole_map:
+         if identity is None and hole_map is None and hole not in scores:
+             # Legacy unnumbered cards use the display axis, but absent card rows cannot consume
