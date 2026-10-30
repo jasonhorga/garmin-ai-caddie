@@ -1,26 +1,26 @@
-diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
 --- a/ops/agenthub_deploy.py
 +++ b/ops/agenthub_deploy.py
-@@ -1206,16 +1206,16 @@ def normalize_restart_policy(cfg: Config, containers: list[Container], live: Con
+@@ -1221,6 +1221,12 @@
      recovery) a refused update only warns; `live` is then held at `no` as well, because the
      release that kept its policy may still be on-failure.  Returns the releases that kept it."""
      kept = []
--    for container in containers:
--        if container.name.startswith(cfg.prefix) and (live is None or container.id != live.id):
--            if set_restart_policy(container.name, "no", check=check).returncode != 0:
--                policy_warning(container.name, "restart_policy_failed",
--                               f"{container.name} could not be set to restart policy no")
--                kept.append(container.name)
-     if live is not None:
-         if kept:
-             withhold_live(live.name)
-         elif set_restart_policy(live.name, LIVE_RESTART_POLICY, check=check).returncode != 0:
-             policy_warning(live.name, "restart_policy_failed",
-                            f"{live.name} keeps its restart policy; the next deploy, rollback or up corrects it")
-+    for container in containers:
-+        if container.name.startswith(cfg.prefix) and (live is None or container.id != live.id):
-+            if set_restart_policy(container.name, "no", check=check).returncode != 0:
-+                policy_warning(container.name, "restart_policy_failed",
-+                               f"{container.name} could not be set to restart policy no")
-+                kept.append(container.name)
++    if live is not None:
++        if kept:
++            withhold_live(live.name)
++        elif set_restart_policy(live.name, LIVE_RESTART_POLICY, check=check).returncode != 0:
++            policy_warning(live.name, "restart_policy_failed",
++                           f"{live.name} keeps its restart policy; the next deploy, rollback or up corrects it")
+     for container in containers:
+         if container.name.startswith(cfg.prefix) and (live is None or container.id != live.id):
+             update_check = check and not (container.dead or container.status in {"dead", "removing"})
+@@ -1229,10 +1235,4 @@
+                                f"{container.name} could not be set to restart policy no")
+                 if container.restart_update_is_withheld:
+                     kept.append(container.name)
+-    if live is not None:
+-        if kept:
+-            withhold_live(live.name)
+-        elif set_restart_policy(live.name, LIVE_RESTART_POLICY, check=check).returncode != 0:
+-            policy_warning(live.name, "restart_policy_failed",
+-                           f"{live.name} keeps its restart policy; the next deploy, rollback or up corrects it")
      return kept
