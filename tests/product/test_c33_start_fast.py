@@ -111,7 +111,6 @@ def selected_tee_fixture_course():
             (cp, 'effective_club_ladder', {'return_value': [('7I', 140)]}),
             (cp, 'lightweight_prep_hole', {'return_value': None}),
             (mobile, 'load_history_data_for_mode', {'return_value': (ml.HistoryData(raw_rounds=[], rounds=[], shots=[]), 'fixture')}),
-            (mobile, '_package_singleflight', {'side_effect': lambda key, build, **kw: build()}),
         ]:
             stack.enter_context(patch.object(obj, name, **kw))
         yield mobile, vp, cp, root, jobs
@@ -559,10 +558,10 @@ class ReworkContractTests(unittest.TestCase):
                 # round(hypot(10,250),1)=250.2; centre=260; hypot(10,270)=270.2.
                 self.assertEqual([current['greenDistances'][key] for key in ('frontM', 'middleM', 'backM')],
                                  [250.2, 260.0, 270.2])
-                self.assertTrue(list((root / 'vectors').rglob('*.json')), 'current hole is durable')
                 precise.reset_mock()
                 fetch()
                 self.assertEqual(precise.call_count, 0, 'even a package rebuild reuses the persisted current hole')
+                self.assertTrue(list((root / 'vectors').rglob('*.json')), 'current hole is durable')
             self.assertTrue(jobs, 'other selected Tee vectors must be scheduled')
             self.assertTrue(all(h['geometryState'] == 'pending' for h in first.holes if h['number'] != 2))
             # Execute the actual background unit after the request, with its process boundary inlined.
