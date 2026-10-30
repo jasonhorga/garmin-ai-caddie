@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C229-S1-clear-tmp-under-shared-at-unlink",
+      "patch": "tests/product/faults/C229/S1-clear-tmp-under-shared.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_cleanup_unlink_holds_exclusive_event_lock",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C229-S6-catch-only-permission-error",
+      "patch": "tests/product/faults/C229/S6-catch-only-permission-error.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_cleanup_unlink_failure_warns_and_read_continues",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C229-S5-absolute-path-cleanup-warning",
+      "patch": "tests/product/faults/C229/S5-absolute-path-cleanup-warning.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_cleanup_unlink_failure_warns_and_read_continues",
+      "promise": "7.3"
+    }
+  ]
+}

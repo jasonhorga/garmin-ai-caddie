@@ -666,7 +666,8 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         error.assert_not_called()
 
     def test_recovery_cleans_only_event_owned_temporary_files(self) -> None:
-        """J5.9/J7.3: cold reads clean abandoned migration/JSON temps, even without an intent."""
+        """J5.9: cold reads clean event-owned migration/JSON temps, even without an intent
+        (原文承诺「reservation tmp 纳入事件锁清理」), while leaving ACK tmp and formal backups alone."""
         for has_intent in (False, True):
             with self.subTest(has_intent=has_intent):
                 store = FileEventStore(self.root / str(has_intent))
@@ -722,29 +723,64 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertEqual([row["event"]["eventId"] for row in store.read_rows()], ["shared-cleanup"])
         self.assertFalse(temp.exists(), "an exclusive cleanup pass removes the abandoned tmp")
 
-    def test_cleanup_unlink_failure_warns_and_read_continues(self) -> None:
-        """J5.9: an undeletable event tmp warns without making the partition unreadable."""
+    def test_cleanup_unlink_holds_exclusive_event_lock(self) -> None:
+        """J5.9: cleanup must hold the exclusive event lock at each unlink."""
         store = FileEventStore(self.root)
-        store.append_batch(ROUND_A, [_event("unlink-warning")], request_key="unlink-warning")
-        temp = store.root / ".events.jsonl.migrate-unlink-warning.tmp"
-        temp.write_bytes(b"undeletable")
+        store.append_batch(ROUND_A, [_event("unlink-lock")], request_key="unlink-lock")
+        temp = store.root / ".events.jsonl.migrate-unlink-lock.tmp"
+        temp.write_bytes(b"pre-existing migration bytes")
         original_unlink = Path.unlink
+        shared_lock_acquired: list[bool] = []
 
         def unlink(path: Path, *, missing_ok: bool = False) -> None:
             if path == temp:
-                raise PermissionError("synthetic unlink denial")
+                descriptor = os.open(store.event_lock, os.O_RDONLY)
+                try:
+                    try:
+                        fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        shared_lock_acquired.append(False)
+                    else:
+                        shared_lock_acquired.append(True)
+                        fcntl.flock(descriptor, fcntl.LOCK_UN)
+                finally:
+                    os.close(descriptor)
             original_unlink(path, missing_ok=missing_ok)
 
-        with mock.patch.object(Path, "unlink", autospec=True, side_effect=unlink), \
-             mock.patch.object(mobile_event_store.logger, "warning") as warning:
-            rows = FileEventStore(self.root).read_rows(ROUND_A)
+        with mock.patch.object(Path, "unlink", autospec=True, side_effect=unlink):
+            rows = store.read_rows(ROUND_A)
+
+        self.assertEqual([row["event"]["eventId"] for row in rows], ["unlink-lock"])
+        self.assertEqual(shared_lock_acquired, [False],
+                         "cleanup must hold LOCK_EX when it unlinks a migration tmp")
+        self.assertFalse(temp.exists())
+
+    def test_cleanup_unlink_failure_warns_and_read_continues(self) -> None:
+        """J5.9: a failed tmp unlink follows the original promise「删不掉就告警继续」
+        without blocking reads."""
+        store = FileEventStore(self.root / "players/player-secret/mobile_events")
+        store.append_batch(ROUND_A, [_event("unlink-warning")], request_key="unlink-warning")
+        temp = store.root / ".events.jsonl.migrate-unlink-warning.tmp"
+        temp.mkdir()
+
+        with mock.patch.object(mobile_event_store.logger, "warning") as warning:
+            try:
+                rows = FileEventStore(store.root).read_rows(ROUND_A)
+            except OSError as exc:
+                self.fail(f"undeletable tmp must not block reads: {exc!r}")
 
         self.assertEqual([row["event"]["eventId"] for row in rows], ["unlink-warning"])
         warning.assert_called_once()
-        self.assertIn("migration", str(warning.call_args).lower())
+        message = warning.call_args.args[0] % warning.call_args.args[1:]
+        self.assertIn("migration", message.lower())
+        partition = warning.call_args.args[1]
+        self.assertRegex(partition, r"^player:[0-9a-f]{12}$")
+        self.assertNotIn("player-secret", message)
+        self.assertNotIn(str(self.root), message)
 
     def test_reservation_temporary_files_are_cleaned_without_touching_formal_store(self) -> None:
-        """J5.9: request-reservation tmp artifacts are event-owned cleanup targets."""
+        """J5.9: cold reads clean request reservation tmp artifacts under the event lock
+        (原文承诺「reservation tmp 纳入事件锁清理」), while formal reservation files remain untouched."""
         store = FileEventStore(self.root)
         store.append_batch(ROUND_A, [_event("reservation-cleanup")], request_key="reservation-cleanup")
         temporary = store.root / ".request_reservations.json.123.tmp"

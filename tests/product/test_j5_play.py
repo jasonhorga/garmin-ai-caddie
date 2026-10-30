@@ -610,20 +610,28 @@ class EventAppendTests(unittest.TestCase):
         }}
         log.write_bytes((json.dumps(unrelated, sort_keys=True) + "\n").encode() * 2600)
         self.assertGreaterEqual(log.stat().st_size, 7_000_000)
-        # Use the real clock: the append writer itself knows the digest it just persisted and must
-        # be able to seed the prefix cache even while the filesystem timestamp is still fresh.
-        FileEventStore(self.root).append_batch(
-            ROUND_A, [{**self._event("seed"), "hole": 1}], request_key="seed",
-            validate_append=require_possible_appended_scores,
-        )
+        store = FileEventStore(self.root)
+
+        def inside_window() -> int:
+            current = log.stat()
+            return max(current.st_mtime_ns, current.st_ctime_ns)
+
+        # Pin both appends to the filesystem timestamp so the writer exception is deterministic,
+        # even when fsync is delayed by a loaded host.
+        with patch.object(mobile_event_store, "_PREFIX_CACHE_CLOCK", inside_window):
+            store.append_batch(
+                ROUND_A, [{**self._event("seed"), "hole": 1}], request_key="seed",
+                validate_append=require_possible_appended_scores,
+            )
         before = log.read_bytes()
         timing = RequestTiming("append-probe")
         started = time.perf_counter()
-        with count_log_reads(log) as reads, bind(timing):
-            result = FileEventStore(self.root).append_batch(
-                ROUND_A, [{**self._event("next"), "hole": 2}], request_key="next",
-                validate_append=require_possible_appended_scores,
-            )
+        with patch.object(mobile_event_store, "_PREFIX_CACHE_CLOCK", inside_window):
+            with count_log_reads(log) as reads, bind(timing):
+                result = store.append_batch(
+                    ROUND_A, [{**self._event("next"), "hole": 2}], request_key="next",
+                    validate_append=require_possible_appended_scores,
+                )
         elapsed = time.perf_counter() - started
         print(f"APPEND_PROBE bytes={len(before)} sha256={hashlib.sha256(before).hexdigest()} "
               f"elapsed_ms={elapsed * 1000:.3f} read_bytes={reads['bytes']} stages={timing.marks}")
