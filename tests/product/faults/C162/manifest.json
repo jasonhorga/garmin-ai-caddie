@@ -86,6 +86,20 @@
       "promise": "4.2"
     },
     {
+      "id": "C162-ignore-cached-nearby",
+      "patch": "tests/product/faults/C162/S4-ignore-cached-nearby.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testRecentVenueIncludesCachedNearbyNinesWithoutAddingOtherVenues",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-drop-last-nearby-cache",
+      "patch": "tests/product/faults/C162/S5-drop-last-nearby-cache.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testRecentVenueIncludesCachedNearbyNinesWithoutAddingOtherVenues",
+      "promise": "4.1"
+    },
+    {
       "id": "C162-drop-catalogue-loops",
       "patch": "tests/product/faults/C162/drop-catalogue-loops.patch",
       "kind": "native-unit",
