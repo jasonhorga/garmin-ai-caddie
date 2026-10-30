@@ -1304,6 +1304,15 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("Test-environment upload opt-in", text)
         self.assertIn('UI.success("Signed IPA built; TestFlight upload was not requested.")', text)
         self.assertIn("def next_testflight_build_number!(api_key:)", text)
+
+    def test_G7_fastlane_preflights_before_build_and_retries_warming_with_budget(self) -> None:
+        """G7: backend failure is found before IPA work; warming retries are bounded."""
+        text = Path("fastlane/Fastfile").read_text(encoding="utf-8")
+        self.assertLess(text.index("backend = preflight_backend!"), text.index("build_app("))
+        self.assertIn("READINESS_MAX_ATTEMPTS", text)
+        self.assertIn("READINESS_TOTAL_TIMEOUT", text)
+        self.assertIn("readiness warming", text)
+        self.assertIn("readiness_elapsed_ms", text)
         self.assertIn("initial_build_number: 0", text)
         self.assertIn("Using next App Store Connect TestFlight build number", text)
         self.assertNotIn('rescue => e\n      UI.important("No prior TestFlight build', text)
