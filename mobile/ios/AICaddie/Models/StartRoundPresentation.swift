@@ -27,18 +27,9 @@ struct StartCourseListRow: Equatable, Identifiable {
 /// unit-testable without a SwiftUI host.
 enum StartRoundPresentation {
     static func offlineStatusText(_ row: PrepCourseDownloadRecord) -> String {
-        if let message = row.errorText,
-           row.phase == .preparing || row.phase == .downloading || row.phase == .queued {
-            return message
-        }
-        if row.isActive, let server = row.serverPreparation { return server.statusText }
-        switch row.phase {
-        case .queued: return "等待下载"
-        case .preparing: return "正在准备"
-        case .downloading: return "正在下载 · \(row.downloadedHoles)/\(row.totalHoles) 洞"
-        case .ready: return "已下载"
-        case .failed: return row.errorText ?? "下载失败"
-        }
+        // Compatibility entry point for existing presentation tests. The view's unified function
+        // also adds venue-wide installed coverage when catalogue/download inputs are available.
+        StartRoundView.downloadStatus(for: row, downloaded: [], catalogue: [])
     }
 
     static func offlineActionTitle(_ row: PrepCourseDownloadRecord) -> String? {
