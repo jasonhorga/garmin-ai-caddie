@@ -2371,7 +2371,9 @@ public struct StartRoundView: View {
                     carriedTees.merge(StartRoundPresentation.carriedTees(in: matches)) { _, latest in latest }
                     var seen = Set<Int>()
                     let resolved = matches.compactMap(resolve).filter { seen.insert($0.globalId).inserted }
-                    providerOptions = cappedNearbyOptions(resolved)
+                    providerOptions = cappedNearbyOptions(
+                        StartRoundPresentation.sortedByDistance(resolved, latitude: latitude, longitude: longitude)
+                    )
                     publishedProviderResult = !providerOptions.isEmpty || publishedProviderResult
                     if nearbyVenueCount(providerOptions) >= nearbyMinimumVenueCount || index == radii.count - 1 {
                         return NearbyDiscoveryLoopResult(
