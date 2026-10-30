@@ -607,6 +607,12 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self._post_events("round-new", "new-start", timestamp="2026-10-29T10:00:00Z")
         self.assertEqual(self.main._current_course_ids("fixture"), (123,))
 
+    def test_restart_packaged_round_without_start_conservatively_blocks_new_event(self):
+        """J4.2: a packaged recovery with no durable start keeps the conservative guard."""
+        self.package(456, "round-without-start")
+        self._post_events("offline-new", "new-start", timestamp="2026-10-29T10:00:00Z")
+        self.assertEqual(self.main._current_course_ids("fixture"), (456,))
+
     def test_restart_live_round_history_blocks_finished_old_edit(self):
         """J4.2: a recovered live round's durable opening time beats a finished old edit."""
         self._identity("finished-old", 456)
