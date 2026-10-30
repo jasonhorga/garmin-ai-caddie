@@ -25,11 +25,13 @@ class ReadinessRuntimePathsTests(unittest.TestCase):
             self.skipTest("nested script test has no full server checkout")
         manifest = paths._collect(Path.cwd())
         runtime = {entry["path"] for entry in manifest["runtime"]}
+        # C263 keeps the history warmer's geometry resources in the trace.  Mobile package and
+        # seed enrichment now run asynchronously, so their optional contract read is not a
+        # readiness request dependency.
         self.assertTrue({
             "ai_caddie",
             "ai_caddie/geometry",
             "ai_caddie/geometry/batch_prodgeometry_course.py",
-            "mobile/contracts/live_round_event.schema.json",
         } <= runtime)
 
     def _verify(self, runtime: list[dict]) -> tuple[int, str]:
