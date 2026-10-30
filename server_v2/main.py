@@ -2786,7 +2786,6 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                     latest == key
                     or timed
                     or not new_events
-                    or restore_only_registration
                     or package_registration
                     or event_timestamp_valid is False
                 )
