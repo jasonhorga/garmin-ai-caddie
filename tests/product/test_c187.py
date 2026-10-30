@@ -144,6 +144,7 @@ class C187ManualGirBackfillTests(unittest.TestCase):
         self.assertEqual(self.garmin_path.read_bytes(), before_garmin)
         self.assertFalse(list(self.player.glob("scorecards/*.bak")))
         self.assertEqual(report["summary"]["manualHolesPuttsZero"], 1)
+        self.assertEqual(report["summary"]["girRecordedAfter"], report["summary"]["girRecordedBefore"] + len(report["changes"]))
         self.assertTrue(any(row.get("roundId") == 7001 and row.get("hole") == 5 and "only aim target" in row["reason"] for row in report["unresolved"]))
         self.assertFalse(any(row.get("roundId") in {8001, 9001} for row in report["changes"]))
         self.assertTrue(any(row.get("reason") == "source missing (treated as Garmin)" for row in report["skipped"]))
