@@ -138,12 +138,20 @@ final class ProductLiveHolePageTests: XCTestCase {
     /// J5.11: off-hole and no-GPS tee requests keep the full factual dogleg for local planning;
     /// a static straight fallback must not masquerade as a measured remaining route.
     func test_j5_11_off_hole_or_no_location_keeps_whole_tee_route() async throws {
+        // Plausible fix (about 330 m from the green, inside the 913 m trust radius) but about
+        // 124 m off the first route leg: the 2026-10-10 car-park case, guarded by isTeeShotOffTheHole.
         let offHoleFix = LocationFix(
+            coordinate: .init(latitude: 0.0015, longitude: 0), horizontalAccuracyM: 5,
+            altitudeM: nil, capturedAt: "2026-10-01T00:00:00Z"
+        )
+        // About 1388 m from the green: outside the trust radius, so the page treats it as no fix.
+        let implausibleFix = LocationFix(
             coordinate: .init(latitude: 0.01, longitude: 0.01), horizontalAccuracyM: 5,
             altitudeM: nil, capturedAt: "2026-10-01T00:00:00Z"
         )
         let cases: [(String, LocationProvider)] = [
             ("off-hole", LocationProvider(fixedFix: offHoleFix)),
+            ("implausible-fix", LocationProvider(fixedFix: implausibleFix)),
             ("no-location", LocationProvider()),
         ]
         for (label, provider) in cases {
@@ -154,7 +162,7 @@ final class ProductLiveHolePageTests: XCTestCase {
                     context["canonicalPlanRemainingRouteLength_m"],
                     "\(label) has no measured remaining route; a straight fallback must not fill it"
                 )
-                XCTAssertNotNil(context["canonicalPlanRouteLength_m"], "\(label) keeps the full tee route")
+                XCTAssertEqual(context["canonicalPlanRouteLength_m"], .number(320.9), "\(label) keeps the full tee route")
                 let offlineDecision = try XCTUnwrap(probe.offlineDecision)
                 let decision = try XCTUnwrap(offlineDecision())
                 let route = try XCTUnwrap(CaddiePlanSequence.selectedSequence(from: decision))
