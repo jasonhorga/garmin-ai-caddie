@@ -1,0 +1,166 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C219-01-missing-map-restoration",
+      "patch": "tests/product/faults/C219/c219-01-missing-map.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_missing_garmin_card_restores_scores_end_to_end",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-02-missing-history-projection",
+      "patch": "tests/product/faults/C219/c219-02-missing-history.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_missing_garmin_card_restores_scores_end_to_end",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-03-legacy-missing-suggestions",
+      "patch": "tests/product/faults/C219/c219-03-legacy-suggestions.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_legacy_without_identity_does_not_offer_ineffective_missing_scores",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-04-unnumbered-nonscore-suggestions",
+      "patch": "tests/product/faults/C219/c219-04-d18-nonscore.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_unnumbered_missing_card_preserves_non_score_evidence_and_feedback",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-05-unnumbered-audit-dropped",
+      "patch": "tests/product/faults/C219/c219-05-d18-audit.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_unnumbered_missing_card_preserves_non_score_evidence_and_feedback",
+      "promise": "7.2"
+    },
+    {
+      "id": "tests-product-faults-C219-06-feedback-repeats",
+      "patch": "tests/product/faults/C219/c219-06-feedback-repeat.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_apply_reconciliation_persists_caddie_feedback_as_decision_audit",
+      "promise": "7.2"
+    },
+    {
+      "id": "tests-product-faults-C219-07-row-strokes",
+      "patch": "tests/product/faults/C219/M4-row-strokes-not-updated.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_missing_garmin_card_restores_scores_end_to_end",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-08-holes-completed",
+      "patch": "tests/product/faults/C219/M5-holes-completed-not-updated.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_missing_garmin_card_restores_scores_end_to_end",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-09-merged-axis-append",
+      "patch": "tests/product/faults/C219/M13-merged-restored-hole-appended.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_merged_missing_first_card_hole_preserves_display_axis_after_apply",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-10-late-card-overwrite",
+      "patch": "tests/product/faults/C219/M14-restore-marker-dropped.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_restore_does_not_overwrite_late_garmin_card",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-11-synthetic-penalty",
+      "patch": "tests/product/faults/C219/M9-synthetic-penalty-included.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_synthetic_hole_only_has_score_par_and_count",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-12-synthetic-putts",
+      "patch": "tests/product/faults/C219/M11-synthetic-putts-included.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_synthetic_hole_only_has_score_par_and_count",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-13-second-all-loop-base",
+      "patch": "tests/product/faults/C219/M7-second-all-loop-base-1.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_two_distinct_all_nine_courses_first_card_only_complete_mapping",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-14-missing-par-materialized",
+      "patch": "tests/product/faults/C219/O2-missing-par-materialized.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_missing_restore_par_keeps_evidence_without_ineffective_suggestion",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-15-first-half-localhole-dropped",
+      "patch": "tests/product/faults/C219/R7-first-half-localhole-dropped.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_rotated_merged_missing_physical_hole_preserves_identity_and_stats",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-16-observed-base-ignored",
+      "patch": "tests/product/faults/C219/O6-observed-base-ignored.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_rotated_merged_missing_physical_hole_preserves_identity_and_stats",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-17-synthetic-marker-dropped",
+      "patch": "tests/product/faults/C219/O8-synthetic-not-marked-corrected.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_synthetic_hole_only_has_score_par_and_count",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-18-penalty-without-materializable-score",
+      "patch": "tests/product/faults/C219/R12-penalty-without-score.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_unmaterializable_score_suppresses_putt_and_penalty_suggestions",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-19-holes-completed-counts-stroked-only",
+      "patch": "tests/product/faults/C219/R5-holes-completed-len.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_partial_restore_does_not_count_existing_unscored_hole",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-20-store-par-index",
+      "patch": "tests/product/faults/C219/R2-store-par-first-hole.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_two_distinct_all_nine_courses_first_card_only_complete_mapping",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-21-store-par-index",
+      "patch": "tests/product/faults/C219/R3-store-par-offset.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_two_distinct_all_nine_courses_first_card_only_complete_mapping",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-22-back-gid-plain-18",
+      "patch": "tests/product/faults/C219/R13-back-gid-plain-18.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_plain_18_missing_back_hole_keeps_physical_back_nine",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-23-back-gid-ignores-other-course",
+      "patch": "tests/product/faults/C219/R14-back-gid-ignores-other-course.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_mixed_course_back_half_first_card_only_keeps_other_course_back_gid",
+      "promise": "1.3"
+    }
+  ]
+}

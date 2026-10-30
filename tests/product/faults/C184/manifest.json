@@ -54,7 +54,7 @@
       "id": "tests-product-faults-C184-10-feedback-exemption-dropped",
       "patch": "tests/product/faults/C184/10-feedback-exemption-dropped.patch",
       "kind": "python",
-      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j7_2_rotated_unmapped_feedback_survives_without_hole_corrections",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j7_2_unmapped_decision_event_keeps_caddie_feedback_audit",
       "promise": "7.2"
     },
     {
@@ -68,7 +68,7 @@
       "id": "tests-product-faults-C184-12-unmapped-scores-suggested",
       "patch": "tests/product/faults/C184/12-unmapped-scores-suggested.patch",
       "kind": "python",
-      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_missing_garmin_card_keeps_phone_evidence_without_score_suggestions",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_legacy_without_identity_does_not_offer_ineffective_missing_scores",
       "promise": "1.3"
     },
     {

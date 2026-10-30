@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index 330f6377..8f181506 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -195,7 +195,7 @@ def _reconciliation_hole_map(
+         if loop.get("half") == "back":
+             default_base = 10
+         elif loop.get("half") == "all":
+-            default_base = 1 + (9 if loop_index else 0)
++            default_base = 1
+         else:
+             default_base = 1
+         bases.setdefault(loop_index, default_base)

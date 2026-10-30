@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index 9c01ec3f..59b30a93 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -341,7 +341,7 @@ def corrected_rounds(
+                 row["par"] = _int(row["par"]) + added_par
+             row["_scoreCorrectedRefs"] = corrected_refs
+         if added_total:
+-            row["holesCompleted"] = sum(1 for hole in holes if _int(hole.get("strokes")) is not None)
++            row["holesCompleted"] = len(holes)
+         out.append(row)
+     return out
+ 

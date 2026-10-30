@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index df986eb1..9b842019 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -768,7 +768,7 @@ def reconcile_mobile_round_events(
+     }
+     candidate_audits = [
+         row for row in candidate_audits
+-        if str(row.get("decisionId") or "") not in applied_decision_ids
++        if True
+     ]
+     identity_holes = {
+         int(row.get("number")): row for row in (identity or {}).get("holes", [])

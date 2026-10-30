@@ -7,7 +7,12 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from ai_caddie.reports.annotations import add_annotation, list_annotations, validate_annotation
-from ai_caddie.caddie.decision import audit_decision, latest_decision_record, store_decision_audit
+from ai_caddie.caddie.decision import (
+    audit_decision,
+    latest_decision_record,
+    list_decision_audits,
+    store_decision_audit,
+)
 from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
 from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.caddie.mobile_live import mobile_event_log
@@ -60,6 +65,27 @@ def _hole_scores(
     annotation_records = list_annotation_records(
         root=annotations_root if annotations_root is not None else root, player_id=player_id,
     )
+    # Re-read the corrected projection so annotations for a Garmin-missing hole materialize a
+    # synthetic scorecard row before the next reconciliation pass.
+    from ai_caddie.history.corrected_history import corrected_history_data
+    projected = corrected_history_data(
+        HistoryData(raw_rounds=[], rounds=[round_row], shots=[]),
+        player_id=player_id,
+        annotations_root=annotations_root if annotations_root is not None else root,
+        corrections_root=root,
+        course_root=root,
+    )
+    round_row = projected.rounds[0] if projected.rounds else round_row
+    # Restore annotations have already been materialized by the corrected projection.  Do
+    # not feed them into effective_hole a second time: when a later Garmin card supplies
+    # real strokes, the projection intentionally keeps those strokes so reconciliation can
+    # expose the conflict.
+    annotation_records = [
+        record for record in annotation_records
+        if not (record.get("kind") == "score_correction"
+                and isinstance(record.get("payload"), dict)
+                and record["payload"].get("restore") is True)
+    ]
     correction_events = _round_correction_events(player_id, round_row, root=root)
     scores: dict[int, dict[str, Any]] = {}
     for _hole, number, _physical, _side in hole_sides(round_row):
@@ -142,6 +168,10 @@ def _reconciliation_hole_map(
 
     visits: dict[tuple[int, int], int] = {}
     mapping: dict[int, int] = {}
+    display_keys: dict[int, set[tuple[int, int]]] = {}
+    for key, displays in garmin_visits.items():
+        for display in displays:
+            display_keys.setdefault(display, set()).add(key)
     for hole in sorted(identity["holes"], key=lambda row: row["number"]):
         key = (hole["sourceGlobalId"], hole["sourceLocalHole"])
         visit = visits.get(key, 0)
@@ -149,6 +179,40 @@ def _reconciliation_hole_map(
         candidates = garmin_visits.get(key, [])
         if visit < len(candidates):
             mapping[hole["number"]] = candidates[visit]
+    if not mapping:
+        return mapping
+
+    # A partial card still tells us the display axis for its missing sibling card. Complete the
+    # expected phone -> display mapping from observed loop offsets, while refusing a display row
+    # already occupied by another physical course/visit.
+    loops = identity.get("roundLoops") or []
+    bases: dict[int, int] = {}
+    for phone_hole, display in mapping.items():
+        loop_index, offset = divmod(phone_hole - 1, 9)
+        base = display - offset
+        if base in (1, 10):
+            bases.setdefault(loop_index, base)
+    for loop_index, loop in enumerate(loops):
+        if loop.get("half") == "back":
+            default_base = 10
+        elif loop.get("half") == "all":
+            default_base = 1 + (9 if loop_index else 0)
+        else:
+            default_base = 1
+        bases.setdefault(loop_index, default_base)
+    identity_by_number = {int(hole["number"]): hole for hole in identity["holes"]}
+    for phone_hole, identity_hole in identity_by_number.items():
+        if phone_hole in mapping:
+            continue
+        loop_index, offset = divmod(phone_hole - 1, 9)
+        display = bases.get(loop_index, loop_index * 9 + 1) + offset
+        physical_key = (
+            _safe_int(identity_hole.get("sourceGlobalId")),
+            _safe_int(identity_hole.get("sourceLocalHole")),
+        )
+        if display in display_keys and physical_key not in display_keys[display]:
+            continue
+        mapping[phone_hole] = display
     return mapping
 
 
@@ -294,7 +358,27 @@ def _annotation_suggestions(
     local_only: list[dict[str, Any]],
     garmin_only: list[dict[str, Any]],
     candidate_audits: list[dict[str, Any]],
+    round_row: dict[str, Any] | None = None,
+    root: Path | str | None = None,
 ) -> list[dict[str, Any]]:
+    from ai_caddie.history.corrected_history import restore_hole_par
+    def restore_payload(row: dict[str, Any], event_id: str, local_value: Any) -> dict[str, Any]:
+        return {
+            "from": None,
+            "to": local_value,
+            "sourceEventId": event_id,
+            "restore": True,
+            "restoreGlobalId": row.get("sourceGlobalId"),
+            "restoreLocalHole": row.get("sourceLocalHole"),
+        }
+
+    score_holes = {
+        _safe_int(row.get("hole")) for row in local_only
+        if row.get("kind") == "score" and row.get("localValue") is not None
+        and restore_hole_par(round_row or {}, _safe_int(row.get("hole")) or 0,
+                              restore_payload(row, str(row.get("eventId") or ""), row.get("localValue")),
+                              root=root) is not None
+    }
     suggestions: list[dict[str, Any]] = []
     for conflict in conflicts:
         event_id = str(conflict.get("eventId") or "")
@@ -359,18 +443,24 @@ def _annotation_suggestions(
         if kind == "score":
             if local_value is None:
                 continue
+            payload = restore_payload(row, event_id, local_value)
+            if restore_hole_par(round_row or {}, hole, payload, root=root) is None:
+                row["restoreUnavailableReason"] = "standard_par_unavailable"
+                continue
             suggestions.append(
                 _suggestion(
                     f"{event_id}:score-correction",
                     target_type="hole",
                     target_id=f"{row.get('roundId') or ''}:{hole}",
                     kind="score_correction",
-                    payload={"from": None, "to": local_value, "sourceEventId": event_id},
+                    payload=payload,
                     reason="Local score input fills a hole missing from synced Garmin facts.",
                 )
             )
         elif kind == "putt":
-            if local_value is None:
+            if local_value is None or hole not in score_holes:
+                if local_value is not None:
+                    row["restoreUnavailableReason"] = "standard_par_unavailable"
                 continue
             suggestions.append(
                 _suggestion(
@@ -397,6 +487,9 @@ def _annotation_suggestions(
                     )
                 )
         elif kind == "penalty":
+            if hole not in score_holes:
+                row["restoreUnavailableReason"] = "standard_par_unavailable"
+                continue
             suggestions.append(
                 _suggestion(
                     f"{event_id}:penalty-correction",
@@ -491,6 +584,9 @@ def reconcile_mobile_round_events(
     conflicts: list[dict[str, Any]] = []
     candidate_audits: list[dict[str, Any]] = []
     phone_holes: dict[str, int] = {}
+    if identity is None and any((_safe_int(event.get("hole")) or 0) not in scores for event in events):
+        # Legacy streams have no physical identity; missing scorecard rows cannot be restored.
+        identity = {}
     for event in events:
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
         kind = str(event.get("kind") or "")
@@ -676,15 +772,35 @@ def reconcile_mobile_round_events(
     # Keep one response contract for every local-only cause.  Mapped rows use Garmin's display axis
     # in ``hole`` and retain the phone axis in ``phoneHole``; an unmapped row has no Garmin axis, so
     # both fields intentionally carry the phone hole. ``unmapped`` distinguishes those cases.
+    applied_decision_ids = {
+        str(row.get("decisionId") or "")
+        for row in list_decision_audits(root=root, player_id=player_id)
+        if row.get("decisionId")
+    }
+    candidate_audits = [
+        row for row in candidate_audits
+        if str(row.get("decisionId") or "") not in applied_decision_ids
+    ]
+    identity_holes = {
+        int(row.get("number")): row for row in (identity or {}).get("holes", [])
+        if isinstance(row, dict) and _safe_int(row.get("number")) is not None
+    }
     for row in local_only:
         row.setdefault("unmapped", False)
         event_id = str(row.get("eventId") or "")
-        row["phoneHole"] = phone_holes.get(event_id, row.get("phoneHole", row.get("hole")))
+        phone_hole = phone_holes.get(event_id, row.get("phoneHole", row.get("hole")))
+        row["phoneHole"] = phone_hole
+        identity_hole = identity_holes.get(_safe_int(phone_hole) or 0)
+        if identity_hole is not None and not row.get("unmapped"):
+            row["sourceGlobalId"] = identity_hole.get("sourceGlobalId")
+            row["sourceLocalHole"] = identity_hole.get("sourceLocalHole")
     annotation_suggestions = _annotation_suggestions(
         conflicts=conflicts,
         local_only=local_only,
         garmin_only=garmin_only,
         candidate_audits=candidate_audits,
+        round_row=round_row,
+        root=root,
     )
     unsafe_event_ids = {
         str(row.get("eventId") or "")

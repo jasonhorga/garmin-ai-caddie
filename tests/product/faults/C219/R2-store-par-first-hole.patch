@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index 9c01ec3f..7b4e25e1 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -186,7 +186,7 @@ def restore_hole_par(
+         from ai_caddie.courses.course_reference import load_course_par
+         record = load_course_par(gid, root=root) if root is not None else load_course_par(gid)
+         pars = record.par if record is not None else None
+-        return _int(pars[local - 1]) if pars is not None and local <= len(pars) else None
++        return _int(pars[0]) if pars is not None and local <= len(pars) else None
+     except (OSError, TypeError, ValueError, IndexError):
+         return None
+ 
