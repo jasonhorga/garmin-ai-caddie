@@ -165,6 +165,34 @@ def _hole_par(row: dict[str, Any], hole: dict[str, Any], number: int) -> int | N
     return _int(pars[number - 1]) if 1 <= number <= len(pars) else None
 
 
+def restore_hole_par(
+    row: dict[str, Any], number: int, payload: dict[str, Any] | None = None,
+    *, root: Path | str | None = None,
+) -> int | None:
+    """Return the one par source that makes a missing score safe to materialize.
+
+    The scorecard's own hole/par wins.  A partial nine-hole card can then name the physical
+    course loop and hole in the restore payload; the persisted course-reference store supplies
+    that loop's nine-hole par.  Both reconciliation suggestions and corrected history call this
+    function, so an unavailable par cannot produce an annotation that later has no effect.
+    """
+    direct = _hole_par(row, {}, number)
+    if direct is not None:
+        return direct
+    payload = payload if isinstance(payload, dict) else {}
+    gid = _int(payload.get("restoreGlobalId"))
+    local = _int(payload.get("restoreLocalHole"))
+    if gid is None or local is None or local <= 0:
+        return None
+    try:
+        from ai_caddie.courses.course_reference import load_course_par
+        record = load_course_par(gid, root=root) if root is not None else load_course_par(gid)
+        pars = record.par if record is not None else None
+        return _int(pars[local - 1]) if pars is not None and local <= len(pars) else None
+    except (OSError, TypeError, ValueError, IndexError):
+        return None
+
+
 def _penalty_reason(winner: dict[str, Any] | None) -> str:
     """The reason attached to the record that won the effective penalty value."""
     reason = _payload_value(winner, "reason", "issue", "tag") if winner and winner.get("kind") == "penalty_correction" else None
@@ -177,6 +205,7 @@ def corrected_rounds(
     events_by_round: dict[str, list[dict[str, Any]]] | None = None,
     *,
     fields: tuple[str, ...] = ALL_HOLE_FIELDS,
+    restore_root: Path | str | None = None,
 ) -> list[dict[str, Any]]:
     """Rounds with every corrected hole fact applied (copies; untouched rows are returned as is).
 
@@ -276,7 +305,10 @@ def corrected_rounds(
             if "total" not in kinds or total is None:
                 continue
             synthetic: dict[str, Any] = {"number": number}
-            par = _hole_par(row, synthetic, number)
+            score_record = next((record for record in records
+                                 if record.get("kind") == "score_correction"), {})
+            score_payload = score_record.get("payload") if isinstance(score_record, dict) else {}
+            par = restore_hole_par(row, number, score_payload, root=restore_root)
             # Without a standard-par source we cannot safely place this physical hole in
             # a score or to-par aggregate, so leave the correction as evidence only.
             if par is None:
@@ -284,6 +316,11 @@ def corrected_rounds(
             synthetic["par"] = par
             synthetic["strokes"] = total
             synthetic["_scoreCorrected"] = True
+            if row.get("merged") and any(hole.get("localHole") for hole in row.get("holes") or []) \
+                    and isinstance(score_payload, dict) and _int(score_payload.get("restoreLocalHole")):
+                synthetic["localHole"] = _int(score_payload["restoreLocalHole"])
+                if _int(score_payload.get("restoreGlobalId")) is not None:
+                    synthetic["sourceGlobalId"] = _int(score_payload["restoreGlobalId"])
             corrected_refs.append(f"{row.get('id')}:{number}")
             added_total += total
             added_par += par
@@ -301,9 +338,7 @@ def corrected_rounds(
                 row["par"] = _int(row["par"]) + added_par
             row["_scoreCorrectedRefs"] = corrected_refs
         if added_total:
-            completed = _int(row.get("holesCompleted")) or 0
-            row["holesCompleted"] = max(completed, max(display_numbers.values(), default=0),
-                                         max(annotated_missing, default=0))
+            row["holesCompleted"] = sum(1 for hole in holes if _int(hole.get("strokes")) is not None)
         out.append(row)
     return out
 
@@ -486,7 +521,7 @@ def _build_corrected_history_data(
         return data
     annotations = list_annotation_records(root=annotations_root, player_id=player_id)
     events_by_round = round_correction_events(data, player_id=player_id, root=corrections_root, round_refs=round_refs)
-    rounds = corrected_rounds(data.rounds, annotations, events_by_round)
+    rounds = corrected_rounds(data.rounds, annotations, events_by_round, restore_root=annotations_root)
     shot_data = HistoryData(raw_rounds=data.raw_rounds, rounds=data.rounds, shots=_annotated_shots(data.shots, annotations))
     shots = _corrected_shots(shot_data, events_by_round, holes_by_round, ladder=ladder)
     correction_fingerprint = history_data_fingerprint(

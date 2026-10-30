@@ -357,7 +357,14 @@ def _annotation_suggestions(
     local_only: list[dict[str, Any]],
     garmin_only: list[dict[str, Any]],
     candidate_audits: list[dict[str, Any]],
+    round_row: dict[str, Any] | None = None,
+    root: Path | str | None = None,
 ) -> list[dict[str, Any]]:
+    from ai_caddie.history.corrected_history import restore_hole_par
+    score_holes = {
+        _safe_int(row.get("hole")) for row in local_only
+        if row.get("kind") == "score" and row.get("localValue") is not None
+    }
     suggestions: list[dict[str, Any]] = []
     for conflict in conflicts:
         event_id = str(conflict.get("eventId") or "")
@@ -422,18 +429,28 @@ def _annotation_suggestions(
         if kind == "score":
             if local_value is None:
                 continue
+            restore_payload = {
+                "from": None, "to": local_value, "sourceEventId": event_id,
+                "restore": True,
+                "restoreGlobalId": row.get("sourceGlobalId"),
+                "restoreLocalHole": row.get("sourceLocalHole"),
+            }
+            if restore_hole_par(round_row or {}, hole, restore_payload, root=root) is None:
+                if not row.get("unmapped"):
+                    row["restoreUnavailableReason"] = "standard_par_unavailable"
+                continue
             suggestions.append(
                 _suggestion(
                     f"{event_id}:score-correction",
                     target_type="hole",
                     target_id=f"{row.get('roundId') or ''}:{hole}",
                     kind="score_correction",
-                    payload={"from": None, "to": local_value, "sourceEventId": event_id, "restore": True},
+                    payload=restore_payload,
                     reason="Local score input fills a hole missing from synced Garmin facts.",
                 )
             )
         elif kind == "putt":
-            if local_value is None:
+            if local_value is None or hole not in score_holes:
                 continue
             suggestions.append(
                 _suggestion(
@@ -460,6 +477,8 @@ def _annotation_suggestions(
                     )
                 )
         elif kind == "penalty":
+            if hole not in score_holes:
+                continue
             suggestions.append(
                 _suggestion(
                     f"{event_id}:penalty-correction",
@@ -751,15 +770,26 @@ def reconcile_mobile_round_events(
         row for row in candidate_audits
         if str(row.get("decisionId") or "") not in applied_decision_ids
     ]
+    identity_holes = {
+        int(row.get("number")): row for row in (identity or {}).get("holes", [])
+        if isinstance(row, dict) and _safe_int(row.get("number")) is not None
+    }
     for row in local_only:
         row.setdefault("unmapped", False)
         event_id = str(row.get("eventId") or "")
-        row["phoneHole"] = phone_holes.get(event_id, row.get("phoneHole", row.get("hole")))
+        phone_hole = phone_holes.get(event_id, row.get("phoneHole", row.get("hole")))
+        row["phoneHole"] = phone_hole
+        identity_hole = identity_holes.get(_safe_int(phone_hole) or 0)
+        if identity_hole is not None and not row.get("unmapped"):
+            row["sourceGlobalId"] = identity_hole.get("sourceGlobalId")
+            row["sourceLocalHole"] = identity_hole.get("sourceLocalHole")
     annotation_suggestions = _annotation_suggestions(
         conflicts=conflicts,
         local_only=local_only,
         garmin_only=garmin_only,
         candidate_audits=candidate_audits,
+        round_row=round_row,
+        root=annotations_root if annotations_root is not None else root,
     )
     unsafe_event_ids = {
         str(row.get("eventId") or "")
