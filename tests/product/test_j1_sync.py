@@ -1,14 +1,75 @@
 """J1: inputs and arithmetic are described in fixtures/c16a/README.md."""
 from copy import deepcopy
+import json
+from pathlib import Path
+import tempfile
 import unittest
 
 from ai_caddie.history import history
+from ai_caddie.garmin import fetch as F
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector
 from ai_caddie.rounds import round_ingest
 from tests.product.fixtures.c16a.support import Sandbox, write
 
 
 class SyncProductTests(unittest.TestCase):
+    def test_j1_1_pin_only_rewrite_logs_one_redacted_field_diff(self):
+        """J1.1: a changed Garmin shot response is diagnosable without player data."""
+        before = {
+            "holeShots": [{
+                "pin": {"latitude": 30.1},
+                "sequence": [1, 2],
+                "value": 1,
+                "playerId": "player-secret-before",
+            }],
+        }
+        after = {
+            "holeShots": [{
+                "pin": {"latitude": 30.2},
+                "sequence": [2, 1],
+                "value": 1.0,
+                "playerId": "player-secret-after",
+            }],
+        }
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "shots.json"
+            path.write_text(json.dumps(before), encoding="utf-8")
+            with self.assertLogs(F.logger.name, level="INFO") as captured:
+                self.assertTrue(F._write_shot_cache_if_changed(path, after))
+            self.assertEqual(len(captured.records), 1, captured.output)
+            line = captured.records[0].getMessage()
+            self.assertTrue(line.startswith("garmin_sync_round_changed diffs="), line)
+            self.assertIn("path=root.holeShots[0].pin.latitude before=float:30.1 after=float:30.2", line)
+            self.assertIn("path=root.holeShots[0].sequence[0] before=int:1 after=int:2", line)
+            self.assertIn("path=root.holeShots[0].sequence[1] before=int:2 after=int:1", line)
+            self.assertIn("path=root.holeShots[0].value before=int:1 after=float:1.0", line)
+            self.assertIn("path=root.holeShots[0].<redacted> before=str:<redacted> after=str:<redacted>", line)
+            self.assertNotIn("player-secret", line)
+            self.assertNotIn('"holeShots"', line)
+
+    def test_j1_1_unchanged_pin_only_response_has_no_diff_line(self):
+        """J1.1: the no-op sync path does not add diagnostic log noise."""
+        payload = {"holeShots": [{"pin": {"latitude": 30.1}}]}
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "shots.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertNoLogs(F.logger.name, level="INFO"):
+                self.assertFalse(F._write_shot_cache_if_changed(path, payload))
+
+    def test_j1_1_duplicate_round_is_logged_once_per_sync(self):
+        """J1.1: duplicate sync input cannot produce two diagnostics for one round."""
+        first = {"holeShots": [{"pin": {"latitude": 30.1}}]}
+        second = {"holeShots": [{"pin": {"latitude": 30.2}}]}
+        third = {"holeShots": [{"pin": {"latitude": 30.3}}]}
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "shots.json"
+            path.write_text(json.dumps(first), encoding="utf-8")
+            logged_keys: set[str] = set()
+            with self.assertLogs(F.logger.name, level="INFO") as captured:
+                self.assertTrue(F._write_shot_cache_if_changed(path, second, log_key="round-1", logged_keys=logged_keys))
+                self.assertTrue(F._write_shot_cache_if_changed(path, third, log_key="round-1", logged_keys=logged_keys))
+            self.assertEqual(len(captured.records), 1, captured.output)
+
     def test_j1_1_completed_rounds_arrive(self):
         # 101 = 18*4 = 72; 102 = 18*5 = 90; their mean is 81.
         rows = [
