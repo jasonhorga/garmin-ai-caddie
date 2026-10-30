@@ -2522,6 +2522,16 @@ enum LiveMapPixelSpace: Equatable {
 /// this decision pure prevents a numeric/error state from accidentally reusing a topo overlay or
 /// projection, and lets native tests exercise the same branch as CurrentHoleView.
 enum LiveMapDisplaySelection {
+    /// J4.5: explain why a visible Garmin background cannot carry geographic advice yet.
+    static func showsGarminRouteWaitingNotice(
+        state: LiveMapDisplayState,
+        hasGarminImage: Bool,
+        projectionUsable: Bool
+    ) -> Bool {
+        // Red-test scaffold: the old product has no tested notice policy.
+        false
+    }
+
     /// The overlay used to place the bitmap and clamp gestures. A Garmin descriptor can arrive
     /// before CourseView supplies an overlay; in that case its own raster dimensions still define
     /// one shared frame for the backdrop and both gesture paths.

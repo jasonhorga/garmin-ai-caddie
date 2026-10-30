@@ -103,6 +103,23 @@ final class GarminRasterTests: XCTestCase {
         ))
     }
 
+    /// J4.5-5: explain missing geographic advice only on a visible, unregistered Garmin image.
+    func testJ45GarminRouteWaitingNoticeMatchesVisibleMap() {
+        let cases: [(LiveMapDisplayState, Bool, Bool, Bool)] = [
+            (.garminRaster, true, false, true),
+            (.garminRaster, true, true, false),
+            (.garminRaster, false, false, false),
+            (.precise, true, false, false),
+            (.factualPending, true, false, false),
+            (.waiting, true, false, false),
+        ]
+        for (state, hasImage, projectionUsable, expected) in cases {
+            XCTAssertEqual(LiveMapDisplaySelection.showsGarminRouteWaitingNotice(
+                state: state, hasGarminImage: hasImage, projectionUsable: projectionUsable
+            ), expected, "J4.5 notice for \(state), image=\(hasImage), projection=\(projectionUsable)")
+        }
+    }
+
     /// J4.5-4: the retired dark-ground/green-band temporary map is disabled even for a partial row.
     func testJ45NoBitmapNeverDrawsLightweightFacts() throws {
         let map = HoleImageMapView(hole: try prep(coverage: "partial"), showsCardChrome: false)

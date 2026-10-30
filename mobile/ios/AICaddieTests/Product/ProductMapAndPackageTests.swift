@@ -122,6 +122,29 @@ final class ProductMapAndPackageTests: XCTestCase {
         return (controller, window)
     }
 
+    /// J4.5-2: the actual page inputs display a decoded Garmin image without an opt-in gate.
+    func test_j4_5_cached_garmin_reaches_live_page_display_state() throws {
+        let package = try c136Package(pendingHole: 1, includePrep: false)
+        let hole = try XCTUnwrap(package.holes.first)
+        let baseURL = try XCTUnwrap(URL(string: "https://garmin-display.example.test"))
+        let imageURL = baseURL.appendingPathComponent("\(UUID().uuidString).png")
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { context in
+            UIColor.green.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        }
+        GarminRasterImageStore.preload(image, for: imageURL)
+        defer { GarminRasterImageStore.evict(imageURL) }
+        let view = CurrentHoleView(
+            package: package, hole: hole,
+            snapshotState: .init(garminRaster: GarminRasterResponse(
+                available: true, imageUrl: imageURL.absoluteString
+            )),
+            caddieBaseURL: baseURL
+        )
+        XCTAssertEqual(view.liveMapDisplayStateForTesting(), .garminRaster,
+                       "J4.5 cached Garmin must pass the production liveMapInputs display boundary")
+    }
+
     /// J4.5-2: Garmin is prefetched by default so a later hole can show its raster immediately.
     func test_j4_5_garmin_default_model_prefetches_raster() async throws {
         let package = try c136Package(garmin: true)

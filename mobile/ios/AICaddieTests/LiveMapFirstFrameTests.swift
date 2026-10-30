@@ -6,24 +6,59 @@ import XCTest
 
 @MainActor
 final class LiveMapFirstFrameTests: XCTestCase {
-    func testKnownPreciseTopoUsesGarminUntilDecodeCompletes() {
-        let descriptor = GarminRasterResponse(available: true, imageUrl: "/garmin.png")
-        let state = LiveMapDisplayState.resolveLive(.init(
-            coverage: "ready",
-            preciseTopoImageReady: false,
-            garminRaster: descriptor,
-            garminImageReady: true,
-            garminImageFailed: false,
-            hasCachedPreciseTopo: false,
-            preciseTopoAvailable: true
-        ))
-        XCTAssertEqual(state, .garminRaster,
-                       "J4.5 Garmin remains visible until the precise bitmap decodes")
+    /// J4.5-1: an installed precise map owns the first frame even before decode completes.
+    func testKnownPreciseTopoNeverFallsBackToGarminBeforeDecode() throws {
+        // Either availability signal reserves the precise map, with or without a ready Garmin.
+        for (available, cached) in [(true, false), (false, true)] {
+            for garminReady in [true, false] {
+                let state = LiveMapDisplayState.resolveLive(.init(
+                    coverage: "ready",
+                    preciseTopoImageReady: false,
+                    garminRaster: GarminRasterResponse(available: true, imageUrl: "/garmin.png"),
+                    garminImageReady: garminReady,
+                    garminImageFailed: false,
+                    hasCachedPreciseTopo: cached,
+                    preciseTopoAvailable: available
+                ))
+                try assertNeutralDecodeFrame(state)
+            }
+        }
     }
 
-    /// Product spec 4.5: a known precise map stays neutral while its bitmap decodes, even without
-    /// a route to draw underneath it.
-    func testKnownPreciseTopoWithNoPrepRouteKeepsNeutralPendingFrame() {
+    private func assertNeutralDecodeFrame(
+        _ state: LiveMapDisplayState,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let prep = try ProductInputs.prep()
+        let overlay = try XCTUnwrap(prep.resolvedMapOverlay)
+        let projection = CoursePrepHoleImageProjection(
+            available: true, widthPx: 300, heightPx: 400,
+            refs: [
+                CoursePrepProjectionRef(lat: 0, lon: 0, px: 100, py: 350),
+                CoursePrepProjectionRef(lat: 0, lon: 0.001, px: 200, py: 350),
+                CoursePrepProjectionRef(lat: 0.001, lon: 0, px: 100, py: 250),
+            ]
+        )
+        XCTAssertNotEqual(state, .garminRaster, file: file, line: line)
+        XCTAssertNotEqual(state, .waiting, "No preparation/spinner page during local decode", file: file, line: line)
+        XCTAssertEqual(state, .factualPending, file: file, line: line)
+        XCTAssertNil(LiveMapDisplaySelection.overlay(
+            for: state, precise: overlay, preciseProjection: projection, garminProjection: projection
+        ), "J4.5 no route/label/target/flag over the neutral frame", file: file, line: line)
+        XCTAssertNil(LiveMapDisplaySelection.projection(
+            for: state, precise: projection, garmin: projection
+        ), file: file, line: line)
+        XCTAssertNil(LiveMapDisplaySelection.mapFrameOverlay(
+            for: state, overlay: overlay, garminProjection: projection
+        ), file: file, line: line)
+        XCTAssertNil(LiveMapDisplaySelection.gestureFrameOverlay(
+            for: state, overlay: overlay, garminProjection: projection
+        ), file: file, line: line)
+    }
+
+    /// J4.5-1: a local precise map without a prep route also gets a neutral decode frame.
+    func testKnownPreciseTopoWithNoPrepRouteKeepsNeutralPendingFrame() throws {
         let inputs = LiveMapDisplayState.liveInputs(
             coverage: "ready",
             decodeFailed: false,
@@ -37,10 +72,10 @@ final class LiveMapFirstFrameTests: XCTestCase {
             garminImageFailed: false,
             hasRoute: false
         )
-        XCTAssertEqual(LiveMapDisplayState.resolveLive(inputs), .garminRaster,
-                       "J4.5 Garmin is the visible fallback until precise decode completes")
+        try assertNeutralDecodeFrame(LiveMapDisplayState.resolveLive(inputs))
     }
 
+    /// J4.5-1/2: a failed local decode releases the neutral frame for the ready Garmin bitmap.
     func testFailedPreciseDecodeAllowsReadyGarminFallback() {
         let inputs = LiveMapDisplayState.liveInputs(
             coverage: "ready",
@@ -56,6 +91,20 @@ final class LiveMapFirstFrameTests: XCTestCase {
         )
         let state = LiveMapDisplayState.resolveLive(inputs)
         XCTAssertEqual(state, .garminRaster)
+    }
+
+    /// J4.5-1/4: local decode completion promotes to precise; failure without Garmin waits neutrally.
+    func testLocalPreciseDecodeCompletionAndFailureWithoutGarmin() {
+        for failed in [false, true] {
+            let inputs = LiveMapDisplayState.liveInputs(
+                coverage: "ready", decodeFailed: failed,
+                resolvedLocalTopoURL: URL(fileURLWithPath: "/tmp/installed-topo.png"),
+                hasLiveTopoURL: true, hasEmbeddedTopoImage: false,
+                preciseTopoImageReady: !failed, memoryCached: false,
+                garminRaster: nil, garminImageReady: false, garminImageFailed: false
+            )
+            XCTAssertEqual(LiveMapDisplayState.resolveLive(inputs), failed ? .waiting : .precise)
+        }
     }
 
     func testNeighbourLookupUsesTheSameLocalURLThatPrefetchDecodes() async throws {
