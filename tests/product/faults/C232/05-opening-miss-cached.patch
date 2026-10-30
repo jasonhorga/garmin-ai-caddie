@@ -1,0 +1,11 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index c09d882..0fc0803 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2646,6 +2646,2 @@ def _cached_round_start_timestamp(player_id: str, round_id: str) -> datetime | N
+     value = _round_start_timestamp(key[0], key[1])
+-    if value is None:
+-        # A package can arrive before the first play event. Do not turn that temporary miss into
+-        # durable state: a later event must be allowed to discover its opening time.
+-        return None
+     with _ROUND_START_CACHE_LOCK:

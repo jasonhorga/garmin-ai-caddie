@@ -2499,9 +2499,8 @@ _ACTIVE_EVENT_TIMES: dict[tuple[str, str], datetime] = {}
 # package guard needs the round's opening time so a newly started offline round can replace an older
 # packaged round without allowing a late edit from that older round to take it back.
 _ACTIVE_START_TIMES: dict[tuple[str, str], datetime] = {}
-# Durable opening times are read from the append-only mobile log after a restart.  Cache both
-# timestamps and misses so a round blocked by the package guard does not reread its whole journal
-# on every late event.
+# Durable opening times are read from the append-only mobile log after a restart. Cache only
+# timestamps, not misses: a restore probe can arrive before an unregistered round's first events.
 _ROUND_START_CACHE: dict[tuple[str, str], datetime | None] = {}
 _ROUND_START_CACHE_LOCK = threading.Lock()
 # One finish-index snapshot per player, bound to its root and on-disk generation. Event appends
@@ -2645,6 +2644,10 @@ def _cached_round_start_timestamp(player_id: str, round_id: str) -> datetime | N
     # Keep the potentially large event-log read outside _ACTIVE_ROUNDS_LOCK.  A concurrent first
     # read may duplicate the I/O, but the second writer observes the same cached value.
     value = _round_start_timestamp(key[0], key[1])
+    if value is None:
+        # A package can arrive before the first play event. Do not turn that temporary miss into
+        # durable state: a later event must be allowed to discover its opening time.
+        return None
     with _ROUND_START_CACHE_LOCK:
         return _ROUND_START_CACHE.setdefault(key, value)
 

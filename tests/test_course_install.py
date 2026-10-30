@@ -687,8 +687,8 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self.assertNotIn(("fixture", "index-finished"), self.main._ACTIVE_ROUNDS)
         self.assertFalse(self.main.nearby_work_blocked())
 
-    def test_restart_direct_finish_of_unregistered_round_evicts_opening_cache(self):
-        """J4.2: finish evicts a restored opening time even when that round has no lease."""
+    def test_restart_unregistered_finish_evicts_opening_cache_for_round_package(self):
+        """J4.2: finish without a lease evicts the opening time before the next round-package request."""
         self._identity("old-unregistered", 456)
         self._post_events("old-unregistered", "start", timestamp="2026-10-29T08:00:00Z")
         for name in ("_ACTIVE_ROUNDS", "_ACTIVE_COURSES", "_ACTIVE_EVENT_TIMES",

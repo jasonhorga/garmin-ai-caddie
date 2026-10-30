@@ -26,7 +26,7 @@
       "id": "C232-R12-unregistered-finish-keeps-cache",
       "patch": "tests/product/faults/C232/04-unregistered-finish-keeps-cache.patch",
       "kind": "python",
-      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_restart_direct_finish_of_unregistered_round_evicts_opening_cache",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_restart_unregistered_finish_evicts_opening_cache_for_round_package",
       "promise": "4.2"
     },
     {
@@ -34,6 +34,13 @@
       "patch": "tests/product/faults/C232/06-cache-hit-skips-finish-check.patch",
       "kind": "python",
       "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_retried_finished_edit_batch_stays_rejected_on_cached_index",
+      "promise": "4.2"
+    },
+    {
+      "id": "C232-R5-opening-miss-cached",
+      "patch": "tests/product/faults/C232/05-opening-miss-cached.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_restore_probe_then_old_backlog_cannot_take_packaged_current_round",
       "promise": "4.2"
     }
   ]
