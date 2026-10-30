@@ -447,72 +447,92 @@ final class ProductMapAndPackageTests: XCTestCase {
     /// C136/J4.5: the real hole loader keeps the partial route and F/M/B facts visible while
     /// `/prep` is in flight. The task is intentionally held after the view has started it.
     func test_j4_5_real_hole_loader_keeps_surface_visible_during_prep() async throws {
-        let package = try c136Package(pendingHole: 1)
-        let hole = try XCTUnwrap(package.holes.first)
-        let host = "c136-hole-loader.example.test"
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [C33URLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        let started = expectation(description: "hole prep started")
-        let startedOnce = C33FirstMatch()
-        let prepRequests = C136Counter()
-        let gate = C136Gate()
         let defaults = UserDefaults.standard
         let previousGarmin = defaults.object(forKey: LiveGarminRasterPolicy.preferenceKey)
-        defaults.set(false, forKey: LiveGarminRasterPolicy.preferenceKey)
+        defaults.set(true, forKey: LiveGarminRasterPolicy.preferenceKey)
         defer {
             if let previousGarmin { defaults.set(previousGarmin, forKey: LiveGarminRasterPolicy.preferenceKey) }
             else { defaults.removeObject(forKey: LiveGarminRasterPolicy.preferenceKey) }
-            session.invalidateAndCancel()
         }
-        let prepPackage = try XCTUnwrap(try c33Package().coursePrep)
-        let prepHoles = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: JSONEncoder().encode(prepPackage.holes)) as? [[String: Any]]
-        )
-        let prepData = try JSONSerialization.data(withJSONObject: [
-            "schema": prepPackage.schema, "globalId": prepPackage.globalId,
-            "holeCount": prepHoles.count, "clubs": [], "holes": prepHoles
-        ])
-        C33URLProtocol.setHandlers(onStart: { proto in
-            guard proto.request.url?.host == host else { proto.reply(404); return }
-            if proto.request.url?.path.hasSuffix("/prep") == true {
-                prepRequests.increment()
-                if startedOnce.claim() { started.fulfill() }
-                Task {
-                    await gate.wait()
-                    proto.reply(200, prepData)
+        for includePrep in [true, false] {
+            let package = try c136Package(pendingHole: 1, includePrep: includePrep)
+            let hole = try XCTUnwrap(package.holes.first)
+            let host = "c136-mounted-loader-\(includePrep).example.test"
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [C33URLProtocol.self]
+            let session = URLSession(configuration: configuration)
+            defer { session.invalidateAndCancel() }
+            let mounted = expectation(description: "mounted \(includePrep)")
+            let prepStarted = expectation(description: "prep held \(includePrep)")
+            let decisionStarted = expectation(description: "caddie before raster release \(includePrep)")
+            let rasterStarted = expectation(description: "Garmin enabled and held \(includePrep)")
+            let prepOnce = C33FirstMatch()
+            let decisionOnce = C33FirstMatch()
+            let rasterOnce = C33FirstMatch()
+            let prepRequests = C136Counter()
+            let prepGate = C136Gate()
+            let rasterGate = C136Gate()
+            C33URLProtocol.setHandlers(onStart: { proto in
+                guard proto.request.url?.host == host else { proto.reply(404); return }
+                let path = proto.request.url?.path ?? ""
+                if path.hasSuffix("/prep") {
+                    prepRequests.increment()
+                    if prepOnce.claim() { prepStarted.fulfill() }
+                    Task { await prepGate.wait(); proto.reply(404) }
+                } else if path.contains("garmin-raster") {
+                    if rasterOnce.claim() { rasterStarted.fulfill() }
+                    Task { await rasterGate.wait(); proto.reply(404) }
+                } else {
+                    if proto.request.httpMethod == "POST", decisionOnce.claim() { decisionStarted.fulfill() }
+                    proto.reply(404)
                 }
-            } else {
-                proto.reply(404)
+            })
+            let probe = LiveHoleLoadingProbe()
+            probe.didMount = { mounted.fulfill() }
+            let view = CurrentHoleView(
+                package: package, hole: hole,
+                caddieBaseURL: URL(string: "https://\(host)")!, networkSession: session,
+                caddieClient: CaddieDecisionClient(baseURL: URL(string: "https://\(host)")!, session: session),
+                // Disable automatic selected-page tasks so the real loader starts before the
+                // independent raster task, deterministically exercising a synchronous raster wait.
+                isSelected: false
+            ).observingLoadingForTesting(probe)
+            let hosted = hostCurrentHole(view)
+            defer {
+                hosted.window.isHidden = true
+                hosted.window.rootViewController = nil
+                probe.detach()
+                Task { await prepGate.release(); await rasterGate.release() }
             }
-        })
-        let view = CurrentHoleView(
-            package: package, hole: hole,
-            caddieBaseURL: URL(string: "https://\(host)")!,
-            networkSession: session,
-            caddieClient: CaddieDecisionClient(
-                baseURL: URL(string: "https://\(host)")!, session: session
-            ),
-            isSelected: true
-        )
-        let hosted = hostCurrentHole(view)
-        let controller = hosted.controller
-        defer { hosted.window.isHidden = true; hosted.window.rootViewController = nil }
-        controller.rootView.clearHolePrepForTesting()
-        defer {
-            Task { await gate.release() }
+            await fulfillment(of: [mounted], timeout: productEventWait)
+            let read = try XCTUnwrap(probe.read)
+            let load = try XCTUnwrap(probe.load)
+            let retry = try XCTUnwrap(probe.retry)
+            let loadGarmin = try XCTUnwrap(probe.loadGarmin)
+            XCTAssertEqual(read().hasPrep, includePrep, "assert the mounted State, including nil prep")
+            let loading = Task { @MainActor in await load() }
+            defer { loading.cancel() }
+            // Mutant 02 waits for the held Garmin response before this actual caddie POST.
+            await fulfillment(of: [prepStarted, decisionStarted], timeout: productEventWait)
+            let rasterLoading = Task { @MainActor in await loadGarmin() }
+            defer { rasterLoading.cancel() }
+            await fulfillment(of: [rasterStarted], timeout: productEventWait)
+            let retried = await retry()
+            XCTAssertFalse(retried)
+            let visible = read()
+            XCTAssertEqual(visible.hasPrep, includePrep)
+            XCTAssertFalse(visible.surfaceFailed,
+                           "a retry joining in-flight prep must not fail the mounted numeric/map surface")
+            XCTAssertEqual(visible.displayState, includePrep ? .factual : .waiting)
+            if includePrep { XCTAssertNotNil(visible.greenRange.middle) }
+            XCTAssertEqual(prepRequests.value, 1, "one physical hole starts one prep request")
+            loading.cancel()
+            rasterLoading.cancel()
+            await prepGate.release()
+            await rasterGate.release()
+            await loading.value
+            await rasterLoading.value
         }
-        await fulfillment(of: [started], timeout: productEventWait)
-        let secondAttempt = Task { @MainActor in await controller.rootView.retryHoleMapForTesting() }
-        _ = await secondAttempt.value
-        XCTAssertFalse(controller.rootView.mapPreparingSurfaceFailedForTesting(),
-                       "a retry joining an in-flight prep cannot mark the map as failed")
-        XCTAssertEqual(controller.rootView.liveMapDisplayStateForTesting(), .factual,
-                       "partial route remains actionable while prep is held")
-        let visible = controller.rootView.displayedGreenRangeYardsForTesting()
-        XCTAssertNotNil(visible.middle, "numeric middle remains visible during prep")
-        XCTAssertEqual(prepRequests.value, 1, "one hole starts one prep request")
-        await gate.release()
     }
 
     /// C136/J4: a held prep request cannot replace the factual route/numeric first frame with the
@@ -885,7 +905,7 @@ final class ProductMapAndPackageTests: XCTestCase {
             "clubhouse/off-hole opening state keeps the selected-Tee static middle"
         )
         XCTAssertNil(
-            clubhouseHost.controller.rootView.caddieCoordinateForTesting(),
+            clubhouseHost.controller.rootView.caddieRequestForTesting()?.context["currentLocation"],
             "clubhouse/off-hole opening state must omit the request coordinate"
         )
 
@@ -900,7 +920,7 @@ final class ProductMapAndPackageTests: XCTestCase {
             "standing on the selected Tee keeps the static middle"
         )
         XCTAssertNotNil(
-            teeHost.controller.rootView.caddieCoordinateForTesting(),
+            teeHost.controller.rootView.caddieRequestForTesting()?.context["currentLocation"],
             "standing on the selected Tee still sends the on-hole coordinate"
         )
 
@@ -920,9 +940,15 @@ final class ProductMapAndPackageTests: XCTestCase {
             "on-hole fairway GPS beyond the Tee threshold drives live planning"
         )
         XCTAssertNotNil(
-            fairwayHost.controller.rootView.caddieCoordinateForTesting(),
+            fairwayHost.controller.rootView.caddieRequestForTesting()?.context["currentLocation"],
             "on-hole fairway opening state must send the request coordinate"
         )
+        let fairwayRequest = try XCTUnwrap(fairwayHost.controller.rootView.caddieRequestForTesting())
+        guard case let .object(location)? = fairwayRequest.context["currentLocation"] else {
+            return XCTFail("J5.4 the production caddie request must carry the fairway GPS fix")
+        }
+        XCTAssertEqual(location["latitude"], .number(fairway.latitude))
+        XCTAssertEqual(location["longitude"], .number(fairway.longitude))
 
         let target = CLLocationCoordinate2D(latitude: moved.latitude + 0.0003, longitude: moved.longitude)
         let targetDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -942,6 +968,10 @@ final class ProductMapAndPackageTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(targetHost.controller.rootView.caddiePlanningDistanceForTesting()),
                        GeoDistance.haversineMetres(tee.latitude, tee.longitude, target.latitude, target.longitude), accuracy: 0.01,
                        "J5.4 Touch Target remains the post-shot planning source")
+        XCTAssertEqual(targetHost.controller.rootView.displayedTargetYardsForTesting(),
+                       CoursePrepRoute.yards(fromMetres: GeoDistance.haversineMetres(
+                           tee.latitude, tee.longitude, target.latitude, target.longitude)),
+                       "J5.4 the visible target ladder uses the same selected Touch Target")
         let pin = CLLocationCoordinate2D(latitude: moved.latitude + 0.0005, longitude: moved.longitude)
         let pinDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: pinDirectory) }

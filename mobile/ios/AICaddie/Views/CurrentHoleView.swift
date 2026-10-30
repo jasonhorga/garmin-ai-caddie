@@ -556,12 +556,47 @@ struct LiveScoreDismissalCoordinator: Equatable {
     }
 }
 
+#if DEBUG
+/// Actions and reads captured by onAppear belong to the mounted view's State storage.
+/// Tests retain this reference instead of mutating UIHostingController.rootView value copies.
+@MainActor
+final class LiveHoleLoadingProbe {
+    struct Snapshot {
+        let hasPrep: Bool
+        let surfaceFailed: Bool
+        let displayState: LiveMapDisplayState
+        let greenRange: LiveGreenRangeYards
+    }
+
+    var didMount: (() -> Void)?
+    var read: (() -> Snapshot)?
+    var load: (() async -> Void)?
+    var retry: (() async -> Bool)?
+    var loadGarmin: (() async -> Void)?
+
+    func detach() {
+        didMount = nil
+        read = nil
+        load = nil
+        retry = nil
+        loadGarmin = nil
+    }
+}
+#endif
+
 public struct CurrentHoleView: View {
     @Environment(\.dismiss) private var dismiss
     // The pager's owner can navigate home directly; standalone destinations use dismiss.
     private let onBackToHome: (() -> Void)?
     #if DEBUG
     private var navigationProbe: LiveHolePageNavigationProbe?
+    private var loadingProbe: LiveHoleLoadingProbe?
+
+    func observingLoadingForTesting(_ probe: LiveHoleLoadingProbe) -> Self {
+        var view = self
+        view.loadingProbe = probe
+        return view
+    }
 
     func observingNavigationForTesting(_ probe: LiveHolePageNavigationProbe?) -> Self {
         var view = self
@@ -970,11 +1005,6 @@ public struct CurrentHoleView: View {
         injectedLocationProvider ?? locationProvider
     }
 
-    // Keep the source contract names discoverable while routing both production and fixtures through
-    // the stable provider selected above: locationProvider.requestAuthorization(),
-    // locationProvider.startUpdatingLocation(), locationProvider.$latestFix,
-    // and locationProvider.latestFix remain the underlying provider operations.
-
     private var currentCoordinateForLogic: CLLocationCoordinate2D? {
         currentCoordinate ?? activeLocationProvider.latestFix?.coordinate
     }
@@ -1134,6 +1164,22 @@ public struct CurrentHoleView: View {
         .navigationBarBackButtonHidden(true)
         .onAppear {
             #if DEBUG
+            loadingProbe?.read = {
+                LiveHoleLoadingProbe.Snapshot(
+                    hasPrep: holePrep != nil,
+                    surfaceFailed: Self.mapPreparingSurfaceFailed(
+                        holeMapLoadFailed: holeMapLoadFailed,
+                        preciseMapTimedOut: preciseMapTimedOut,
+                        hasPrep: holePrep != nil, hasRoute: liveHasRoute
+                    ),
+                    displayState: liveMapDisplayState,
+                    greenRange: displayedGreenRangeYards
+                )
+            }
+            loadingProbe?.load = { await loadCurrentHole() }
+            loadingProbe?.retry = { await loadHoleMap() }
+            loadingProbe?.loadGarmin = { await loadGarminRasterIfNeeded() }
+            loadingProbe?.didMount?()
             UITestPagerTrace.shared.metric(.currentHoleAppear)
             UITestPagerTrace.shared.record("page appear hole=\(hole.number) selected=\(isSelected)")
             #endif
@@ -4417,11 +4463,6 @@ public struct CurrentHoleView: View {
     }
 
     @MainActor
-    func clearHolePrepForTesting() {
-        holePrep = nil
-    }
-
-    @MainActor
     func loadGarminRasterForTesting() async {
         await loadGarminRaster()
     }
@@ -4464,8 +4505,13 @@ public struct CurrentHoleView: View {
     }
 
     @MainActor
-    func caddieCoordinateForTesting() -> CLLocationCoordinate2D? {
-        caddieRequestCoordinate
+    func caddieRequestForTesting() -> CaddieDecisionRequest? {
+        makeCaddieDecisionRequest()
+    }
+
+    @MainActor
+    func displayedTargetYardsForTesting() -> Int? {
+        displayedTargetYards
     }
 
     @MainActor
@@ -6507,7 +6553,6 @@ public struct CurrentHoleView: View {
     /// The request coordinate follows the hole-state gate, while planning distance has its own
     /// tee/live transition. Keep the production request and its test seam on one calculation.
     private var caddieRequestCoordinate: CLLocationCoordinate2D? {
-        // Source pin retained for the request's original gate: coordinate: isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole
         isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole
     }
 
@@ -6529,13 +6574,14 @@ public struct CurrentHoleView: View {
         )
     }
 
-    /// Product-test seam for the same planning source used by the live decision request. Keeping
-    /// this at the view boundary prevents a test from silently validating a detached distance
-    /// helper while the rendered hole uses another chain.
+    /// Read the production request body, including its actual distance source and input wiring.
     #if DEBUG
     @MainActor
     func caddiePlanningDistanceForTesting() -> Double? {
-        caddiePlanningDistanceMetres
+        guard case let .number(value)? = makeCaddieDecisionRequest()?.context["distanceToPin_m"] else {
+            return nil
+        }
+        return value
     }
     #endif
 

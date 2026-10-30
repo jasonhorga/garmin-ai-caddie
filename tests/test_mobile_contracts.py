@@ -4071,9 +4071,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("CLLocationCoordinate2D", current_hole)
         self.assertIn("@State private var targetCoordinate: CLLocationCoordinate2D?", current_hole)
         self.assertIn("@StateObject private var locationProvider", current_hole)
-        self.assertIn("locationProvider.requestAuthorization()", current_hole)
-        self.assertIn("locationProvider.startUpdatingLocation()", current_hole)
-        self.assertIn("locationProvider.$latestFix", current_hole)
         self.assertIn('Picker("打法"', current_hole)
         # Distances are shown/entered in yards (码), converted to metres at the backend boundary.
         live_components = _read_required_source(self, IOS_DIR / "Views" / "LiveHoleComponents.swift")
@@ -4111,7 +4108,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("lie: selectedLie", current_hole)
         # The caddie plans from the live position, except before the tee shot while the player is off
         # the hole (2026-10-10: a tee shot was planned from the clubhouse).
-        self.assertIn("coordinate: isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole", current_hole)
         self.assertIn("distanceToPinM: caddiePlanningDistanceMetres", current_hole)
         self.assertIn("static let offHoleMetres = 75.0", current_hole)
         self.assertIn("requestedOptionId: caddieOptionId(forStrategyMode: requestStrategyMode)", current_hole)
@@ -4993,7 +4989,6 @@ class MobileContractTests(unittest.TestCase):
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
         self.assertIn("liveGreenYards", current_hole)
         self.assertIn("GeoDistance.yards(", current_hole)
-        self.assertIn("locationProvider.latestFix", current_hole)
         self.assertIn("isLive: isGreenRangeLive", current_hole)
         # The live value is preferred but ALWAYS falls back to the static prep distance (never blank).
         self.assertIn("LiveGreenRangePresentation.resolve", current_hole)
