@@ -773,8 +773,10 @@ class PureLogicTests(unittest.TestCase):
         ]
         steps, _c, _landing, _tee = cp._strategy(4, 396, self._NO_HAZARDS, ladder)
 
-        self.assertEqual([step["club"] for step in steps], ["Driver", "3H", "58"])
-        self.assertAlmostEqual(steps[1]["expectedRemaining_m"], 41.0, delta=0.1)
+        self.assertEqual([step["club"] for step in steps], ["Driver", "8I", "50"])
+        self.assertAlmostEqual(steps[1]["expectedRemaining_m"], 78.0, delta=0.1)
+        self.assertGreaterEqual(steps[1]["expectedRemaining_m"], cp.LAYUP_LEAVE_MIN_M)
+        self.assertLessEqual(steps[1]["expectedRemaining_m"], 115.0)
 
     def test_par5_lay_up_applies_to_the_last_advance(self) -> None:
         ladder = [

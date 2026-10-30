@@ -251,7 +251,7 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
 
         cases = [
             ("owner", owner_ladder, 377.0, 180.0, ["3W"]),
-            ("owner_layup", owner_ladder, 396.0, 199.0, ["3W", "58"]),
+            ("owner_layup", owner_ladder, 396.0, 199.0, ["8I", "50"]),
             ("trigger", trigger_ladder, 377.0, 180.0, ["3W"]),
         ]
         for label, ladder, route_len, remaining_m, expected_tail in cases:
@@ -268,6 +268,47 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
                 self.assertEqual([step["club"] for step in steps], ["Driver", *expected_tail])
                 carries = [step["targetCarry_m"] for step in steps]
                 self.assertEqual(carries, sorted(carries, reverse=True))
+                if label == "owner_layup":
+                    self.assertGreaterEqual(steps[1]["expectedRemaining_m"], 70.0)
+                    self.assertLessEqual(steps[1]["expectedRemaining_m"], 115.0)
+
+    def test_j4_6_online_tee_tail_matches_course_prep_and_full_wedge_window(self):
+        """J4.6: online tee and CoursePrep share a full-wedge layup tail."""
+        owner_ladder = [
+            ("Driver", 197), ("3W", 170), ("3H", 157), ("5I", 142), ("6I", 132),
+            ("7I", 128), ("8I", 121), ("9I", 109), ("Pw", 107), ("Aw", 102),
+            ("50", 84), ("54", 48), ("58", 35),
+        ]
+        profiles = {
+            name: {
+                "clubName": name, "median_m": carry, "p10_m": carry, "p90_m": carry,
+                "sampleSize": 20, "riskRate": 0, "usableRate": 100,
+            }
+            for name, carry in owner_ladder
+        }
+        context = {
+            "roundId": "c244-r2", "globalId": 31688, "hole": 5, "localHole": 5,
+            "shotType": "tee", "par": 4, "distanceToPin_m": 396.0, "lie": "tee",
+            "clubProfiles": profiles,
+            "geometry": {"hasMeshes": True, "hasHazards": False, "hazardCount": 0},
+            "candidateRoutes": [{
+                "id": "stock_line", "label": "stock", "carry_m": 197.0,
+                "landingLocal": [0, 197], "expectedSurface": {"kind": "fairway"},
+                "nearRisks": [], "lineRisks": [], "riskScore": 0,
+            }],
+            "dataQuality": {"confidence": "high", "issues": []},
+        }
+        plan = build_decision_plan(context)
+        stock = next(sequence for sequence in plan["sequences"] if sequence["id"] == "stock")
+        online_clubs = [step["clubName"] for step in stock["clubs"]]
+        prep_steps, *_ = course_prep._strategy(
+            4, 396.0, {"water_carry": [], "bunkers": [], "details": []}, owner_ladder,
+        )
+        prep_clubs = [step["club"] for step in prep_steps]
+        self.assertEqual(online_clubs, ["Driver", "8I", "50"])
+        self.assertEqual(prep_clubs, online_clubs)
+        self.assertGreaterEqual(stock["clubs"][1]["expectedRemaining_m"], 70.0)
+        self.assertLessEqual(stock["clubs"][1]["expectedRemaining_m"], 115.0)
 
     def test_j5_11_dogleg_uses_route_stations_for_hazards_and_two_shot_finish(self):
         self.install_route_geometry()
