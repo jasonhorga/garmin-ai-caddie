@@ -175,6 +175,7 @@ def _collect(root: Path) -> dict:
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(part for part in (str(root), env.get("PYTHONPATH", "")) if part)
     env["AI_CADDIE_DATA_MODE"] = "fixture"
+    env["AI_CADDIE_READINESS_TRACE"] = "1"
     env.pop("AI_CADDIE_PRIVATE_ROOT", None)
     try:
         child = subprocess.run(

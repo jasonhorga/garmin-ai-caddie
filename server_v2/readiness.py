@@ -16,7 +16,7 @@ from ai_caddie.core.media import (
 )
 from ai_caddie.courses.course_reference import course_reference_coverage
 
-from .history_stats import load_history_stats_snapshot, warm_stats_cache_in_background
+from .history_stats import history_warm_failure, load_history_stats_snapshot, warm_stats_cache_in_background
 from .mobile import build_mobile_round_package_response
 from .reports import load_trend_report_response
 from .sync_status import load_sync_status_response
@@ -52,6 +52,11 @@ PACKAGING_LABELS = frozenset(
         "roadmap_completion",
     }
 )
+READINESS_RUNTIME_RESOURCES = (
+    Path("ai_caddie"),
+    Path("ai_caddie/geometry"),
+    Path("ai_caddie/geometry/batch_prodgeometry_course.py"),
+)
 
 
 def _aggregate_readiness_status(checks: list[dict[str, Any]]) -> tuple[str, str]:
@@ -61,6 +66,15 @@ def _aggregate_readiness_status(checks: list[dict[str, Any]]) -> tuple[str, str]
     runtime_status = "ready" if runtime_checks and all(check["state"] in acceptable_states for check in runtime_checks) else "degraded"
     overall = "ready" if all(check["state"] in acceptable_states for check in checks) else "degraded"
     return overall, runtime_status
+
+
+def _start_history_warm() -> str | None:
+    """Start the shared stats warmer and return a public failure reason, if it cannot start."""
+    try:
+        warm_stats_cache_in_background()
+    except Exception as exc:  # pragma: no cover - defensive readiness surface
+        return f"{exc.__class__.__name__}: {exc}"
+    return history_warm_failure()
 
 
 def _check(label: str, state: str, detail: str, evidence: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -962,8 +976,18 @@ def _offline_seed_quality(package: Any) -> dict[str, Any]:
 
 
 def build_readiness_response() -> dict[str, Any]:
+    runtime_resource_missing = [
+        path.as_posix() for path in READINESS_RUNTIME_RESOURCES if not path.exists()
+    ]
     checks: list[dict[str, Any]] = [
-        _check("service", "ready", "API process is responding."),
+        _check(
+            "service",
+            "ready" if not runtime_resource_missing else "degraded",
+            "API process is responding."
+            if not runtime_resource_missing
+            else "Readiness runtime resources are missing.",
+            {"runtimeResources": [path.as_posix() for path in READINESS_RUNTIME_RESOURCES], "missing": runtime_resource_missing},
+        ),
         _check("mobile", "ready", "Live package, event log, and reconciliation endpoints are registered."),
         _check("secret_handling", "ready", "Public status responses redact private credentials and local paths."),
     ]
@@ -980,7 +1004,11 @@ def build_readiness_response() -> dict[str, Any]:
                 )
             )
             stats = None
-            warm_stats_cache_in_background()
+            warm_error = _start_history_warm()
+            if warm_error:
+                checks[-1]["state"] = "degraded"
+                checks[-1]["detail"] = "History statistics failed to start warming."
+                checks[-1]["evidence"]["reason"] = warm_error
         else:
             stats = snapshot.get("value") if isinstance(snapshot, dict) else snapshot
             summary = stats.get("summary", {}) if isinstance(stats, dict) else getattr(stats, "summary", {})
@@ -1001,10 +1029,13 @@ def build_readiness_response() -> dict[str, Any]:
                 )
             )
             if stale:
-                warm_stats_cache_in_background()
+                warm_error = _start_history_warm()
+                if warm_error:
+                    checks[-1]["state"] = "degraded"
+                    checks[-1]["detail"] = "History statistics failed to refresh."
+                    checks[-1]["evidence"]["reason"] = warm_error
     except Exception as exc:  # pragma: no cover - defensive health surface
-        checks.append(_check("history", "warming", "History statistics are warming in the background.", {"error": exc.__class__.__name__, "stale": True}))
-        warm_stats_cache_in_background()
+        checks.append(_check("history", "degraded", "History statistics readiness failed.", {"error": exc.__class__.__name__, "reason": str(exc), "stale": True}))
 
     try:
         sync = load_sync_status_response()

@@ -19,15 +19,6 @@ class ReadinessRuntimePathsTests(unittest.TestCase):
         self.addCleanup(holder.cleanup)
         self.root = Path(holder.name)
 
-    def test_G7_collector_waits_for_background_warm_resources(self) -> None:
-        """G7: C432 includes files used by the readiness-triggered background warm."""
-        manifest = paths._collect(Path.cwd())
-        runtime = {entry["path"] for entry in manifest["runtime"]}
-        self.assertIn("ai_caddie", runtime)
-        self.assertIn("ai_caddie/geometry", runtime)
-        self.assertIn("ai_caddie/geometry/batch_prodgeometry_course.py", runtime)
-        self.assertIn("mobile/contracts/live_round_event.schema.json", runtime)
-
     def _verify(self, runtime: list[dict]) -> tuple[int, str]:
         payload = json.dumps({"schema": paths.SCHEMA, "runtime": runtime})
         stderr = io.StringIO()

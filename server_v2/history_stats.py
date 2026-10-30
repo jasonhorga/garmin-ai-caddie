@@ -28,6 +28,7 @@ _WARM_LOCK = threading.Lock()
 # leave the member's first package cold. The per-player map still bounds duplicate work to one
 # worker for each data partition.
 _WARM_THREADS: dict[str, threading.Thread] = {}
+_WARM_FAILURES: dict[str, str] = {}
 
 
 def load_history_stats_response(window: str = "all", *, player_id: str = OWNER_ID) -> HistoryStatsResponse:
@@ -159,23 +160,34 @@ def warm_stats_cache(player_id: str = OWNER_ID) -> bool:
     return True
 
 
-def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Thread:
+def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Thread | None:
     """Run :func:`warm_stats_cache` on a daemon thread and return it.
 
     Used after a successful sync so the ~10s recompute happens off the request path and
     does NOT block the ``/api/v2/sync/garmin`` response.
     """
     clean_player_id = str(player_id or OWNER_ID).strip() or OWNER_ID
+    if os.getenv("AI_CADDIE_READINESS_TRACE") == "1":
+        warm_stats_cache(player_id=clean_player_id)
+        return None
     with _WARM_LOCK:
         existing = _WARM_THREADS.get(clean_player_id)
         if existing is not None and existing.is_alive():
             return existing
+        if clean_player_id in _WARM_FAILURES:
+            return None
 
         def run() -> None:
             try:
                 with background_work(unit_type="stats"):
                     thread.history_signature = history_input_signature(clean_player_id)
                     thread.warm_succeeded = warm_stats_cache(player_id=clean_player_id) is True
+                if not thread.warm_succeeded:
+                    with _WARM_LOCK:
+                        _WARM_FAILURES[clean_player_id] = "stats warm returned false"
+                else:
+                    with _WARM_LOCK:
+                        _WARM_FAILURES.pop(clean_player_id, None)
             finally:
                 with _WARM_LOCK:
                     if _WARM_THREADS.get(clean_player_id) is threading.current_thread():
@@ -191,3 +203,10 @@ def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Threa
         _WARM_THREADS[clean_player_id] = thread
         thread.start()
         return thread
+
+
+def history_warm_failure(player_id: str = OWNER_ID) -> str | None:
+    """Return the last failed background warm reason until a later warm succeeds."""
+    clean_player_id = str(player_id or OWNER_ID).strip() or OWNER_ID
+    with _WARM_LOCK:
+        return _WARM_FAILURES.get(clean_player_id)
