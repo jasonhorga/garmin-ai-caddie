@@ -2,7 +2,10 @@
 from copy import deepcopy
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
+import textwrap
 import unittest
 
 from ai_caddie.history import history
@@ -69,6 +72,48 @@ class SyncProductTests(unittest.TestCase):
                 self.assertTrue(F._write_shot_cache_if_changed(path, second, log_key="round-1", logged_keys=logged_keys))
                 self.assertTrue(F._write_shot_cache_if_changed(path, third, log_key="round-1", logged_keys=logged_keys))
             self.assertEqual(len(captured.records), 1, captured.output)
+
+    def test_j1_1_pipeline_entrypoint_emits_diff_to_stderr(self):
+        """J1.1: the real pipeline entrypoint exposes the redacted diff to cron stderr."""
+        script = textwrap.dedent(
+            """
+            import json
+            from contextlib import nullcontext
+            from pathlib import Path
+            import tempfile
+            from unittest.mock import patch
+
+            from ai_caddie import pipeline
+            from ai_caddie.garmin import fetch
+
+            before = {"holeShots": [{"pin": {"latitude": 30.1}, "playerId": "player-secret-before"}]}
+            after = {"holeShots": [{"pin": {"latitude": 30.2}, "playerId": "player-secret-after"}]}
+            with tempfile.TemporaryDirectory() as td:
+                path = Path(td) / "shots.json"
+                path.write_text(json.dumps(before), encoding="utf-8")
+
+                def fake_sync(**_kwargs):
+                    fetch._write_shot_cache_if_changed(path, after)
+                    return pipeline.SyncResult(auth_ok=True, rounds=1)
+
+                with patch.object(pipeline, "ROOT", Path(td)), \\
+                        patch.object(pipeline, "sync", side_effect=fake_sync), \\
+                        patch.object(pipeline, "_persist_sync_observability"), \\
+                        patch("ai_caddie.connectors.sync_lock.acquire_sync_lock", return_value=nullcontext()), \\
+                        patch("ai_caddie.connectors.snapshot.write_connector_status"):
+                    raise SystemExit(pipeline.main(["--shots", "--geometry-limit", "0"]))
+            """
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).resolve().parents[2],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr + completed.stdout)
+        self.assertIn("garmin_sync_round_changed", completed.stderr)
+        self.assertNotIn("player-secret", completed.stderr)
 
     def test_j1_1_completed_rounds_arrive(self):
         # 101 = 18*4 = 72; 102 = 18*5 = 90; their mean is 81.
