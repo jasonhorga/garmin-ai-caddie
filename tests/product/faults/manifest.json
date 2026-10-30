@@ -2219,6 +2219,41 @@
       "kind": "python",
       "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_dry_run_and_apply_preserve_identity",
       "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C184-01-unmapped-suggestions-dropped",
+      "patch": "tests/product/faults/C184/01-unmapped-suggestions-dropped.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_missing_garmin_card_restores_phone_score_suggestions",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C184-02-unmapped-audit-dropped",
+      "patch": "tests/product/faults/C184/02-unmapped-audit-dropped.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j7_2_unmapped_decision_event_keeps_caddie_feedback_audit",
+      "promise": "7.2"
+    },
+    {
+      "id": "tests-product-faults-C184-03-local-only-metadata-dropped",
+      "patch": "tests/product/faults/C184/03-local-only-metadata-dropped.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_local_only_rows_distinguish_mapped_missing_facts",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C184-04-unnumbered-back-raises",
+      "patch": "tests/product/faults/C184/04-unnumbered-back-raises.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_back_start_nonmerged_unnumbered_card_falls_back_to_display_axis",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C184-05-member-apply-open",
+      "patch": "tests/product/faults/C184/05-member-apply-open.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_admin_protection.ReconciliationAndCaddieContextAdminOnlyTests.test_j7_2_member_token_is_rejected_for_reconciliation_apply",
+      "promise": "7.2"
     }
   ]
 }

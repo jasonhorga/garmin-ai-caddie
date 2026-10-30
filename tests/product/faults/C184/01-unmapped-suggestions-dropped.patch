@@ -1,0 +1,20 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index 97cf850f..4a8ce799 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -678,6 +678,15 @@ def reconcile_mobile_round_events(
+         garmin_only=garmin_only,
+         candidate_audits=candidate_audits,
+     )
++    annotation_suggestions = [
++        row for row in annotation_suggestions
++        if not bool((row.get("payload") or {}).get("sourceEventId"))
++        or not any(
++            str(local.get("eventId") or "") == str((row.get("payload") or {}).get("sourceEventId") or "")
++            and local.get("unmapped")
++            for local in local_only
++        )
++    ]
+     return {
+         "schema": "ai-caddie-mobile-reconciliation-v1",
+         "roundId": str(round_id),
