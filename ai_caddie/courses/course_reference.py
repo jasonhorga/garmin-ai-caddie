@@ -483,6 +483,30 @@ def courseview_catalogue_names(*, root: Path = ROOT) -> dict[int, str]:
     return result
 
 
+def courseview_catalogue_facts(*, root: Path = ROOT) -> dict[int, dict[str, object]]:
+    """Return observed catalogue names plus optional provider coordinates."""
+    result: dict[int, dict[str, object]] = {}
+    for path in _courseview_dir(root).glob("*_catalogue_name.json"):
+        try:
+            payload = safe_read_json(path, default={})
+            gid = int(payload.get("globalId")) if isinstance(payload, dict) else 0
+            name = payload.get("name") if isinstance(payload, dict) else None
+            if (
+                gid > 0
+                and payload.get("languageCode") == COURSEVIEW_RELEASE_LANGUAGE_CODE
+                and isinstance(name, str)
+                and contains_cjk(name)
+            ):
+                result[gid] = {
+                    "name": name,
+                    "latitude": payload.get("latitude"),
+                    "longitude": payload.get("longitude"),
+                }
+        except (AttributeError, TypeError, ValueError, OSError, OverflowError):
+            continue
+    return result
+
+
 def localized_courseview_name(
     global_id: int,
     *,
@@ -522,13 +546,20 @@ def record_courseview_catalogue_names(matches: object, *, root: Path = ROOT) -> 
             if global_id <= 0 or len(name) > 256 or not contains_cjk(name):
                 continue
             path = _catalogue_name_path(global_id, root=root)
-            if courseview_catalogue_name(global_id, root=root) != name:
-                atomic_write_json(path, {
+            current = courseview_catalogue_name(global_id, root=root)
+            if current != name:
+                payload = {
                     "schema": "garmin-courseview-catalogue-name-v1",
                     "globalId": global_id,
                     "languageCode": COURSEVIEW_RELEASE_LANGUAGE_CODE,
                     "name": name,
-                })
+                }
+                latitude = getattr(match, "latitude", None)
+                longitude = getattr(match, "longitude", None)
+                if latitude is not None and longitude is not None:
+                    payload["latitude"] = float(latitude)
+                    payload["longitude"] = float(longitude)
+                atomic_write_json(path, payload)
         except (AttributeError, OSError, TypeError, ValueError, OverflowError):
             # Discovery must remain usable even when a metadata cache is read-only.
             continue

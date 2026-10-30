@@ -107,6 +107,23 @@ class CourseHTTPTests(HTTPFixture, unittest.TestCase):
             )["courses"]
             self.assertNotIn(52025, {row["globalId"] for row in result})
 
+    def test_j4_1_sidecar_same_name_requires_matching_coordinates(self):
+        """J4.1: a same-name sidecar from another city cannot join the played venue."""
+        rows = [{"id": "r1", "globalId": 53001, "course": "同名球会 ~ A", "date": "2026-01-01",
+                 "holesCompleted": 9, "lat": 31.18, "lon": 121.37}]
+        with TemporaryDirectory() as directory, patch.object(mobile_live, "ROOT", Path(directory)):
+            cache = Path(directory) / "data" / "courseview"
+            cache.mkdir(parents=True)
+            (cache / "53002_catalogue_name.json").write_text(json.dumps({
+                "globalId": 53002, "languageCode": "zh_CHS", "name": "同名球会 ~ B",
+                "latitude": 40.04, "longitude": 116.55}))
+            result = mobile_live.build_mobile_course_options(
+                HistoryData(raw_rounds=[], rounds=rows, shots=[]),
+                segment_resolver=lambda gid: ("同名球会 ~ A", 9),
+                tee_resolver=lambda gid: [],
+            )["courses"]
+            self.assertEqual({row["globalId"] for row in result}, {53001})
+
     def catalogue(self):
         """Fake only cached provider facts, never a package or a hole mapping."""
         courses = {c["globalId"]: c for c in vectors("loop_map.json")["courses"]}
