@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 
 from ai_caddie.history.history import OWNER_ID
@@ -30,6 +31,8 @@ _WARM_LOCK = threading.Lock()
 # worker for each data partition.
 _WARM_THREADS: dict[str, threading.Thread] = {}
 _WARM_FAILURES: dict[str, str] = {}
+_WARM_FAILURE_AT: dict[str, float] = {}
+WARM_RETRY_DELAY_S = 0.1
 
 
 def load_history_stats_response(window: str = "all", *, player_id: str = OWNER_ID) -> HistoryStatsResponse:
@@ -175,7 +178,8 @@ def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Threa
         existing = _WARM_THREADS.get(clean_player_id)
         if existing is not None and existing.is_alive():
             return existing
-        if clean_player_id in _WARM_FAILURES:
+        retry_at = _WARM_FAILURE_AT.get(clean_player_id, 0.0)
+        if clean_player_id in _WARM_FAILURES and time.monotonic() < retry_at:
             return None
 
         def run() -> None:
@@ -183,12 +187,17 @@ def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Threa
                 with background_work(unit_type="stats"):
                     thread.history_signature = history_input_signature(clean_player_id)
                     thread.warm_succeeded = warm_stats_cache(player_id=clean_player_id) is True
-                if not thread.warm_succeeded:
-                    with _WARM_LOCK:
+                with _WARM_LOCK:
+                    if not thread.warm_succeeded:
                         _WARM_FAILURES[clean_player_id] = "stats warm returned false"
-                else:
-                    with _WARM_LOCK:
+                        _WARM_FAILURE_AT[clean_player_id] = time.monotonic() + WARM_RETRY_DELAY_S
+                    else:
                         _WARM_FAILURES.pop(clean_player_id, None)
+                        _WARM_FAILURE_AT.pop(clean_player_id, None)
+            except Exception as exc:  # noqa: BLE001 - background warm must leave a retryable record
+                with _WARM_LOCK:
+                    _WARM_FAILURES[clean_player_id] = f"{exc.__class__.__name__}: {exc}"
+                    _WARM_FAILURE_AT[clean_player_id] = time.monotonic() + WARM_RETRY_DELAY_S
             finally:
                 with _WARM_LOCK:
                     if _WARM_THREADS.get(clean_player_id) is threading.current_thread():
@@ -211,3 +220,14 @@ def history_warm_failure(player_id: str = OWNER_ID) -> str | None:
     clean_player_id = str(player_id or OWNER_ID).strip() or OWNER_ID
     with _WARM_LOCK:
         return _WARM_FAILURES.get(clean_player_id)
+
+
+def history_warm_failure_details(player_id: str = OWNER_ID) -> dict[str, object] | None:
+    """Return the latest failed warm and timestamp while retries remain enabled."""
+    clean_player_id = str(player_id or OWNER_ID).strip() or OWNER_ID
+    with _WARM_LOCK:
+        reason = _WARM_FAILURES.get(clean_player_id)
+        failed_at = _WARM_FAILURE_AT.get(clean_player_id)
+    if reason is None:
+        return None
+    return {"reason": reason, "failedAtMonotonic": failed_at}

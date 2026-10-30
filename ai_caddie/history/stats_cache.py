@@ -76,6 +76,7 @@ _GEOMETRY_SIG_TTL_S = 1.5
 
 _lock = threading.Lock()
 _cache: dict[tuple, tuple[Any, Any]] = {}
+_cache_source_revisions: dict[tuple, str] = {}
 _CORRECTED_CACHE: dict[tuple, Any] = {}
 _load_cache: dict[str, tuple[Any, Any]] = {}
 # Loading the scorecard/shot files is itself expensive on a cold process. Share that read among
@@ -495,6 +496,7 @@ def clear(player_id: str | None = None) -> None:
     with _lock:
         if player_id is None:
             _cache.clear()
+            _cache_source_revisions.clear()
             _CORRECTED_CACHE.clear()
             _load_cache.clear()
             # Do not wake or remove an active leader. It will publish normally; callers that arrive
@@ -505,6 +507,7 @@ def clear(player_id: str | None = None) -> None:
             _CORRECTED_CACHE.pop(key, None)
         for key in [k for k in _cache if isinstance(k, tuple) and k and k[0] == player_id]:
             _cache.pop(key, None)
+            _cache_source_revisions.pop(key, None)
 
 
 def history_input_signature(player_id: str = OWNER_ID) -> tuple:
@@ -629,6 +632,10 @@ def cached_build_history_stats(
             value = _read_persistent_value(persistent_path, fingerprint)
             mark("stats_disk")
             if value is None:
+                # Capture the source revision before the expensive build. If history changes while
+                # the projection is being computed, the persisted revision stays old and the next
+                # readiness snapshot correctly advertises stale evidence.
+                source_revision_before = history_source_revision(player_id)
                 value = _build_history_stats(
                     _windowed_history_data(data, window),
                     data_mode=data_mode,
@@ -639,7 +646,7 @@ def cached_build_history_stats(
                     persistent_path,
                     fingerprint,
                     value,
-                    history_source_revision(player_id),
+                    source_revision_before,
                 )
                 mark("stats_build")
         except BaseException as exc:  # never strand waiters after a failed stats build
@@ -647,6 +654,8 @@ def cached_build_history_stats(
         with _lock:
             if error is None:
                 _cache[key] = (fingerprint, value)
+                if value is not None:
+                    _cache_source_revisions[key] = locals().get("source_revision_before", history_source_revision(player_id))
             if _inflight.get(key) is event:
                 del _inflight[key]
             event.set()
@@ -674,11 +683,13 @@ def cached_history_stats_snapshot(
         with _lock:
             hit = _cache.get(key)
         if hit is not None and isinstance(hit[1], dict):
+            stored_revision = _cache_source_revisions.get(key)
+            current_revision = history_source_revision(player_id)
             candidates.append((time.time(), {
                 "value": hit[1],
                 "dataMode": data_mode,
-                "revision": history_source_revision(player_id),
-                "stale": False,
+                "revision": stored_revision or current_revision,
+                "stale": bool(stored_revision and stored_revision != current_revision),
                 "source": "memory",
             }))
         path = _persistent_cache_path(key)

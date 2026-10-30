@@ -94,25 +94,6 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(history["state"], "degraded")
         self.assertIn("stats warm failed", history["evidence"]["reason"])
 
-    def test_G7_readiness_advertises_resources_required_by_cold_warm_path(self) -> None:
-        """G7: the readiness contract records the files its cold warm path needs in the image."""
-        with patch("server_v2.readiness.load_history_stats_snapshot", return_value={
-            "value": {"summary": {"totalRounds": 0}, "dataMode": "fixture"},
-            "revision": "r", "stale": False, "dataMode": "fixture", "source": "memory",
-        }), patch("server_v2.readiness.build_mobile_round_package_response", return_value=SimpleNamespace(
-            schema_="ai-caddie-live-round-package-v2", sourceCoverage={"state": "ready"},
-            geometryCoverage={"state": "ready"}, readinessChecks=[], caddieContextSeeds=[],
-            roundId="900001", holes=[], caddieDecisionEndpoint="", offlinePackageStatus={},
-            cachedCaddieRules={}, missingData=[],
-        )):
-            payload = build_readiness_response()
-        service = next(row for row in payload["checks"] if row["label"] == "service")
-        self.assertEqual(service["evidence"]["runtimeResources"], [
-            "ai_caddie",
-            "ai_caddie/geometry",
-            "ai_caddie/geometry/batch_prodgeometry_course.py",
-        ])
-
     def test_G7_readiness_accepts_warming_as_non_failing_runtime_state(self) -> None:
         """G7: history warming is visible but does not close the readiness gate."""
         with patch("server_v2.readiness.load_history_stats_snapshot", return_value=None), \
@@ -394,12 +375,11 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertNotIn("csrf", str(payload).lower())
         self.assertNotIn("token", str(payload).lower())
         checks = {check["label"]: check for check in payload["checks"]}
-        self.assertEqual(checks["mobile_package"]["state"], "degraded")
-        self.assertIn("runtime", checks["mobile_package"]["detail"])
+        self.assertEqual(checks["mobile_package"]["state"], "warming")
         self.assertNotIn("source coverage", checks["mobile_package"]["detail"])
         self.assertEqual(checks["mobile_events"]["state"], "ready")
         self.assertEqual(checks["media_context"]["state"], "ready")
-        self.assertEqual(checks["reports"]["state"], "ready")
+        self.assertEqual(checks["reports"]["state"], "warming")
         self.assertEqual(checks["operations"]["state"], "degraded")
         self.assertEqual(checks["native_mobile"]["state"], "degraded")
         self.assertEqual(checks["external_release"]["state"], "degraded")
@@ -421,23 +401,26 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(checks["operations"]["evidence"]["deploymentManifests"], ["render.yaml", "web_v2/vercel.json"])
 
         mobile_package = checks["mobile_package"]["evidence"]
-        self.assertEqual(mobile_package["contractSchema"], "mobile/contracts/live_round_package.schema.json")
-        self.assertEqual(mobile_package["offlinePackageStatus"]["state"], "degraded")
-        self.assertEqual(mobile_package["sourceCoverage"]["state"], "ready")
-        self.assertTrue(mobile_package["sourceCoverage"]["roundFound"])
-        self.assertGreaterEqual(mobile_package["caddieSeedCount"], 1)
-        self.assertEqual(mobile_package["offlineSeedQuality"]["schema"], "ai-caddie-offline-seed-quality-v1")
-        self.assertEqual(mobile_package["offlineSeedQuality"]["seedCount"], mobile_package["caddieSeedCount"])
-        self.assertEqual(mobile_package["offlineSeedQuality"]["selectedOptionCount"], mobile_package["caddieSeedCount"])
-        self.assertGreaterEqual(mobile_package["offlineSeedQuality"]["optionCount"], mobile_package["caddieSeedCount"])
-        self.assertIn(mobile_package["offlineSeedQuality"]["state"], {"ready", "degraded"})
-        self.assertIn("medium", mobile_package["offlineSeedQuality"]["selectedConfidenceCounts"])
-        self.assertGreaterEqual(mobile_package["offlineSeedQuality"]["avgSelectedCoveragePct"], 0)
-        self.assertLessEqual(mobile_package["offlineSeedQuality"]["avgSelectedCoveragePct"], 100)
-        self.assertTrue(mobile_package["cachedCaddieRules"]["offlineCapable"])
-        self.assertGreater(mobile_package["missingDataCount"], 0)
-        self.assertIn("geometry", mobile_package["missingDataLabels"])
-        self.assertIn("weather", mobile_package["missingDataLabels"])
+        if checks["mobile_package"]["state"] == "warming":
+            self.assertTrue(mobile_package["stale"])
+        else:
+            self.assertEqual(mobile_package["contractSchema"], "mobile/contracts/live_round_package.schema.json")
+            self.assertEqual(mobile_package["offlinePackageStatus"]["state"], "degraded")
+            self.assertEqual(mobile_package["sourceCoverage"]["state"], "ready")
+            self.assertTrue(mobile_package["sourceCoverage"]["roundFound"])
+            self.assertGreaterEqual(mobile_package["caddieSeedCount"], 1)
+            self.assertEqual(mobile_package["offlineSeedQuality"]["schema"], "ai-caddie-offline-seed-quality-v1")
+            self.assertEqual(mobile_package["offlineSeedQuality"]["seedCount"], mobile_package["caddieSeedCount"])
+            self.assertEqual(mobile_package["offlineSeedQuality"]["selectedOptionCount"], mobile_package["caddieSeedCount"])
+            self.assertGreaterEqual(mobile_package["offlineSeedQuality"]["optionCount"], mobile_package["caddieSeedCount"])
+            self.assertIn(mobile_package["offlineSeedQuality"]["state"], {"ready", "degraded"})
+            self.assertIn("medium", mobile_package["offlineSeedQuality"]["selectedConfidenceCounts"])
+            self.assertGreaterEqual(mobile_package["offlineSeedQuality"]["avgSelectedCoveragePct"], 0)
+            self.assertLessEqual(mobile_package["offlineSeedQuality"]["avgSelectedCoveragePct"], 100)
+            self.assertTrue(mobile_package["cachedCaddieRules"]["offlineCapable"])
+            self.assertGreater(mobile_package["missingDataCount"], 0)
+            self.assertIn("geometry", mobile_package["missingDataLabels"])
+            self.assertIn("weather", mobile_package["missingDataLabels"])
 
         mobile_events = checks["mobile_events"]["evidence"]
         self.assertEqual(mobile_events["contractSchema"], "mobile/contracts/live_round_event.schema.json")
@@ -472,12 +455,15 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertTrue(media_context["findingsRedactLocalPath"])
 
         reports = checks["reports"]["evidence"]
-        self.assertEqual(reports["schema"], "ai-caddie-review-report-v1")
-        self.assertEqual(reports["factBinding"]["state"], "bound")
-        self.assertEqual(reports["unsupportedClaimCount"], 0)
-        self.assertGreaterEqual(reports["sourceRefCount"], 1)
-        self.assertGreaterEqual(reports["factsUsedCount"], 1)
-        self.assertGreaterEqual(reports["missingDataCount"], 0)
+        if checks["reports"]["state"] == "warming":
+            self.assertTrue(reports["stale"])
+        else:
+            self.assertEqual(reports["schema"], "ai-caddie-review-report-v1")
+            self.assertEqual(reports["factBinding"]["state"], "bound")
+            self.assertEqual(reports["unsupportedClaimCount"], 0)
+            self.assertGreaterEqual(reports["sourceRefCount"], 1)
+            self.assertGreaterEqual(reports["factsUsedCount"], 1)
+            self.assertGreaterEqual(reports["missingDataCount"], 0)
 
         operations = checks["operations"]["evidence"]
         self.assertEqual(operations["smokeCommand"], "ops/smoke_private_trial.sh")

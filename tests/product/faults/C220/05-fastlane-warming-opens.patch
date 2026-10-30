@@ -1,11 +1,13 @@
 diff --git a/fastlane/Fastfile b/fastlane/Fastfile
 --- a/fastlane/Fastfile
 +++ b/fastlane/Fastfile
-@@ -189,7 +189,6 @@
-       UI.important("backend readiness warming; retrying") if attempts < READINESS_MAX_ATTEMPTS
+@@ -204,9 +204,6 @@
+       waited = [Process.clock_gettime(Process::CLOCK_MONOTONIC) - readiness_started, READINESS_TOTAL_TIMEOUT].min.round
+       UI.user_error!("部署后预热未完成（已等 #{waited} s）；checks=#{readiness["checks"].inspect}")
      end
-     if readiness && readiness.dig("checks")&.any? { |row| row["label"] == "history" && row["state"] == "warming" }
--      UI.user_error!("backend readiness remained warming after #{attempts} attempts/#{READINESS_TOTAL_TIMEOUT}s")
-     end
+-    if readiness["runtimeStatus"] == "degraded"
+-      UI.user_error!("backend readiness runtime degraded; checks=#{readiness["checks"].inspect}")
+-    end
      checks = readiness["checks"]
      readiness_shape_valid = readiness["schema"] == "ai-caddie-readiness-v1" &&
+       readiness["authenticated"] == true &&

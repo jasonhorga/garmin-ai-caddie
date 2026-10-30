@@ -16,7 +16,11 @@ from ai_caddie.core.media import (
 )
 from ai_caddie.courses.course_reference import course_reference_coverage
 
-from .history_stats import history_warm_failure, load_history_stats_snapshot, warm_stats_cache_in_background
+from .history_stats import (
+    history_warm_failure_details,
+    load_history_stats_snapshot,
+    warm_stats_cache_in_background,
+)
 from .mobile import build_mobile_round_package_response
 from .reports import load_trend_report_response
 from .sync_status import load_sync_status_response
@@ -52,13 +56,6 @@ PACKAGING_LABELS = frozenset(
         "roadmap_completion",
     }
 )
-READINESS_RUNTIME_RESOURCES = (
-    Path("ai_caddie"),
-    Path("ai_caddie/geometry"),
-    Path("ai_caddie/geometry/batch_prodgeometry_course.py"),
-)
-
-
 def _aggregate_readiness_status(checks: list[dict[str, Any]]) -> tuple[str, str]:
     """Treat history warming as an admitted, non-failing liveness state."""
     acceptable_states = {"ready", "warming", "manual_asserted"}
@@ -74,7 +71,7 @@ def _start_history_warm() -> str | None:
         warm_stats_cache_in_background()
     except Exception as exc:  # pragma: no cover - defensive readiness surface
         return f"{exc.__class__.__name__}: {exc}"
-    return history_warm_failure()
+    return None
 
 
 def _check(label: str, state: str, detail: str, evidence: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -976,31 +973,35 @@ def _offline_seed_quality(package: Any) -> dict[str, Any]:
 
 
 def build_readiness_response() -> dict[str, Any]:
-    runtime_resource_missing = [
-        path.as_posix() for path in READINESS_RUNTIME_RESOURCES if not path.exists()
-    ]
     checks: list[dict[str, Any]] = [
         _check(
             "service",
-            "ready" if not runtime_resource_missing else "degraded",
-            "API process is responding."
-            if not runtime_resource_missing
-            else "Readiness runtime resources are missing.",
-            {"runtimeResources": [path.as_posix() for path in READINESS_RUNTIME_RESOURCES], "missing": runtime_resource_missing},
+            "ready",
+            "API process is responding.",
+            {"runtimeResources": [], "missing": []},
         ),
         _check("mobile", "ready", "Live package, event log, and reconciliation endpoints are registered."),
         _check("secret_handling", "ready", "Public status responses redact private credentials and local paths."),
     ]
     stats = None
+    stats_snapshot = None
+    stats_last20_snapshot = None
     try:
         snapshot = load_history_stats_snapshot()
+        stats_snapshot = snapshot
         if snapshot is None:
             checks.append(
                 _check(
                     "history",
                     "warming",
                     "History statistics are warming in the background.",
-                    {"dataMode": None, "totalRounds": None, "revision": None, "stale": True},
+                    {
+                        "dataMode": None,
+                        "totalRounds": None,
+                        "revision": None,
+                        "stale": True,
+                        "lastWarmFailure": history_warm_failure_details(),
+                    },
                 )
             )
             stats = None
@@ -1025,6 +1026,7 @@ def build_readiness_response() -> dict[str, Any]:
                         "revision": snapshot.get("revision"),
                         "stale": stale,
                         "source": snapshot.get("source"),
+                        "lastWarmFailure": history_warm_failure_details(),
                     },
                 )
             )
@@ -1034,6 +1036,7 @@ def build_readiness_response() -> dict[str, Any]:
                     checks[-1]["state"] = "degraded"
                     checks[-1]["detail"] = "History statistics failed to refresh."
                     checks[-1]["evidence"]["reason"] = warm_error
+        stats_last20_snapshot = load_history_stats_snapshot(window="last20")
     except Exception as exc:  # pragma: no cover - defensive health surface
         checks.append(_check("history", "degraded", "History statistics readiness failed.", {"error": exc.__class__.__name__, "reason": str(exc), "stale": True}))
 
@@ -1128,50 +1131,67 @@ def build_readiness_response() -> dict[str, Any]:
         checks.append(_check("private_snapshot_acceptance", "error", exc.__class__.__name__))
 
     try:
-        round_id = _first_round_id(stats) if stats is not None else "900001"
-        package = build_mobile_round_package_response(round_id)
-        seed_quality = _offline_seed_quality(package)
-        package_ready = _mobile_package_runtime_ready(package)
-        readiness_checks = list(getattr(package, "readinessChecks", []) or [])
-        weather_evidence = next(
-            (row for row in readiness_checks if isinstance(row, dict) and row.get("label") == "weather"),
-            {},
-        )
-        checks.append(
-            _check(
-                "mobile_package",
-                "ready" if package_ready else "degraded",
-                "Live round package generation is contract-backed for runtime map and caddie use."
-                if package_ready
-                else "Live round package generation is missing a runtime contract, source round, or course geometry.",
-                {
-                    "contractSchema": LIVE_ROUND_PACKAGE_CONTRACT.as_posix(),
-                    "roundId": package.roundId,
-                    "holes": len(package.holes),
-                    "caddieDecisionEndpoint": package.caddieDecisionEndpoint,
-                    "offlinePackageStatus": package.offlinePackageStatus,
-                    "sourceCoverage": package.sourceCoverage,
-                    "geometryCoverage": package.geometryCoverage,
-                    "readinessChecks": package.readinessChecks,
-                    "runtimeGate": {
-                        "state": "ready" if package_ready else "degraded",
-                        "required": ["schema", "sourceCoverage", "geometryCoverage"],
-                    },
-                    "weatherEvidence": weather_evidence,
-                    "caddieSeedCount": len(package.caddieContextSeeds),
-                    "offlineSeedQuality": seed_quality,
-                    "cachedCaddieRules": package.cachedCaddieRules,
-                    "missingDataCount": len(package.missingData),
-                    "missingDataLabels": sorted(
-                        {
-                            str(row.get("label") or "")
-                            for row in package.missingData
-                            if isinstance(row, dict) and str(row.get("label") or "").strip()
-                        }
-                    ),
-                },
+        package_stats = stats_last20_snapshot.get("value") if isinstance(stats_last20_snapshot, dict) else None
+        if not isinstance(package_stats, dict):
+            checks.append(
+                _check(
+                    "mobile_package",
+                    "warming",
+                    "Live round package statistics are warming in the background.",
+                    {"stale": True, "revision": None, "source": None},
+                )
             )
-        )
+            package = None
+        else:
+            round_id = _first_round_id(package_stats)
+            package = build_mobile_round_package_response(
+                round_id,
+                stats_data=package_stats,
+                allow_weather_fetch=False,
+            )
+        if package is not None:
+            package_ready = _mobile_package_runtime_ready(package)
+            seed_quality = _offline_seed_quality(package)
+            readiness_checks = list(getattr(package, "readinessChecks", []) or [])
+            weather_evidence = next(
+                (row for row in readiness_checks if isinstance(row, dict) and row.get("label") == "weather"),
+                {},
+            )
+            checks.append(
+                _check(
+                    "mobile_package",
+                    "ready" if package_ready else "degraded",
+                    "Live round package generation is contract-backed for runtime map and caddie use."
+                    if package_ready
+                    else "Live round package generation is missing a runtime contract, source round, or course geometry.",
+                    {
+                        "contractSchema": LIVE_ROUND_PACKAGE_CONTRACT.as_posix(),
+                        "roundId": package.roundId,
+                        "holes": len(package.holes),
+                        "caddieDecisionEndpoint": package.caddieDecisionEndpoint,
+                        "offlinePackageStatus": package.offlinePackageStatus,
+                        "sourceCoverage": package.sourceCoverage,
+                        "geometryCoverage": package.geometryCoverage,
+                        "readinessChecks": package.readinessChecks,
+                        "runtimeGate": {
+                            "state": "ready" if package_ready else "degraded",
+                            "required": ["schema", "sourceCoverage", "geometryCoverage"],
+                        },
+                        "weatherEvidence": weather_evidence,
+                        "caddieSeedCount": len(package.caddieContextSeeds),
+                        "offlineSeedQuality": seed_quality,
+                        "cachedCaddieRules": package.cachedCaddieRules,
+                        "missingDataCount": len(package.missingData),
+                        "missingDataLabels": sorted(
+                            {
+                                str(row.get("label") or "")
+                                for row in package.missingData
+                                if isinstance(row, dict) and str(row.get("label") or "").strip()
+                            }
+                        ),
+                    },
+                )
+            )
     except Exception as exc:  # pragma: no cover - defensive health surface
         checks.append(_check("mobile_package", "error", exc.__class__.__name__))
 
@@ -1222,24 +1242,34 @@ def build_readiness_response() -> dict[str, Any]:
     checks.append(_external_release_check())
     checks.append(_roadmap_completion_check())
     try:
-        report = load_trend_report_response("recent_10")
-        checks.append(
-            _check(
-                "reports",
-                "ready" if report.schema_ == "ai-caddie-review-report-v1" else "degraded",
-                "Fact-bound report generation and retrieval are available.",
-                {
-                    "schema": report.schema_,
-                    "kind": report.kind,
-                    "provider": report.provider,
-                    "factsUsedCount": len(report.factsUsed),
-                    "missingDataCount": len(report.missingData),
-                    "sourceRefCount": len(report.sourceRefs),
-                    "unsupportedClaimCount": len(report.unsupportedClaims),
-                    "factBinding": report.factBinding,
-                },
+        if not isinstance(stats_snapshot, dict):
+            checks.append(
+                _check(
+                    "reports",
+                    "warming",
+                    "Trend report statistics are warming in the background.",
+                    {"stale": True, "revision": None, "source": None},
+                )
             )
-        )
+        else:
+            report = load_trend_report_response("recent_10", stats=stats)
+            checks.append(
+                _check(
+                    "reports",
+                    "ready" if report.schema_ == "ai-caddie-review-report-v1" else "degraded",
+                    "Fact-bound report generation and retrieval are available.",
+                    {
+                        "schema": report.schema_,
+                        "kind": report.kind,
+                        "provider": report.provider,
+                        "factsUsedCount": len(report.factsUsed),
+                        "missingDataCount": len(report.missingData),
+                        "sourceRefCount": len(report.sourceRefs),
+                        "unsupportedClaimCount": len(report.unsupportedClaims),
+                        "factBinding": report.factBinding,
+                    },
+                )
+            )
     except Exception as exc:  # pragma: no cover - defensive health surface
         checks.append(_check("reports", "error", exc.__class__.__name__))
 

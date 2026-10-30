@@ -26,8 +26,11 @@ SCHEME = "AICaddie"
 OUTPUT_IPA = "AICaddie.ipa"
 KEYCHAIN = "aicaddie-ci-signing"
 TEAM_ID = ENV.fetch("BETA_DEVELOPMENT_TEAM", "6HB84897DJ")
-READINESS_MAX_ATTEMPTS = 3
-READINESS_TOTAL_TIMEOUT = 90.0
+READINESS_TOTAL_TIMEOUT = 720.0
+READINESS_POLL_INTERVAL = 15.0
+READINESS_READ_TIMEOUT = 60.0
+READINESS_OPEN_TIMEOUT = 20.0
+BackendRetryableError = Class.new(StandardError)
 
 platform :ios do
   def load_asc_api_key!
@@ -150,16 +153,19 @@ platform :ios do
     token = ENV["AI_CADDIE_ADMIN_TOKEN"].to_s.strip
     UI.user_error!("AI_CADDIE_ADMIN_TOKEN is required for authenticated backend preflight") if token.empty?
 
-    fetch_json = lambda do |path, read_timeout: 20|
+    fetch_json = lambda do |path, read_timeout: 20, open_timeout: 20|
       uri = URI.parse(origin + path)
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = true
-      http.open_timeout = 20
+      http.open_timeout = open_timeout
       http.read_timeout = read_timeout
       req = Net::HTTP::Get.new(uri)
       req["Accept"] = "application/json"
       req["X-AI-Caddie-Admin-Token"] = token
       response = http.request(req)
+      if response.code.to_i >= 500
+        raise BackendRetryableError, "backend preflight HTTP #{response.code}"
+      end
       UI.user_error!("backend preflight HTTP #{response.code}") unless response.code.to_i == 200
       JSON.parse(response.body)
     end
@@ -169,27 +175,37 @@ platform :ios do
     readiness_started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     readiness = nil
     attempts = 0
-    while attempts < READINESS_MAX_ATTEMPTS &&
-          Process.clock_gettime(Process::CLOCK_MONOTONIC) - readiness_started < READINESS_TOTAL_TIMEOUT
+    while Process.clock_gettime(Process::CLOCK_MONOTONIC) - readiness_started < READINESS_TOTAL_TIMEOUT
       attempts += 1
       attempt_started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      remaining = [READINESS_TOTAL_TIMEOUT - (attempt_started - readiness_started), 0.1].max
       begin
-        remaining = [READINESS_TOTAL_TIMEOUT - (attempt_started - readiness_started), 1.0].max
-        readiness = fetch_json.call("/api/v2/readiness", read_timeout: [60, remaining].min)
-      rescue Net::ReadTimeout, Net::OpenTimeout => e
+        timeout = [READINESS_READ_TIMEOUT, remaining].min
+        open_timeout = [READINESS_OPEN_TIMEOUT, remaining].min
+        readiness = fetch_json.call("/api/v2/readiness", read_timeout: timeout, open_timeout: open_timeout)
+      rescue Net::ReadTimeout, Net::OpenTimeout, BackendRetryableError, Errno::ECONNRESET, SocketError => e
         elapsed_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - attempt_started) * 1000).round(1)
         UI.important("backend readiness attempt #{attempts} elapsed_ms=#{elapsed_ms} error=#{e.class}")
-        raise if attempts >= READINESS_MAX_ATTEMPTS
+        break if Process.clock_gettime(Process::CLOCK_MONOTONIC) - readiness_started >= READINESS_TOTAL_TIMEOUT
+        sleep([READINESS_POLL_INTERVAL, READINESS_TOTAL_TIMEOUT - (Process.clock_gettime(Process::CLOCK_MONOTONIC) - readiness_started)].min)
         next
       end
       elapsed_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - attempt_started) * 1000).round(1)
       UI.message("backend readiness attempt #{attempts} elapsed_ms=#{elapsed_ms}")
       warming = readiness.dig("checks")&.any? { |row| row["label"] == "history" && row["state"] == "warming" }
       break unless warming
-      UI.important("backend readiness warming; retrying") if attempts < READINESS_MAX_ATTEMPTS
+      waited = Process.clock_gettime(Process::CLOCK_MONOTONIC) - readiness_started
+      break if waited >= READINESS_TOTAL_TIMEOUT
+      UI.important("backend readiness warming; retrying in #{READINESS_POLL_INTERVAL}s")
+      sleep([READINESS_POLL_INTERVAL, READINESS_TOTAL_TIMEOUT - waited].min)
     end
-    if readiness && readiness.dig("checks")&.any? { |row| row["label"] == "history" && row["state"] == "warming" }
-      UI.user_error!("backend readiness remained warming after #{attempts} attempts/#{READINESS_TOTAL_TIMEOUT}s")
+    UI.user_error!("backend readiness unavailable after #{READINESS_TOTAL_TIMEOUT}s (attempts=#{attempts})") unless readiness
+    if readiness.dig("checks")&.any? { |row| row["label"] == "history" && row["state"] == "warming" }
+      waited = [Process.clock_gettime(Process::CLOCK_MONOTONIC) - readiness_started, READINESS_TOTAL_TIMEOUT].min.round
+      UI.user_error!("部署后预热未完成（已等 #{waited} s）；checks=#{readiness["checks"].inspect}")
+    end
+    if readiness["runtimeStatus"] == "degraded"
+      UI.user_error!("backend readiness runtime degraded; checks=#{readiness["checks"].inspect}")
     end
     checks = readiness["checks"]
     readiness_shape_valid = readiness["schema"] == "ai-caddie-readiness-v1" &&

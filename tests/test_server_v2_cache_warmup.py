@@ -159,14 +159,15 @@ class CacheWarmupTests(unittest.TestCase):
 
     def test_G7_mobile_readiness_does_not_invalidate_warmed_all_stats_with_weather(self) -> None:
         """G7: readiness package probes do not write weather and evict the all-history snapshot."""
-        from server_v2.mobile import build_mobile_round_package_response
+        from server_v2.readiness import build_readiness_response
 
         with patch.object(
             stats_cache, "_build_history_stats", wraps=stats_cache._build_history_stats
         ) as build_spy:
             warm_stats_cache()
             warmed_calls = build_spy.call_count
-            build_mobile_round_package_response("900001")
+            payload = build_readiness_response()
+            self.assertIn(payload["status"], {"ready", "degraded", "warming"})
             load_history_stats_response()
             self.assertEqual(
                 build_spy.call_count,

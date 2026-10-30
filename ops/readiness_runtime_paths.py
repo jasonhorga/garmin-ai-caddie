@@ -20,8 +20,20 @@ _TRACE_SCRIPT = r'''
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from server_v2 import readiness
+
+# The readiness trace must not materialize mobile event locks in the checkout that is
+# being collected.  Keep the disposable store alive for the child process lifetime.
+_trace_store = tempfile.TemporaryDirectory(prefix="c432-mobile-events-")
+try:
+    from ai_caddie.caddie import mobile_live
+except ModuleNotFoundError:
+    mobile_live = None
+if mobile_live is not None:
+    mobile_live.EVENT_LOG = Path(_trace_store.name) / "events.jsonl"
+    mobile_live.EVENT_ACKS = Path(_trace_store.name) / "client_acks.json"
 
 root = Path.cwd().resolve()
 observed = set()
