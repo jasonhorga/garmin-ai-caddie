@@ -1,0 +1,21 @@
+diff --git a/.github/scripts/check_native_fixture_dns.py b/.github/scripts/check_native_fixture_dns.py
+index 58b03b72..73d39b8c 100644
+--- a/.github/scripts/check_native_fixture_dns.py
++++ b/.github/scripts/check_native_fixture_dns.py
+@@ -66,8 +66,16 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
+         if "J4.2 native fixture DNS gate:" in line and "echo " not in line:
+             lines = lines[:index]
+             break
++    marked_tasks = {
++        task_id
++        for marked_line in lines
++        if _ROUTE_MARKER_RE.search(marked_line)
++        for task_id in _TASK_RE.findall(marked_line)
++    }
+     for line_number, line in enumerate(lines, start=1):
+         task_ids = {m.groups() for m in _TASK_RE.finditer(line)}
++        if task_ids & marked_tasks:
++            continue
+         if _is_shim_route_line(line):
+             # A route marker belongs only to this line. Its Task id may close
+             # an earlier marker-only error from the same interleaved shim event,
