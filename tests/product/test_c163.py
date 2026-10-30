@@ -531,21 +531,23 @@ class ReleaseBackoffTests(unittest.TestCase):
                 try:
                     w.enqueue_all(downloaded=set())
                     self.assertFalse(w.run_once())
-                    # Exponential retry is finite: three release attempts, then only new authority.
+                    # Exponential retry keeps trying the same authority, with a one-hour cap.
                     clock = time.time()
-                    for offset, attempts in ((61, 2), (182, 3), (7200, 3)):
+                    for offset, attempts in ((61, 2), (182, 3), (422, 4), (902, 5),
+                                             (1862, 6), (3782, 7), (7382, 8)):
                         with patch.object(rb.time, "time", return_value=clock + offset):
                             w.enqueue_all(downloaded=set())
                             while w.run_once():
                                 pass
                         self.assertEqual(download.call_count, attempts)
-                    self.assertEqual(w.status()["garminReleaseBackoff"][0]["state"], "blocked")
+                    self.assertEqual(w.status()["garminReleaseBackoff"][0]["state"], "backoff")
+                    self.assertEqual(w.status()["garminReleaseBackoff"][0]["backoffSeconds"], 3600)
                     # New release opens exactly one fresh attempt.
                     w._raster_version = lambda *_: "release-2"
                     w.enqueue_all(downloaded=set())
                     while w.run_once():
                         pass
-                    self.assertEqual(download.call_count, 4)
+                    self.assertEqual(download.call_count, 9)
                 finally:
                     w.close()
 

@@ -32,9 +32,10 @@ class C195BackfillBackoffTests(unittest.TestCase):
         from server_v2 import render_backfill as rb
 
         now = [1000.0]
-        render = lambda gid, hole, release: (_ for _ in ()).throw(
-            rb.GarminRasterForbidden(gid, hole, release)
-        )
+        render_calls = []
+        def render(gid, hole, release):
+            render_calls.append((gid, hole, release))
+            raise rb.GarminRasterForbidden(gid, hole, release)
         with TemporaryDirectory() as directory:
             worker = self._worker(Path(directory), clock=lambda: now[0], render=render)
             try:
@@ -57,18 +58,23 @@ class C195BackfillBackoffTests(unittest.TestCase):
         from server_v2 import render_backfill as rb
 
         now = [1000.0]
-        render = lambda gid, hole, release: (_ for _ in ()).throw(
-            rb.GarminRasterForbidden(gid, hole, release)
-        )
+        render_calls = []
+        def render(gid, hole, release):
+            render_calls.append((gid, hole, release))
+            raise rb.GarminRasterForbidden(gid, hole, release)
         with TemporaryDirectory() as directory:
             worker = self._worker(Path(directory), clock=lambda: now[0], render=render)
             try:
+                attempts = []
                 worker.enqueue_all(downloaded=set())
                 self.assertTrue(worker.run_once())
+                attempts.append(worker.status()["garminReleaseBackoff"][0]["attempts"])
                 now[0] += 1
                 worker.enqueue_all(downloaded=set(), force=True)
                 self.assertTrue(worker.run_once())
-                self.assertEqual(worker.status()["garminReleaseBackoff"][0]["attempts"], 2)
+                attempts.append(worker.status()["garminReleaseBackoff"][0]["attempts"])
+                self.assertEqual(attempts, [1, 1])
+                self.assertEqual(len(render_calls), 2)
             finally:
                 worker.close()
 
@@ -89,7 +95,33 @@ class C195BackfillBackoffTests(unittest.TestCase):
                 worker._raster_version = lambda *_: "release-2"
                 worker.enqueue_all(downloaded=set())
                 releases = {row["release"] for row in worker.status()["garminReleaseBackoff"]}
-                self.assertEqual(releases, {"release-2"})
+                self.assertEqual(releases, set())
+                self.assertNotIn("release-1", (root / "state.json").read_text())
+            finally:
+                worker.close()
+
+    def test_J42_successful_release_retry_clears_the_circuit_record(self):
+        """J4.2: once a release succeeds, its prior 403 breaker is reset."""
+        from server_v2 import render_backfill as rb
+
+        now = [1000.0]
+        failed = [True]
+
+        def render(gid, hole, release):
+            if failed[0]:
+                raise rb.GarminRasterForbidden(gid, hole, release)
+            return True
+
+        with TemporaryDirectory() as directory:
+            worker = self._worker(Path(directory), clock=lambda: now[0], render=render)
+            try:
+                worker.enqueue_all(downloaded=set())
+                worker.run_once()
+                now[0] += 60
+                failed[0] = False
+                worker.enqueue_all(downloaded=set())
+                self.assertTrue(worker.run_once())
+                self.assertEqual(worker.status()["garminReleaseBackoff"], [])
             finally:
                 worker.close()
 
@@ -140,5 +172,5 @@ class C195HistoryWarmBackoffTests(unittest.TestCase):
             )
             thread.join(1)
         self.assertFalse(thread.is_alive())
-        self.assertEqual(calls, [60.0, 120.0, 240.0, 480.0])
+        self.assertEqual(calls, [60.0, 180.0, 360.0, 660.0])
 
