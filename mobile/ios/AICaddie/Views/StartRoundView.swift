@@ -262,7 +262,26 @@ public struct StartRoundView: View {
     static func courseDownloadAction(
         for row: StartCourseListRow, downloads: [PrepCourseDownloadRecord]
     ) -> CourseDownloadAction? {
-        return nil
+        let records = courseDownloadRecords(for: row, downloads: downloads)
+        if records.contains(where: { $0.phase == .failed }) {
+            return CourseDownloadAction(title: "重试", retrying: true)
+        }
+        guard records.contains(where: { StartRoundPresentation.offlineActionTitle($0) != nil }) else {
+            return nil
+        }
+        return CourseDownloadAction(title: "下载", retrying: false)
+    }
+
+    static func courseDownloadRecords(
+        for row: StartCourseListRow, downloads: [PrepCourseDownloadRecord]
+    ) -> [PrepCourseDownloadRecord] {
+        guard let venue = row.segments.first else { return [] }
+        return downloads.filter { candidate in
+            !candidate.isSpeculative
+                && !candidate.isIntentPrefetch
+                && !(candidate.isRoundPrefetch && candidate.phase != .ready)
+                && samePhysicalVenue(candidate.course, venue)
+        }
     }
 
     private var courseGlobalId: Int? {
@@ -487,6 +506,32 @@ public struct StartRoundView: View {
                     }
                 } else {
                     for pending in Self.offlineActionRecords(for: row, in: prepCourseDownloads, retrying: false) {
+                        onDownloadPrepCourse(pending.course.replacingTeeBox(pending.teeBox))
+                    }
+                }
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier(identifier)
+        }
+    }
+
+    @ViewBuilder
+    private func downloadActionButton(
+        for row: StartCourseListRow, identifier: String
+    ) -> some View {
+        if let action = Self.courseDownloadAction(for: row, downloads: prepCourseDownloads) {
+            Button(action.title) {
+                let records = Self.courseDownloadRecords(for: row, downloads: prepCourseDownloads)
+                if action.retrying {
+                    for record in records where record.phase == .failed {
+                        onRetryPrepCourseDownload(record.id)
+                    }
+                } else if let record = records.first(where: {
+                    StartRoundPresentation.offlineActionTitle($0) != nil
+                }) {
+                    for pending in Self.offlineActionRecords(
+                        for: record, in: prepCourseDownloads, retrying: false
+                    ) {
                         onDownloadPrepCourse(pending.course.replacingTeeBox(pending.teeBox))
                     }
                 }
@@ -1129,13 +1174,9 @@ public struct StartRoundView: View {
             .accessibilityIdentifier("start-round-venue-\(row.id)")
             .accessibilityValue(selected ? "已选择" : "未选择")
             .accessibilityAddTraits(selected ? .isSelected : [])
-            if Self.courseDownloadAction(for: row, downloads: prepCourseDownloads) != nil,
-               let record = StartRoundPresentation.offlineRows(prepCourseDownloads).first(where: {
-                   guard let venue = row.segments.first else { return false }
-                   return Self.samePhysicalVenue($0.course, venue)
-               }) {
-                downloadActionButton(for: record, identifier: "start-round-course-download-action-\(row.id)")
-            }
+            downloadActionButton(
+                for: row, identifier: "start-round-course-download-action-\(row.id)"
+            )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(selected ? LiveHoleStyle.green.opacity(0.08) : Color.clear)
