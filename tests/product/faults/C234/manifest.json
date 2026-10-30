@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C234-01-skip-clean-probe",
+      "patch": "tests/product/faults/C234/01-skip-clean-probe.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_run_rejects_unloadable_targets_before_applying_patch",
+      "promise": "fault-runner infrastructure: product spec 验收方式"
+    },
+    {
+      "id": "tests-product-faults-C234-02-load-failure-is-killed",
+      "patch": "tests/product/faults/C234/02-load-failure-is-killed.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_run_rejects_unloadable_targets_before_applying_patch",
+      "promise": "fault-runner infrastructure: product spec 验收方式"
+    },
+    {
+      "id": "tests-product-faults-C234-03-check-skips-native",
+      "patch": "tests/product/faults/C234/03-check-skips-native.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_check_validates_native_class_and_method_in_the_target_bundle",
+      "promise": "fault-runner infrastructure: product spec 验收方式"
+    },
+    {
+      "id": "tests-product-faults-C234-04-skip-patched-probe",
+      "patch": "tests/product/faults/C234/04-skip-patched-probe.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_patch_induced_import_failure_is_unavailable_and_worktree_is_removed",
+      "promise": "fault-runner infrastructure: product spec 验收方式"
+    },
+    {
+      "id": "tests-product-faults-C234-05-check-skips-python",
+      "patch": "tests/product/faults/C234/05-check-skips-python.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_check_requires_loadable_nonempty_python_targets_without_running_them",
+      "promise": "fault-runner infrastructure: product spec 验收方式"
+    },
+    {
+      "id": "tests-product-faults-C234-06-accept-empty-suite",
+      "patch": "tests/product/faults/C234/06-accept-empty-suite.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_check_requires_loadable_nonempty_python_targets_without_running_them",
+      "promise": "fault-runner infrastructure: product spec 验收方式"
+    },
+    {
+      "id": "tests-product-faults-C234-07-always-exit-zero",
+      "patch": "tests/product/faults/C234/07-always-exit-zero.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_run_rejects_unloadable_targets_before_applying_patch",
+      "promise": "fault-runner infrastructure: product spec 验收方式"
+    },
+    {
+      "id": "tests-product-faults-C234-08-ignore-nested-failed-test",
+      "patch": "tests/product/faults/C234/08-ignore-nested-failed-test.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_check_requires_loadable_nonempty_python_targets_without_running_them",
+      "promise": "fault-runner infrastructure: product spec 验收方式"
+    }
+  ]
+}

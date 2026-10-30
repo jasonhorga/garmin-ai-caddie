@@ -332,7 +332,7 @@ class ManifestFragmentTests(unittest.TestCase):
         trees = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=self.root,
                                text=True, capture_output=True, check=True).stdout
         self.assertEqual(trees.count("worktree "), 1)
-        self.assertIn("import unittest", (self.root / "test_witness.py").read_text())
+        self.assertEqual(runner.run_target(self.record("clean-control"), self.root)[0], "leaked")
 
     def test_check_validates_native_class_and_method_in_the_target_bundle(self):
         source = self.root / "mobile/ios/NativeTests/Witness.swift"
