@@ -386,6 +386,40 @@ class ReleaseRecoveryTests(unittest.TestCase):
                     self.assertEqual(worker.status()["garminReleaseBackoff"], [])
                     self.assertEqual(worker.status()["pending"], 0)
 
+    def test_J42_due_release_renders_only_holes_with_available_assets(self):
+        """J4.2: a due release may mix available assets and holes still missing URLs."""
+        from server_v2 import render_backfill as rb
+
+        now, failing, calls = [1000.0], [True], []
+
+        def render(gid, hole, asset):
+            calls.append((now[0], hole, asset))
+            if failing[0]:
+                raise rb.GarminRasterForbidden(gid, hole, "release-7")
+            return True
+
+        with TemporaryDirectory() as directory:
+            with self._release_worker(Path(directory), now, render) as (worker, info):
+                worker.enqueue_all(downloaded=set())
+                worker.run_to_completion()
+                info["holes"][0].pop("raster_url")
+                now[0] = 1001.0
+                worker.enqueue_all(downloaded=set())
+                worker.run_to_completion()
+                # Only hole 2 can render at the 1000 + 60 s deadline.
+                failing[0], now[0] = False, 1060.0
+                self.assertEqual(worker.due_release_keys(), ["1:release-7"])
+                worker.enqueue_due_releases()
+                worker.run_to_completion()
+                self.assertEqual(calls, [(1000.0, 1, "geometry-1"), (1060.0, 2, "geometry-2")])
+                self.assertEqual(worker.status()["pending"], 1)
+                self.assertEqual(worker.status()["garminReleaseBackoff"], [])
+                info["holes"][0]["raster_url"] = "https://example.invalid/restored.jpg"
+                worker.enqueue_all(downloaded=set())
+                worker.run_to_completion()
+                self.assertEqual(calls[-1], (1060.0, 1, "geometry-1"))
+                self.assertEqual(worker.status()["pending"], 0)
+
     def test_J42_persistent_403_ticks_follow_growing_backoff(self):
         """J4.2: 60 s ticks honor 60/120/240/480/960/1920/3600 s capped delays."""
         from server_v2 import render_backfill as rb
