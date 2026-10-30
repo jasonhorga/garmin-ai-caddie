@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/rounds/round_ingest.py b/ai_caddie/rounds/round_ingest.py
+index ca1ef9bd..9888bd89 100644
+--- a/ai_caddie/rounds/round_ingest.py
++++ b/ai_caddie/rounds/round_ingest.py
+@@ -756,7 +756,7 @@ def _shot_putt_count(
+     stroke must be a recognized putt. Otherwise callers try the observed regulation landing.
+     Extra or missing positions also make the putt total unknown.
+     """
+-    if total_strokes is not None and len(shots) != total_strokes:
++    if total_strokes is not None and len(shots) < total_strokes:
+         return None
+     clubs = {row.get("id"): row for row in (club_details or []) if isinstance(row, dict)}
+     count = 0

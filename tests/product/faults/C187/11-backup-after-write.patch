@@ -1,14 +1,18 @@
 diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
-index 896d9194..f71a1d47 100644
+index 38e3f93a..0794bea3 100644
 --- a/ops/backfill_manual_gir.py
 +++ b/ops/backfill_manual_gir.py
-@@ -301,8 +301,8 @@ def _apply(root: Path, report: dict[str, Any], mutations: dict[Path, dict[str, A
+@@ -313,12 +313,12 @@ def _apply(root: Path, report: dict[str, Any], mutations: dict[Path, dict[str, A
                      backup_dir.mkdir(parents=True, exist_ok=True)
                      backup = backup_dir / player / path.name
                      backup.parent.mkdir(parents=True, exist_ok=True)
 -                    shutil.copy2(path, backup)
+                     backup_entry = {"path": str(path), "backup": str(backup), "changes": 0}
+                     backup_manifest.append(backup_entry)
+                     manifest_path = backup_dir / "manifest.json"
+                     manifest_path.write_text(json.dumps(backup_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
                      round_ingest._atomic_write_json(path, raw)
 +                    shutil.copy2(path, backup)
                      actual_changes.extend(wrote)
-                     backup_manifest.append({"path": str(path), "backup": str(backup), "changes": len(wrote)})
-                     print(f"C187 wrote {path} ({len(wrote)} GIR)", file=sys.stderr)
+                     backup_entry["changes"] = len(wrote)
+                     manifest_path.write_text(json.dumps(backup_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

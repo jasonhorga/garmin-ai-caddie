@@ -1,13 +1,13 @@
 diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
-index 896d9194..ce0f0e43 100644
+index 38e3f93a..474a8fa9 100644
 --- a/ops/backfill_manual_gir.py
 +++ b/ops/backfill_manual_gir.py
-@@ -318,7 +318,7 @@ def _apply(root: Path, report: dict[str, Any], mutations: dict[Path, dict[str, A
+@@ -333,7 +333,7 @@ def _apply(root: Path, report: dict[str, Any], mutations: dict[Path, dict[str, A
  def backfill(*, root: Path | str | None = None, apply: bool = False) -> dict[str, Any]:
      runtime_root = _runtime_root(root)
      report, mutations = _scan(runtime_root)
--    if apply and mutations:
-+    if True and mutations:
-         _apply(runtime_root, report, mutations)
+-    if apply:
++    if True:
          report["mode"] = "apply"
-     return report
+         if mutations:
+             _apply(runtime_root, report, mutations)

@@ -1,12 +1,12 @@
 diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
-index 896d9194..da2a36ec 100644
+index 38e3f93a..390b64c9 100644
 --- a/ops/backfill_manual_gir.py
 +++ b/ops/backfill_manual_gir.py
-@@ -301,7 +301,6 @@ def _apply(root: Path, report: dict[str, Any], mutations: dict[Path, dict[str, A
+@@ -313,7 +313,6 @@ def _apply(root: Path, report: dict[str, Any], mutations: dict[Path, dict[str, A
                      backup_dir.mkdir(parents=True, exist_ok=True)
                      backup = backup_dir / player / path.name
                      backup.parent.mkdir(parents=True, exist_ok=True)
 -                    shutil.copy2(path, backup)
-                     round_ingest._atomic_write_json(path, raw)
-                     actual_changes.extend(wrote)
-                     backup_manifest.append({"path": str(path), "backup": str(backup), "changes": len(wrote)})
+                     backup_entry = {"path": str(path), "backup": str(backup), "changes": 0}
+                     backup_manifest.append(backup_entry)
+                     manifest_path = backup_dir / "manifest.json"

@@ -1,0 +1,13 @@
+diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
+index 38e3f93a..70f663b5 100644
+--- a/ops/backfill_manual_gir.py
++++ b/ops/backfill_manual_gir.py
+@@ -348,7 +348,7 @@ def main(argv: list[str] | None = None) -> int:
+     args = parser.parse_args(argv)
+     report = backfill(root=args.root, apply=args.apply)
+     print(json.dumps(report, ensure_ascii=False, indent=2))
+-    return 1 if report.get("applyErrors") else 0
++    return 1
+ 
+ 
+ if __name__ == "__main__":
