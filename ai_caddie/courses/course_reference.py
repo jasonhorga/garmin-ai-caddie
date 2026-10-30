@@ -442,6 +442,13 @@ def courseview_venue_loops(global_id: int, venue_name: str | None = None, *, roo
     return []
 
 
+def courseview_venue_loop_index(*, root: Path = ROOT) -> list[dict]:
+    """Read the durable venue index once for a request that enriches many gids."""
+    payload = safe_read_json(_venue_loops_path(root=root), default={})
+    groups = payload.get("venues", []) if isinstance(payload, dict) else []
+    return [group for group in groups if isinstance(group, dict) and isinstance(group.get("loops"), list)]
+
+
 def courseview_catalogue_name(global_id: int, *, root: Path = ROOT) -> str | None:
     """A previously observed zh_CHS Garmin catalogue row, never a client alias."""
     payload = safe_read_json(_catalogue_name_path(global_id, root=root), default={})
@@ -454,6 +461,26 @@ def courseview_catalogue_name(global_id: int, *, root: Path = ROOT) -> str | Non
     ):
         return payload["name"]
     return None
+
+
+def courseview_catalogue_names(*, root: Path = ROOT) -> dict[int, str]:
+    """Read all observed catalogue sidecars with one bounded directory scan."""
+    result: dict[int, str] = {}
+    for path in _courseview_dir(root).glob("*_catalogue_name.json"):
+        try:
+            payload = safe_read_json(path, default={})
+            gid = int(payload.get("globalId")) if isinstance(payload, dict) else 0
+            name = payload.get("name") if isinstance(payload, dict) else None
+            if (
+                gid > 0
+                and payload.get("languageCode") == COURSEVIEW_RELEASE_LANGUAGE_CODE
+                and isinstance(name, str)
+                and contains_cjk(name)
+            ):
+                result[gid] = name
+        except (AttributeError, TypeError, ValueError, OSError, OverflowError):
+            continue
+    return result
 
 
 def localized_courseview_name(

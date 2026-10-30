@@ -59,6 +59,21 @@ final class StartRoundDiscoveryTests: XCTestCase {
             recentVenue: "沙河测试球会", recentTee: "blue", callerVenue: nil, callerTee: "unknown", rows: rows), "blue")
     }
 
+    /// J4.2: the same helper that drives requestTees owns both loading and failed state writes.
+    @MainActor
+    func testTeeLookupStateWriterMarksFailureAtTheRequestBoundary() async {
+        var states: [(Bool, Bool)] = []
+        _ = await StartRoundView.courseTeeRows(
+            globalId: 31832,
+            carried: [:],
+            setLoading: { loading in states.append((loading, false)) },
+            setFailed: { failed in states.append((false, failed)) },
+            request: { _ in [] }
+        )
+        XCTAssertEqual(states.map { $0.0 }, [true, false, false])
+        XCTAssertEqual(states.last?.1, true, "an empty /tees answer enters retry state at one write point")
+    }
+
     /// J4.2: a remembered colour is a selection, never grounds to suppress the retry action.
     func testRecentTeeLookupFailureOffersRetry() {
         XCTAssertTrue(StartRoundView.showsTeeRetry(
@@ -1388,6 +1403,35 @@ final class StartRoundDiscoveryTests: XCTestCase {
         ))
     }
 
+    /// C227: a sparse 5 km answer expands to 20 km and publishes all five physical venues.
+    func testNearbySparseFirstPassExpandsToTwentyKilometres() async {
+        var radii: [Int] = []
+        let first = MobileCourseSearchMatch(globalId: 7101, name: "虹桥", holes: 18, city: nil, province: nil, ratio: 1)
+        let expanded = (0..<5).map { index in
+            MobileCourseSearchMatch(globalId: 7200 + index, name: "大都会 \(index)", holes: 18, city: nil, province: nil, ratio: 1)
+        }
+        let outcome = await StartRoundView.performNearbyDiscovery(
+            latitude: 31, longitude: 121,
+            request: { _, _, radius in
+                radii.append(radius)
+                return radius == 5 ? [first] : expanded
+            },
+            resolve: { match in
+                MobileCourseOption(globalId: match.globalId, name: match.name, holes: match.holes ?? 18)
+            }
+        )
+        XCTAssertEqual(radii, [5, 20])
+        XCTAssertEqual(outcome.providerOptions.count, 5)
+    }
+
+    func testNearbyResultsAreCappedAtTenPhysicalVenues() {
+        let options = (0..<12).map { index in
+            MobileCourseOption(globalId: 7300 + index, name: "球场 \(index)", holes: 18)
+        }
+        XCTAssertEqual(StartRoundView.cappedNearbyOptions(options).count, 10)
+        XCTAssertEqual(StartRoundView.nearbyVenueCount(StartRoundView.cappedNearbyOptions(options)), 10)
+    }
+
     // MARK: - B4b: one course list, first-loop tiles, start title
 
     func testSelectedTeePageTitleKeepsSelectedCourseWhenSelectedSegmentIsTemporarilyNil() {
@@ -1942,6 +1986,44 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(captions(recentRows: [loopA], recentRecord: loopA), ["最近打过 9 洞"])
         // A downloaded-only row: its own loops.
         XCTAssertEqual(captions(downloaded: [loopA]), ["已下载 9 洞"])
+    }
+
+    /// C227③: a one-nine install is shown as a fraction of the venue's complete catalogue.
+    func testDownloadedCoverageCaptionShowsInstalledFraction() {
+        let venue = "北京鸿华"
+        let installed = loop(31_776, venue: venue, label: "A")
+        let catalogue = [installed, loop(39_546, venue: venue, label: "B"), loop(45_979, venue: venue, label: "C")]
+        let rows = StartRoundPresentation.mergedCourseRows(nearby: [], downloaded: [installed])
+        XCTAssertEqual(
+            rows.map { StartRoundView.holeCaption(for: $0, downloaded: [installed], catalogue: catalogue, recent: nil) },
+            ["已下载 9/27 洞"]
+        )
+    }
+
+    /// C227①: the lower offline section is omitted when the same venue is already in the main list.
+    func testOfflineRowsExcludeVenuesAlreadyShownAbove() {
+        let first = PrepCourseDownloadRecord(
+            course: loop(31_776, venue: "St. Vigil Seis", label: "A"), phase: .ready,
+            preparedHoles: 9, downloadedHoles: 9, totalHoles: 9
+        )
+        let second = PrepCourseDownloadRecord(
+            course: loop(39_546, venue: "Salzburg", label: "A"), phase: .ready,
+            preparedHoles: 9, downloadedHoles: 9, totalHoles: 9
+        )
+        let rows = StartRoundPresentation.offlineRows(
+            [first, second], excludingVenues: ["st. vigil seis"]
+        )
+        XCTAssertEqual(rows.map { $0.course.venueDisplayName }, ["Salzburg"])
+    }
+
+    /// B3: offline authority completes a partial A/B package with the catalogue's C sibling.
+    func testOfflineAuthorityIncludesCatalogueSiblings() {
+        let selected = loop(31_832, venue: "沙河", label: "A")
+        let siblings = [loop(31_833, venue: "沙河", label: "B"), loop(31_834, venue: "沙河", label: "C")]
+        let loops = StartRoundView.offlineVenueOptions(
+            selected: selected, catalogue: siblings, downloaded: [selected], cachedNearby: []
+        )
+        XCTAssertEqual(loops.map(\.globalId), [31_832, 31_833, 31_834])
     }
 
     /// Codex review 6044451139 (1): the catalogue names and groups a downloaded package, but its

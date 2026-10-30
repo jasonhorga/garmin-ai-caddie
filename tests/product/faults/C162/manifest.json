@@ -44,6 +44,34 @@
       "promise": "4.2"
     },
     {
+      "id": "C162-requesttees-state-writer",
+      "patch": "tests/product/faults/C162/S1-requesttees-state-writer.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testTeeLookupStateWriterMarksFailureAtTheRequestBoundary",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-remove-loading-status",
+      "patch": "tests/product/faults/C162/S2-remove-loading-status.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testTeeLookupShowsLoadingThenFourRowsKeepingLastSelection",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-remove-failure-state",
+      "patch": "tests/product/faults/C162/S3-remove-failure-state.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testTeeLookupStateWriterMarksFailureAtTheRequestBoundary",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-drop-recent-tee-gate",
+      "patch": "tests/product/faults/C162/S6-drop-recent-tee-gate.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testRecentTeeLookupFailureOffersRetry",
+      "promise": "4.2"
+    },
+    {
       "id": "C162-drop-catalogue-loops",
       "patch": "tests/product/faults/C162/drop-catalogue-loops.patch",
       "kind": "native-unit",

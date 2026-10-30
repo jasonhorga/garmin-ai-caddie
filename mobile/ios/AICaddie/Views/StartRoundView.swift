@@ -381,7 +381,10 @@ public struct StartRoundView: View {
     }
 
     @ViewBuilder private var downloadSection: some View {
-        let rows = StartRoundPresentation.offlineRows(prepCourseDownloads)
+        let rows = StartRoundPresentation.offlineRows(
+            prepCourseDownloads,
+            excludingVenues: courseRows.map(\.venue)
+        )
         if !rows.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 Text("离线球场").font(.footnote.weight(.bold)).foregroundStyle(.secondary)
@@ -452,7 +455,12 @@ public struct StartRoundView: View {
         case .queued: return "等待下载"
         case .preparing: return "正在准备"
         case .downloading: return "正在下载 · \(row.downloadedHoles)/\(row.totalHoles) 洞"
-        case .ready: return "已下载"
+        case .ready:
+            return Self.downloadedCoverageLabel(
+                for: row.course,
+                downloaded: downloadedCourseOptions,
+                catalogue: courseOptions
+            ) ?? "已下载"
         case .failed: return row.errorText ?? "下载失败"
         }
     }
@@ -492,12 +500,14 @@ public struct StartRoundView: View {
             teeLoadFailed = false
             return
         }
-        teeLoadFailed = false
         guard let tees = await Self.courseTeeRows(
             globalId: globalId,
             carried: carriedCourseTees,
             setLoading: { loading in
                 if teeRequestToken == requestToken { isLoadingTees = loading }
+            },
+            setFailed: { failed in
+                if teeRequestToken == requestToken { teeLoadFailed = failed }
             },
             request: { await requestTees(globalId: $0, requestToken: requestToken) }
         ) else { return }
@@ -535,16 +545,20 @@ public struct StartRoundView: View {
         globalId: Int,
         carried: [Int: [CourseTee]],
         setLoading: (Bool) -> Void = { _ in },
+        setFailed: (Bool) -> Void = { _ in },
         request: (Int) async -> [CourseTee]?
     ) async -> [CourseTee]? {
         if let rows = carried[globalId], !rows.isEmpty {
             setLoading(false)
+            setFailed(false)
             return rows
         }
         // A remembered Tee is a default selection, not a completed catalogue lookup.
         setLoading(true)
+        setFailed(false)
         let rows = await request(globalId)
         setLoading(false)
+        setFailed(rows?.isEmpty == true)
         return rows
     }
 
@@ -552,15 +566,10 @@ public struct StartRoundView: View {
     /// cancelled) or empty. An empty refresh enters retry state even with a remembered colour.
     private func requestTees(globalId: Int, requestToken: UUID) async -> [CourseTee]? {
         fetchedTees = []
-        isLoadingTees = true
         let tees = await onLoadCourseTees(globalId)
         guard !Task.isCancelled,
               teeRequestToken == requestToken,
               courseGlobalId == globalId else { return nil }
-        guard !tees.isEmpty else {
-            teeLoadFailed = true
-            return nil
-        }
         return tees
     }
 
@@ -1090,6 +1099,9 @@ public struct StartRoundView: View {
         let downloadedHoles = venue.map {
             downloadedCoverageHoles(atVenueOf: $0, downloaded: downloaded, catalogue: catalogue)
         } ?? 0
+        let downloadedLabel = venue.flatMap {
+            downloadedCoverageLabel(for: $0, downloaded: downloaded, catalogue: catalogue)
+        }
         // "最近打过" only for the recent record's own loops; a carried / catalogue row that merely
         // shares the venue (A/B/C after playing A) is the venue's authority, not a played claim.
         let playedRecently = recent.map { record in
@@ -1099,6 +1111,7 @@ public struct StartRoundView: View {
             source: row.source,
             rowHoles: row.holes,
             downloadedVenueHoles: downloadedHoles,
+            downloadedLabel: downloadedLabel,
             playedRecently: playedRecently
         )
     }
@@ -1112,12 +1125,14 @@ public struct StartRoundView: View {
         source: StartCourseListRow.Source,
         rowHoles: Int,
         downloadedVenueHoles: Int,
+        downloadedLabel: String? = nil,
         playedRecently: Bool
     ) -> String? {
         switch source {
         case .nearby, .search:
             return rowHoles > 0 ? "\(rowHoles) 洞" : nil
         case .recent, .downloaded:
+            if let downloadedLabel { return downloadedLabel }
             if downloadedVenueHoles > 0 { return "已下载 \(downloadedVenueHoles) 洞" }
             guard rowHoles > 0 else { return nil }
             if source == .downloaded { return "已下载 \(rowHoles) 洞" }
@@ -1143,6 +1158,27 @@ public struct StartRoundView: View {
             guard samePhysicalVenue(option, venue), seen.insert(option.globalId).inserted else { return total }
             return total + (installed[option.globalId] ?? 0)
         }
+    }
+
+    /// One source of truth for the installed coverage caption used by both the upper course row
+    /// and the lower offline library. The catalogue contributes the venue's full loop total;
+    /// installed templates contribute only the holes actually present on this phone.
+    static func downloadedCoverageLabel(
+        for venue: MobileCourseOption,
+        downloaded: [MobileCourseOption],
+        catalogue: [MobileCourseOption]
+    ) -> String? {
+        let installed = downloadedCoverageHoles(atVenueOf: venue, downloaded: downloaded, catalogue: catalogue)
+        guard installed > 0 else { return nil }
+        let all = reconciledCourseOptions(primary: catalogue, catalogue: catalogue, downloaded: downloaded)
+            .filter { samePhysicalVenue($0, venue) }
+        var seen = Set<Int>()
+        let total = all.reduce(0) { total, option in
+            guard seen.insert(option.globalId).inserted else { return total }
+            return total + option.resolvedHoles
+        }
+        guard total > installed else { return "已下载 \(installed) 洞" }
+        return "已下载 \(installed)/\(total) 洞"
     }
 
     /// A different venue uses its preferred loop/Tee; reopening the selected venue keeps setup.
@@ -1358,23 +1394,35 @@ public struct StartRoundView: View {
                     .controlSize(.small)
                     .accessibilityIdentifier("start-round-loading-course-tees")
             }
+            if !teeOptions.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(teeOptions, id: \.self) { tee in
+                            teeChip(tee)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("start-round-tee-selector")
+                }
+            } else if !isLoadingTees {
+                Button {
+                    onClearRoundStartFailure()
+                    prepValidationFailed = false
+                    teeBox = "unknown"
+                } label: {
+                    teeChipLabel("unknown", selected: teeBox.caseInsensitiveCompare("unknown") == .orderedSame)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("start-round-use-course-default-tee")
+            }
             if Self.showsTeeRetry(
                 requiresRemoteTees: selectedCourseRequiresRemoteTees,
                 teeLoadFailed: teeLoadFailed,
                 fetchedTees: fetchedTees,
                 courseTees: selectedCourseTeeNames
             ) {
-                // Tee authority failed: the course default still starts; retry is an icon.
                 HStack(spacing: 12) {
-                    Button {
-                        onClearRoundStartFailure()
-                        prepValidationFailed = false
-                        teeBox = "unknown"
-                    } label: {
-                        teeChipLabel("unknown", selected: teeBox.caseInsensitiveCompare("unknown") == .orderedSame)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("start-round-use-course-default-tee")
                     Button {
                         Task { await loadTees() }
                     } label: {
@@ -1387,21 +1435,11 @@ public struct StartRoundView: View {
                     .foregroundStyle(LiveHoleStyle.green)
                     .accessibilityIdentifier("start-round-retry-course-tees")
                 }
-            } else if teeOptions.isEmpty {
+            }
+            if teeOptions.isEmpty && isLoadingTees {
                 ProgressView()
                     .controlSize(.small)
                     .frame(height: 44)
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(teeOptions, id: \.self) { tee in
-                            teeChip(tee)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier("start-round-tee-selector")
-                }
             }
         }
     }
@@ -1512,11 +1550,11 @@ public struct StartRoundView: View {
         }
 
         // A remotely searched course has no local Tee authority yet. Keep the explicit
-        // `unknown` request available so it can start immediately, but never present a
-        // fabricated colour list while the real `/tees` response is pending or unavailable.
+        // `unknown` request available, or preserve the remembered colour as a visible default,
+        // but never present a fabricated colour list while the real `/tees` response is pending.
         if requiresRemoteTees || wasManualSearch {
             let current = teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
-            return current.caseInsensitiveCompare("unknown") == .orderedSame ? ["unknown"] : []
+            return current.isEmpty ? [] : [current]
         }
 
         let base = ["blue", "white", "red", "gold", "black", "green", "yellow", "silver"]
@@ -1885,7 +1923,12 @@ public struct StartRoundView: View {
             return preselectedVenueOptions
         }
         if offlineCourseOptions.contains(where: { $0.globalId == selectedID }) {
-            return offlineResolvedCourseOptions
+            return Self.offlineVenueOptions(
+                selected: selectedSegment,
+                catalogue: courseOptions,
+                downloaded: downloadedCourseOptions,
+                cachedNearby: lastNearbyCourseOptions
+            )
         }
         if recentCourseOption?.globalId == selectedID,
            let recent = recentResolvedCourseOption {
@@ -1907,6 +1950,22 @@ public struct StartRoundView: View {
             catalogue: catalogue, downloaded: downloaded
         )
         return sameVenueStartableCourses(selected: recent, candidates: candidates)
+    }
+
+    /// Offline packages own the selected venue too: catalogue/cache siblings complete a partial
+    /// local install (A/B) so the setup page still offers every factual loop (A/B/C).
+    static func offlineVenueOptions(
+        selected: MobileCourseOption,
+        catalogue: [MobileCourseOption],
+        downloaded: [MobileCourseOption],
+        cachedNearby: [MobileCourseOption]
+    ) -> [MobileCourseOption] {
+        recentVenueOptions(
+            recent: selected,
+            catalogue: catalogue,
+            downloaded: downloaded,
+            cachedNearby: cachedNearby
+        )
     }
 
     /// Nearby/search metadata determines which rows are in range, while the latest mobile catalogue
@@ -2233,7 +2292,8 @@ public struct StartRoundView: View {
         "\(locationDiscoveryKey)#retry-\(nearbyRetryToken)"
     }
 
-    /// Nearby is a 50 km catalogue query, so restarting it for every 3–11 m Core Location update
+    /// Nearby discovery starts with a 5 km query, then expands when too few venues are visible.
+    /// Restarting it for every 3–11 m Core Location update
     /// only cancels useful in-flight requests while the player walks or arrives by cart.  A roughly
     /// 1 km bucket still refreshes after meaningful travel without letting normal GPS jitter keep
     /// the start screen in an endless loading loop.
@@ -2245,13 +2305,33 @@ public struct StartRoundView: View {
     /// pass expands to the catalogue radius; the two-pass flow keeps a first timeout from painting
     /// the terminal failure state while avoiding duplicate view-layer transport retries.
     static let nearbyInitialRadiusKm = 5
-    static let nearbyExpandedRadiusKm = 50
+    static let nearbyExpandedRadiusKm = 20
+    static let nearbyFinalRadiusKm = 50
+    static let nearbyMinimumVenueCount = 5
+    static let nearbyMaximumVenueCount = 10
     /// SyncClient owns transport retries. The view makes one request per configured radius and
     /// expands from the fast local pass to the wider catalogue pass when needed.
     static let nearbyAutomaticRetryCount = 0
 
     static var nearbyDiscoveryRadii: [Int] {
-        [nearbyInitialRadiusKm, nearbyExpandedRadiusKm]
+        [nearbyInitialRadiusKm, nearbyExpandedRadiusKm, nearbyFinalRadiusKm]
+    }
+
+    static func nearbyVenueCount(_ options: [MobileCourseOption]) -> Int {
+        Set(options.map { courseVenueName($0).trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }).count
+    }
+
+    /// Keep the provider's distance order while limiting the UI to ten physical venues.
+    static func cappedNearbyOptions(_ options: [MobileCourseOption], maximumVenues: Int = nearbyMaximumVenueCount) -> [MobileCourseOption] {
+        guard maximumVenues > 0 else { return [] }
+        var venues = Set<String>()
+        var result: [MobileCourseOption] = []
+        for option in options {
+            let key = courseVenueName(option).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if venues.insert(key).inserted, venues.count > maximumVenues { break }
+            result.append(option)
+        }
+        return result
     }
 
     static func nearbyDiscoveryShouldFail(
@@ -2290,9 +2370,10 @@ public struct StartRoundView: View {
                     let matches = try await request(latitude, longitude, radius)
                     carriedTees.merge(StartRoundPresentation.carriedTees(in: matches)) { _, latest in latest }
                     var seen = Set<Int>()
-                    providerOptions = matches.compactMap(resolve).filter { seen.insert($0.globalId).inserted }
+                    let resolved = matches.compactMap(resolve).filter { seen.insert($0.globalId).inserted }
+                    providerOptions = cappedNearbyOptions(resolved)
                     publishedProviderResult = !providerOptions.isEmpty || publishedProviderResult
-                    if !providerOptions.isEmpty || index == radii.count - 1 {
+                    if nearbyVenueCount(providerOptions) >= nearbyMinimumVenueCount || index == radii.count - 1 {
                         return NearbyDiscoveryLoopResult(
                             providerOptions: providerOptions,
                             carriedTees: carriedTees,

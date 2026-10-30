@@ -49,6 +49,21 @@ enum StartRoundPresentation {
         })
     }
 
+    /// The lower offline library is a continuation of the main course list. A venue already
+    /// represented above must not be rendered a second time, even when its loop global IDs differ.
+    static func offlineRows(
+        _ downloads: [PrepCourseDownloadRecord], excludingVenues venues: [String]
+    ) -> [PrepCourseDownloadRecord] {
+        let excluded = Set(venues.map(normalizedVenueKey))
+        return offlineRows(downloads).filter {
+            !excluded.contains(normalizedVenueKey($0.course.venueDisplayName))
+        }
+    }
+
+    static func normalizedVenueKey(_ venue: String) -> String {
+        venue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
     private struct VenueGroup {
         let venue: String
         var rows: [PrepCourseDownloadRecord]

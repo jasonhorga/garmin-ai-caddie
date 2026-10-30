@@ -598,7 +598,7 @@ def build_mobile_course_options(
 
     # Establish physical venues before truncating. Segment reads are cache-only; Tee enrichment
     # below runs only for retained venues. A venue consumes one slot regardless of loop count.
-    from ai_caddie.courses.course_reference import courseview_catalogue_name, courseview_venue_loops
+    from ai_caddie.courses.course_reference import courseview_catalogue_names, courseview_venue_loop_index
 
     segments: dict[int, tuple[str | None, int | None] | None] = {}
     for gid in grouped:
@@ -614,17 +614,39 @@ def build_mobile_course_options(
 
     known_venues: set[str] = set()
     sibling_facts: dict[int, tuple[str, int | None]] = {}
+    venue_index = courseview_venue_loop_index(root=ROOT)
+
+    def indexed_loops(gid: int, venue: str) -> list[dict[str, Any]]:
+        matching = [
+            group for group in venue_index
+            if any(_safe_int(row.get("globalId")) == gid for row in group.get("loops", []) if isinstance(row, dict))
+        ]
+        if matching:
+            rows: dict[tuple[int, str | None], dict[str, Any]] = {}
+            for group in matching:
+                for row in group.get("loops", []):
+                    if not isinstance(row, dict):
+                        continue
+                    key = (_safe_int(row.get("globalId")) or 0, row.get("segmentLabel"))
+                    if key[0] > 0:
+                        rows[key] = dict(row)
+            return list(rows.values())
+        key = venue.casefold()
+        for group in venue_index:
+            if str(group.get("venueName") or "").strip().casefold() == key:
+                return [dict(row) for row in group.get("loops", []) if isinstance(row, dict)]
+        return []
+
     for gid, rows in grouped.items():
         name = (segments[gid] or (None, None))[0] or str(rows[0].get("course") or rows[0].get("courseName") or f"Course {gid}")
-        known_venues.add(venue_key(name, rows))
-        for loop in courseview_venue_loops(gid, venue_key(name, rows), root=ROOT):
+        current_venue = venue_key(name, rows)
+        known_venues.add(current_venue)
+        for loop in indexed_loops(gid, current_venue):
             sibling_id = _safe_int(loop.get("globalId"))
             if sibling_id and sibling_id > 0 and loop.get("name"):
                 sibling_facts[sibling_id] = (str(loop["name"]), _safe_int(loop.get("holeCount")) or 9)
     # Catalogue sidecars include never-played loops, even when no nearby query ran this launch.
-    for path in (Path(ROOT) / "data" / "courseview").glob("*_catalogue_name.json"):
-        gid = _safe_int(path.name.split("_", 1)[0])
-        name = courseview_catalogue_name(gid, root=ROOT) if gid and gid > 0 else None
+    for gid, name in courseview_catalogue_names(root=ROOT).items():
         if name and venue_key(name, []) in known_venues:
             label = _segment_label_from_courseview_name(name)
             if label and not is_composite_segment(label):

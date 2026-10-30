@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index e5eef8a8..d4b2dd8b 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -558,7 +558,7 @@ public struct StartRoundView: View {
+         setFailed(false)
+         let rows = await request(globalId)
+         setLoading(false)
+-        setFailed(rows?.isEmpty == true)
++        setFailed(false)
+         return rows
+     }
+ 
