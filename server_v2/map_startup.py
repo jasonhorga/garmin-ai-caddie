@@ -133,7 +133,7 @@ def _prefetch_nearby_releases(matches) -> int:
 
 
 def enqueue_nearby(matches) -> int:
-    with background_work(unit_type="map_startup"):
+    with background_work(unit_type="nearby_enqueue"):
         return _enqueue_nearby(matches)
 
 

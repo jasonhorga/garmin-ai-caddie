@@ -225,6 +225,7 @@ SERVICE_INFO_LOGGERS = (
     "ai_caddie.geometry.batch_prodgeometry_course",  # geometry_derivatives / course_asset lines
     "server_v2.map_startup",
     "server_v2.mobile",
+    "ai_caddie.core.priority_work",
 )
 
 

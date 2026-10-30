@@ -13,14 +13,77 @@ from ai_caddie.core.priority_work import ForegroundGate, PriorityExecutor
 
 
 class ForegroundAdmissionTests(unittest.TestCase):
+    def test_J42_abandoned_waiters_remove_fifo_tickets_for_followers(self):
+        """J4.2: an abandoned head or middle waiter cannot leave a dead FIFO ticket."""
+        for middle in (False, True):
+            with self.subTest(middle=middle):
+                gate = ForegroundGate(timeout_s=5)
+                release = threading.Event()
+                first_waiting = threading.Event()
+                entered: list[str] = []
+                errors: list[BaseException] = []
+
+                def hold_package():
+                    with gate.foreground():
+                        release.wait(2)
+
+                def wait_and_abandon(name: str):
+                    def callback():
+                        first_waiting.set()
+                        if name == "abandon":
+                            raise RuntimeError("client disconnected")
+                    try:
+                        with gate.background(while_waiting=callback):
+                            entered.append(name)
+                    except RuntimeError:
+                        pass
+                    except BaseException as exc:
+                        errors.append(exc)
+
+                package = threading.Thread(target=hold_package, daemon=True)
+                package.start()
+                time.sleep(.01)
+                first_name = "keeper" if middle else "abandon"
+                first = threading.Thread(target=wait_and_abandon, args=(first_name,), daemon=True)
+                first.start()
+                self.assertTrue(first_waiting.wait(1))
+                if middle:
+                    second = threading.Thread(target=wait_and_abandon, args=("abandon",), daemon=True)
+                    second.start()
+                    time.sleep(.01)
+                later = threading.Thread(target=wait_and_abandon, args=("later",), daemon=True)
+                later.start()
+                release.set()
+                first.join(1)
+                if middle:
+                    second.join(1)
+                later.join(1)
+                package.join(1)
+                self.assertFalse(errors, errors)
+                self.assertIn("later", entered)
+                self.assertEqual(gate._background_waiters, [])
+
     def test_J42_background_slot_logs_hold_duration_by_unit_type(self):
         """J4.2: each admitted unit reports its measured slot hold time."""
+        import io
+        import logging
+        from server_v2.main import configure_request_timing_logging
         gate = ForegroundGate()
-        with self.assertLogs("ai_caddie.core.priority_work", level="INFO") as logs:
+        service = logging.getLogger("uvicorn.error")
+        old_handlers = service.handlers[:]
+        old_level = service.level
+        stream = io.StringIO()
+        service.handlers[:] = [logging.StreamHandler(stream)]
+        try:
+            configure_request_timing_logging()
             with gate.background(unit_type="fixture"):
                 pass
-        self.assertTrue(any("background_slot hold_ms=" in line and "unit=fixture" in line
-                            for line in logs.output))
+            output = stream.getvalue()
+            self.assertIn("background_slot hold_ms=", output)
+            self.assertIn("unit=fixture", output)
+        finally:
+            service.handlers[:] = old_handlers
+            service.setLevel(old_level)
 
     def test_J42_package_in_flight_delays_background_until_package_finishes(self):
         """J4.2: a package gets the CPU admission window before background work starts."""
@@ -315,23 +378,30 @@ class SingleUnitAdmissionTests(unittest.TestCase):
 
     def test_J42_reduced_loop_starvation_scenarios_are_bounded(self):
         """J4.2: short backfill-shaped loops cannot postpone a queued unit indefinitely."""
-        for count, delay in ((20, .005), (8, .02)):
+        for count, delay in ((200, .002), (40, .01)):
             with self.subTest(count=count, delay=delay):
                 gate = ForegroundGate(timeout_s=5)
                 first_in, release, second_in = threading.Event(), threading.Event(), threading.Event()
                 completed = threading.Event()
+                entries: list[str] = []
 
                 def looping_worker():
                     for index in range(count):
                         with gate.background():
+                            entries.append(f"loop-{index}")
                             if index == 0:
                                 first_in.set()
                                 release.wait(2)
-                            time.sleep(delay)
+                            # Keep each unit long enough for a non-FIFO reacquirer to run several
+                            # iterations before the queued waiter gets a scheduling turn.
+                            deadline = time.perf_counter() + delay
+                            while time.perf_counter() < deadline:
+                                pass
                     completed.set()
 
                 def waiting_worker():
                     with gate.background():
+                        entries.append("waiting")
                         second_in.set()
 
                 first = threading.Thread(target=looping_worker, daemon=True)
@@ -350,6 +420,7 @@ class SingleUnitAdmissionTests(unittest.TestCase):
                 first.join(2)
                 second.join(1)
                 self.assertTrue(completed.is_set())
+                self.assertLess(entries.index("waiting") if "waiting" in entries else 0, 2)
 
     def test_J42_nested_unit_shares_its_admission_and_a_stale_holder_stops_blocking(self):
         gate = ForegroundGate(timeout_s=5)
@@ -805,11 +876,9 @@ class RouteAdmissionTests(unittest.IsolatedAsyncioTestCase):
         from server_v2 import prep_work
         left = threading.Event()
         real = prep_work.background_work
-        admitted_kwargs = []
 
         @contextmanager
         def observed_admission(**kwargs):
-            admitted_kwargs.append(kwargs)
             try:
                 with real(**kwargs):
                     yield
@@ -839,8 +908,62 @@ class RouteAdmissionTests(unittest.IsolatedAsyncioTestCase):
                 # The package (5s deadline) is still live: only the disconnect ends the wait.
                 self.assertTrue(await asyncio.to_thread(left.wait, 1), "thread kept waiting after disconnect")
         self.assertEqual(built, [])
-        self.assertTrue(admitted_kwargs and callable(admitted_kwargs[0].get("while_waiting")),
-                        "cold prep admission did not install its disconnect checkpoint")
+        self.assertEqual(prep_cache._inflight, {})
+
+    async def test_J42_disconnected_cold_prep_stops_between_holes(self):
+        """J4.2: a client disconnect between cold prep holes cancels before the next hole."""
+        import asyncio
+        from starlette.requests import Request
+        from ai_caddie.courses import prep_cache
+        from server_v2 import prep_work
+        first, release, left = threading.Event(), threading.Event(), threading.Event()
+        disconnect = asyncio.Event()
+
+        async def receive():
+            await disconnect.wait()
+            return {"type": "http.disconnect"}
+
+        request = Request({"type": "http", "method": "GET", "path": "/", "headers": []}, receive)
+        built: list[int] = []
+
+        def build_hole(hole):
+            if int(hole) == 7:
+                first.set()
+                release.wait(2)
+            built.append(int(hole))
+            return {"hole": int(hole)}
+
+        def build():
+            return prep_cache.cached_course_prep(
+                global_id=123, requested=[7, 8], render=False, include_shots=False,
+                player_id=self.player,
+                build=lambda: {"holes": list(prep_cache.cached_hole_preps(
+                    global_id=123, holes=[7, 8], render=False, include_shots=False,
+                    player_id=self.player, variant="disconnect-between-holes",
+                    build_hole=build_hole).values())},
+            )
+
+        real = prep_work.background_work
+        @contextmanager
+        def observed_admission(**kwargs):
+            try:
+                with real(**kwargs):
+                    yield
+            finally:
+                left.set()
+
+        waiting, observed = _observed_waits(self.gate)
+        with patch.object(prep_work, "background_work", observed_admission), observed:
+            response = asyncio.create_task(prep_work.run_prep(request, build))
+            await self.event(first)
+            with self.gate.foreground():
+                release.set()
+                await self.event(waiting)
+                disconnect.set()
+                self.assertEqual((await response).status_code, 499)
+                self.assertTrue(await asyncio.to_thread(left.wait, 1),
+                                "thread kept waiting after between-hole disconnect")
+        self.assertEqual(built, [7])
         self.assertEqual(prep_cache._inflight, {})
 
     async def test_J42_package_without_tee_installs_under_the_registered_tee(self):
