@@ -773,9 +773,11 @@ def _shot_putt_count(
             shot_type = str(shot.get("shotType") or "").strip().lower()
             club_name = str(club.get("name") or "").strip().lower()
             lie = str((shot.get("startLoc") or {}).get("lie") or "").strip().lower()
-        if lie == "green" and ("putt" in shot_type or "putt" in club_name or club_name in {"putter", "pt", "推杆"}):
+        putt_like = "putt" in shot_type or "putt" in club_name or club_name in {"putter", "pt", "推杆"}
+        if lie == "green" and putt_like:
             count += 1
-        elif count or lie in {"", "unknown", "green"}:
+        elif count or putt_like or lie in {"", "unknown", "green"}:
+            # A putter stroke from a non-green lie may be a default/unadjusted lie.
             # An unrecognized green/unknown-lie stroke could be an unseen first putt.
             return None
     return count or None
