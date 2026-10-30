@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -679,7 +679,7 @@
+     for row in local_only:
+         row.setdefault("unmapped", False)
+         event_id = str(row.get("eventId") or "")
+-        row["phoneHole"] = phone_holes.get(event_id, row.get("phoneHole", row.get("hole")))
++        row["phoneHole"] = row.get("hole")
+     annotation_suggestions = _annotation_suggestions(
+         conflicts=conflicts,
+         local_only=local_only,

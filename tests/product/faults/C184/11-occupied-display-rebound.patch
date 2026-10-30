@@ -1,0 +1,22 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -508,15 +508,15 @@
+         if audit:
+             candidate_audits.append(audit)
+         if hole_map is not None:
+-            if hole not in hole_map:
++            if hole not in hole_map and hole not in scores:
+                 # An empty map with competing Garmin facts remains C76's unresolved identity.
+                 if not hole_map and (hole in scores or any(shot["hole"] == hole for shot in shots)):
+                     raise MobileRoundIdentityError("mobile_round_hole_identity_unresolved")
+                 local_only.append(_unmapped_local_only_row(event, payload, kind=kind, hole=hole))
+                 continue
+             else:
+-                event = {**event, "hole": hole_map[hole]}
+-                hole = hole_map[hole]
++                event = {**event, "hole": hole_map.get(hole, hole)}
++                hole = hole_map.get(hole, hole)
+                 if audit:
+                     audit["hole"] = hole
+         elif identity is not None and hole not in scores:

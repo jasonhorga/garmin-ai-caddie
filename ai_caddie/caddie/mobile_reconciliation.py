@@ -89,6 +89,20 @@ def _reconciliation_hole_map(
     # A materialized phone round already uses the phone's display holes, unlike Garmin cards.
     if round_row.get("source") == "manual":
         return {hole["number"]: hole["number"] for hole in identity["holes"]}
+    # A standalone back-nine card from an older Garmin payload can omit every source number.  Its
+    # only trustworthy axis is the card's own 1..9 display order; do not bind those rows to a
+    # physical 10..18 identity (or raise C76's unresolved-identity guard).
+    holes = [hole for hole in (round_row.get("holes") or []) if isinstance(hole, dict)]
+    loops = identity.get("roundLoops") or []
+    if (
+        holes
+        and not round_row.get("merged")
+        and len(holes) <= 9
+        and loops
+        and loops[0].get("half") == "back"
+        and all(not _safe_int(hole.get("number")) for hole in holes)
+    ):
+        return None
     from ai_caddie.history.corrected_history import hole_sides
 
     front_gid = _safe_int(
@@ -223,7 +237,9 @@ def _unmapped_local_only_row(
 ) -> dict[str, Any]:
     """Keep an event whose physical hole is absent from a partial Garmin upload as local evidence."""
     if kind in {"photo", "video"}:
-        return _media_context_row(event, payload, kind=kind, hole=hole)
+        row = _media_context_row(event, payload, kind=kind, hole=hole)
+        row.update({"unmapped": True, "phoneHole": hole})
+        return row
     if kind == "score":
         local_value = _payload_value(payload, "strokes", "score")
     elif kind == "putt":
@@ -242,6 +258,8 @@ def _unmapped_local_only_row(
         "kind": kind,
         "hole": hole,
         "localValue": local_value,
+        "unmapped": True,
+        "phoneHole": hole,
     }
 
 
@@ -463,9 +481,8 @@ def reconcile_mobile_round_events(
 ) -> dict[str, Any]:
     events = _event_rows(round_id, root=root, player_id=player_id)
     round_row = _round_row(round_id, data)
-    hole_map = _reconciliation_hole_map(
-        round_row, load_mobile_round_identity(round_id, root=root, player_id=player_id),
-    )
+    identity = load_mobile_round_identity(round_id, root=root, player_id=player_id)
+    hole_map = _reconciliation_hole_map(round_row, identity)
     scores = _hole_scores(round_row, root=root, annotations_root=annotations_root, player_id=player_id)
     shots = _shot_facts(round_id, data)
     unmatched_shots = {shot["ref"]: shot for shot in shots}
@@ -473,31 +490,40 @@ def reconcile_mobile_round_events(
     local_only: list[dict[str, Any]] = []
     conflicts: list[dict[str, Any]] = []
     candidate_audits: list[dict[str, Any]] = []
-    unmapped_event_ids: set[str] = set()
-
+    phone_holes: dict[str, int] = {}
     for event in events:
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
         kind = str(event.get("kind") or "")
         hole = _safe_int(event.get("hole")) or 0
         if hole <= 0:
             continue
-        if hole_map is not None:
-            if hole not in hole_map:
-                if hole_map:
-                    if event.get("eventId"):
-                        unmapped_event_ids.add(str(event["eventId"]))
-                    local_only.append(_unmapped_local_only_row(event, payload, kind=kind, hole=hole))
-                    continue
-                # A completely unresolved course identity is still unsafe to reconcile by display
-                # number; retain the C76 guard rather than suggesting a correction on another hole.
-                if hole in scores or any(shot["hole"] == hole for shot in shots):
-                    raise MobileRoundIdentityError("mobile_round_hole_identity_unresolved")
-            else:
-                event = {**event, "hole": hole_map[hole]}
-                hole = hole_map[hole]
+        phone_hole = hole
+        event_id = str(event.get("eventId") or "")
+        if event_id:
+            phone_holes[event_id] = phone_hole
+        # Capture decision feedback before the unmapped branch.  If the event is mapped below,
+        # update the audit's hole to the Garmin display axis while preserving the pre-map behavior
+        # for an unmapped phone hole.
         audit = _candidate_audit(event)
         if audit:
             candidate_audits.append(audit)
+        if hole_map is not None:
+            if hole not in hole_map:
+                # An empty map with competing Garmin facts remains C76's unresolved identity.
+                if not hole_map and (hole in scores or any(shot["hole"] == hole for shot in shots)):
+                    raise MobileRoundIdentityError("mobile_round_hole_identity_unresolved")
+                local_only.append(_unmapped_local_only_row(event, payload, kind=kind, hole=hole))
+                continue
+            else:
+                event = {**event, "hole": hole_map[hole]}
+                hole = hole_map[hole]
+                if audit:
+                    audit["hole"] = hole
+        elif identity is not None and hole not in scores:
+            # Legacy unnumbered cards use the display axis, but absent card rows cannot consume
+            # hole corrections. Keep the phone evidence without suggesting an ineffective write.
+            local_only.append(_unmapped_local_only_row(event, payload, kind=kind, hole=hole))
+            continue
 
         if kind == "score":
             local_value = _payload_value(payload, "strokes", "score")
@@ -647,15 +673,28 @@ def reconcile_mobile_round_events(
         }
         for ref, shot in sorted(unmatched_shots.items())
     ]
+    # Keep one response contract for every local-only cause.  Mapped rows use Garmin's display axis
+    # in ``hole`` and retain the phone axis in ``phoneHole``; an unmapped row has no Garmin axis, so
+    # both fields intentionally carry the phone hole. ``unmapped`` distinguishes those cases.
+    for row in local_only:
+        row.setdefault("unmapped", False)
+        event_id = str(row.get("eventId") or "")
+        row["phoneHole"] = phone_holes.get(event_id, row.get("phoneHole", row.get("hole")))
     annotation_suggestions = _annotation_suggestions(
         conflicts=conflicts,
         local_only=local_only,
         garmin_only=garmin_only,
         candidate_audits=candidate_audits,
     )
+    unsafe_event_ids = {
+        str(row.get("eventId") or "")
+        for row in local_only
+        if row.get("unmapped")
+    }
     annotation_suggestions = [
         row for row in annotation_suggestions
-        if str((row.get("payload") or {}).get("sourceEventId") or "") not in unmapped_event_ids
+        if row.get("kind") == "caddie_feedback"
+        or str((row.get("payload") or {}).get("sourceEventId") or "") not in unsafe_event_ids
     ]
     return {
         "schema": "ai-caddie-mobile-reconciliation-v1",

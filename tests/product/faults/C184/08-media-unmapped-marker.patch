@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -238,7 +238,7 @@
+     """Keep an event whose physical hole is absent from a partial Garmin upload as local evidence."""
+     if kind in {"photo", "video"}:
+         row = _media_context_row(event, payload, kind=kind, hole=hole)
+-        row.update({"unmapped": True, "phoneHole": hole})
++        row.update({"unmapped": False, "phoneHole": hole})
+         return row
+     if kind == "score":
+         local_value = _payload_value(payload, "strokes", "score")
