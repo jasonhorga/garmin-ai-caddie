@@ -90,7 +90,7 @@ def audit_hook(event, args):
 sys.addaudithook(audit_hook)
 original_check = readiness._check
 _warm_threads = []
-original_warm = readiness.warm_stats_cache_in_background
+original_warm = getattr(readiness, "warm_stats_cache_in_background", None)
 
 def traced_warm(*args, **kwargs):
     thread = original_warm(*args, **kwargs)
@@ -108,7 +108,8 @@ for name in original_path_methods:
 for name in original_os_methods:
     setattr(os, name, wrap_os(name))
 readiness._check = traced_check
-readiness.warm_stats_cache_in_background = traced_warm
+if original_warm is not None:
+    readiness.warm_stats_cache_in_background = traced_warm
 try:
     readiness.build_readiness_response()
 finally:
@@ -118,7 +119,8 @@ finally:
         thread.join()
     active = False
     readiness._check = original_check
-    readiness.warm_stats_cache_in_background = original_warm
+    if original_warm is not None:
+        readiness.warm_stats_cache_in_background = original_warm
     for name, original in original_path_methods.items():
         setattr(Path, name, original)
     for name, original in original_os_methods.items():
