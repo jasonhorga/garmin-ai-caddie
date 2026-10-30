@@ -16,11 +16,34 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import json
+import logging
 from pathlib import Path
+import sys
 from typing import Any
 
 from ai_caddie.courses import course_reference
 from ai_caddie.core.data import ROOT, SCORECARD_DIR, SHOT_DIR
+
+
+_SYNC_LOGGER_NAME = "ai_caddie.garmin.fetch"
+_SYNC_LOG_HANDLER_MARKER = "_ai_caddie_sync_handler"
+
+
+def _configure_sync_logging() -> None:
+    """Make the shot-diff diagnostics visible to the cron pipeline only."""
+    target = logging.getLogger(_SYNC_LOGGER_NAME)
+    target.setLevel(logging.INFO)
+    target.propagate = False
+    for handler in target.handlers:
+        if getattr(handler, _SYNC_LOG_HANDLER_MARKER, False):
+            handler.setLevel(logging.INFO)
+            handler.setStream(sys.stderr)
+            return
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    setattr(handler, _SYNC_LOG_HANDLER_MARKER, True)
+    target.addHandler(handler)
 
 
 @dataclass
@@ -242,6 +265,7 @@ def main(argv: list[str] | None = None) -> int:
     from ai_caddie.connectors.sync_lock import SyncInProgress, acquire_sync_lock
 
     argv = sys.argv[1:] if argv is None else argv
+    _configure_sync_logging()
     geometry_limit = _int_arg(argv, "--geometry-limit")
     try:
         # The cron process and the API container share the same data volume. Keep
