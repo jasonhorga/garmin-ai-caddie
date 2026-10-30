@@ -1,7 +1,7 @@
---- a/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:41:32.935831940 +0000
-+++ b/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:43:11.905819534 +0000
-@@ -756,8 +756,7 @@
-     }
+--- a/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:49:01.100626158 +0000
++++ b/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:49:01.227628995 +0000
+@@ -761,8 +761,7 @@
+     ]
      annotation_suggestions = [
          row for row in annotation_suggestions
 -        if row.get("kind") != "caddie_feedback"

@@ -572,9 +572,14 @@ def reconcile_mobile_round_events(
                 hole = hole_map[hole]
                 if audit:
                     audit["hole"] = hole
-        elif hole not in scores:
-            # Without a mapped scorecard row there is no safe target for an old identity-less
-            # stream (or a standalone unnumbered card). Keep the event as evidence only.
+        elif identity is None and hole not in scores:
+            # Legacy unnumbered cards use the display axis, but absent card rows cannot consume
+            # hole corrections. Keep the phone evidence without suggesting an ineffective write.
+            local_only.append(_unmapped_local_only_row(event, payload, kind=kind, hole=hole))
+            continue
+        elif identity is not None and hole not in scores:
+            # Legacy unnumbered cards use the display axis, but absent card rows cannot consume
+            # hole corrections. Keep the phone evidence without suggesting an ineffective write.
             local_only.append(_unmapped_local_only_row(event, payload, kind=kind, hole=hole))
             continue
 
@@ -744,16 +749,16 @@ def reconcile_mobile_round_events(
         for row in local_only
         if row.get("unmapped")
     }
-    annotation_suggestions = [
-        row for row in annotation_suggestions
-        if row.get("kind") == "caddie_feedback"
-        or str((row.get("payload") or {}).get("sourceEventId") or "") not in unsafe_event_ids
-    ]
     applied_decision_ids = {
         str(row.get("decisionId") or "")
         for row in list_decision_audits(root=root, player_id=player_id)
         if row.get("decisionId")
     }
+    annotation_suggestions = [
+        row for row in annotation_suggestions
+        if row.get("kind") == "caddie_feedback"
+        or str((row.get("payload") or {}).get("sourceEventId") or "") not in unsafe_event_ids
+    ]
     annotation_suggestions = [
         row for row in annotation_suggestions
         if row.get("kind") != "caddie_feedback"

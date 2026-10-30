@@ -1,5 +1,5 @@
---- a/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:41:32.935831940 +0000
-+++ b/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:43:11.901819419 +0000
+--- a/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:49:01.100626158 +0000
++++ b/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:49:01.221628861 +0000
 @@ -558,7 +558,7 @@
          # update the audit's hole to the Garmin display axis while preserving the pre-map behavior
          # for an unmapped phone hole.
