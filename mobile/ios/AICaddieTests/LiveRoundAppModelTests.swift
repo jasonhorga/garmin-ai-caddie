@@ -1071,7 +1071,8 @@ final class LiveRoundAppModelTests: XCTestCase {
                                 retrySleep: { _ in })
         let model = LiveRoundAppModel(
             offlineStore: store, apiBaseURL: client.baseURL, watchBridge: nil, garminSessionStore: nil,
-            syncClient: client, offlineGeometryRetryDelaysNanoseconds: [], prepStatusProbeRetryDelayNanoseconds: 0
+            syncClient: client, offlineGeometryRetryDelaysNanoseconds: [], prepStatusProbeRetryDelayNanoseconds: 0,
+            networkPathObserver: nil
         )
         var observations = 0
         model.prepDownloadNow = {
