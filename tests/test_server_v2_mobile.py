@@ -525,6 +525,7 @@ class ServerV2MobileTests(unittest.TestCase):
             patch("ai_caddie.core.data.mesh_path", return_value=Path(__file__)),
             patch("ai_caddie.courses.vector_prep.cached_vector_hole",
                   side_effect=lambda *args, **kwargs: vector if kwargs.get("tee_set") == 2 else None),
+            patch("ai_caddie.courses.vector_prep.cached_map_vector_hole", return_value=vector),
         ):
             for tee_box, expected_set in (("black", 1), ("blue", 2), ("white", 3), ("red", 4), ("gold", 2)):
                 package_holes = mobile_live._package_holes(
