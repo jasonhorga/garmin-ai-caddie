@@ -103,6 +103,7 @@ class MobileReconciliationTests(unittest.TestCase):
             } for n in range(1, 19)], idempotency_key="rotated-restore", root=root)
             data = HistoryData(raw_rounds=[], rounds=[{
                 "id": "rotated-restore", "globalId": 55555,
+                "holePars": "4" * 18,
                 "holes": [{"number": n, "strokes": 5} for n in range(10, 19)],
             }], shots=[])
             result = reconcile_mobile_round_events("rotated-restore", data, root=root)
@@ -323,6 +324,7 @@ class MobileReconciliationTests(unittest.TestCase):
             restored = next(hole for hole in corrected["holes"] if hole["number"] == 10)
             self.assertEqual(restored["strokes"], 5)
             self.assertEqual(restored["par"], 4)
+            self.assertTrue(restored["_scoreCorrected"])
             self.assertNotIn("putts", restored)
             self.assertNotIn("penalties", restored)
             self.assertIsNone(restored.get("gir"))
@@ -340,13 +342,11 @@ class MobileReconciliationTests(unittest.TestCase):
                 "holes": [{"number": n, "strokes": 4} for n in range(1, 10)],
             }], shots=[])
             result = reconcile_mobile_round_events("putt-only", data, root=root)
-            suggestion = next(row for row in result["annotationSuggestions"]
-                              if row["kind"] == "putt_correction")
+            self.assertEqual(result["annotationSuggestions"], [])
             applied = apply_mobile_reconciliation_suggestions(
-                "putt-only", data, suggestion_ids=[suggestion["id"]],
-                root=root, annotations_root=root, data_loader=lambda: data,
+                "putt-only", data, root=root, annotations_root=root, data_loader=lambda: data,
             )
-            self.assertEqual(applied["appliedCount"], 1)
+            self.assertEqual(applied["appliedCount"], 0)
             corrected = corrected_history_data(data, annotations_root=root).rounds[0]
             self.assertEqual(len(corrected["holes"]), 9)
 
@@ -505,6 +505,7 @@ class MobileReconciliationTests(unittest.TestCase):
             append_event_batch("rotated-feedback", events, idempotency_key="feedback", root=root)
             data = HistoryData(raw_rounds=[], rounds=[{
                 "id": "rotated-feedback", "globalId": 55555,
+                "holePars": "4" * 18,
                 "holes": [{"number": n, "strokes": 4} for n in range(10, 19)],
             }], shots=[])
             result = reconcile_mobile_round_events("rotated-feedback", data, root=root)
@@ -732,8 +733,15 @@ class MobileReconciliationTests(unittest.TestCase):
                 ], "holePars": "444444444",
             }], shots=[])
             result = reconcile_mobile_round_events("no-restore-par", data, root=root)
+            add_annotation(
+                "hole", "no-restore-par:10", "score_correction",
+                {"to": 5, "restore": True, "restoreGlobalId": 31794,
+                 "restoreLocalHole": 1}, root=root,
+            )
+            projected = corrected_history_data(data, annotations_root=root).rounds[0]
         self.assertEqual(result["annotationSuggestions"], [])
         self.assertEqual(result["localOnly"][0]["restoreUnavailableReason"], "standard_par_unavailable")
+        self.assertEqual(len(projected["holes"]), 9)
 
     def test_partial_restore_counts_scored_holes_and_stays_out_of_eighteen_stats(self) -> None:
         pars = "445344535" + "435454344"
