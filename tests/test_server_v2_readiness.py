@@ -48,6 +48,21 @@ class ServerV2ReadinessTests(unittest.TestCase):
             self.assertTrue(history["evidence"]["stale"])
             warm.assert_called_once_with()
 
+    def test_G7_failed_background_warm_is_degraded_with_reason(self) -> None:
+        """G7: a failed history warm cannot leave the release check warming forever."""
+        with patch("server_v2.readiness.load_history_stats_snapshot", return_value=None), \
+             patch("server_v2.readiness.warm_stats_cache_in_background", side_effect=RuntimeError("stats warm failed")), \
+             patch("server_v2.readiness.build_mobile_round_package_response", return_value=SimpleNamespace(
+                 schema_="ai-caddie-live-round-package-v2", sourceCoverage={"state": "ready"},
+                 geometryCoverage={"state": "ready"}, readinessChecks=[], caddieContextSeeds=[],
+                 roundId="900001", holes=[], caddieDecisionEndpoint="", offlinePackageStatus={},
+                 cachedCaddieRules={}, missingData=[],
+             )):
+            payload = build_readiness_response()
+        history = next(row for row in payload["checks"] if row["label"] == "history")
+        self.assertEqual(history["state"], "degraded")
+        self.assertIn("stats warm failed", history["evidence"]["reason"])
+
     def test_G7_readiness_accepts_warming_as_non_failing_runtime_state(self) -> None:
         """G7: history warming is visible but does not close the readiness gate."""
         with patch("server_v2.readiness.load_history_stats_snapshot", return_value=None), \

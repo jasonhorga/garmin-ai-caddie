@@ -1313,6 +1313,8 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("READINESS_TOTAL_TIMEOUT", text)
         self.assertIn("readiness warming", text)
         self.assertIn("elapsed_ms=", text)
+        self.assertIn("readiness remained warming", text)
+        self.assertIn("attempts >= READINESS_MAX_ATTEMPTS", text)
         self.assertIn("initial_build_number: 0", text)
         self.assertIn("Using next App Store Connect TestFlight build number", text)
         self.assertNotIn('rescue => e\n      UI.important("No prior TestFlight build', text)
