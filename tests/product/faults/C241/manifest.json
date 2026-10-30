@@ -47,7 +47,7 @@
       "id": "tests-product-faults-C241-07-first-frame-garmin",
       "patch": "tests/product/faults/C241/07-first-frame-pending.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/LiveMapFirstFrameTests/testKnownPreciseTopoUsesGarminUntilDecodeCompletes",
+      "target": "AICaddieTests/LiveMapFirstFrameTests/testKnownPreciseTopoNeverFallsBackToGarminBeforeDecode",
       "promise": "J4.5"
     },
     {
@@ -62,6 +62,20 @@
       "patch": "tests/product/faults/C241/09-garmin-gesture-reset.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/GarminRasterTests/testPreciseMapReplacesRouteTierWithoutChangingInteractionPolicy",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C241-S2-garmin-display-gate",
+      "patch": "tests/product/faults/C241/S2-garmin-display-gate.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_cached_garmin_reaches_live_page_display_state",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C241-S3-hide-route-notice",
+      "patch": "tests/product/faults/C241/S3-hide-route-notice.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testJ45GarminRouteWaitingNoticeMatchesVisibleMap",
       "promise": "J4.5"
     }
   ]

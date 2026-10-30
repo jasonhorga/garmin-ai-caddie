@@ -1,0 +1,9 @@
+diff --git a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
+index 45583423..71f3772c 100644
+--- a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
++++ b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
+@@ -2533,3 +2533,3 @@ enum LiveMapDisplaySelection {
+     ) -> Bool {
+-        state == .garminRaster && hasGarminImage && !projectionUsable
++        false
+     }

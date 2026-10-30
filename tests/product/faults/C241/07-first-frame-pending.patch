@@ -1,11 +1,15 @@
 diff --git a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
-index 9c34d076..0b2d3385 100644
+index 45583423..9016280b 100644
 --- a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
 +++ b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
-@@ -2475,4 +2475,5 @@ enum LiveMapDisplayState: Equatable {
+@@ -2476,9 +2476,7 @@ enum LiveMapDisplayState: Equatable {
+     ) -> LiveMapDisplayState {
          let resolved: LiveMapDisplayState
          if inputs.preciseTopoImageReady && inputs.preciseGeometryReady { return .precise }
-+        if inputs.preciseTopoAvailable { return .factualPending }
-         if !inputs.garminImageFailed,
+-        if inputs.preciseTopoAvailable || inputs.hasCachedPreciseTopo {
+-            resolved = .factualPending
+-        } else if !inputs.garminImageFailed,
++        if !inputs.garminImageFailed,
             inputs.garminImageReady,
             inputs.garminRaster?.hasDisplayableImage == true {
+             resolved = .garminRaster
