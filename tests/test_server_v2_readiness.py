@@ -41,11 +41,22 @@ class ServerV2ReadinessTests(unittest.TestCase):
 
         result: list[dict] = []
         warm_called = threading.Event()
+        warm_threads: list[threading.Thread] = []
         original_warm = readiness.warm_stats_cache_in_background
 
         def start_warm(*args, **kwargs):
             warm_called.set()
-            return original_warm(*args, **kwargs)
+            thread = original_warm(*args, **kwargs)
+            if thread is not None:
+                warm_threads.append(thread)
+            return thread
+
+        def stop_warms() -> None:
+            release.set()
+            for thread in warm_threads:
+                thread.join(timeout=5)
+
+        self.addCleanup(stop_warms)
 
         worker = threading.Thread(
             target=lambda: result.append(build_readiness_response()), daemon=True
