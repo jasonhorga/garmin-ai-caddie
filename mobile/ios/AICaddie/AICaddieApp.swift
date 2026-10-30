@@ -1870,7 +1870,6 @@ public final class LiveRoundAppModel: ObservableObject {
     private func finishRoundPreparation(_ token: UUID) {
         syncClient?.endRoundStart(token)
         guard roundPreparationToken == token else { return }
-        let handoffID = foregroundRoundStartIntentKey
         roundPreparationToken = nil
         recordRoundStartStep("finishRoundPreparation.token-cleared", token: token)
         foregroundRoundStartIntentKey = nil
@@ -1881,12 +1880,7 @@ public final class LiveRoundAppModel: ObservableObject {
         // failed, release the prep-library queue instead of leaving durable jobs paused.
         if deferredOfflineCourseDownloadRevalidation == nil,
            offlineCourseDownloadTask == nil {
-            startPrepCourseDownloadQueueIfNeeded(userRequested: handoffID)
-        } else if let handoffID {
-            // Preserve the explicit Start selection while the live course's own asset pass still
-            // owns the connection. Its completion or fresh-entry release starts the queue again.
-            userRequestedPrepDownloadIDs.insert(handoffID)
-            recordPrepQueueDecision("handoff-deferred id=\(handoffID)")
+            startPrepCourseDownloadQueueIfNeeded()
         }
         // A start that did not leave a live round (failed, or not a new round) gives the results
         // refresh back; a live round keeps the network until the next launch or foreground.
@@ -2166,6 +2160,18 @@ public final class LiveRoundAppModel: ObservableObject {
         private let lock = NSLock()
         private var continuation: CheckedContinuation<Value, Error>?
         private var finished = false
+        private var timeoutTask: Task<Void, Never>?
+
+        func installTimeout(_ task: Task<Void, Never>) {
+            lock.lock()
+            if finished {
+                lock.unlock()
+                task.cancel()
+                return
+            }
+            timeoutTask = task
+            lock.unlock()
+        }
 
         func install(_ continuation: CheckedContinuation<Value, Error>) {
             lock.lock()
@@ -2187,7 +2193,10 @@ public final class LiveRoundAppModel: ObservableObject {
             finished = true
             let continuation = self.continuation
             self.continuation = nil
+            let timeoutTask = self.timeoutTask
+            self.timeoutTask = nil
             lock.unlock()
+            timeoutTask?.cancel()
             continuation?.resume(with: result)
         }
     }
@@ -2223,7 +2232,7 @@ public final class LiveRoundAppModel: ObservableObject {
                             race.finish(.failure(error))
                         }
                     }
-                    Task {
+                    let timeout = Task {
                         do {
                             try await Task.sleep(nanoseconds: waitNanoseconds)
                             race.finish(.failure(IntentPrefetchWaitTimeout()))
@@ -2231,6 +2240,10 @@ public final class LiveRoundAppModel: ObservableObject {
                             // The wait was completed by the producer or cancellation.
                         }
                     }
+                    race.installTimeout(timeout)
+                    #if DEBUG
+                    roundStartIntentWaitDidBeginForTesting?()
+                    #endif
                 }
             } onCancel: {
                 race.finish(.failure(CancellationError()))
@@ -2780,6 +2793,9 @@ public final class LiveRoundAppModel: ObservableObject {
     func waitForOfflineCourseDownloadForTesting() async {
         await offlineCourseDownloadTask?.value
     }
+
+    var activeRoundStartTaskForTesting: Task<Void, Never>? { activeRoundStartTask }
+    var roundStartIntentWaitDidBeginForTesting: (() -> Void)?
 
     /// Waits for the background personal package of a map-only start (C85), merged or given up.
     func waitForRoundEnrichmentForTesting() async {
@@ -3677,9 +3693,9 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         if prepDownloadID == nil {
             await refreshServerInstallStatus()
-        } else if !deferTemplateReplacement {
-            // Prep downloads use the single-request polling endpoint. The worker owns the
-            // retry ladder; transport retries here would multiply each server-status step.
+        } else {
+            // Initial and replacement prep installs share the single-request polling endpoint.
+            // The worker owns the retry ladder; transport must not multiply each status step.
             await refreshServerInstallStatus(useTransportRetries: false)
         }
         // A lightweight package deliberately embeds the first hole as a fast partial seed even
@@ -3818,7 +3834,7 @@ public final class LiveRoundAppModel: ObservableObject {
             guard !unresolvedByGlobalId.isEmpty, attempt < retryDelays.count else { break }
             if prepDownloadID == nil {
                 await refreshServerInstallStatus()
-            } else if !deferTemplateReplacement {
+            } else {
                 await refreshServerInstallStatus(useTransportRetries: false)
             }
             do {
@@ -3910,7 +3926,7 @@ public final class LiveRoundAppModel: ObservableObject {
         /// its own bounded cadence before the topo pass; geometry retry delays must not decide how
         /// long a server-side topo render gets to finish (and may be empty in native fixtures).
         func waitForPrepTopoReadiness() async -> Bool {
-            guard prepDownloadID != nil, !deferTemplateReplacement else { return true }
+            guard prepDownloadID != nil else { return true }
             let maxAttempts = 20
             let maxWaitNanoseconds: UInt64 = 300_000_000_000
             let startedAt = DispatchTime.now().uptimeNanoseconds
@@ -3951,9 +3967,6 @@ public final class LiveRoundAppModel: ObservableObject {
 
         for attempt in 0...topoRetryDelays.count {
             guard !Task.isCancelled else { return false }
-            if prepDownloadID == nil {
-                await refreshServerInstallStatus()
-            }
             var pendingTopoHoles = missingTopoHoles()
             guard !pendingTopoHoles.isEmpty else { break }
 
@@ -7834,8 +7847,6 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    /// Opt-in acceptance timing only. Release/TestFlight compile this to a no-op; DEBUG writes stage
-    /// names and counts (never payloads, player data or credentials) beside the simulator screenshots.
     private func recordPrepQueueDecision(_ message: String) {
         #if DEBUG
         prepQueueLastDecisionForTesting = message
@@ -7843,6 +7854,8 @@ public final class LiveRoundAppModel: ObservableObject {
         recordUITestLatency("prep-queue.\(message)")
     }
 
+    /// Opt-in acceptance timing only. Release/TestFlight compile this to a no-op; DEBUG writes stage
+    /// names and counts (never payloads, player data or credentials) beside the simulator screenshots.
     private func recordUITestLatency(_ message: String) {
         #if DEBUG
         UITestEventLatencyTrace.record(message)

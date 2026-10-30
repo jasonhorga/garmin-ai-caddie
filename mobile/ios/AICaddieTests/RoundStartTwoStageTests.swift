@@ -448,6 +448,51 @@ final class RoundStartTwoStageTests: XCTestCase {
         )
     }
 
+    /// J4.2: closing a Start that awaits shared intent ends its waiter before the producer answers.
+    func testClosingPrepCancelsTheIntentWaitBeforeTheProducerReturns() async throws {
+        let host = "intent-close.example.test"
+        let held = C85HeldRequests()
+        let requests = C85RequestLog()
+        let intentSent = expectation(description: "shared intent producer is held")
+        let sentOnce = C33FirstMatch()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host,
+                  proto.request.url?.path.hasSuffix("/package") == true else { proto.reply(404); return }
+            requests.append(proto.request)
+            held.hold(proto)
+            if sentOnce.claim() { intentSent.fulfill() }
+        }, onStop: { held.forget($0) })
+        let fixture = makeModel(host: host, held: held)
+        let model = fixture.model
+        let course = MobileCourseOption(globalId: c85CourseId, name: "Intent nine", holes: 9, teeBox: "blue")
+        model.prefetchIntendedCourses([course], teeBox: "blue")
+        await fulfillment(of: [intentSent], timeout: eventWait)
+        let waiterEntered = expectation(description: "Start is awaiting the held producer")
+        model.roundStartIntentWaitDidBeginForTesting = { waiterEntered.fulfill() }
+        XCTAssertTrue(model.openPrepCourse(course))
+        let oldStart = try XCTUnwrap(model.activeRoundStartTaskForTesting)
+        await fulfillment(of: [waiterEntered], timeout: eventWait)
+        model.roundStartIntentWaitDidBeginForTesting = nil
+
+        let oldStartReturned = expectation(description: "cancelled Start returns while intent remains held")
+        let returned = C85Counter()
+        let observer = Task {
+            await oldStart.value
+            returned.set(1)
+            oldStartReturned.fulfill()
+        }
+        model.closePrepMode()
+        await fulfillment(of: [oldStartReturned], timeout: 2)
+        XCTAssertEqual(returned.value, 1, "onCancel must finish the old waiter without the 30-second timer")
+        XCTAssertEqual(requests.all.count, 1, "cancelling a waiter does not issue another package request")
+        XCTAssertFalse(model.isOpeningPrepCourse)
+        // Always release after the bounded assertion, including on the onCancel-noop mutant.
+        // The held producer may retry a 503; subsequent requests must answer immediately.
+        C33URLProtocol.setHandlers(onStart: { $0.reply(503) }, onStop: { held.forget($0) })
+        held.releaseAll(503)
+        await observer.value
+    }
+
     func testOtherCourseIntentIsPausedWhenStartTakesTheNetwork() async throws {
         let host = "c85-intent-other.example.test"
         let roundId = "c85-intent-other"

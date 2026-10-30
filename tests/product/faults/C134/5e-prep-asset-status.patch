@@ -1,14 +1,14 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -3407,13 +3407,7 @@
+@@ -3691,13 +3691,7 @@
              serverGeometryReadyKeys = geometryKeys
              serverTopoReadyKeys = topoKeys
          }
 -        if prepDownloadID == nil {
 -            await refreshServerInstallStatus()
--        } else if !deferTemplateReplacement {
--            // Prep downloads use the single-request polling endpoint. The worker owns the
--            // retry ladder; transport retries here would multiply each server-status step.
+-        } else {
+-            // Initial and replacement prep installs share the single-request polling endpoint.
+-            // The worker owns the retry ladder; transport must not multiply each status step.
 -            await refreshServerInstallStatus(useTransportRetries: false)
 -        }
 +        await refreshServerInstallStatus()

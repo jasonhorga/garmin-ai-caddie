@@ -816,7 +816,22 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
+    /// J4.2: an initial install waits for the server's topo journal, without transport retries.
     func testPrepDownloadWaitsForServerTopoReadyBeforeFetchingTopoBytes() async throws {
+        try await assertPrepTopoJournal(replacement: false, failed: false)
+    }
+
+    /// J4.2: a Garmin release replacement obeys the same topo readiness gate as a new download.
+    func testReplacementDownloadWaitsForServerTopoReadyBeforeFetchingTopoBytes() async throws {
+        try await assertPrepTopoJournal(replacement: true, failed: false)
+    }
+
+    /// J4.2: a failed render stops this install immediately instead of polling a terminal journal.
+    func testPrepDownloadStopsPollingWhenServerTopoJournalFails() async throws {
+        try await assertPrepTopoJournal(replacement: false, failed: true)
+    }
+
+    private func assertPrepTopoJournal(replacement: Bool, failed: Bool) async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
@@ -841,6 +856,25 @@ final class LiveRoundAppModelTests: XCTestCase {
             recentRounds: [],
             holes: holes
         ).replacingCoursePrep(nil)
+        let course = MobileCourseOption(
+            globalId: online.course.globalId,
+            name: online.course.name,
+            holes: online.holes.count,
+            teeBox: online.course.teeBox
+        )
+        if replacement {
+            let oldRevision = "previous-status-release"
+            try store.saveCourseTemplate(try offlineReadyPackage(source, geometryRevision: oldRevision))
+            for hole in source.holes {
+                _ = try store.saveCourseTopoImage(
+                    minimalPNGData(), globalId: hole.sourceGlobalId,
+                    localHole: hole.sourceLocalHole, geometryRevision: oldRevision
+                )
+            }
+            var pending = PrepCourseDownloadRecord(course: course, phase: .queued)
+            pending.requiredGeometryRevisions = ["\(course.globalId):1": revision]
+            try store.savePrepCourseDownloads([pending])
+        }
         let packageData = try JSONEncoder().encode(online)
         let png = minimalPNGData()
         let requestLock = NSLock()
@@ -864,8 +898,8 @@ final class LiveRoundAppModelTests: XCTestCase {
                     installStatusRequestCount += 1
                     return installStatusRequestCount
                 }
-                let topoState = statusNumber == 1 ? "queued" : "ready"
-                let phase = statusNumber == 1 ? "running" : "ready"
+                let topoState = failed ? "failed" : (statusNumber == 1 ? "queued" : "ready")
+                let phase = failed ? "failed" : (statusNumber == 1 ? "running" : "ready")
                 requestLock.withLock {
                     statusObservations.append("#\(statusNumber) phase=\(phase) topo=\(topoState) error=null")
                 }
@@ -931,13 +965,8 @@ final class LiveRoundAppModelTests: XCTestCase {
             watchBridge: nil,
             garminSessionStore: nil,
             syncClient: client,
-            offlineGeometryRetryDelaysNanoseconds: []
-        )
-        let course = MobileCourseOption(
-            globalId: online.course.globalId,
-            name: online.course.name,
-            holes: online.holes.count,
-            teeBox: online.course.teeBox
+            offlineGeometryRetryDelaysNanoseconds: [],
+            prepStatusProbeRetryDelayNanoseconds: 0
         )
 
         model.downloadPrepCourse(course)
@@ -946,6 +975,15 @@ final class LiveRoundAppModelTests: XCTestCase {
         let statusDiagnostic = requestLock.withLock {
             "status=[\(statusObservations.joined(separator: "; "))] "
                 + "topoRequests=\(topoRequestCount) finalPhase=\(model.prepCourseDownloads.first?.phase.rawValue ?? "nil")"
+        }
+        if failed {
+            XCTAssertEqual(model.prepCourseDownloads.first?.phase, .failed, statusDiagnostic)
+            XCTAssertEqual(
+                requestLock.withLock { installStatusRequestCount }, 3,
+                "one asset entry + one topo gate (failed, stop) + one worker verdict; \(statusDiagnostic)"
+            )
+            XCTAssertEqual(requestLock.withLock { topoRequestCount }, 0, statusDiagnostic)
+            return
         }
         XCTAssertEqual(model.prepCourseDownloads.first?.phase, .ready, statusDiagnostic)
         XCTAssertGreaterThanOrEqual(
@@ -985,6 +1023,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         model.finishRoundPreparationForTesting(second)
     }
 
+    /// J4.2: each asset stage probes once; only the worker's three failed verdicts end the job.
     func testPrepStatusProbeFailsThreeTimesThenCanRetryAndClearFailure() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1031,6 +1070,8 @@ final class LiveRoundAppModelTests: XCTestCase {
         let requestLock = NSLock()
         var statusRequestCount = 0
         var statusTimeouts: [TimeInterval] = []
+        var prepRequestCount = 0
+        var prepCountsAtStatus: [Int] = []
         var statusShouldSucceed = false
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
@@ -1040,12 +1081,14 @@ final class LiveRoundAppModelTests: XCTestCase {
             let body: Data
             let contentType: String
             if url.path.hasSuffix("/mobile/courses/\(course.globalId)/package") {
+                requestLock.withLock { prepRequestCount = 0 }
                 body = packageData
                 contentType = "application/json"
             } else if url.path.hasSuffix("/courses/\(course.globalId)/install/status") {
                 let succeeds = requestLock.withLock {
                     statusRequestCount += 1
                     statusTimeouts.append(request.timeoutInterval)
+                    prepCountsAtStatus.append(prepRequestCount)
                     return statusShouldSucceed
                 }
                 guard succeeds else {
@@ -1063,6 +1106,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                 )
                 contentType = "application/json"
             } else if url.path.hasSuffix("/courses/\(course.globalId)/prep") {
+                requestLock.withLock { prepRequestCount += 1 }
                 let requested = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
                     .filter { $0.name == "holes" }
                     .compactMap { $0.value.flatMap(Int.init) } ?? []
@@ -1071,6 +1115,11 @@ final class LiveRoundAppModelTests: XCTestCase {
                     for: fetched, localHoles: requested,
                     geometryCoverage: succeeds ? "ready" : "partial",
                     geometryRevision: newRevision
+                )
+                contentType = "application/json"
+            } else if url.path == "/api/v2/geometry/course/\(course.globalId)/coverage" {
+                body = self.geometryCoverageData(
+                    globalId: course.globalId, localHoles: fetched.holes.map(\.sourceLocalHole)
                 )
                 contentType = "application/json"
             } else if url.path.hasSuffix("/topo.png") {
@@ -1096,7 +1145,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let model = LiveRoundAppModel(
             offlineStore: store, apiBaseURL: client.baseURL,
             watchBridge: nil, garminSessionStore: nil, syncClient: client,
-            offlineGeometryRetryDelaysNanoseconds: [],
+            offlineGeometryRetryDelaysNanoseconds: [0],
             prepStatusProbeRetryDelayNanoseconds: 0
         )
 
@@ -1104,7 +1153,14 @@ final class LiveRoundAppModelTests: XCTestCase {
         await model.waitForPrepCourseDownloadForTesting()
         XCTAssertEqual(model.prepCourseDownloads.first?.phase, .failed)
         XCTAssertEqual(model.prepCourseDownloads.first?.errorText, "服务器状态暂时无法确认，点重试")
-        XCTAssertEqual(requestLock.withLock { statusRequestCount }, 3)
+        XCTAssertEqual(
+            requestLock.withLock { statusRequestCount }, 9,
+            "three worker passes × (one asset entry + one geometry retry + one worker verdict); no topo probe because prep stays partial"
+        )
+        XCTAssertEqual(
+            requestLock.withLock { prepCountsAtStatus }, [0, 3, 6, 0, 3, 6, 0, 3, 6],
+            "each pass: entry before prep, geometry after three prep batches, verdict after six; topo has no precise holes to poll"
+        )
         XCTAssertTrue(requestLock.withLock {
             statusTimeouts.allSatisfy { $0 == SyncClient.courseInstallStatusTimeoutInterval }
         })
@@ -2814,6 +2870,102 @@ final class LiveRoundAppModelTests: XCTestCase {
             true,
             "an unfinished course keeps its progress bar"
         )
+    }
+
+    /// J4.2: missing live topo retries PNGs directly; only the asset entry probes install/status.
+    func testLiveTopoRetryDoesNotRepeatInstallStatus() async throws {
+        let store = OfflineStore(directoryURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true))
+        let source = try nineHoleFixturePackage()
+        let online = package(
+            source, roundId: "live-topo-retry", recentRounds: [],
+            holes: source.holes.map { hole in
+                Hole(
+                    number: hole.number, par: hole.par, yards: hole.yards,
+                    geometryCoverage: .partial,
+                    sourceGlobalId: hole.sourceGlobalId, sourceLocalHole: hole.sourceLocalHole,
+                    courseHoleNumber: hole.courseHoleNumber
+                )
+            }
+        ).replacingCoursePrep(nil)
+        let revision = "live-topo-retry-release"
+        let png = minimalPNGData()
+        // Leave just hole 9 missing. Its incremental pass and first topo-loop pass return 404,
+        // forcing the real live 5-second topo retry (independent of geometry retry injection).
+        for hole in online.holes where hole.number != 9 {
+            _ = try store.saveCourseTopoImage(
+                png, globalId: hole.sourceGlobalId, localHole: hole.sourceLocalHole,
+                geometryRevision: revision
+            )
+        }
+        let packageData = try JSONEncoder().encode(online)
+        let statusData = installStatusData(
+            globalId: online.course.globalId, revision: revision,
+            localHoles: online.holes.map(\.sourceLocalHole)
+        )
+        let requestLock = NSLock()
+        var statusCount = 0
+        var topoCount = 0
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let body: Data
+            let contentType: String
+            var statusCode = 200
+            if url.path.hasSuffix("/package") {
+                body = packageData
+                contentType = "application/json"
+            } else if url.path.hasSuffix("/install/status") {
+                requestLock.withLock { statusCount += 1 }
+                body = statusData
+                contentType = "application/json"
+            } else if url.path.hasSuffix("/prep") {
+                let requested = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                    .filter { $0.name == "holes" }.compactMap { $0.value.flatMap(Int.init) } ?? []
+                body = try offlinePrepResponseData(
+                    for: online, localHoles: requested, geometryRevision: revision
+                )
+                contentType = "application/json"
+            } else if url.path.hasSuffix("/topo.png") {
+                XCTAssertTrue(url.path.hasSuffix("/holes/9/topo.png"))
+                let attempt = requestLock.withLock {
+                    topoCount += 1
+                    return topoCount
+                }
+                statusCode = attempt <= 2 ? 404 : 200
+                body = statusCode == 200 ? png : Data()
+                contentType = "image/png"
+            } else {
+                throw URLError(.unsupportedURL)
+            }
+            return (HTTPURLResponse(
+                url: url, statusCode: statusCode, httpVersion: nil,
+                headerFields: ["Content-Type": contentType]
+            )!, body)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://live-topo-retry.example.test")!, session: session,
+            retrySleep: { _ in XCTFail("PNG 404 must reach the live topo retry, without transport retry") }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store, apiBaseURL: client.baseURL,
+            watchBridge: nil, garminSessionStore: nil, syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: []
+        )
+        await model.prepareCourseRound(
+            roundId: online.roundId, teeBox: online.course.teeBox, loops: online.loopEntries
+        )
+        model.liveHoleInitialLoadDidFinish()
+        await model.waitForOfflineCourseDownloadForTesting()
+
+        XCTAssertEqual(model.liveRoundState?.roundId, online.roundId)
+        XCTAssertEqual(requestLock.withLock { topoCount }, 3, "incremental 404 + topo pass 404 + live retry PNG")
+        XCTAssertEqual(requestLock.withLock { statusCount }, 1, "only asset entry; live topo loops never probe status")
+        XCTAssertTrue(store.hasCourseTopoImages(for: try XCTUnwrap(model.package)))
+        await model.stopRoundBackgroundWorkForTesting()
     }
 
     func testOnlineCourseStartRetainsAllHolePrepAndTopoForLaterOfflineUse() async throws {

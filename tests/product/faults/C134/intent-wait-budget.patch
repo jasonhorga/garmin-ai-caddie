@@ -1,6 +1,6 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -1923,30 +1923,7 @@
+@@ -2220,34 +2220,7 @@
          guard let task = intentPrefetchTasks[key] else { return (nil, false) }
          do {
              let waitNanoseconds = roundStartIntentWaitNanoseconds
@@ -16,7 +16,7 @@
 -                            race.finish(.failure(error))
 -                        }
 -                    }
--                    Task {
+-                    let timeout = Task {
 -                        do {
 -                            try await Task.sleep(nanoseconds: waitNanoseconds)
 -                            race.finish(.failure(IntentPrefetchWaitTimeout()))
@@ -24,6 +24,10 @@
 -                            // The wait was completed by the producer or cancellation.
 -                        }
 -                    }
+-                    race.installTimeout(timeout)
+-                    #if DEBUG
+-                    roundStartIntentWaitDidBeginForTesting?()
+-                    #endif
 -                }
 -            } onCancel: {
 -                race.finish(.failure(CancellationError()))
