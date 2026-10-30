@@ -309,10 +309,69 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
             4, 396.0, {"water_carry": [], "bunkers": [], "details": []}, owner_ladder,
         )
         prep_clubs = [step["club"] for step in prep_steps]
-        self.assertEqual(online_clubs, ["Driver", "9I", "50"])
+        self.assertEqual(prep_clubs[0], online_clubs[0])
+        self.assertEqual(len(online_clubs), len(prep_clubs))
+        self.assertEqual(online_clubs, sorted(online_clubs, key=lambda name: next(
+            carry for club, carry in owner_ladder if club == name
+        ), reverse=True))
         self.assertEqual(prep_clubs, online_clubs)
         self.assertGreaterEqual(stock["clubs"][1]["expectedRemaining_m"], 70.0)
         self.assertLessEqual(stock["clubs"][1]["expectedRemaining_m"], 115.0)
+
+    def test_j4_6_online_tee_owner_par5_matches_prep_in_three_strokes(self):
+        """J4.6: owner Par 5 stock remains the three-shot CoursePrep chain."""
+        owner_ladder = [
+            ("Driver", 197), ("3W", 170), ("3H", 157), ("5I", 142), ("6I", 132),
+            ("7I", 128), ("8I", 121), ("9I", 109), ("Pw", 107), ("Aw", 102),
+            ("50", 84), ("54", 48), ("58", 35),
+        ]
+        profiles = {
+            name: {"clubName": name, "median_m": carry, "p10_m": carry - 8,
+                   "p90_m": carry + 8, "sampleSize": 20, "riskRate": 0, "usableRate": 100}
+            for name, carry in owner_ladder
+        }
+        context = {
+            "roundId": "c244-r3-par5", "globalId": 31688, "hole": 18, "localHole": 18,
+            "shotType": "tee", "par": 5, "distanceToPin_m": 500.0, "lie": "tee",
+            "clubProfiles": profiles,
+            "geometry": {"hasMeshes": True, "hasHazards": False, "hazardCount": 0},
+            "candidateRoutes": [{"id": "stock_line", "label": "stock", "carry_m": 197.0,
+                                 "landingLocal": [0, 197], "expectedSurface": {"kind": "fairway"},
+                                 "nearRisks": [], "lineRisks": [], "riskScore": 0}],
+            "dataQuality": {"confidence": "high", "issues": []},
+        }
+        plan = build_decision_plan(context)
+        stock = next(sequence for sequence in plan["sequences"] if sequence["id"] == "stock")
+        online_clubs = [step["clubName"] for step in stock["clubs"]]
+        prep_steps, *_ = course_prep._strategy(
+            5, 500.0, {"water_carry": [], "bunkers": [], "details": []}, owner_ladder,
+        )
+        prep_clubs = [step["club"] for step in prep_steps]
+        self.assertEqual(online_clubs, prep_clubs)
+        self.assertEqual(len(online_clubs), 3)
+
+    def test_j4_6_online_tee_without_wedge_keeps_safe_and_stock_routes(self):
+        """J4.6: a bag without a 70–115m club still yields tee alternatives."""
+        gap_ladder = [("Driver", 200), ("3W", 180), ("5I", 150), ("7I", 120), ("SW", 50)]
+        profiles = {
+            name: {"clubName": name, "median_m": carry, "p10_m": carry - 8,
+                   "p90_m": carry + 8, "sampleSize": 20, "riskRate": 0, "usableRate": 100}
+            for name, carry in gap_ladder
+        }
+        context = {
+            "roundId": "c244-r3-gap", "globalId": 31688, "hole": 5, "localHole": 5,
+            "shotType": "tee", "par": 4, "distanceToPin_m": 360.0, "lie": "tee",
+            "clubProfiles": profiles,
+            "geometry": {"hasMeshes": True, "hasHazards": False, "hazardCount": 0},
+            "candidateRoutes": [{"id": "stock_line", "label": "stock", "carry_m": 200.0,
+                                 "landingLocal": [0, 200], "expectedSurface": {"kind": "fairway"},
+                                 "nearRisks": [], "lineRisks": [], "riskScore": 0}],
+            "dataQuality": {"confidence": "high", "issues": []},
+        }
+        plan = build_decision_plan(context)
+        sequences = {sequence["id"]: sequence for sequence in plan["sequences"]}
+        self.assertTrue(sequences.get("safe", {}).get("clubs"))
+        self.assertTrue(sequences.get("stock", {}).get("clubs"))
 
     def test_j5_11_dogleg_uses_route_stations_for_hazards_and_two_shot_finish(self):
         self.install_route_geometry()
