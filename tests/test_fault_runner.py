@@ -498,6 +498,7 @@ class ManifestFragmentTests(unittest.TestCase):
         (self.root / "test_adds_path.py").write_text(
             "import sys\nfrom pathlib import Path\n"
             "sys.path.insert(0, str(Path(__file__).parent / 'extra'))\n"
+            "import batch_only_dependency\n"
             "import unittest\n"
             "class AddsPath(unittest.TestCase):\n"
             "    def test_loads(self): pass\n", encoding="utf-8",
@@ -514,6 +515,35 @@ class ManifestFragmentTests(unittest.TestCase):
         self.assertEqual([row["status"] for row in rows], ["ok", "unavailable"])
         self.assertIn("ModuleNotFoundError", rows[1]["detail"])
         self.assertNotEqual(code, 0)
+
+    def test_check_reuses_single_initialization_dependency_without_fallback(self):
+        """验收方式 infrastructure: normal imports stay cached across batch targets."""
+        (self.root / "single_initialization_dependency.py").write_text(
+            "import builtins\n"
+            "if getattr(builtins, '_fault_fixture_initialized', False):\n"
+            "    raise ImportError('cannot load module more than once per process')\n"
+            "builtins._fault_fixture_initialized = True\n", encoding="utf-8",
+        )
+        targets = ["test_first_import", "test_second_import"]
+        for target in targets:
+            (self.root / (target + ".py")).write_text(
+                "import single_initialization_dependency\nimport unittest\n"
+                "class Witness(unittest.TestCase):\n"
+                "    def test_loads(self): pass\n", encoding="utf-8",
+            )
+        self.init_repo()
+        records = [{**self.record(str(index)), "target": target}
+                   for index, target in enumerate(targets)]
+        with contextlib.redirect_stderr(io.StringIO()) as errors:
+            with mock.patch.object(runner.subprocess, "run", wraps=subprocess.run) as processes:
+                code, rows, _ = self.invoke_main("--check", records)
+        self.assertEqual([row["status"] for row in rows], ["ok", "ok"])
+        self.assertEqual(code, 0)
+        probes = [call for call in processes.call_args_list
+                  if call.args[0][:2] == [str(runner.SHARED_PYTHON), "-c"]]
+        # 验收方式: two loadable targets share one probe, with no isolated fallback.
+        self.assertEqual(len(probes), 1)
+        self.assertEqual(errors.getvalue(), "")
 
     def test_run_survived_skips_post_run_load_probe(self):
         """验收方式 infrastructure: a zero exit is survived without another probe."""
