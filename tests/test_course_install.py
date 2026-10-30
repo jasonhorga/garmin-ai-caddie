@@ -618,6 +618,7 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self._identity("finished-old", 456)
         self._post_events("finished-old", "old-start", timestamp="2026-10-29T08:00:00Z")
         self._post_events("finished-old", "old-late-progress", timestamp="2026-10-29T12:00:00Z")
+        self.main._ROUND_START_CACHE.clear()
         self._finish_persisted("finished-old", 456)
         self._identity("live-round", 123)
         self._post_events("live-round", "live-start", timestamp="2026-10-29T10:00:00Z")
@@ -637,6 +638,7 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self._identity("finished-old", 456)
         self._post_events("finished-old", "old-start", timestamp="2026-10-29T08:00:00Z")
         self._post_events("finished-old", "old-late-progress", timestamp="2026-10-29T12:00:00Z")
+        self.main._ROUND_START_CACHE.clear()
         self._finish_persisted("finished-old", 456)
         self.assertEqual(
             self.main._cached_round_start_timestamp("fixture", "finished-old"),
