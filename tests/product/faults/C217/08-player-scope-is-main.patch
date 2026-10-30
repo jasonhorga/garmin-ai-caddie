@@ -1,0 +1,11 @@
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -2167,7 +2167,7 @@
+         cause: BaseException | None = None,
+     ) -> None:
+         path_text = str(self.root.resolve())
+-        scope = "player" if self.root.parent.parent.name == "players" else "main"
++        scope = "main"
+         partition = f"{scope}:{hashlib.sha256(path_text.encode('utf-8')).hexdigest()[:12]}"
+         logger.error(
+             "mobile_event_migration_intent_unrecoverable partition=%s reason=%s",

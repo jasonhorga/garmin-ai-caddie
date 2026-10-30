@@ -5,7 +5,7 @@ index 5de40a6a..8006fafe 100644
 @@ -1012,7 +1012,7 @@ class FileEventStore:
                  )
                  backup_created = True
-                 self._replace_bytes_preserving_metadata(backup, raw, snapshots[self.log][1])
+                 self._replace_bytes_preserving_metadata(backup, raw, snapshots[self.log][1], preserve_mode=False)
 -                os.chmod(backup, 0o600)
 +                os.chmod(backup, 0o644)
                  self._replace_bytes_preserving_metadata(self.log, new_raw, snapshots[self.log][1])

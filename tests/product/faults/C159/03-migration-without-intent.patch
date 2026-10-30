@@ -14,5 +14,5 @@ index 5de40a6a..f4f10fe4 100644
 -                    new_marker=new_marker,
 -                )
                  backup_created = True
-                 self._replace_bytes_preserving_metadata(backup, raw, snapshots[self.log][1])
+                 self._replace_bytes_preserving_metadata(backup, raw, snapshots[self.log][1], preserve_mode=False)
                  os.chmod(backup, 0o600)

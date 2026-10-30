@@ -1,0 +1,11 @@
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -2532,7 +2532,7 @@
+         # while filesystem timestamps are inside the racy window. A same-tick same-size edit is
+         # intentionally caught by the next forced rebuild/restart rather than making every append
+         # re-read the full committed prefix.
+-        self._remember_prefix(target_marker, written_signature, target_digest, allow_racy=True)
++        self._remember_prefix(target_marker, written_signature, target_digest)
+         mark("event_write")
+         try:
+             self._record_round_index_after_append(

@@ -1,9 +1,11 @@
-diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
 --- a/ai_caddie/caddie/mobile_event_store.py
 +++ b/ai_caddie/caddie/mobile_event_store.py
-@@ -2133,4 +2133,4 @@ class FileEventStore:
-     def _clear_migration_temps(self) -> None:
-         removed = False
--        for path in self.root.glob(f".{self.log.name}*.migrate-*.tmp"):
-+        for path in self.root.glob(f".{self.log.name}.migrate-*.tmp"):
-             try:
+@@ -2146,7 +2146,7 @@
+     def _migration_temp_paths(self) -> Iterator[Path]:
+         # Only artifacts guarded by event_lock. ACKs have their own lock and
+         # can be actively writing while an event reader holds EX.
+-        yield from self.root.glob(f".{self.log.name}*.migrate-*.tmp")
++        yield from self.root.glob(f".{self.log.name}.migrate-*.tmp")
+         for target in (self.commit_marker, self.pending_commit, self.migration_intent, self.round_index):
+             yield from self.root.glob(f".{target.name}.*.tmp")
+ 
