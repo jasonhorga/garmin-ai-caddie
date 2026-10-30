@@ -791,7 +791,12 @@ def append_mobile_events_response(
                 detail={"code": "event_payload_too_large", "message": str(exc)},
             ) from exc
         except ValueError as exc:
-            logger.warning("mobile_events validation_failed status=422 path=body.events type=event_batch_invalid")
+            if str(exc) == "event_commit_store_corrupt":
+                logger.error(
+                    "mobile_event_migration_intent_unrecoverable partition=mobile_events"
+                )
+            else:
+                logger.warning("mobile_events validation_failed status=422 path=body.events type=event_batch_invalid")
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         # If another device already finished this round, the append itself is the earliest reliable
         # moment to refresh history. This also covers an upgraded legacy Watch queue that relays

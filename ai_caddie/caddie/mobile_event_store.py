@@ -520,7 +520,11 @@ def bound_mobile_event(event: dict[str, Any]) -> dict[str, Any]:
                             r"\s+(?i:password|secret|token|api[_-]?key|authorization|cookie|csrf)\s*[:=]\s*\[REDACTED\]",
                             preview_value,
                         )
-                        if credential is not None and len(preview_value[:credential.end()].encode("utf-8")) > 256:
+                        if (
+                            credential is not None
+                            and len(preview_value[:credential.start()].encode("utf-8")) < 256
+                            and len(preview_value[:credential.end()].encode("utf-8")) > 256
+                        ):
                             bounded_preview = preview_value[:credential.start()].rstrip()
                     summary[str(key)] = (
                         preview_value
@@ -829,6 +833,7 @@ class FileEventStore:
         )
         temporary_path = Path(temporary_name)
         try:
+            os.fchmod(descriptor, 0o600)
             if metadata is not None:
                 os.fchmod(descriptor, stat.S_IMODE(metadata.st_mode))
                 if hasattr(os, "fchown"):
@@ -1007,6 +1012,10 @@ class FileEventStore:
                     old_marker=old_marker,
                     old_length=len(raw),
                     old_sha256=hashlib.sha256(raw).hexdigest(),
+                    old_log_mode=(
+                        stat.S_IMODE(snapshots[self.log][1].st_mode)
+                        if snapshots[self.log][1] is not None else 0o600
+                    ),
                     backup=backup,
                     new_marker=new_marker,
                 )
@@ -2078,6 +2087,7 @@ class FileEventStore:
         old_marker: _CommitMarker,
         old_length: int,
         old_sha256: str,
+        old_log_mode: int,
         backup: Path,
         new_marker: _CommitMarker,
     ) -> None:
@@ -2090,6 +2100,7 @@ class FileEventStore:
                 "oldLegacyBaselineByteLength": old_marker.legacy_baseline_byte_length,
                 "oldLogByteLength": old_length,
                 "oldLogSha256": old_sha256,
+                "oldLogMode": old_log_mode,
                 "backupPath": backup.name,
                 "newCommittedByteLength": new_marker.committed_byte_length,
                 "newCommittedPrefixSha256": new_marker.committed_prefix_sha256,
@@ -2109,19 +2120,44 @@ class FileEventStore:
             return
         self._fsync_directory()
 
+    def _clear_migration_temps(self) -> None:
+        removed = False
+        for path in self.root.glob(f".{self.log.name}*.migrate-*.tmp"):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                continue
+            removed = True
+        if removed:
+            self._fsync_directory()
+
+    def _migration_recovery_failed(
+        self,
+        reason: str,
+        cause: BaseException | None = None,
+    ) -> None:
+        logger.error(
+            "mobile_event_migration_intent_unrecoverable partition=%s reason=%s",
+            self.root.name,
+            reason,
+        )
+        raise ValueError("event_commit_store_corrupt") from cause
+
     def _recover_migration_intent_unlocked(self) -> None:
+        self._clear_migration_temps()
         try:
             payload = json.loads(self.migration_intent.read_text(encoding="utf-8"))
         except (FileNotFoundError, OSError, UnicodeDecodeError, ValueError) as exc:
-            raise ValueError("event_commit_store_corrupt") from exc
+            self._migration_recovery_failed("intent_unreadable", exc)
         required = {
             "schema", "oldCommittedByteLength", "oldCommittedPrefixSha256",
             "oldLegacyBaselineByteLength", "oldLogByteLength", "oldLogSha256",
+            "oldLogMode",
             "backupPath", "newCommittedByteLength", "newCommittedPrefixSha256",
             "newLegacyBaselineByteLength",
         }
         if not isinstance(payload, dict) or set(payload) != required:
-            raise ValueError("event_commit_store_corrupt")
+            self._migration_recovery_failed("intent_fields_invalid")
         integer_fields = (
             "oldCommittedByteLength", "oldLegacyBaselineByteLength", "oldLogByteLength",
             "newCommittedByteLength", "newLegacyBaselineByteLength",
@@ -2134,8 +2170,10 @@ class FileEventStore:
             or not self._is_sha256(payload.get("newCommittedPrefixSha256"))
             or not isinstance(payload.get("backupPath"), str)
             or Path(payload["backupPath"]).name != payload["backupPath"]
+            or type(payload.get("oldLogMode")) is not int
+            or not 0 <= payload["oldLogMode"] <= 0o7777
         ):
-            raise ValueError("event_commit_store_corrupt")
+            self._migration_recovery_failed("intent_invalid")
         backup = self.root / payload["backupPath"]
         try:
             log_data = self.log.read_bytes()
@@ -2181,10 +2219,15 @@ class FileEventStore:
             and hashlib.sha256(backup_data).hexdigest() == payload["oldLogSha256"]
         )
         if not log_is_old and not backup_is_old:
-            raise ValueError("event_commit_store_corrupt")
+            self._migration_recovery_failed("log_and_backup_mismatch")
         if not log_is_old:
             assert backup_data is not None
-            self._replace_bytes_preserving_metadata(self.log, backup_data, backup.stat())
+            self._replace_bytes_preserving_metadata(self.log, backup_data, None)
+        try:
+            os.chmod(self.log, payload["oldLogMode"])
+        except OSError as exc:
+            self._migration_recovery_failed("log_mode_restore_failed", exc)
+        self._fsync_directory()
         old_marker = _CommitMarker(
             payload["oldCommittedByteLength"],
             payload["oldCommittedPrefixSha256"],
@@ -2611,6 +2654,7 @@ class FileEventStore:
         )
         temporary_path = Path(temporary_name)
         try:
+            os.fchmod(descriptor, 0o600)
             with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
                 json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
                 handle.write("\n")

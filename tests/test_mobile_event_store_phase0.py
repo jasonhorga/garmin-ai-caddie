@@ -485,13 +485,17 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
                 migrate(self.root, apply=True, timestamp="20261029T000013Z")
 
         recovered = FileEventStore(self.root)
+        stale_tmp = recovered.root / ".events.jsonl.migrate-stale.tmp"
+        stale_tmp.write_bytes(b"private legacy bytes")
+        stale_tmp.chmod(0o644)
         self.assertEqual([(row["event"]["eventId"]) for row in recovered.read_rows(ROUND_A)], ["intent-recovery"])
+        self.assertFalse(stale_tmp.exists())
         recovered.append_batch(ROUND_A, [{**_event("intent-followup")}], request_key="intent-followup")
         self.assertEqual({row["event"]["eventId"] for row in recovered.read_rows(ROUND_A)}, {"intent-recovery", "intent-followup"})
         self.assertEqual(recovered.read_rows(ROUND_A)[0]["event"]["eventId"], before[0]["event"]["eventId"])
 
     def test_mobile_event_redaction_precedes_decision_string_truncation(self) -> None:
-        """J5.9: a token crossing the 256-byte summary boundary leaves no secret fragment."""
+        """J7.3: a token crossing the 256-byte summary boundary leaves no secret fragment."""
         store = FileEventStore(self.root)
         event = {
             **_event("cross-boundary-token"),
@@ -504,6 +508,86 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertNotIn("secret-cross-boundary-value", rendered)
         self.assertNotIn("token=secret", rendered)
         self.assertNotIn("tok", detail)
+
+    def test_mobile_event_redaction_keeps_far_credentials_bounded_and_appendable(self) -> None:
+        """J7.3: credentials after the preview boundary stay bounded and the event is accepted."""
+        for offset in (1000, 40 * 1024, 70 * 1024):
+            with self.subTest(offset=offset):
+                store = FileEventStore(self.root / f"far-{offset}")
+                event = {
+                    **_event(f"far-credential-{offset}"),
+                    "kind": "club",
+                    "payload": {
+                        "decision": {
+                            "detail": "x" * offset + " token=secret-far-boundary-value" + "y" * (65 * 1024),
+                        },
+                    },
+                }
+                result = store.append_batch(
+                    ROUND_A,
+                    [event],
+                    request_key=f"far-credential-{offset}",
+                )
+                self.assertEqual(result[0].status, "accepted")
+                detail = store.read_rows(ROUND_A)[0]["event"]["payload"]["decision"]["detail"]
+                self.assertLessEqual(len(detail.encode("utf-8")), 256)
+                self.assertNotIn("secret-far-boundary-value", detail)
+
+    def test_migration_temporary_files_are_private_from_creation(self) -> None:
+        """J7.3: migration replacement temporary files never expose complete event logs."""
+        store = FileEventStore(self.root)
+        target = store.log
+        observed_modes: list[int] = []
+        original_replace = os.replace
+
+        def inspect_replace(source: str | os.PathLike[str], destination: str | os.PathLike[str]) -> None:
+            if Path(source).name.startswith(".events.jsonl.migrate-"):
+                observed_modes.append(Path(source).stat().st_mode & 0o777)
+            original_replace(source, destination)
+
+        with mock.patch.object(os, "replace", side_effect=inspect_replace):
+            store._replace_bytes_preserving_metadata(target, b"private event bytes\n", None)
+        self.assertEqual(observed_modes, [0o600])
+
+    def test_migration_intent_recovery_restores_original_log_mode(self) -> None:
+        """J5.9: rollback from a trusted backup restores the original event-log permissions."""
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [{**_event("mode-rollback")}], request_key="mode-rollback")
+        raw = store.log.read_bytes()
+        marker = store._load_commit_marker()
+        assert marker is not None
+        store.log.chmod(0o644)
+        backup = store.log.with_name("events.jsonl.bak-mode-rollback")
+        backup.write_bytes(raw)
+        backup.chmod(0o600)
+        store.log.write_bytes(b"tampered log\n")
+        store._write_migration_intent(
+            old_marker=marker,
+            old_length=len(raw),
+            old_sha256=hashlib.sha256(raw).hexdigest(),
+            old_log_mode=0o644,
+            backup=backup,
+            new_marker=_CommitMarker(1, hashlib.sha256(b"x").hexdigest(), marker.legacy_baseline_byte_length),
+        )
+        recovered = FileEventStore(self.root)
+        self.assertEqual(recovered.read_rows(ROUND_A)[0]["event"]["eventId"], "mode-rollback")
+        self.assertEqual(recovered.log.stat().st_mode & 0o777, 0o644)
+        self.assertFalse(backup.exists())
+
+    def test_bad_migration_intent_logs_partition_only(self) -> None:
+        """J7.3: unrecoverable migration state emits a dedicated partition-only event."""
+        nested = self.root / "player-secret" / "mobile_events"
+        store = FileEventStore(nested)
+        store._ensure_root_durable()
+        store.migration_intent.write_text("{bad", encoding="utf-8")
+        with mock.patch.object(mobile_event_store.logger, "error") as error:
+            with self.assertRaisesRegex(ValueError, "event_commit_store_corrupt"):
+                with store._locked(store.event_lock):
+                    store._recover_event_log_unlocked()
+        message = " ".join(str(value) for value in error.call_args.args)
+        self.assertIn("mobile_event_migration_intent_unrecoverable", message)
+        self.assertIn("partition=%s", message)
+        self.assertNotIn("player-secret", message)
 
     def test_production_ops_migration_entrypoint_runs_without_scripts_package(self) -> None:
         """J5.9: the migration entrypoint available in the production image performs a dry-run."""

@@ -53,20 +53,24 @@ gh pr view <PR> --repo jasonhorga/garmin-ai-caddie --json headRefOid,mergeable,s
 
 ```bash
 C=aicaddie-release-<新rev>
-for R in /var/lib/ai-caddie/data/mobile_events /var/lib/ai-caddie/data/players/*/mobile_events; do
-  [ -f "$R/events.jsonl" ] || continue
-  docker exec "$C" python /app/ops/migrate_mobile_event_payloads.py "$R"
-done
+docker exec "$C" sh -c '
+  for R in /var/lib/ai-caddie/data/mobile_events /var/lib/ai-caddie/data/players/*/mobile_events; do
+    [ -f "$R/events.jsonl" ] || continue
+    echo "partition=$R"
+    python /app/ops/migrate_mobile_event_payloads.py "$R"
+  done
+'
 ```
 
-只对 dry-run 报告 `changed` 大于 0 的分区 apply；报告必须包含 `backup`。最后对同一批分区再 apply 一次，确认 `changed` 为 0：
+只对上面容器内 dry-run 输出中 `changed` 大于 0 的具体分区 apply；报告必须包含 `backup`。把这些输出中的 `root` 路径逐个填入下面命令，最后对同一批分区再 apply 一次，确认 `changed` 为 0：
 
 ```bash
-docker exec "$C" python /app/ops/migrate_mobile_event_payloads.py "$R" --apply
-docker exec "$C" python /app/ops/migrate_mobile_event_payloads.py "$R" --apply
+docker exec "$C" python /app/ops/migrate_mobile_event_payloads.py /var/lib/ai-caddie/data/players/<player-dir>/mobile_events --apply
+docker exec "$C" python /app/ops/migrate_mobile_event_payloads.py /var/lib/ai-caddie/data/players/<player-dir>/mobile_events --apply
 ```
 
 apply 持有该分区的事件锁；同一分区的追加、读和 ACK 会等待锁完成。备份只留在原目录，权限为 0600。
+若出现 `mobile_event_migration_intent_unrecoverable`，先停止该分区的写入，保留 `events.jsonl.migration.json` 和对应 `.bak-*`，核对 intent 中的旧日志 sha、长度和 `backupPath`，再由人工用备份恢复原日志权限与内容；无法核对时保留现场交项目台处理，不要删除日志。
 
 **native PR 要看截图**：拉同一次 `native-mobile` run 的两份产物，交子代理逐张看，
 在 PR 里写每份产物看到了什么、和卡的验收对不对得上；看完删目录。
