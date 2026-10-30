@@ -35,6 +35,20 @@
       "kind": "python",
       "target": "tests.test_ci_workflow.CIWorkflowTests.test_G7_fastlane_preflights_before_build_and_retries_warming_with_budget",
       "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C220-F6",
+      "patch": "tests/product/faults/C220/06-reports-reenters-stats.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_G7_readiness_reports_uses_snapshot_without_waiting_for_stats_build",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C220-F7",
+      "patch": "tests/product/faults/C220/07-warm-failure-sticks.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_G7_failed_warm_retries_after_backoff_and_clears_failure",
+      "promise": "G7"
     }
   ]
 }

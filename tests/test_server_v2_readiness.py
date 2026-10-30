@@ -116,6 +116,41 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(history["state"], "degraded")
         self.assertIn("stats warm failed", history["evidence"]["reason"])
 
+    def test_G7_readiness_reports_uses_snapshot_without_waiting_for_stats_build(self) -> None:
+        """G7: a report with an existing all-history snapshot never re-enters stats build."""
+        stats = {"summary": {}, "drillDown": {}, "dataMode": "fixture"}
+        release = threading.Event()
+        entered = threading.Event()
+        original = stats_cache._build_history_stats
+
+        def blocked(*args, **kwargs):
+            entered.set()
+            release.wait(timeout=5)
+            return original(*args, **kwargs)
+
+        snapshots = lambda *, window="all": {
+            "value": stats,
+            "revision": "fixture-revision",
+            "stale": False,
+            "dataMode": "fixture",
+            "source": "memory",
+        }
+        result: list[dict] = []
+        worker = threading.Thread(target=lambda: result.append(build_readiness_response()), daemon=True)
+        try:
+            with patch.object(readiness, "load_history_stats_snapshot", side_effect=snapshots), \
+                 patch.object(stats_cache, "_build_history_stats", blocked):
+                worker.start()
+                self.assertFalse(entered.wait(timeout=0.5), "readiness reports re-entered stats build")
+                worker.join(timeout=5)
+                self.assertFalse(worker.is_alive(), "readiness waited for the blocked stats build")
+                self.assertEqual(len(result), 1)
+                reports = next(row for row in result[0]["checks"] if row["label"] == "reports")
+                self.assertEqual(reports["state"], "ready")
+        finally:
+            release.set()
+            worker.join(timeout=5)
+
     def test_G7_readiness_accepts_warming_as_non_failing_runtime_state(self) -> None:
         """G7: history warming is visible but does not close the readiness gate."""
         with patch("server_v2.readiness.load_history_stats_snapshot", return_value=None), \
