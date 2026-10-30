@@ -316,6 +316,55 @@ class ManifestFragmentTests(unittest.TestCase):
         self.assertEqual(rows[0]["status"], "leaked")
         self.assertNotEqual(code, 0)
 
+    def test_check_batches_python_targets_without_spreading_import_failures(self):
+        """验收方式 infrastructure: one batch, then only failed targets retried."""
+        (self.root / "test_broken.py").write_text(
+            "raise ImportError('broken target dependency')\n", encoding="utf-8",
+        )
+        (self.root / "test_other.py").write_text(
+            "import unittest\nclass Other(unittest.TestCase):\n"
+            "    def test_other(self):\n"
+            "        raise AssertionError('load only')\n", encoding="utf-8",
+        )
+        self.init_repo()
+        targets = ["test_witness.Witness.test_subject", "test_broken", "test_other"]
+        records = [{**self.record(str(i)), "target": target} for i, target in enumerate(targets)]
+        with mock.patch.object(runner.subprocess, "run", wraps=subprocess.run) as processes:
+            code, rows, _ = self.invoke_main("--check", records)
+        self.assertEqual([row["status"] for row in rows], ["ok", "unavailable", "ok"])
+        self.assertIn("broken target dependency", rows[1]["detail"])
+        self.assertNotEqual(code, 0)
+        probes = [call for call in processes.call_args_list
+                  if call.args[0][:2] == [str(runner.SHARED_PYTHON), "-c"]]
+        # Card contract: one batch process + one isolated retry for the bad target.
+        self.assertEqual(len(probes), 2)
+
+    def test_check_rechecks_batch_failures_in_fresh_processes(self):
+        """验收方式 infrastructure: import side effects cannot cause false reds."""
+        (self.root / "test_poison.py").write_text(
+            "import os\nimport unittest\nos.environ['FAULT_RUNNER_TEST_POISON'] = '1'\n"
+            "class Poison(unittest.TestCase):\n"
+            "    def test_poison(self): pass\n", encoding="utf-8",
+        )
+        (self.root / "test_clean.py").write_text(
+            "import os\nimport unittest\n"
+            "if os.environ.get('FAULT_RUNNER_TEST_POISON'):\n"
+            "    raise ImportError('another target polluted the batch')\n"
+            "class Clean(unittest.TestCase):\n"
+            "    def test_clean(self): pass\n", encoding="utf-8",
+        )
+        self.init_repo()
+        records = [{**self.record(str(i)), "target": target}
+                   for i, target in enumerate(["test_poison", "test_clean"])]
+        with mock.patch.dict(runner.os.environ, {"FAULT_RUNNER_TEST_POISON": ""}):
+            with mock.patch.object(runner.subprocess, "run", wraps=subprocess.run) as processes:
+                code, rows, _ = self.invoke_main("--check", records)
+        self.assertEqual([row["status"] for row in rows], ["ok", "ok"])
+        self.assertEqual(code, 0)
+        probes = [call for call in processes.call_args_list
+                  if call.args[0][:2] == [str(runner.SHARED_PYTHON), "-c"]]
+        self.assertEqual(len(probes), 2)
+
     def test_patch_induced_import_failure_is_unavailable_and_worktree_is_removed(self):
         self.patch.write_text(
             "diff --git a/test_witness.py b/test_witness.py\n"
