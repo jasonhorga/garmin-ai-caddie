@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
+index 9c34d076..b8747281 100644
+--- a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
++++ b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
+@@ -2599,7 +2599,7 @@ enum LiveMapDisplaySelection {
+                   let width = garminProjection.widthPx,
+                   let height = garminProjection.heightPx,
+                   width > 0,
+-                  height > 0 else { return nil }
++                  height > 0 else { return precise }
+             let empty = CoursePrepOverlay(w: width, h: height, ppm: 1, ln: 0, route: [])
+             guard let precise else { return empty }
+             return GarminRasterProjectionMath.remapOverlay(

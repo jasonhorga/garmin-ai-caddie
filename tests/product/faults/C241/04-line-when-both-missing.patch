@@ -1,0 +1,15 @@
+diff --git a/mobile/ios/AICaddie/Views/HoleImageMapView.swift b/mobile/ios/AICaddie/Views/HoleImageMapView.swift
+index 309502dd..1ab784d1 100644
+--- a/mobile/ios/AICaddie/Views/HoleImageMapView.swift
++++ b/mobile/ios/AICaddie/Views/HoleImageMapView.swift
+@@ -294,7 +294,9 @@ public struct HoleImageMapView: View {
+     /// 地图降级契约: the factual route shows until the precise map arrives); a real map is never
+     /// overdrawn with them.
+     var drawsLightweightFacts: Bool {
+-        false
++        hole.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
++            && topoURL == nil
++            && garminRasterURL == nil
+     }
+ 
+     /// Whether this row's pixels belong to the precise topo bitmap passed in `topoURL`.
