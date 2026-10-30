@@ -1,8 +1,8 @@
 diff --git a/server_v2/readiness.py b/server_v2/readiness.py
 --- a/server_v2/readiness.py
 +++ b/server_v2/readiness.py
-@@ -56,7 +56,7 @@
- 
+@@ -58,7 +58,7 @@
+ )
  def _aggregate_readiness_status(checks: list[dict[str, Any]]) -> tuple[str, str]:
      """Treat history warming as an admitted, non-failing liveness state."""
 -    acceptable_states = {"ready", "warming", "manual_asserted"}
