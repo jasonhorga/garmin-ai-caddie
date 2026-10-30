@@ -61,7 +61,9 @@ J4.2 Garmin 底图恢复细则：release 403 使用 60、120、240、480、960�
 到期判定只考虑仍有 Garmin 待补洞的 release；没有待补洞的遗留熔断记录不得触发空跑 worker。
 tick worker 运行期间收到的 admin force POST，须在当前 pass 后执行一次全量 force 扫描，不得降级为只补到期 release。
 admin force 对仍有待补洞的 release 只重置重试门槛和 attempts，保留 `firstFailureAt`、`lastFailureAt`；下一次 403 更新 last 并保持 first。
-force 扫描发现洞已由别处补好、release 不再有 Garmin 待补洞时，删除该 release 熔断记录并持久化，状态页不留 attempts=0 的旧 403；之后再发生 403，首次失败时间从这次新失败重新计。
+任何全量扫描（含开机非 force 和 admin force）发现洞已由别处补好、release 不再有 Garmin 待补洞时，删除该 release 熔断记录并在扫描返回前持久化，不依赖 worker 后续 close；状态页不留旧 403。之后再发生 403，首次失败时间从这次新失败重新计。
+仍有部分洞待补时保留该 release 的熔断和 firstFailureAt；熔断的清理、到期判定和成功清除均按 globalId + garminRelease 标识，不能用逐洞 assetVersion 代替（两者可以不同）。
+release 元数据仍在但洞无可用 URL/本地栅格、assetVersion=None 时，已有熔断的洞仍保留待恢复状态与失败历史，但不入队 render，也不触发到期 worker；后续扫描发现可用 source 后再恢复版本明确的任务。没有熔断且没有 source 的洞维持 skipped。
 旧 journal 的 `blocked` 加载后按 attempts 的当前退避档重算为 backoff/persistent，缺失的首次失败时间用
 `firstFailureAt: "unknown"` 表示，后续重试/重启仍保持未知，不伪造为最近失败时间。
 状态接口的 `garminReleaseBackoff[].firstFailureAt` 类型为数字时间戳（Unix 秒）或字符串 `"unknown"`，调用方必须兼容两种类型，不改变现有格式。
