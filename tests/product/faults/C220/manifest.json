@@ -21,6 +21,20 @@
       "kind": "python",
       "target": "tests.test_server_v2_cache_warmup.CacheWarmupTests.test_G7_stale_disk_snapshot_is_readable_without_rebuilding_stats",
       "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C220-F4",
+      "patch": "tests/product/faults/C220/04-c432-background-trace.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_G7_readiness_advertises_resources_required_by_cold_warm_path",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C220-F5",
+      "patch": "tests/product/faults/C220/05-fastlane-warming-opens.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_G7_fastlane_preflights_before_build_and_retries_warming_with_budget",
+      "promise": "G7"
     }
   ]
 }

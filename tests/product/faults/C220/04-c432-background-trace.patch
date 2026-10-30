@@ -1,0 +1,16 @@
+diff --git a/server_v2/readiness.py b/server_v2/readiness.py
+--- a/server_v2/readiness.py
++++ b/server_v2/readiness.py
+@@ -52,11 +52,7 @@
+         "roadmap_completion",
+     }
+ )
+-READINESS_RUNTIME_RESOURCES = (
+-    Path("ai_caddie"),
+-    Path("ai_caddie/geometry"),
+-    Path("ai_caddie/geometry/batch_prodgeometry_course.py"),
+-)
++READINESS_RUNTIME_RESOURCES = ()
+ 
+ 
+ def _aggregate_readiness_status(checks: list[dict[str, Any]]) -> tuple[str, str]:

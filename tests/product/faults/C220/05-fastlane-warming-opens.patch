@@ -1,0 +1,11 @@
+diff --git a/fastlane/Fastfile b/fastlane/Fastfile
+--- a/fastlane/Fastfile
++++ b/fastlane/Fastfile
+@@ -189,7 +189,6 @@
+       UI.important("backend readiness warming; retrying") if attempts < READINESS_MAX_ATTEMPTS
+     end
+     if readiness && readiness.dig("checks")&.any? { |row| row["label"] == "history" && row["state"] == "warming" }
+-      UI.user_error!("backend readiness remained warming after #{attempts} attempts/#{READINESS_TOTAL_TIMEOUT}s")
+     end
+     checks = readiness["checks"]
+     readiness_shape_valid = readiness["schema"] == "ai-caddie-readiness-v1" &&

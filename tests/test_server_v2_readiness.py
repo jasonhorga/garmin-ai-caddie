@@ -63,6 +63,25 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(history["state"], "degraded")
         self.assertIn("stats warm failed", history["evidence"]["reason"])
 
+    def test_G7_readiness_advertises_resources_required_by_cold_warm_path(self) -> None:
+        """G7: the readiness contract records the files its cold warm path needs in the image."""
+        with patch("server_v2.readiness.load_history_stats_snapshot", return_value={
+            "value": {"summary": {"totalRounds": 0}, "dataMode": "fixture"},
+            "revision": "r", "stale": False, "dataMode": "fixture", "source": "memory",
+        }), patch("server_v2.readiness.build_mobile_round_package_response", return_value=SimpleNamespace(
+            schema_="ai-caddie-live-round-package-v2", sourceCoverage={"state": "ready"},
+            geometryCoverage={"state": "ready"}, readinessChecks=[], caddieContextSeeds=[],
+            roundId="900001", holes=[], caddieDecisionEndpoint="", offlinePackageStatus={},
+            cachedCaddieRules={}, missingData=[],
+        )):
+            payload = build_readiness_response()
+        service = next(row for row in payload["checks"] if row["label"] == "service")
+        self.assertEqual(service["evidence"]["runtimeResources"], [
+            "ai_caddie",
+            "ai_caddie/geometry",
+            "ai_caddie/geometry/batch_prodgeometry_course.py",
+        ])
+
     def test_G7_readiness_accepts_warming_as_non_failing_runtime_state(self) -> None:
         """G7: history warming is visible but does not close the readiness gate."""
         with patch("server_v2.readiness.load_history_stats_snapshot", return_value=None), \
