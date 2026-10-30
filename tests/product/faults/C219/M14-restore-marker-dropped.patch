@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index 330f6377..ef0180cc 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -428,7 +428,7 @@ def _annotation_suggestions(
+                     target_type="hole",
+                     target_id=f"{row.get('roundId') or ''}:{hole}",
+                     kind="score_correction",
+-                    payload={"from": None, "to": local_value, "sourceEventId": event_id, "restore": True},
++                    payload={"from": None, "to": local_value, "sourceEventId": event_id},
+                     reason="Local score input fills a hole missing from synced Garmin facts.",
+                 )
+             )

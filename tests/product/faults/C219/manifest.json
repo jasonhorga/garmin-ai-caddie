@@ -42,6 +42,55 @@
       "kind": "python",
       "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_apply_reconciliation_persists_caddie_feedback_as_decision_audit",
       "promise": "7.2"
+    },
+    {
+      "id": "tests-product-faults-C219-07-row-strokes",
+      "patch": "tests/product/faults/C219/M4-row-strokes-not-updated.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_missing_garmin_card_restores_scores_end_to_end",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-08-holes-completed",
+      "patch": "tests/product/faults/C219/M5-holes-completed-not-updated.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_missing_garmin_card_restores_scores_end_to_end",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-09-merged-axis-append",
+      "patch": "tests/product/faults/C219/M13-merged-restored-hole-appended.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_merged_missing_first_card_hole_preserves_display_axis_after_apply",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-10-late-card-overwrite",
+      "patch": "tests/product/faults/C219/M14-restore-marker-dropped.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_restore_does_not_overwrite_late_garmin_card",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-11-synthetic-penalty",
+      "patch": "tests/product/faults/C219/M9-synthetic-penalty-included.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_synthetic_hole_only_has_score_par_and_count",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-12-synthetic-putts",
+      "patch": "tests/product/faults/C219/M11-synthetic-putts-included.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_synthetic_hole_only_has_score_par_and_count",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-13-second-all-loop-base",
+      "patch": "tests/product/faults/C219/M7-second-all-loop-base-1.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_two_distinct_all_nine_courses_first_card_only_complete_mapping",
+      "promise": "1.3"
     }
   ]
 }
