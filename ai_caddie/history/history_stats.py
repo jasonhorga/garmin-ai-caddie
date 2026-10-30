@@ -20,6 +20,7 @@ from ai_caddie.history.history import (
     history_course_segment,
     history_course_venue_name,
     percentile,
+    round_loop_half,
 )
 from ai_caddie.history.corrected_history import corrected_history_data, corrected_rounds
 from ai_caddie.history.corrected_history import hole_sides as _hole_sides
@@ -2071,7 +2072,7 @@ def _loop_identity(row: dict[str, Any], side: str, physical: int) -> tuple[str, 
     front_gid = row.get("frontNineGlobalCourseId") or row.get("courseGlobalId")
     back_gid = row.get("backNineGlobalCourseId")
     gid = (back_gid or front_gid) if side == "back" else front_gid
-    if side == "back" and not row.get("merged") and back_gid:
+    if side == "back" and not row.get("merged") and back_gid and round_loop_half(row, "back") != "back":
         # One composite scorecard with an explicit back loop ("A/C", and also "A/A" where both
         # ids are equal): the back loop is holes 1-9 of its own id. Only a card without a
         # back-nine id is a plain 18-hole course whose 10-18 share the front id.

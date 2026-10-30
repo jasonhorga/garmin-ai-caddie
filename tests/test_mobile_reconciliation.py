@@ -193,7 +193,7 @@ class MobileReconciliationTests(unittest.TestCase):
 
         a, b = 31796, 31794
         cases = (
-            ("E2", [(a, "front"), (b, "back")], "443454344534443545", "534443545", 70),
+            ("E2", [(a, "front"), (b, "back")], "443454344534443545", "534443545443454344", 70),
             ("E6", [(a, "front"), (b, "all")], "443454344534443545", "435454344", 71),
         )
         for name, identity, a_pars, b_pars, expected_par in cases:
@@ -266,6 +266,38 @@ class MobileReconciliationTests(unittest.TestCase):
                 sides = hole_sides(row)
                 self.assertEqual(next(item[2] for item in sides if item[1] == 12), expected_local)
                 self.assertEqual(_round_side_loop_keys(row)["backLoopKey"], f"gid:31794:{expected_span}")
+
+    def test_j1_3_reconciliation_uses_one_explicit_course_store_root(self) -> None:
+        """J1.3: mobile events and the course-reference store may live under different roots."""
+        with TemporaryDirectory() as mobile_tmp, TemporaryDirectory() as course_tmp:
+            mobile_root, course_root = Path(mobile_tmp), Path(course_tmp)
+            _save_identity(mobile_root, "split-root", [(31796, "all"), (31794, "all")])
+            _save_course_par(course_root, 31794, "444444444")
+            append_event_batch("split-root", [{
+                "eventId": "score-10", "roundId": "split-root", "hole": 10,
+                "kind": "score", "payload": {"strokes": 5},
+            }], idempotency_key="split-root", root=mobile_root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "split-root", "globalId": 31796, "frontNineGlobalCourseId": 31796,
+                "holePars": "444444444", "par": 36, "holes": [
+                    {"number": n, "strokes": 5, "par": 4} for n in range(1, 10)
+                ],
+            }], shots=[])
+            result = reconcile_mobile_round_events(
+                "split-root", data, root=mobile_root, annotations_root=mobile_root,
+                course_root=course_root,
+            )
+            suggestions = [row for row in result["annotationSuggestions"] if row["kind"] == "score_correction"]
+            self.assertEqual([row["targetId"] for row in suggestions], ["split-root:10"])
+            apply_mobile_reconciliation_suggestions(
+                "split-root", data, suggestion_ids=[suggestions[0]["id"]],
+                root=mobile_root, annotations_root=mobile_root, course_root=course_root,
+                data_loader=lambda: data,
+            )
+            corrected = corrected_history_data(
+                data, annotations_root=mobile_root, course_root=course_root,
+            ).rounds[0]
+            self.assertEqual(corrected["par"], 40)
 
     def test_j1_3_rotated_missing_front_restores_to_physical_front(self) -> None:
         # J1.3: a back-start phone round must map phone 1..9 to Garmin 10..18;
@@ -895,7 +927,7 @@ class MobileReconciliationTests(unittest.TestCase):
                 self.assertEqual(
                     [(hole.get("number"), physical, side) for hole, _display, physical, side in hole_sides(corrected)],
                     [(n, n, "front") for n in range(1, 10)]
-                    + [(n, n, "back") for n in range(10, 19)],
+                    + [(n, n - 9, "back") for n in range(10, 19)],
                 )
                 self.assertEqual(
                     [hole["par"] for hole in corrected["holes"] if hole["number"] >= 10],

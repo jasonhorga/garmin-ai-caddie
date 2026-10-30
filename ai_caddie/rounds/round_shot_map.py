@@ -24,6 +24,7 @@ from ai_caddie.courses import course_prep
 from ai_caddie.geometry import hole_render, shot_projection, topo_render
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
 from ai_caddie.history.history import HistoryData, round_source_shots
+from ai_caddie.history.history import round_loop_half
 from ai_caddie.rounds import round_corrections
 
 SCHEMA = "ai-caddie-round-hole-shotmap-v1"
@@ -44,7 +45,7 @@ def _geometry_target(row: dict[str, Any], hole: int) -> tuple[int | None, int]:
         return gid, hole
     back = _int(row.get("backNineGlobalCourseId"))
     if back is not None:
-        return back, hole - 9
+        return back, hole if round_loop_half(row, "back") == "back" else hole - 9
     return _int(row.get("globalId")) or _int(row.get("courseId")) or _int(row.get("frontNineGlobalCourseId")), hole
 
 
