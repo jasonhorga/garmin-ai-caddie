@@ -2215,7 +2215,7 @@ public struct CurrentHoleView: View {
 
                 // Holding the target shows the same map magnified around the finger (100 pt,
                 // 2.35x, crosshair), exactly as the former Touch Target page did.
-                if let focus = heroTargetDragLocation {
+                if let focus = heroTargetDragLocation, liveMapDisplayState != .factualPending {
                     LiveMapTargetMagnifierLoupe(
                         mapSize: geo.size,
                         focus: focus,
@@ -2230,7 +2230,7 @@ public struct CurrentHoleView: View {
 
                 // C89: a selected obstacle that cannot be placed on the bitmap on screen says so
                 // (its distances stay in the bar below) instead of leaving the map silently blank.
-                if let notice = selectedHazardMapNotice {
+                if let notice = selectedHazardMapNotice, liveMapDisplayState != .factualPending {
                     LiveHazardMapNotice(text: notice)
                         .position(x: geo.size.width * 0.5, y: geo.size.height * 0.62)
                         .allowsHitTesting(false)
@@ -2238,7 +2238,7 @@ public struct CurrentHoleView: View {
 
                 // A cached topo image is already a usable map.  Do not cover it with the old
                 // "hazards later" pill while a background metadata refresh catches up.
-                if holePrep == nil {
+                if holePrep == nil, liveMapDisplayState != .factualPending {
                     LiveMapPreparingPill()
                         .position(x: geo.size.width * 0.5, y: geo.size.height * 0.88)
                         .allowsHitTesting(false)
@@ -2948,7 +2948,7 @@ public struct CurrentHoleView: View {
 
     /// 球洞俯视图(2D): precise topo first, then Garmin's raster, then a numeric placeholder.
     @ViewBuilder private var liveMapBackdrop: some View {
-        if liveMapDisplayState == .factualPending && hasPreciseTopoAvailable {
+        if liveMapDisplayState == .factualPending {
             // The local precise PNG is known, but its decode is still in flight. Hold a neutral
             // ground for this first frame; neither a spinner nor the Garmin fallback is useful.
             TopoHoleBaseImage.groundColor
@@ -2982,7 +2982,11 @@ public struct CurrentHoleView: View {
                 )
                 .transition(.opacity)
                 .overlay {
-                    if liveGarminRasterProjection == nil {
+                    if LiveMapDisplaySelection.showsGarminRouteWaitingNotice(
+                        state: liveMapDisplayState,
+                        hasGarminImage: liveGarminRasterURL != nil,
+                        projectionUsable: liveGarminRasterProjection?.isUsable == true
+                    ) {
                         Text("路线等精细地图出来后显示")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.92))

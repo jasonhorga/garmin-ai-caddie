@@ -233,7 +233,11 @@ public struct HoleImageMapView: View {
                 Canvas { context, size in
                     draw(&context, size: size, overlay: overlay)
                 }
-                if garminRasterURL != nil, garminRasterProjection?.isUsable != true {
+                if LiveMapDisplaySelection.showsGarminRouteWaitingNotice(
+                    state: preciseTopoURL != nil ? .precise : (garminRasterURL != nil ? .garminRaster : .waiting),
+                    hasGarminImage: garminRasterURL != nil,
+                    projectionUsable: garminRasterProjection?.isUsable == true
+                ) {
                     Text("路线等精细地图出来后显示")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.92))

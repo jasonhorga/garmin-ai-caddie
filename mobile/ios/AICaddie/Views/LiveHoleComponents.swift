@@ -2351,6 +2351,7 @@ enum LiveMapCarryOver {
 enum LiveMapDisplayState: Equatable {
     /// No drawable route: the one full-screen waiting page (hole · Par · yards).
     case waiting
+    /// A precise bitmap is already installed; show only neutral ground during its local decode.
     case factualPending
     /// Partial facts with nothing better coming (offline, timed out, or no service).
     case factual
@@ -2475,7 +2476,9 @@ enum LiveMapDisplayState: Equatable {
     ) -> LiveMapDisplayState {
         let resolved: LiveMapDisplayState
         if inputs.preciseTopoImageReady && inputs.preciseGeometryReady { return .precise }
-        if !inputs.garminImageFailed,
+        if inputs.preciseTopoAvailable || inputs.hasCachedPreciseTopo {
+            resolved = .factualPending
+        } else if !inputs.garminImageFailed,
            inputs.garminImageReady,
            inputs.garminRaster?.hasDisplayableImage == true {
             resolved = .garminRaster
@@ -2528,8 +2531,7 @@ enum LiveMapDisplaySelection {
         hasGarminImage: Bool,
         projectionUsable: Bool
     ) -> Bool {
-        // Red-test scaffold: the old product has no tested notice policy.
-        false
+        state == .garminRaster && hasGarminImage && !projectionUsable
     }
 
     /// The overlay used to place the bitmap and clamp gestures. A Garmin descriptor can arrive
@@ -2540,6 +2542,7 @@ enum LiveMapDisplaySelection {
         overlay: CoursePrepOverlay?,
         garminProjection: CoursePrepHoleImageProjection?
     ) -> CoursePrepOverlay? {
+        guard state != .factualPending else { return nil }
         if state == .garminRaster {
             return overlay ?? gestureFrameOverlay(
                 for: state,
@@ -2558,7 +2561,7 @@ enum LiveMapDisplaySelection {
         overlay: CoursePrepOverlay?,
         garminProjection: CoursePrepHoleImageProjection?
     ) -> CoursePrepOverlay? {
-        if let overlay, (state == .precise || state == .garminRaster || state == .factualPending || state == .factual) { return overlay }
+        if let overlay, (state == .precise || state == .garminRaster || state == .factual) { return overlay }
         guard state == .garminRaster else { return nil }
         let width = (garminProjection?.widthPx ?? 0) > 0
             ? (garminProjection?.widthPx ?? 1242)
@@ -2586,9 +2589,9 @@ enum LiveMapDisplaySelection {
         switch state {
         case .garminRaster:
             return garmin
-        case .precise, .factualPending, .factual:
+        case .precise, .factual:
             return precise
-        case .waiting, .numericPlaceholder:
+        case .waiting, .numericPlaceholder, .factualPending:
             return nil
         }
     }
@@ -2600,7 +2603,7 @@ enum LiveMapDisplaySelection {
         garminProjection: CoursePrepHoleImageProjection?
     ) -> CoursePrepOverlay? {
         switch state {
-        case .precise, .factualPending, .factual:
+        case .precise, .factual:
             return precise
         case .garminRaster:
             guard let garminProjection,
@@ -2615,7 +2618,7 @@ enum LiveMapDisplaySelection {
                 from: preciseProjection,
                 to: garminProjection
             ) ?? empty
-        case .waiting, .numericPlaceholder:
+        case .waiting, .numericPlaceholder, .factualPending:
             return nil
         }
     }
