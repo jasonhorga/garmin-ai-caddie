@@ -13,12 +13,23 @@ from ai_caddie.core.priority_work import ForegroundGate, PriorityExecutor
 from tests.service_logging import preserve_service_logging
 
 
-def background_slot_logging_isolation_suite():
-    """J4.2: exercise slot logging after a real mobile application lifespan."""
-    from tests.test_server_v2_mobile import ServerV2MobileTests
+class _RunningApplicationLoggingSuite(unittest.TestSuite):
+    def run(self, result, debug=False):
+        from fastapi.testclient import TestClient
+        from server_v2.main import app
 
-    return unittest.TestSuite([
-        ServerV2MobileTests("test_mobile_start_hole_422_names_actual_round_limit"),
+        # Even isolated test classes may be run in an already configured service.
+        # Keep a real lifespan open so class cleanup restores that existing state.
+        with preserve_service_logging(), TestClient(app):
+            return super().run(result, debug=debug)
+
+
+def background_slot_logging_isolation_suite():
+    """J4.2: slot logging survives observability tests in a running application."""
+    from tests.product.test_c33_start_fast import ObservabilityTests
+
+    return _RunningApplicationLoggingSuite([
+        ObservabilityTests("test_request_timing_info_is_enabled_and_has_mobile_segments"),
         ForegroundAdmissionTests("test_J42_background_slot_logs_hold_duration_by_unit_type"),
     ])
 
