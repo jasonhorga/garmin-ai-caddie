@@ -1,0 +1,12 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -627,7 +627,7 @@ class RenderBackfill:
+                 if task.get("garminRelease") is not None
+             }
+         current = self._state["garminForbiddenReleases"]
+-        stale = set(current) - active_keys
++        stale = set()
+         if stale:
+             self._state["garminForbiddenReleases"] = {
+                 key: value for key, value in current.items() if key in active_keys

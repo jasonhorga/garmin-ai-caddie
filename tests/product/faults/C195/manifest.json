@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C195-01-backoff-cap",
+      "patch": "tests/product/faults/C195/01-backoff-cap.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.C195BackfillBackoffTests.test_J42_403_backoff_reaches_cap_and_keeps_retrying_after_third_failure",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C195-02-force-stays-blocked",
+      "patch": "tests/product/faults/C195/02-force-stays-blocked.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.C195BackfillBackoffTests.test_J42_force_scan_clears_release_circuit_and_retries_now",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C195-03-stale-release-kept",
+      "patch": "tests/product/faults/C195/03-stale-release-kept.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.C195BackfillBackoffTests.test_J42_old_release_backoff_is_removed_from_state_and_status",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C195-04-warm-retries-every-tick",
+      "patch": "tests/product/faults/C195/04-warm-retries-every-tick.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.C195HistoryWarmBackoffTests.test_J42_failed_history_warm_is_exponentially_deferred_without_sleep",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C195-05-success-keeps-breaker",
+      "patch": "tests/product/faults/C195/05-success-keeps-breaker.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.C195BackfillBackoffTests.test_J42_successful_release_retry_clears_the_circuit_record",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C195-06-failed-warm-acknowledged",
+      "patch": "tests/product/faults/C195/06-failed-warm-acknowledged.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.MonitorLifecycleTests.test_J42_failed_warm_does_not_acknowledge_signature",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C195-07-monitor-success-no-reset",
+      "patch": "tests/product/faults/C195/07-monitor-success-no-reset.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.C195HistoryWarmBackoffTests.test_J42_monitor_resets_backoff_after_success",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C195-08-extreme-attempt-overflow",
+      "patch": "tests/product/faults/C195/08-extreme-attempt-overflow.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.C195HistoryWarmBackoffTests.test_J42_backoff_helper_clamps_extreme_attempts",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C195-09-no-first-failure-visibility",
+      "patch": "tests/product/faults/C195/09-no-first-failure-visibility.patch",
+      "kind": "python",
+      "target": "tests.product.test_c195.C195BackfillBackoffTests.test_J42_403_backoff_reaches_cap_and_keeps_retrying_after_third_failure",
+      "promise": "4.2"
+    }
+  ]
+}

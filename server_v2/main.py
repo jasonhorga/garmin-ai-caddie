@@ -82,7 +82,7 @@ from .garmin_raster import ROUTER as garmin_raster_router, prefetch_holes as pre
 from .render_backfill import (
     register_router as register_render_backfill_router, start_background as start_render_backfill,
     stop_background as stop_render_backfill,
-    foreground_request_started, foreground_request_finished,
+    foreground_request_started, foreground_request_finished, exponential_backoff_seconds,
 )
 from .pin_sheet import read_pin_sheet_response
 from .media import (
@@ -293,6 +293,8 @@ def _start_boot_background_work() -> None:
 def _start_history_signature_monitor(
     *, stop_event: threading.Event | None = None, interval_s: float = 60.0,
     player_id: str = OWNER_ID, initial_warm: threading.Thread | None = None,
+    clock: Callable[[], float] | None = None,
+    wait: Callable[[float], bool] | None = None,
 ) -> threading.Thread:
     """Watch one player's sync-owned files; boot watches owner, member syncs warm explicitly.
 
@@ -300,22 +302,33 @@ def _start_history_signature_monitor(
     remain different and get another pass, including when this monitor joined an existing warm.
     """
     stop = stop_event or threading.Event()
+    clock = clock or time.time
+    wait_for_stop = wait or stop.wait
 
     def monitor() -> None:
         previous = _history_input_signature(player_id)
         pending = initial_warm
-        while not stop.wait(max(0.01, float(interval_s))):
+        retry_attempts = 0
+        retry_after = float("-inf")
+        while not wait_for_stop(max(0.01, float(interval_s))):
             try:
                 if pending is not None:
                     if not pending.is_alive():
                         if pending.warm_succeeded:
                             previous = pending.history_signature
+                            retry_attempts = 0
+                            retry_after = float("-inf")
+                        else:
+                            retry_attempts += 1
+                            retry_after = clock() + exponential_backoff_seconds(retry_attempts)
                         pending = None
                 current = _history_input_signature(player_id)
-                if current == previous or pending is not None:
+                if current == previous or pending is not None or clock() < retry_after:
                     continue
                 pending = warm_stats_cache_in_background(player_id=player_id)
             except Exception:
+                retry_attempts += 1
+                retry_after = clock() + exponential_backoff_seconds(retry_attempts)
                 logger.warning("history signature warm-up deferred player=%s", player_id, exc_info=True)
 
     thread = threading.Thread(
