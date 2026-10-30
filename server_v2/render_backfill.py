@@ -767,6 +767,7 @@ class RenderBackfill:
                     (task["priority"], next(self._queue_order), key, "garmin")
                     for key, task in self._state["tasks"].items()
                     if task.get("garmin") == "pending"
+                    and task.get("assetVersion")
                     and f"{task['globalId']}:{task.get('garminRelease')}" in releases
                 ]
                 heapq.heapify(self._queue)
