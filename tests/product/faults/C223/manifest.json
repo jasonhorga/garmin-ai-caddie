@@ -126,6 +126,55 @@
       "kind": "python",
       "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_successful_apply_returns_zero",
       "promise": "2.5 a successful apply must exit zero (review O10)"
+    },
+    {
+      "id": "tests-product-faults-C223-19-unknown-first-putt",
+      "patch": "tests/product/faults/C223/19-unknown-first-putt.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_unrecognized_first_putt_uses_observed_landing",
+      "promise": "2.5 a first putt without club evidence must not become an invented miss"
+    },
+    {
+      "id": "tests-product-faults-C223-20-ingest-penalty-index",
+      "patch": "tests/product/faults/C223/20-ingest-penalty-index.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_penalty_strokes_make_landing_index_unknown",
+      "promise": "2.5 penalty strokes invalidate the ingest regulation-position index"
+    },
+    {
+      "id": "tests-product-faults-C223-21-backfill-penalty-index",
+      "patch": "tests/product/faults/C223/21-backfill-penalty-index.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_penalty_strokes_make_landing_index_unknown",
+      "promise": "2.5 penalty strokes invalidate the backfill regulation-position index"
+    },
+    {
+      "id": "tests-product-faults-C223-22-ingest-extra-index",
+      "patch": "tests/product/faults/C223/22-ingest-extra-index.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_duplicate_position_before_regulation_landing_stays_unknown",
+      "promise": "2.5 extra positions cannot identify the ingest regulation landing"
+    },
+    {
+      "id": "tests-product-faults-C223-23-backfill-extra-index",
+      "patch": "tests/product/faults/C223/23-backfill-extra-index.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_duplicate_position_before_regulation_landing_stays_unknown",
+      "promise": "2.5 extra positions cannot identify the backfill regulation landing"
+    },
+    {
+      "id": "tests-product-faults-C223-24-aim-own-start",
+      "patch": "tests/product/faults/C223/24-aim-own-start.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_classifiable_aim_start_is_not_a_landing",
+      "promise": "2.5 a classifiable regulation-shot start is not its landing (review R6)"
+    },
+    {
+      "id": "tests-product-faults-C223-25-unrecognized-green-prefix",
+      "patch": "tests/product/faults/C223/25-unrecognized-green-prefix.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_unrecognized_green_stroke_before_putt_uses_landing",
+      "promise": "2.5 a green stroke of unknown type before the first recognized putt makes the total unknown"
     }
   ]
 }

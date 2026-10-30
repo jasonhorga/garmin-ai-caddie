@@ -1,13 +1,13 @@
 diff --git a/ai_caddie/rounds/round_ingest.py b/ai_caddie/rounds/round_ingest.py
-index 2fc11157..576dd0a7 100644
+index ca1ef9bd..4ad58c66 100644
 --- a/ai_caddie/rounds/round_ingest.py
 +++ b/ai_caddie/rounds/round_ingest.py
-@@ -772,8 +772,6 @@ def _shot_putt_count(
+@@ -775,7 +775,7 @@ def _shot_putt_count(
              lie = str((shot.get("startLoc") or {}).get("lie") or "").strip().lower()
          if lie == "green" and ("putt" in shot_type or "putt" in club_name or club_name in {"putter", "pt", "推杆"}):
              count += 1
--        elif count:
--            return None  # Do not mistake a partially recognized putt tail for the putt total.
+-        elif count or lie in {"", "unknown", "green"}:
++        elif not count and lie in {"", "unknown", "green"}:
+             # An unrecognized green/unknown-lie stroke could be an unseen first putt.
+             return None
      return count or None
- 
- 
