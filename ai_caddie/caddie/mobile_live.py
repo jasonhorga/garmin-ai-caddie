@@ -1512,6 +1512,10 @@ def first_hole_lightweight_course_prep(
          _safe_int(current.get("sourceLocalHole") or current.get("number")))
         if current else None
     )
+    # Map-only polls never spend foreground CPU; they enqueue every missing selected-Tee vector,
+    # including the displayed hole, so a lost job is repaired by the next poll.
+    if map_only:
+        current_source = None
 
     # Composite rounds can show the same physical local hole twice (A+A). Build it once and
     # renumber the returned factual row for each display hole instead of doing duplicate work.
@@ -1572,13 +1576,10 @@ def first_hole_lightweight_course_prep(
                         if selected_set is not None:
                             from ai_caddie.courses.vector_prep import enqueue_vector_hole
                             if source_key == current_source:
-                                if not map_only:
-                                    vector = cached_vector_hole(
-                                        source_global_id, source_local_hole, tee_set=selected_set,
-                                        build_if_missing=True,
-                                    )
-                                else:
-                                    enqueue_vector_hole(source_global_id, source_local_hole, selected_set)
+                                vector = cached_vector_hole(
+                                    source_global_id, source_local_hole, tee_set=selected_set,
+                                    build_if_missing=True,
+                                )
                             else:
                                 enqueue_vector_hole(source_global_id, source_local_hole, selected_set)
                         if vector is None and not map_only and not selected_vector_pending:
