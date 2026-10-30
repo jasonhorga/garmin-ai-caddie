@@ -26,7 +26,7 @@
       "id": "tests-product-faults-C220-F4",
       "patch": "tests/product/faults/C220/04-c432-background-trace.patch",
       "kind": "python",
-      "target": "tests.acceptance.test_card_432_readiness_image_paths.ReadinessRuntimePathTests.test_collect_runs_readiness_in_a_fresh_interpreter",
+      "target": "tests.acceptance.test_card_432_readiness_image_paths.ReadinessRuntimePathTests.test_collect_defaults_to_the_script_checkout_and_honours_root",
       "promise": "G7"
     },
     {
