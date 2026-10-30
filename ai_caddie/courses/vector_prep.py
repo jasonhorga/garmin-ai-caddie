@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from concurrent.futures import Future
 import copy
 import hashlib
 import json
@@ -14,6 +15,7 @@ from uuid import uuid4
 from ai_caddie.core.data import ROOT
 from ai_caddie.courses import course_prep, prep_cache
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
+from ai_caddie.core.priority_work import PriorityExecutor
 
 logger = logging.getLogger(__name__)
 _CACHE_DIR = ROOT / "output" / "vector-prep"
@@ -21,6 +23,12 @@ _VERSION = "vector-prep-v1"
 _LOCKS = [threading.Lock() for _ in range(32)]
 _REQUESTED_TEES: dict[tuple[str, int, int], set[int]] = {}
 _REQUESTED_TEES_LOCK = threading.Lock()
+# Selected-Tee supplements use a separate one-worker lane. The shared geometry install pool is
+# reserved for foreground hole preparation; a vector job may wait for the background slot without
+# occupying either of those workers.
+_BACKGROUND_VECTOR_POOL = PriorityExecutor(max_workers=1, name="selected-tee-vector-background")
+_VECTOR_FUTURES: dict[tuple[str, int, int, int], Future] = {}
+_VECTOR_FUTURES_LOCK = threading.Lock()
 
 
 def precise_route_seed_hole_in_process(
@@ -63,7 +71,6 @@ def enqueue_vector_hole(global_id: int, local_hole: int, tee_set: int) -> None:
     Reuse the existing bounded work queue, foreground admission and CPU process pool. Keyed
     submission coalesces package retries while one physical hole/Tee is queued or running.
     """
-    from ai_caddie.caddie.mobile_live import _GEOMETRY_INSTALL_POOL
     from ai_caddie.core.priority_work import SELECTED_COURSE, background_work
 
     request_vector_tee(global_id, local_hole, tee_set)
@@ -74,10 +81,40 @@ def enqueue_vector_hole(global_id: int, local_hole: int, tee_set: int) -> None:
                 global_id, local_hole, tee_set=tee_set, use_process_pool=True,
             )
 
-    _GEOMETRY_INSTALL_POOL.submit_keyed(
-        ("selected-tee-vector", str(_CACHE_DIR), global_id, local_hole, tee_set),
-        build, priority=SELECTED_COURSE,
+    key = (str(_CACHE_DIR), int(global_id), int(local_hole), int(tee_set))
+    future = _BACKGROUND_VECTOR_POOL.submit_keyed(
+        ("selected-tee-vector",) + key, build, priority=SELECTED_COURSE,
     )
+    with _VECTOR_FUTURES_LOCK:
+        _VECTOR_FUTURES[key] = future
+    future.add_done_callback(lambda completed, key=key: _forget_vector_future(key, completed))
+
+
+def _forget_vector_future(key: tuple[str, int, int, int], completed: Future) -> None:
+    with _VECTOR_FUTURES_LOCK:
+        if _VECTOR_FUTURES.get(key) is completed:
+            _VECTOR_FUTURES.pop(key, None)
+
+
+def selected_vector_plan(global_id: int, local_hole: int) -> dict[str, object] | None:
+    """Expose queued/running selected-Tee work to the package state classifier."""
+    gid, hole, root = int(global_id), int(local_hole), str(_CACHE_DIR)
+    with _VECTOR_FUTURES_LOCK:
+        active = any(
+            key[0] == root and key[1] == gid and key[2] == hole and not future.done()
+            for key, future in _VECTOR_FUTURES.items()
+        )
+    return {"state": "in_flight", "retryAfterEpoch": None} if active else None
+
+
+def _register_hole_plan_provider() -> None:
+    # Keep this domain module independent of the API at import time.
+    from ai_caddie.caddie.mobile_live import add_hole_plan_provider
+
+    add_hole_plan_provider(selected_vector_plan)
+
+
+_register_hole_plan_provider()
 
 
 def warm_requested_vectors(global_id: int, local_hole: int) -> None:

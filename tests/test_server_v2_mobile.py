@@ -25,6 +25,44 @@ from tests.event_log_io import count_log_reads
 
 
 class ServerV2MobileTests(unittest.TestCase):
+    def test_mobile_course_package_keeps_selected_vector_pending_after_background_enqueue(self) -> None:
+        """J4.4: the HTTP route exposes retryable selected-Tee work to the client."""
+        from server_v2 import main as server_main
+        from ai_caddie.courses import vector_prep
+
+        package = SimpleNamespace(
+            course={"globalId": 31832},
+            holes=[{
+                "number": 1,
+                "sourceGlobalId": 31832,
+                "sourceLocalHole": 1,
+                "geometryCoverage": "partial",
+                "geometryState": "unavailable",
+                "retryAfterEpoch": None,
+            }],
+        )
+        key = (str(vector_prep._CACHE_DIR), 31832, 1, 2)
+        in_flight = SimpleNamespace(done=lambda: False)
+        with (
+            patch.object(server_main, "build_mobile_course_package_response", return_value=package),
+            patch.object(server_main.course_install, "enqueue", return_value={"phase": "queued"}),
+            patch.dict(vector_prep._VECTOR_FUTURES, {key: in_flight}, clear=True),
+        ):
+            actual = server_main.mobile_course_package(
+                31832,
+                background_tasks=BackgroundTasks(),
+                background_geometry=True,
+                map_only=True,
+                include_event_cursor=False,
+                priority_hole=1,
+                loops="31832:all",
+                tee_box="white",
+                player_id="fixture-player",
+            )
+
+        self.assertEqual(actual.holes[0]["geometryState"], "pending")
+        self.assertGreater(actual.holes[0]["retryAfterEpoch"], 0)
+
     def _identity_course_package(self, root: Path, round_id: str, loops: list[tuple[int, str]]):
         from server_v2 import mobile as mobile_service
 

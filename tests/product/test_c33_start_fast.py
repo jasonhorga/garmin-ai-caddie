@@ -104,6 +104,7 @@ def selected_tee_fixture_course():
             (cr, 'courseview_tees', {'return_value': [{'name': 'Blue', 'index': 2}, {'name': 'White', 'index': 3}]}),
             (cr, 'load_course_par', {'return_value': cr.CoursePar(123, [4] * 18, 'fixture', 'high')}),
             (ml, '_GEOMETRY_INSTALL_POOL', {'new': QueuedWork()}),
+            (vp, '_BACKGROUND_VECTOR_POOL', {'new': QueuedWork()}),
             (ml, '_geometry_only_course_template', {'return_value': template}),
             (ml, '_authoritative_course_holes', {'return_value': 18}),
             (ml, '_courseview_segment_resolver', {'return_value': ('Fixture Golf', 18)}),
@@ -438,6 +439,48 @@ class CachedRouteTests(unittest.TestCase):
 
 
 class ReworkContractTests(unittest.TestCase):
+    def test_j4_4_selected_vector_waits_for_background_admission_before_building(self):
+        """J4.4: a queued selected-Tee supplement yields to a live foreground package."""
+        from ai_caddie.core import priority_work
+        from ai_caddie.courses import vector_prep as vp
+
+        started = threading.Event()
+        pool = PriorityExecutor(1, name="c136-vector-background")
+
+        def build(*_args, **_kwargs):
+            started.set()
+            return {"fixture": True}
+
+        try:
+            with patch.object(vp, "_BACKGROUND_VECTOR_POOL", pool), \
+                 patch.object(vp, "cached_vector_hole", side_effect=build):
+                with priority_work.FOREGROUND_GATE.foreground():
+                    vp.enqueue_vector_hole(136, 1, 2)
+                    self.assertFalse(started.wait(.2), "background vector bypassed package admission")
+                self.assertTrue(started.wait(2), "background vector did not resume after package")
+        finally:
+            pool.shutdown()
+
+    def test_j4_4_selected_vector_uses_selected_course_priority(self):
+        """J4.4: vector supplements remain background priority in their independent lane."""
+        from ai_caddie.core.priority_work import SELECTED_COURSE
+        from ai_caddie.courses import vector_prep as vp
+
+        class RecordingPool:
+            def __init__(self):
+                self.priority = None
+
+            def submit_keyed(self, _key, _fn, *args, priority=0, **_kwargs):
+                self.priority = priority
+                future = Future()
+                return future
+
+        pool = RecordingPool()
+        with patch.object(vp, "_BACKGROUND_VECTOR_POOL", pool), \
+             patch.object(vp, "cached_vector_hole", return_value=None):
+            vp.enqueue_vector_hole(136, 1, 2)
+        self.assertEqual(pool.priority, SELECTED_COURSE)
+
     def test_cold_package_schema_and_missing_prep_hole(self):
         import json
         from jsonschema import Draft202012Validator
@@ -477,6 +520,25 @@ class ReworkContractTests(unittest.TestCase):
             result = ml.first_hole_lightweight_course_prep(package, map_only=True)
         self.assertIsNone(result['holes'][0].get('route'))  # C33 P1: map geometry may be reused, route facts may not.
         self.assertNotIn('greenDistances', result['holes'][0])
+
+    def test_j4_4_map_only_selected_tee_miss_requeues_vector_work(self):
+        """J4.4: a pending map-only poll restores a lost selected-Tee supplement."""
+        from ai_caddie.caddie import mobile_live as ml
+        package = {'course': {'globalId': 123, 'teeBox': 'white'}, 'clubProfiles': [],
+                   'holes': [{'number': 1, 'sourceGlobalId': 123, 'sourceLocalHole': 1}]}
+        with (
+            patch('ai_caddie.core.data.mesh_path', return_value=Path(__file__)),
+            patch.object(ml, '_load_mobile_hazards', return_value={
+                'globalId': 123, 'tees': [{'sets': [4]}],
+            }),
+            patch('ai_caddie.caddie.analysis.tee_set_for_box', return_value=4),
+            patch('ai_caddie.courses.vector_prep.cached_vector_hole', return_value=None),
+            patch('ai_caddie.courses.vector_prep.enqueue_vector_hole') as enqueue,
+            patch.object(ml.course_prep, 'lightweight_prep_hole', return_value=None),
+        ):
+            result = ml.first_hole_lightweight_course_prep(package, map_only=True)
+        self.assertIsNone(result)
+        enqueue.assert_called_once_with(123, 1, 4)
 
     def test_selected_tee_cache_miss_borrows_any_cached_geometry_before_blank_map(self):
         """J4.4: Blue is preferred, then another cached Tee, while its facts stay hidden."""

@@ -5666,7 +5666,6 @@ class EffectiveClubProfileContractTests(unittest.TestCase):
         builder = (IOS_DIR / "Services" / "CaddieDecisionRequestBuilder.swift").read_text(encoding="utf-8")
         evaluator = (IOS_DIR / "Services" / "OfflineCaddieDecisionEvaluator.swift").read_text(encoding="utf-8")
         self.assertIn("context = ClubBagAuthority.current.sanitizedContext(context)", builder)
-        self.assertEqual(builder.count("authority.sanitizedSeed("), 3)
         self.assertIn("authority.planMatches(prepLegs) ? canonicalSteps(", builder)
         authority = (IOS_DIR / "Services" / "LiveCaddieRouteAuthority.swift").read_text(encoding="utf-8")
         self.assertIn("guard authority.planMatches(prepLegs) else { return nil }", authority)

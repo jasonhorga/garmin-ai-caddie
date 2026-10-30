@@ -1563,7 +1563,7 @@ def first_hole_lightweight_course_prep(
                             require_current_authority=True, refresh_release=False,
                         ).get("coverage") == "ready"
                     )
-                    if vector is None and not map_only and (
+                    if vector is None and (
                         selected_set is not None or selected_tee_box not in {"", "unknown"}
                     ):
                         # Only the requested display hole may spend foreground CPU. Persist it
@@ -1571,14 +1571,14 @@ def first_hole_lightweight_course_prep(
                         # rebuilds never repeat the mesh work. Other holes yield to foreground work.
                         if selected_set is not None:
                             from ai_caddie.courses.vector_prep import enqueue_vector_hole
-                            if source_key == current_source:
+                            if source_key == current_source and not map_only:
                                 vector = cached_vector_hole(
                                     source_global_id, source_local_hole, tee_set=selected_set,
                                     build_if_missing=True,
                                 )
                             else:
                                 enqueue_vector_hole(source_global_id, source_local_hole, selected_set)
-                        if vector is None and not selected_vector_pending:
+                        if vector is None and not map_only and not selected_vector_pending:
                             prep_call_kwargs = dict(prep_kwargs)
                             if selected_tee_box:
                                 prep_call_kwargs["tee_set"] = selected_set
