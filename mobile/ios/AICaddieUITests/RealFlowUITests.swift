@@ -688,7 +688,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
         // J4.1/C227①: a venue already in the main list has no duplicate lower offline row.
         // Its surviving row must retain the app-owned download state, including in-flight work.
-        let retainedDownload = startDownloadRow(globalId: approvedJourneyCourseGlobalId)
+        let retainedDownload = startDownloadStatus(globalId: approvedJourneyCourseGlobalId)
         XCTAssertTrue(scrollTo(retainedDownload, maxSwipes: 12))
         XCTAssertTrue(
             retainedDownload.waitForExistence(timeout: 8)
@@ -702,7 +702,7 @@ final class RealFlowUITests: XCTestCase {
         launchFresh()
         XCTAssertTrue(openStartRound())
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
-        let relaunchedDownload = startDownloadRow(globalId: approvedJourneyCourseGlobalId)
+        let relaunchedDownload = startDownloadStatus(globalId: approvedJourneyCourseGlobalId)
         XCTAssertTrue(scrollTo(relaunchedDownload, maxSwipes: 12))
         XCTAssertTrue(waitForText("已下载", in: relaunchedDownload, timeout: 240))
         let relaunchedCourse = selectStartCourse(approvedJourneyCourseGlobalId)
@@ -1976,11 +1976,11 @@ final class RealFlowUITests: XCTestCase {
     }
 
     /// J4.1/J4.2: download state stays on the venue after cross-section deduplication.
-    private func startDownloadRow(globalId: Int) -> XCUIElement {
+    private func startDownloadStatus(globalId: Int) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(
             format: "identifier == %@ OR identifier BEGINSWITH %@",
             "start-round-venue-\(globalId)",
-            "start-round-offline-row-\(globalId):"
+            "start-round-offline-status-\(globalId):"
         )).firstMatch
     }
 
