@@ -135,7 +135,9 @@ def _evaluate_hole(
         for shot in (hole_row.get("shots") or [])
         if isinstance(shot, dict)
     ]
-    putts = round_ingest._shot_putt_count(rows, total_strokes=strokes)
+    putts = round_ingest._shot_putt_count(
+        rows, total_strokes=strokes, club_details=(shot_data or {}).get("clubDetails"),
+    )
     if putts is not None:
         gir = strokes - putts <= par - 2
         return gir, f"shot log counted {putts} putts; strokes-putts={strokes - putts} vs par-2={par - 2}", None
@@ -188,7 +190,8 @@ def _scan(root: Path) -> tuple[dict[str, Any], dict[Path, dict[str, Any]]]:
     manual_putts_zero = 0
     for player_id, path in _scorecard_files(root):
         try:
-            raw = core_data.read_json(path)
+            scorecard_bytes = path.read_bytes()
+            raw = json.loads(scorecard_bytes)
         except (OSError, ValueError, TypeError):
             skipped.append({"playerId": player_id, "path": str(path), "reason": "scorecard is unreadable"})
             continue
@@ -199,7 +202,6 @@ def _scan(root: Path) -> tuple[dict[str, Any], dict[Path, dict[str, Any]]]:
             reason = "source missing (treated as Garmin)" if "source" not in raw else "source is not manual (treated as Garmin)"
             skipped.append({"playerId": player_id, "path": str(path), "roundId": _round_id(raw), "reason": reason})
             continue
-        manual_rounds += 1
         details = raw.get("scorecardDetails")
         if not isinstance(details, list) or not details:
             skipped.append({"playerId": player_id, "path": str(path), "reason": "scorecard details missing"})
@@ -208,11 +210,21 @@ def _scan(root: Path) -> tuple[dict[str, Any], dict[Path, dict[str, Any]]]:
         if not isinstance(scorecard, dict):
             skipped.append({"playerId": player_id, "path": str(path), "roundId": _round_id(raw), "reason": "scorecard missing"})
             continue
+        manual_rounds += 1
         round_id = scorecard.get("id")
         shot_path = path.parent.parent / "shots" / path.name
         try:
-            shot_data = core_data.read_json(shot_path) if shot_path.exists() else None
-        except (OSError, ValueError, TypeError):
+            shots_bytes = shot_path.read_bytes()
+        except FileNotFoundError:
+            shots_bytes = None
+        except OSError:
+            skipped.append({"playerId": player_id, "path": str(path), "roundId": round_id, "reason": "shots are unreadable"})
+            continue
+        try:
+            shot_data = json.loads(shots_bytes) if shots_bytes is not None else None
+        except (ValueError, TypeError):
+            shot_data = None
+        if not isinstance(shot_data, dict):
             shot_data = None
         holes = scorecard.get("holes") or []
         for hole in holes:
@@ -235,7 +247,7 @@ def _scan(root: Path) -> tuple[dict[str, Any], dict[Path, dict[str, Any]]]:
             if landing_source is not None:
                 change["landingSource"] = landing_source
             changes.append(change)
-            entry = mutations.setdefault(path, {"rows": [], "scorecardDigest": _digest_bytes(path.read_bytes()), "shotsDigest": _digest_bytes(shot_path.read_bytes() if shot_path.exists() else None)})
+            entry = mutations.setdefault(path, {"rows": [], "scorecardDigest": _digest_bytes(scorecard_bytes), "shotsDigest": _digest_bytes(shots_bytes)})
             entry["rows"].append(change)
         # A missing GIR is not a recorded denominator, so only existing values count here.
     after = before + len(changes)
@@ -302,15 +314,18 @@ def _apply(root: Path, report: dict[str, Any], mutations: dict[Path, dict[str, A
                     backup = backup_dir / player / path.name
                     backup.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(path, backup)
+                    backup_entry = {"path": str(path), "backup": str(backup), "changes": 0}
+                    backup_manifest.append(backup_entry)
+                    manifest_path = backup_dir / "manifest.json"
+                    manifest_path.write_text(json.dumps(backup_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
                     round_ingest._atomic_write_json(path, raw)
                     actual_changes.extend(wrote)
-                    backup_manifest.append({"path": str(path), "backup": str(backup), "changes": len(wrote)})
+                    backup_entry["changes"] = len(wrote)
+                    manifest_path.write_text(json.dumps(backup_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
                     print(f"C187 wrote {path} ({len(wrote)} GIR)", file=sys.stderr)
                 except Exception as exc:
                     report.setdefault("applyErrors", []).append({"path": str(path), "error": f"{type(exc).__name__}: {exc}"})
             round_ingest._invalidate_cache(player)
-    if backup_manifest:
-        (backup_dir / "manifest.json").write_text(json.dumps(backup_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     report["summary"]["changes"] = len(actual_changes)
     report["summary"]["girRecordedAfter"] = report["summary"]["girRecordedBefore"] + len(actual_changes)
 
@@ -318,9 +333,10 @@ def _apply(root: Path, report: dict[str, Any], mutations: dict[Path, dict[str, A
 def backfill(*, root: Path | str | None = None, apply: bool = False) -> dict[str, Any]:
     runtime_root = _runtime_root(root)
     report, mutations = _scan(runtime_root)
-    if apply and mutations:
-        _apply(runtime_root, report, mutations)
+    if apply:
         report["mode"] = "apply"
+        if mutations:
+            _apply(runtime_root, report, mutations)
     return report
 
 def main(argv: list[str] | None = None) -> int:
@@ -330,8 +346,9 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--dry-run", action="store_true", help="print the change report without writing (default)")
     mode.add_argument("--apply", action="store_true", help="write changes after backing up each file")
     args = parser.parse_args(argv)
-    print(json.dumps(backfill(root=args.root, apply=args.apply), ensure_ascii=False, indent=2))
-    return 0
+    report = backfill(root=args.root, apply=args.apply)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 1 if report.get("applyErrors") else 0
 
 
 if __name__ == "__main__":
