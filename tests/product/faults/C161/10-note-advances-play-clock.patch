@@ -1,0 +1,12 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2506,8 +2506,7 @@
+             if value.tzinfo is None:
+                 value = value.replace(tzinfo=timezone.utc)
+             kind = event.get("kind") if isinstance(event, dict) else getattr(event, "kind", None)
+-            if str(kind or "").strip().lower() in progress_kinds:
+-                parsed.append(value)
++            parsed.append(value)
+             raw_device = event.get("clientId") if isinstance(event, dict) else getattr(event, "clientId", None)
+             devices.add(str(raw_device or ""))
+         except (TypeError, ValueError):

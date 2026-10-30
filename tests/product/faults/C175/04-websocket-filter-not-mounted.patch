@@ -1,0 +1,9 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -240,5 +240,5 @@
+         access_log.addFilter(request_timing.URLRedactionFilter())
+     error_log = logging.getLogger("uvicorn.error")
+     if not any(isinstance(item, request_timing.WebSocketHandshakeFilter) for item in error_log.filters):
+-        error_log.addFilter(request_timing.WebSocketHandshakeFilter())
++        pass
+

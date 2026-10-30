@@ -81,6 +81,8 @@ EXIT_UNRECOVERED = 3
 CONTAINER_FORMAT = (
     '{"id":{{json .Id}},"name":{{json .Name}},"image":{{json .Image}},'
     '"labels":{{json .Config.Labels}},"running":{{json .State.Running}},'
+    '"status":{{json .State.Status}},"dead":{{json .State.Dead}},'
+    '"restartPolicy":{{json .HostConfig.RestartPolicy}},'
     '"finishedAt":{{json .State.FinishedAt}},'
     '"ports":{{json .HostConfig.PortBindings}},'
     '"network":{{json .HostConfig.NetworkMode}},'
@@ -352,6 +354,10 @@ class Container:
         self.image_id = data.get("image") or ""
         self.labels = data.get("labels") or {}
         self.running = bool(data.get("running"))
+        self.status = data.get("status") or ("running" if self.running else "exited")
+        self.dead = bool(data.get("dead"))
+        restart_policy = data.get("restartPolicy") or {}
+        self.restart_policy = restart_policy.get("Name") or "no"
         self.finished_key = _finished_key(data.get("finishedAt") or "")
         self.ports = data.get("ports") or {}
         self.network = data.get("network") or ""
@@ -374,6 +380,11 @@ class Container:
             for bindings in self.ports.values()
             for binding in (bindings or [])
         )
+
+    @property
+    def restart_update_is_withheld(self) -> bool:
+        """A refused update is dangerous only for a live/remnant container that may restart."""
+        return self.status not in {"dead", "removing"} and not self.dead and self.restart_policy != "no"
 
 
 def list_containers() -> list[Container]:
@@ -913,6 +924,10 @@ def verify_live(cfg: Config, sha: str, current: Container, containers: list[Cont
             reason = f"{reason}; {current.name} kept restart policy {LIVE_RESTART_POLICY}"
         docker("stop", "--time", STOP_TIMEOUT_SECONDS, current.name, capture=True, check=False)
         restored = restore_previous(cfg, previous, live=replaced)
+        if restored:
+            # The previous release is now serving; boot recovery must not select the
+            # failed revision named by the old record on its next invocation.
+            write_release_state(cfg, previous.revision)
         if not restored:
             docker("stop", "--time", STOP_TIMEOUT_SECONDS, previous.name, capture=True, check=False)
             try:
@@ -1208,10 +1223,12 @@ def normalize_restart_policy(cfg: Config, containers: list[Container], live: Con
     kept = []
     for container in containers:
         if container.name.startswith(cfg.prefix) and (live is None or container.id != live.id):
-            if set_restart_policy(container.name, "no", check=check).returncode != 0:
+            update_check = check and not (container.dead or container.status in {"dead", "removing"})
+            if set_restart_policy(container.name, "no", check=update_check).returncode != 0:
                 policy_warning(container.name, "restart_policy_failed",
                                f"{container.name} could not be set to restart policy no")
-                kept.append(container.name)
+                if container.restart_update_is_withheld:
+                    kept.append(container.name)
     if live is not None:
         if kept:
             withhold_live(live.name)
@@ -1437,41 +1454,39 @@ def up(cfg: UpConfig) -> Container:
                            reason="no_release_candidate")
         container = api.name
         previous_api = None
-        normalized = False
         kept = []
-        if not api.running:
-            with SyncLock(cfg):
-                # A deploy can change the release set while recovery waits for this lock.
-                container = "none"
-                api = select_up_api(cfg, list_containers())
-                if api is None:
+        # Re-read both the container set and release record while serialized with a
+        # concurrent deploy/rollback. This also covers the case where Docker starts
+        # the selected container while recovery waits for the lock.
+        with SyncLock(cfg):
+            container = "none"
+            containers = list_containers()
+            api = select_up_api(cfg, containers)
+            if api is None:
+                raise UpFailed("api", "none", "no valid release candidate",
+                               reason="no_release_candidate")
+            container = api.name
+            if api.running:
+                kept = normalize_restart_policy(cfg, containers, api, check=False)
+            else:
+                try:
+                    current = find_current(cfg, containers)
+                except DeployError:
                     raise UpFailed("api", "none", "no valid release candidate",
-                                   reason="no_release_candidate")
-                container = api.name
-                if not api.running:
-                    try:
-                        containers = list_containers()
-                        current = find_current(cfg, containers)
-                    except DeployError:
-                        raise UpFailed("api", "none", "no valid release candidate",
-                                       reason="no_release_candidate") from None
-                    # Before the stop below, so the replaced release stays down on a daemon restart.
-                    # A refused update must not keep the API down: boot recovery is the last resort.
-                    kept = normalize_restart_policy(cfg, containers, api, check=False)
-                    normalized = True
-                    if current is not None and current.name != api.name:
-                        previous_api = current
-                        up_line(action="up", selection="record", container=current.name,
-                                revision=api.revision)
-                        log(f"stopping {current.name} for recorded release {api.revision}")
-                        docker("stop", "--time", STOP_TIMEOUT_SECONDS, current.name,
-                               label="API stop", capture=True, quiet=True)
-                    log(f"starting {api.name}")
-                    ensure_network(cfg, api)
-                    docker("start", api.name, label="API start", capture=True, quiet=True)
-        if not normalized:
-            # Docker started the live release itself at boot: keep it, only correct the policies.
-            normalize_restart_policy(cfg, list_containers(), api, check=False)
+                                   reason="no_release_candidate") from None
+                # Before the stop below, so the replaced release stays down on a daemon restart.
+                # A refused update must not keep the API down: boot recovery is the last resort.
+                kept = normalize_restart_policy(cfg, containers, api, check=False)
+                if current is not None and current.name != api.name:
+                    previous_api = current
+                    up_line(action="up", selection="record", container=current.name,
+                            revision=api.revision)
+                    log(f"stopping {current.name} for recorded release {api.revision}")
+                    docker("stop", "--time", STOP_TIMEOUT_SECONDS, current.name,
+                           label="API stop", capture=True, quiet=True)
+                log(f"starting {api.name}")
+                ensure_network(cfg, api)
+                docker("start", api.name, label="API start", capture=True, quiet=True)
         if not wait_health(cfg.local_health_url, api.revision, cfg.health_timeout, cfg.poll):
             if previous_api is not None:
                 replaced = set_restart_policy(api.name, "no", check=False).returncode == 0
@@ -1489,6 +1504,7 @@ def up(cfg: UpConfig) -> Container:
                         mark_live(previous_api.name)
                     else:
                         withhold_live(previous_api.name)
+                    write_release_state(cfg, previous_api.revision)
                 except BaseException as restore_exc:
                     log(f"error: failed to restore {previous_api.name}: {type(restore_exc).__name__}")
             raise UpFailed("api", api.name, "API health check failed", reason="api_unhealthy")

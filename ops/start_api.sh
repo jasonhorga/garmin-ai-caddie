@@ -132,4 +132,6 @@ if command -v flock >/dev/null 2>&1; then
   exec 9>&-
 fi
 
-exec uv run --frozen uvicorn server_v2.main:app --host 0.0.0.0 --port "${PORT:-9000}"
+# The API serves no WebSocket route; --ws none answers upgrade requests as plain HTTP, so they
+# take the templated access log instead of uvicorn's raw WebSocket handshake line.
+exec uv run --frozen uvicorn server_v2.main:app --host 0.0.0.0 --port "${PORT:-9000}" --ws none

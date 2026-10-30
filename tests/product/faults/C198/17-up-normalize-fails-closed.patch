@@ -1,12 +1,11 @@
-diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
 --- a/ops/agenthub_deploy.py
 +++ b/ops/agenthub_deploy.py
-@@ -1457,7 +1457,7 @@ def up(cfg: UpConfig) -> Container:
-                                        reason="no_release_candidate") from None
-                     # Before the stop below, so the replaced release stays down on a daemon restart.
-                     # A refused update must not keep the API down: boot recovery is the last resort.
--                    kept = normalize_restart_policy(cfg, containers, api, check=False)
-+                    kept = normalize_restart_policy(cfg, containers, api)
-                     normalized = True
-                     if current is not None and current.name != api.name:
-                         previous_api = current
+@@ -1467,7 +1467,7 @@
+                                reason="no_release_candidate")
+             container = api.name
+             if api.running:
+-                kept = normalize_restart_policy(cfg, containers, api, check=False)
++                kept = normalize_restart_policy(cfg, containers, api)
+             else:
+                 try:
+                     current = find_current(cfg, containers)

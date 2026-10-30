@@ -1,0 +1,15 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2529,10 +2529,10 @@
+     latest: dict[str, tuple[str, str]] = {}
+     for player, keys in candidates.items():
+         current = keys[-1]
+-        if current not in _ACTIVE_EVENT_TIMES:
++        timed = [(key, _ACTIVE_EVENT_TIMES[key]) for key in keys if key in _ACTIVE_EVENT_TIMES]
++        if not timed:
+             latest[player] = current
+             continue
+-        timed = [(key, _ACTIVE_EVENT_TIMES[key]) for key in keys if key in _ACTIVE_EVENT_TIMES]
+         latest[player] = max(timed, key=lambda item: (item[1], keys.index(item[0])))[0]
+     return latest
+

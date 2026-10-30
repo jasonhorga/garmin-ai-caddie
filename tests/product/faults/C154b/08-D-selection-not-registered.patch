@@ -1,7 +1,8 @@
 diff --git a/server_v2/main.py b/server_v2/main.py
+index 73a3aea4..7bcd7aa1 100644
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -3051,10 +3051,7 @@
+@@ -3187,10 +3187,7 @@ def mobile_course_package(
              player_id,
              round_id,
              global_ids=[gid for gid, _half in round_loops],
@@ -10,6 +11,6 @@ diff --git a/server_v2/main.py b/server_v2/main.py
 -                requested_tee_box,
 -            ),
 +            selection=None,
+             package_registration=True,
          )
      # A package without an active round lease is a download/preview warm-up.  Keep a real
-     # playing round's first-screen path on the foreground lane, while same-gid previews with a

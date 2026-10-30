@@ -7,10 +7,12 @@ omit when a builder is called directly by a unit test.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+import hashlib
 import json
 import logging
 import os
@@ -35,6 +37,9 @@ _SENSITIVE_QUERY_UNQUOTED = re.compile(
 _SHARE_PATH = re.compile(r"(/api/v2/share/)[^/?#]+")
 _MEMBER_PATH = re.compile(r"(/p/)[^/?#]+")
 _MOBILE_ROUND_PATH = re.compile(r"(/api/v2/mobile/rounds/)[^/?#]+")
+_ROUTE_TEMPLATE_CACHE_SIZE = 1024
+_ROUTE_TEMPLATE_CACHE: OrderedDict[tuple[bytes, str], str | None] = OrderedDict()
+_ROUTE_TEMPLATE_LOCK = threading.Lock()
 
 _BEIJING = ZoneInfo("Asia/Shanghai")
 _TIMING_FILE = re.compile(r"^(?P<kind>client-)?(?P<day>\d{4}-\d{2}-\d{2})\.jsonl$")
@@ -56,12 +61,78 @@ def redact_url(value: str | None) -> str:
     return _SENSITIVE_QUERY_UNQUOTED.sub(r"\1***", text)
 
 
+def route_template(path: str, method: str | None = None) -> str | None:
+    """Resolve a request path to the route template Starlette would dispatch it to.
+
+    The first route matching path and method wins; with none, the first route matching the path
+    answers 405, so its template is reported. ``None`` is used by client timing, whose older
+    payload does not carry the HTTP method; it resolves as GET, so any path match counts.
+    Routing never reads the query, so it is dropped before the bounded cache, whose keys are a
+    digest of the remaining path: the process keeps no raw ids or tokens for diagnostics.
+    """
+    route_path = str(path or "").partition("?")[0].partition("#")[0] or "/"
+    route_method = str(method or "GET").upper()
+    key = (hashlib.blake2b(route_path.encode("utf-8", "surrogatepass"), digest_size=16).digest(), route_method)
+    with _ROUTE_TEMPLATE_LOCK:
+        if key in _ROUTE_TEMPLATE_CACHE:
+            _ROUTE_TEMPLATE_CACHE.move_to_end(key)
+            return _ROUTE_TEMPLATE_CACHE[key]
+    template = _match_route_template(route_path, route_method)
+    with _ROUTE_TEMPLATE_LOCK:
+        _ROUTE_TEMPLATE_CACHE[key] = template
+        if len(_ROUTE_TEMPLATE_CACHE) > _ROUTE_TEMPLATE_CACHE_SIZE:
+            _ROUTE_TEMPLATE_CACHE.popitem(last=False)
+    return template
+
+
+def _match_route_template(route_path: str, method: str) -> str | None:
+    from starlette.routing import Match
+
+    from server_v2.main import app
+
+    scope = {
+        "type": "http",
+        "path": route_path,
+        "root_path": "",
+        "method": method,
+        "scheme": "http",
+        "query_string": b"",
+        "headers": [],
+        "client": None,
+        "server": None,
+    }
+    partial: str | None = None
+    for route in app.routes:
+        try:
+            match, _child_scope = route.matches(scope)
+        except Exception:
+            continue  # one broken matcher must not hide the routes after it
+        template = getattr(route, "path", None)
+        if not isinstance(template, str) or not template:
+            continue
+        if match is Match.FULL:
+            return template
+        if match is Match.PARTIAL and partial is None:
+            partial = template
+    return partial
+
+
+def _safe_access_path(path: str, method: str) -> str:
+    try:
+        return route_template(path, method) or "<unmatched>"
+    except Exception:
+        return "<unmatched>"
+
+
 class URLRedactionFilter(logging.Filter):
-    """Redact URL-bearing arguments in uvicorn access records in place."""
+    """Replace uvicorn access paths with matched route templates in place."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         args = record.args
-        if isinstance(args, tuple):
+        if isinstance(args, (tuple, list)) and len(args) >= 5 and isinstance(args[1], str) and isinstance(args[2], str):
+            safe = [_safe_access_path(args[2], args[1]) if index == 2 else item for index, item in enumerate(args)]
+            record.args = tuple(safe) if isinstance(args, tuple) else safe
+        elif isinstance(args, tuple):
             record.args = tuple(redact_url(item) if isinstance(item, str) else item for item in args)
         elif isinstance(args, list):
             record.args = [redact_url(item) if isinstance(item, str) else item for item in args]
@@ -69,6 +140,20 @@ class URLRedactionFilter(logging.Filter):
             record.args = redact_url(args)
         elif not args and isinstance(record.msg, str):
             record.msg = redact_url(record.msg)
+        return True
+
+
+class WebSocketHandshakeFilter(logging.Filter):
+    """Drop the request target from uvicorn's WebSocket handshake lines on ``uvicorn.error``.
+
+    The API serves no WebSocket route and its launchers pass ``--ws none``; this keeps a
+    launcher without that flag from logging the ids or tokens of a hand-crafted upgrade.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(record.msg, str) and '"WebSocket %s"' in record.msg and isinstance(args, tuple) and len(args) >= 2:
+            record.args = (args[0], "<unmatched>", *args[2:])
         return True
 
 

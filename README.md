@@ -119,7 +119,7 @@ DEPS_IMAGE="garmin-ai-caddie-deps:$API_DEPS_HASH" docker compose up --build
 
 ```bash
 # terminal 1
-AI_CADDIE_DATA_MODE=fixture uv run uvicorn server_v2.main:app --host 127.0.0.1 --port 9000
+AI_CADDIE_DATA_MODE=fixture uv run uvicorn server_v2.main:app --host 127.0.0.1 --port 9000 --ws none
 
 # terminal 2
 cd web_v2

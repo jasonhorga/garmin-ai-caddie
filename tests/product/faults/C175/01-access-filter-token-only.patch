@@ -1,0 +1,11 @@
+--- a/ai_caddie/core/request_timing.py
++++ b/ai_caddie/core/request_timing.py
+@@ -107,7 +107,7 @@
+ 
+     def filter(self, record: logging.LogRecord) -> bool:
+         args = record.args
+-        if isinstance(args, (tuple, list)) and len(args) >= 5 and isinstance(args[1], str) and isinstance(args[2], str):
++        if False and isinstance(args, (tuple, list)) and len(args) >= 5 and isinstance(args[1], str) and isinstance(args[2], str):
+             safe = [_safe_access_path(args[2], args[1]) if index == 2 else item for index, item in enumerate(args)]
+             record.args = tuple(safe) if isinstance(args, tuple) else safe
+         elif isinstance(args, tuple):

@@ -1,0 +1,11 @@
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -34,7 +34,7 @@
+     Both forms use {"records": [...]} and repository-relative patch paths.
+     Keep source paths during validation so collisions identify both authors.
+     """
+-    manifests = [MANIFEST, *sorted(MANIFEST.parent.glob("*/manifest.json"), key=lambda path: path.parent.name)]
++    manifests = [MANIFEST]
+     records: list[dict[str, Any]] = []
+     seen: dict[str, Path] = {}
+     for manifest in manifests:
