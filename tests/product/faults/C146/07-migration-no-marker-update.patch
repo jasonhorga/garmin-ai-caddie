@@ -1,9 +1,11 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
+index 5de40a6a..a6c0f1f0 100644
 --- a/ai_caddie/caddie/mobile_event_store.py
 +++ b/ai_caddie/caddie/mobile_event_store.py
-@@ -936,7 +936,7 @@
-                     committed_prefix_sha256=hashlib.sha256(new_raw).hexdigest(),
-                     legacy_baseline_byte_length=old_marker.legacy_baseline_byte_length,
-                 )
+@@ -1014,7 +1014,7 @@ class FileEventStore:
+                 self._replace_bytes_preserving_metadata(backup, raw, snapshots[self.log][1], preserve_mode=False)
+                 os.chmod(backup, 0o600)
+                 self._replace_bytes_preserving_metadata(self.log, new_raw, snapshots[self.log][1])
 -                self._write_committed_length(new_marker)
 +                # mutant: leave the old commit marker in place
                  self._restore_metadata(self.commit_marker, snapshots[self.commit_marker][1])

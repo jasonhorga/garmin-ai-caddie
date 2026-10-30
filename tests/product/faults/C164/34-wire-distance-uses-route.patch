@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -5650,3 +5650,3 @@
+                 // requests still plan from manual/static facts rather than the clubhouse GPS.
+-                distanceToPinM: isTeeShotOffTheHole ? caddiePlanningDistanceMetres : effectiveDistanceToPinMetres,
++                distanceToPinM: caddiePlanningDistanceMetres,
+                 lie: selectedLie,

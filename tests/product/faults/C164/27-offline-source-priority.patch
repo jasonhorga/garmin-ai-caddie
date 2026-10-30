@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift b/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
+index 013488a..daadc73 100644
+--- a/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
++++ b/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
+@@ -32,7 +32,7 @@ enum LiveCaddieRouteAuthority {
+         // Offline evaluator snapshots are also stored in `caddieDecision` while a request is
+         // pending or has failed. They belong in the fallback tier even when the caller has not
+         // yet split the response into the dedicated offline argument.
+-        let authoritativeOnline = online?.isOfflineFallback == true ? nil : online
++        let authoritativeOnline = online
+         // A bare Par 4/5 tee card is filtered below; a measured CoursePrep prefix remains useful
+         // while its next lie is being re-planned.
+         let installedRoute: CaddiePlanSequence? = {

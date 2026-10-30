@@ -413,6 +413,44 @@ public enum CoursePrepRoute {
         yards / Self.yard
     }
 
+    /// Remaining distance along the mapped centreline after projecting a player pixel onto it.
+    /// Route stations are cumulative metres; straight-line distance to the flag is never mixed into
+    /// this value.
+    public static func remainingMetres(route: [[Double]], playerPx: [Double]) -> Double? {
+        guard playerPx.count >= 2, playerPx[0].isFinite, playerPx[1].isFinite, route.count >= 2 else {
+            return nil
+        }
+        var bestDistance = Double.infinity
+        var bestStation: Double?
+        for (start, end) in zip(route, route.dropFirst()) {
+            guard start.count >= 3, end.count >= 3,
+                  start[0].isFinite, start[1].isFinite, start[2].isFinite,
+                  end[0].isFinite, end[1].isFinite, end[2].isFinite else { continue }
+            let dx = end[0] - start[0]
+            let dy = end[1] - start[1]
+            let lengthSquared = dx * dx + dy * dy
+            let fraction: Double
+            if lengthSquared > 0 {
+                fraction = min(1, max(0, ((playerPx[0] - start[0]) * dx + (playerPx[1] - start[1]) * dy) / lengthSquared))
+            } else {
+                fraction = 0
+            }
+            let x = start[0] + dx * fraction
+            let y = start[1] + dy * fraction
+            let distance = hypot(playerPx[0] - x, playerPx[1] - y)
+            if distance < bestDistance {
+                bestDistance = distance
+                bestStation = start[2] + (end[2] - start[2]) * fraction
+            }
+        }
+        guard let station = bestStation,
+              let last = route.last,
+              last.count >= 3,
+              last[2].isFinite else { return nil }
+        let end = last[2]
+        return max(0, end - station)
+    }
+
     public static func intervalReadout(currentMetres: Double, startMetres: Double, endMetres: Double) -> CoursePrepHazardIntervalReadout {
         let start = min(startMetres, endMetres)
         let end = max(startMetres, endMetres)

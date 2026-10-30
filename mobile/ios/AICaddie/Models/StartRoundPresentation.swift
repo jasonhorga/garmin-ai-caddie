@@ -26,11 +26,181 @@ struct StartCourseListRow: Equatable, Identifiable {
 /// Pure copy and list rules for 开始一场 and the home hero, kept out of the views so they are
 /// unit-testable without a SwiftUI host.
 enum StartRoundPresentation {
-    /// The download library is newest-first; show one row per course while retaining the newest
-    /// Tee/package identity for that course.
+    static func roundStartProgressText(isBusy: Bool, message: String?) -> String? {
+        guard isBusy else { return nil }
+        return message ?? "正在准备球场…"
+    }
+
+    /// The download library is newest-first; show one row per physical venue while retaining the
+    /// newest useful Tee/package identity for that venue. Older builds created one row per loop,
+    /// so globalId alone is not a sufficient visible key.
     static func recentRows(_ downloads: [PrepCourseDownloadRecord]) -> [PrepCourseDownloadRecord] {
-        var seen = Set<Int>()
-        return downloads.filter { seen.insert($0.course.globalId).inserted }
+        deduplicatedVenueRows(downloads)
+    }
+
+    /// Visible offline rows. Speculative rows are cache hints, not user-owned downloads; an
+    /// unfinished hint is removed during restore and never appears here. The same venue can still
+    /// retain multiple internal template rows (A/B/C), but the picker presents one physical venue.
+    static func offlineRows(_ downloads: [PrepCourseDownloadRecord]) -> [PrepCourseDownloadRecord] {
+        deduplicatedVenueRows(downloads.filter {
+            !$0.isSpeculative
+                && !$0.isIntentPrefetch
+                && !($0.isRoundPrefetch && $0.phase != .ready)
+        })
+    }
+
+    private struct VenueGroup {
+        let venue: String
+        var rows: [PrepCourseDownloadRecord]
+        var coordinates: [(Double, Double)]
+    }
+
+    private static func deduplicatedVenueRows(
+        _ downloads: [PrepCourseDownloadRecord]
+    ) -> [PrepCourseDownloadRecord] {
+        var groups: [VenueGroup] = []
+        for row in downloads.sorted(by: stableInputOrder) {
+            let venue = row.course.venueDisplayName
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard !venue.isEmpty else { continue }
+            let coordinate = row.course.latitude.flatMap { latitude in
+                row.course.longitude.map { (latitude, $0) }
+            }
+            let sameVenue = groups.indices.filter { groups[$0].venue == venue }
+            let coordinateGroups = sameVenue.filter { !groups[$0].coordinates.isEmpty }
+            let match = sameVenue.first { index in
+                let group = groups[index]
+                if let coordinate {
+                    if group.coordinates.isEmpty {
+                        // An unlocated legacy row may join the first located venue, but it must
+                        // never bridge two separately located venues with the same display name.
+                        return coordinateGroups.isEmpty
+                    }
+                    return group.coordinates.first.map { distanceMetres(coordinate, $0) < 1_000 } ?? false
+                }
+                if group.coordinates.isEmpty { return true }
+                return coordinateGroups.count == 1
+            }
+            if let match {
+                groups[match].rows.append(row)
+                if let coordinate { groups[match].coordinates.append(coordinate) }
+            } else {
+                groups.append(VenueGroup(venue: venue, rows: [row], coordinates: coordinate.map { [$0] } ?? []))
+            }
+        }
+
+        // A stable venue order keeps presentation independent of provider/catalogue order. Within
+        // each physical venue, collapse one row per loop before aggregating progress.
+        return groups
+            .sorted { lhs, rhs in
+                let lLatest = lhs.rows.map(\.updatedAt).max() ?? .distantPast
+                let rLatest = rhs.rows.map(\.updatedAt).max() ?? .distantPast
+                if lLatest != rLatest { return lLatest > rLatest }
+                if lhs.venue != rhs.venue { return lhs.venue < rhs.venue }
+                let l = lhs.coordinates.first
+                let r = rhs.coordinates.first
+                if let l, let r {
+                    return l.0 == r.0 ? l.1 < r.1 : l.0 < r.0
+                }
+                return l != nil
+            }
+            .compactMap { group in
+                var byGlobalID: [Int: PrepCourseDownloadRecord] = [:]
+                for row in group.rows {
+                    if let current = byGlobalID[row.course.globalId] {
+                        byGlobalID[row.course.globalId] = preferred(current, row)
+                    } else {
+                        byGlobalID[row.course.globalId] = row
+                    }
+                }
+                let segments = byGlobalID.values.sorted { lhs, rhs in
+                    if lhs.course.globalId != rhs.course.globalId {
+                        return lhs.course.globalId < rhs.course.globalId
+                    }
+                    return lhs.teeBox.localizedCaseInsensitiveCompare(rhs.teeBox) == .orderedAscending
+                }
+                guard var result = segments.first else { return nil }
+                for segment in segments.dropFirst() {
+                    result = mergedAcrossLoops(result, segment)
+                }
+                return result
+            }
+    }
+
+    private static func stableInputOrder(
+        _ lhs: PrepCourseDownloadRecord,
+        _ rhs: PrepCourseDownloadRecord
+    ) -> Bool {
+        let lVenue = lhs.course.venueDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let rVenue = rhs.course.venueDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if lVenue != rVenue { return lVenue < rVenue }
+        if let lLat = lhs.course.latitude, let lLon = lhs.course.longitude,
+           let rLat = rhs.course.latitude, let rLon = rhs.course.longitude {
+            if lLat != rLat { return lLat < rLat }
+            if lLon != rLon { return lLon < rLon }
+        } else if lhs.course.latitude == nil && rhs.course.latitude != nil {
+            return false
+        } else if lhs.course.latitude != nil && rhs.course.latitude == nil {
+            return true
+        } else if lhs.course.longitude == nil && rhs.course.longitude != nil {
+            return false
+        } else if lhs.course.longitude != nil && rhs.course.longitude == nil {
+            return true
+        }
+        if lhs.course.globalId != rhs.course.globalId { return lhs.course.globalId < rhs.course.globalId }
+        if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt < rhs.updatedAt }
+        return lhs.teeBox.localizedCaseInsensitiveCompare(rhs.teeBox) == .orderedAscending
+    }
+
+    private static func preferred(
+        _ current: PrepCourseDownloadRecord,
+        _ candidate: PrepCourseDownloadRecord
+    ) -> PrepCourseDownloadRecord {
+        if candidate.updatedAt != current.updatedAt { return candidate.updatedAt > current.updatedAt ? candidate : current }
+        return candidate.teeBox.localizedCaseInsensitiveCompare(current.teeBox) == .orderedAscending
+            ? current : candidate
+    }
+
+    private static func distanceMetres(
+        _ lhs: (Double, Double),
+        _ rhs: (Double, Double)
+    ) -> Double {
+        let radians = Double.pi / 180
+        let dLat = (lhs.0 - rhs.0) * radians
+        let dLon = (lhs.1 - rhs.1) * radians
+        let meanLat = (lhs.0 + rhs.0) * 0.5 * radians
+        let x = dLon * cos(meanLat)
+        let y = dLat
+        return 6_371_000 * sqrt(x * x + y * y)
+    }
+
+    private static func mergedAcrossLoops(
+        _ current: PrepCourseDownloadRecord,
+        _ row: PrepCourseDownloadRecord
+    ) -> PrepCourseDownloadRecord {
+        var result = current
+        result.totalHoles = current.totalHoles + row.totalHoles
+        result.preparedHoles = current.preparedHoles + row.preparedHoles
+        result.downloadedHoles = current.downloadedHoles + row.downloadedHoles
+        result.updatedAt = max(current.updatedAt, row.updatedAt)
+        if current.phase == .failed || row.phase == .failed {
+            result.phase = .failed
+            result.errorText = current.phase == .failed ? current.errorText : row.errorText
+        } else if current.phase == .downloading || row.phase == .downloading {
+            result.phase = .downloading
+            result.errorText = nil
+        } else if current.phase == .preparing || row.phase == .preparing {
+            result.phase = .preparing
+            result.errorText = nil
+        } else if current.phase == .queued || row.phase == .queued {
+            result.phase = .queued
+            result.errorText = nil
+        } else {
+            result.phase = .ready
+            result.errorText = nil
+        }
+        return result
     }
 
     static func recentRowSubtitle(_ download: PrepCourseDownloadRecord) -> String {

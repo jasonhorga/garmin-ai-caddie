@@ -1,0 +1,11 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -5841,7 +5841,6 @@
+             guard requestGeneration == caddieRequestGeneration else { return }
+             if let offlineDecision = makeOfflineCaddieDecision() {
+                 caddieDecision = offlineDecision
+-                updateSession { entry in entry.caddieDecisionIsOnline = false }
+                 caddieDecisionOriginShot = originShot
+                 syncStrategyModeToDecision()
+                 caddieErrorMessage = offlineDecision.isLocalNoRoute

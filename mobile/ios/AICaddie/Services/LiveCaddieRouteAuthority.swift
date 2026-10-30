@@ -1,26 +1,40 @@
 import Foundation
 
-/// One deterministic route authority for live phone, map, and Watch surfaces.
+/// Shared route facts for live-hole and pre-round surfaces. The live-hole scope publishes one
+/// route; the prep scope retains materially different complete alternatives for comparison.
 ///
 /// A live response can contain a useful single-club option while a downloaded CoursePrep row
-/// contains the complete opening chain.  Treating those payloads as interchangeable was the
-/// source of the refresh jump (for example `1W -> 3H` becoming `3H -> 6I -> 58`).  This helper
-/// keeps complete routes, gives the installed CoursePrep chain precedence for the normal route,
-/// and only exposes a remote alternative when it is itself a complete, physically different line.
+/// contains the complete opening chain. Live-hole scope uses online selectedSequence, then
+/// installed CoursePrep, then the local evaluator.
 enum LiveCaddieRouteAuthority {
+    enum RouteSource: Equatable {
+        case installed
+        case online
+        case offline
+    }
+
+    enum RouteScope: Equatable {
+        case liveHole
+        case prep
+    }
+
     static func resolve(
         installed: CaddiePlanSequence?,
         online: CaddieDecisionResponse?,
         offline: CaddieDecisionResponse?,
         par: Int,
         shotType: String,
-        authority: ClubBagAuthority = .current
+        authority: ClubBagAuthority = .current,
+        scope: RouteScope = .liveHole
     ) -> [CaddiePlanSequence] {
-        // The installed chain is the first-frame visual authority even when it is an explicit
-        // CoursePrep prefix (`completion=replan_required`). Keeping that prefix prevents a refresh
-        // from replacing `1W -> 3H` with an unrelated sparse planner chain. A bare Par 4/5 tee card
-        // is filtered below; a measured multi-leg prefix remains useful while its next lie is
-        // being re-planned.
+        // Source-specific roster checks keep stale routes out before the single-route selection;
+        // `selectedRoute` repeats the check for the chosen sequence after completion filtering.
+        // Offline evaluator snapshots are also stored in `caddieDecision` while a request is
+        // pending or has failed. They belong in the fallback tier even when the caller has not
+        // yet split the response into the dedicated offline argument.
+        let authoritativeOnline = online?.isOfflineFallback == true ? nil : online
+        // A bare Par 4/5 tee card is filtered below; a measured CoursePrep prefix remains useful
+        // while its next lie is being re-planned.
         let installedRoute: CaddiePlanSequence? = {
             // The local evaluator rejected the installed chain (water / OB): never restore it.
             guard offline?.isLocalNoRoute != true else { return nil }
@@ -33,36 +47,112 @@ enum LiveCaddieRouteAuthority {
             }
             return installed
         }()
-        // A club taken out of 球包 never comes back through a decision made before the change.
-        let onlineRoutes = completeDistinctRoutes(
-            CaddiePlanPresentation.distinctSequences(from: online ?? emptyDecision),
+        if scope == .prep {
+            return prepRoutes(
+                installed: installedRoute,
+                online: authoritativeOnline,
+                offline: offline,
+                par: par,
+                shotType: shotType,
+                authority: authority
+            )
+        }
+        // A selected online sequence is the authoritative route. An online response with no
+        // selected sequence is a sparse card and falls through to installed, then local.
+        if let selected = selectedRoute(
+            from: authoritativeOnline,
             par: par,
-            shotType: shotType
-        ).filter { authority.rosterAllows($0.steps.map(\.clubName)) }
-        let offlineRoutes = completeDistinctRoutes(
-            CaddiePlanPresentation.distinctSequences(from: offline ?? emptyDecision),
-            par: par,
-            shotType: shotType
-        ).filter { authority.rosterAllows($0.steps.map(\.clubName)) }
-
-        var result: [CaddiePlanSequence] = []
+            shotType: shotType,
+            authority: authority,
+            requireExplicitSelection: true
+        ) {
+            return [selected]
+        }
         if let installedRoute {
-            result.append(installedRoute)
+            return [installedRoute]
         }
-
-        // An online response with no structured route is a sparse card, not a replacement for the
-        // installed route. Prefer online only for alternatives with a real chain. If there is no
-        // CoursePrep route yet, the complete online route becomes the first authority.
-        let candidates = onlineRoutes + offlineRoutes
-        for route in candidates {
-            if result.contains(where: { sameVisibleRoute($0, route) }) { continue }
-            result.append(route)
+        if let selected = selectedRoute(
+            from: offline,
+            par: par,
+            shotType: shotType,
+            authority: authority,
+            requireExplicitSelection: false
+        ) {
+            return [selected]
         }
+        return []
+    }
 
-        // A stale remote route can be the only payload during a cold deferred-hole frame. If the
-        // offline evaluator has a complete route, it is preferable to a single bare option and is
-        // already deterministic from the installed bag and hole facts.
-        return deduplicated(result)
+    private static func prepRoutes(
+        installed: CaddiePlanSequence?,
+        online: CaddieDecisionResponse?,
+        offline: CaddieDecisionResponse?,
+        par: Int,
+        shotType: String,
+        authority: ClubBagAuthority
+    ) -> [CaddiePlanSequence] {
+        let onlineRoutes = completeDistinctRoutes(
+            online,
+            par: par,
+            shotType: shotType,
+            authority: authority
+        )
+        let offlineRoutes = completeDistinctRoutes(
+            offline,
+            par: par,
+            shotType: shotType,
+            authority: authority
+        )
+        var routes: [CaddiePlanSequence] = []
+        if let installed { routes.append(installed) }
+        for route in onlineRoutes + offlineRoutes {
+            guard !routes.contains(where: { sameVisibleRoute($0, route) }) else { continue }
+            routes.append(route)
+        }
+        return routes
+    }
+
+    private static func completeDistinctRoutes(
+        _ response: CaddieDecisionResponse?,
+        par: Int,
+        shotType: String,
+        authority: ClubBagAuthority
+    ) -> [CaddiePlanSequence] {
+        guard let response else { return [] }
+        return CaddiePlanPresentation.distinctSequences(from: response)
+            .filter { route in
+                isComplete(route, par: par, shotType: shotType)
+                    && authority.rosterAllows(route.steps.map(\.clubName))
+            }
+            .reduce(into: []) { result, route in
+                guard !result.contains(where: { sameVisibleRoute($0, route) }) else { return }
+                result.append(route)
+            }
+    }
+
+    private static func selectedRoute(
+        from response: CaddieDecisionResponse?,
+        par: Int,
+        shotType: String,
+        authority: ClubBagAuthority,
+        requireExplicitSelection: Bool
+    ) -> CaddiePlanSequence? {
+        guard let response else { return nil }
+        if requireExplicitSelection {
+            guard let selectedSequence = response.selectedSequence,
+                  case .array(let clubs) = selectedSequence["clubs"],
+                  !clubs.isEmpty else {
+                return nil
+            }
+        }
+        guard let route = CaddiePlanSequence.selectedSequence(from: response),
+              !route.steps.isEmpty,
+              isComplete(route, par: par, shotType: shotType),
+              isDisplayable(route, par: par, shotType: shotType),
+              authority.rosterAllows(route.steps.map(\.clubName)) else {
+            return nil
+        }
+        return route
     }
 
     /// Identity of the installed CoursePrep chain when it is presented as a route.
@@ -88,13 +178,10 @@ enum LiveCaddieRouteAuthority {
         guard authority.planMatches(prepLegs) else { return nil }
         let prepSteps: [CoursePrepStep] = {
             let source = prep?.steps ?? []
-            guard par >= 3,
-                  let green = prep?.greenDistances,
-                  green.available,
-                  let front = green.frontM,
-                  let back = green.backM,
-                  front.isFinite,
-                  back.isFinite else { return source }
+            guard par >= 3, let green = prep?.greenDistances, green.available else { return source }
+            let front = green.frontRouteM ?? green.frontM
+            let back = green.backRouteM ?? green.backM
+            guard let front, let back, front.isFinite, back.isFinite else { return source }
             let lower = min(front, back)
             let upper = max(front, back) + 8.0
             let shotLimit = max(1, par - 2)
@@ -194,8 +281,8 @@ enum LiveCaddieRouteAuthority {
               offsetM.isFinite,
               let green = greenDistances,
               green.available,
-              let front = green.frontM,
-              let back = green.backM,
+              let front = green.frontRouteM ?? green.frontM,
+              let back = green.backRouteM ?? green.backM,
               front.isFinite,
               back.isFinite else {
             return false
@@ -241,7 +328,9 @@ enum LiveCaddieRouteAuthority {
         retained: CaddiePlanSequence?,
         explicitSelectionKey: String?,
         vetoInstalled: Bool,
-        authority: ClubBagAuthority = .current
+        authority: ClubBagAuthority = .current,
+        incomingSource: RouteSource = .online,
+        retainedSource: RouteSource? = nil
     ) -> (first: CaddiePlanSequence, merged: [CaddiePlanSequence])? {
         func allowed(_ route: CaddiePlanSequence) -> Bool {
             guard !vetoInstalled || route.id != installedRouteId else { return false }
@@ -249,15 +338,24 @@ enum LiveCaddieRouteAuthority {
         }
         let incoming = incoming.filter(allowed)
         guard !incoming.isEmpty else { return nil }
-        let existing = existing.filter(allowed)
-        let first = leadingRoute(
-            incoming: incoming,
-            existing: existing,
-            installed: vetoInstalled ? nil : installed.flatMap { allowed($0) ? $0 : nil },
-            retained: retained.flatMap { allowed($0) ? $0 : nil },
-            explicitSelectionKey: explicitSelectionKey
-        )
-        return (first, mergedRoutes(first: first, existing: existing, incoming: incoming))
+        let validExisting = existing.filter(allowed)
+        let validInstalled = installed.flatMap { allowed($0) ? $0 : nil }
+        let validRetained = retained.flatMap { allowed($0) ? $0 : nil }
+        let selectedExisting = explicitSelectionKey.flatMap { key in
+            selected(routes: validExisting, preferredToken: key, fallbackToken: nil)
+        }
+        // A transient offline result is lower priority than a route already published from an
+        // online response or CoursePrep. Preserve that physical chain until a new authoritative
+        // result arrives; an initial offline result still publishes normally.
+        if incomingSource == .offline,
+           retainedSource != .offline,
+           let stable = validRetained ?? selectedExisting ?? validExisting.first ?? validInstalled {
+            return (stable, [stable])
+        }
+        // `resolve` already applied source priority. The new source replaces the retained route
+        // atomically, including when an online sequence arrives after the installed chain.
+        let first = incoming[0]
+        return (first, [first])
     }
 
     /// A route still valid under the 球包 authority: none of its clubs was taken out, and an
@@ -267,57 +365,6 @@ enum LiveCaddieRouteAuthority {
         guard authority.rosterAllows(route.steps.map(\.clubName)) else { return false }
         guard route.id == installedRouteId else { return true }
         return authority.planMatches(route.steps.map { (club: $0.clubName, carryM: $0.targetCarryM) })
-    }
-
-    static func leadingRoute(
-        incoming: [CaddiePlanSequence],
-        existing: [CaddiePlanSequence],
-        installed: CaddiePlanSequence?,
-        retained: CaddiePlanSequence?,
-        explicitSelectionKey: String?
-    ) -> CaddiePlanSequence {
-        func matching(_ route: CaddiePlanSequence, in routes: [CaddiePlanSequence]) -> CaddiePlanSequence? {
-            routes.first(where: { routeSignature($0) == routeSignature(route) })
-                ?? routes.first(where: { samePhysicalRoute($0, route) })
-        }
-        if let explicitSelectionKey,
-           let route = incoming.first(where: { routeSignature($0) == explicitSelectionKey })
-                ?? existing.first(where: { routeSignature($0) == explicitSelectionKey }) {
-            return route
-        }
-        if let retained,
-           let refreshed = matching(retained, in: incoming) {
-            return refreshed
-        }
-        if let retained,
-           let installed,
-           !samePhysicalRoute(retained, installed),
-           !installed.steps.isEmpty {
-            // One-time sparse -> installed upgrade. Once retained is installed, the branch
-            // above keeps it stable across every later response.
-            return installed
-        }
-        if let retained { return retained }
-        return incoming[0]
-    }
-
-    /// The hole's routes in the order they were first shown, then only physically distinct new
-    /// alternatives. The leading route takes index zero only when it is new; a route already shown
-    /// keeps its place (refreshed in place), so selecting it cannot reshuffle the 打法 pager. Moving
-    /// the selected route to the front made a 1/3 -> 2/3 tap reorder [A, B, C] into [B, A, C], and
-    /// paging then alternated between A and B and never reached C.
-    static func mergedRoutes(
-        first: CaddiePlanSequence,
-        existing: [CaddiePlanSequence],
-        incoming: [CaddiePlanSequence]
-    ) -> [CaddiePlanSequence] {
-        var merged: [CaddiePlanSequence] = existing.contains(where: { sameVisibleRoute($0, first) }) ? [] : [first]
-        for route in existing + incoming {
-            let candidate = sameVisibleRoute(route, first) ? first : route
-            guard !merged.contains(where: { sameVisibleRoute($0, candidate) }) else { continue }
-            merged.append(candidate)
-        }
-        return merged
     }
 
     static func selected(
@@ -392,18 +439,14 @@ enum LiveCaddieRouteAuthority {
             || route.steps.contains { $0.greenInRegulation == true }
     }
 
-    static func samePhysicalRoute(_ lhs: CaddiePlanSequence, _ rhs: CaddiePlanSequence) -> Bool {
-        physicalSignature(lhs) == physicalSignature(rhs)
-    }
-
     /// Return true when two routes would be indistinguishable to the player.
     ///
     /// The live route strip exposes the club chain and whether its final leg is a position/layup
     /// or a scoring/GIR leg. It does not expose the planner's hidden carry/route-offset values in
     /// the route tabs. Treating those hidden values as identity produced duplicate choices such as
     /// two separate `3H -> 3W` tabs after a refresh. Physical values remain available on the
-    /// selected route and `samePhysicalRoute` still handles refresh retention; they must not create
-    /// another player-facing strategy by themselves. A different last-leg role only splits the
+    /// selected route; hidden values must not create another player-facing strategy by themselves.
+    /// A different last-leg role only splits the
     /// same clubs when the landings are also `minDistinctEndpointM` or more apart.
     static func sameVisibleRoute(_ lhs: CaddiePlanSequence, _ rhs: CaddiePlanSequence) -> Bool {
         guard lhs.steps.count == rhs.steps.count, !lhs.steps.isEmpty else { return false }
@@ -458,30 +501,11 @@ enum LiveCaddieRouteAuthority {
         }.joined(separator: "|")
     }
 
-    private static func completeDistinctRoutes(
-        _ routes: [CaddiePlanSequence],
-        par: Int,
-        shotType: String
-    ) -> [CaddiePlanSequence] {
-        routes.filter { isComplete($0, par: par, shotType: shotType) }
-            .reduce(into: []) { result, route in
-                guard !result.contains(where: { sameVisibleRoute($0, route) }) else { return }
-                result.append(route)
-            }
-    }
-
     /// Two same-club routes whose final landings are closer than this are not two choices.
     static let minDistinctEndpointM: Double = 20
 
     private static func endpointM(_ step: CaddiePlanSequenceStep) -> Double? {
         step.routeOffsetM ?? step.landingM ?? step.targetCarryM
-    }
-
-    private static func deduplicated(_ routes: [CaddiePlanSequence]) -> [CaddiePlanSequence] {
-        routes.reduce(into: []) { result, route in
-            guard !result.contains(where: { sameVisibleRoute($0, route) }) else { return }
-            result.append(route)
-        }
     }
 
     private static func normalizedClub(_ value: String) -> String {
@@ -502,28 +526,4 @@ enum LiveCaddieRouteAuthority {
         value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
-    private static var emptyDecision: CaddieDecisionResponse {
-        CaddieDecisionResponse(
-            schema: "empty",
-            decisionId: nil,
-            sourceRef: nil,
-            evidenceRefs: nil,
-            shotType: "tee",
-            phase: "tee_shot",
-            context: [:],
-            options: [],
-            selected: nil,
-            selectedOptionId: nil,
-            selectedOption: nil,
-            sequences: [],
-            selectedSequence: nil,
-            avoidZones: [],
-            forbiddenZones: [],
-            acceptableMiss: [:],
-            evidence: [],
-            confidence: [:],
-            missingData: [],
-            auditCriteria: []
-        )
-    }
 }

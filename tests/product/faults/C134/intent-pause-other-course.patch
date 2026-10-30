@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -6294,7 +6294,6 @@
+         if preserveIntentPrefetch,
+            let active = activePrepCourseDownloadID,
+            prepCourseDownloads.first(where: { $0.id == active })?.isIntentPrefetch == true,
+-           active == foregroundRoundStartIntentKey,
+            intentPrefetchTasks[active] != nil {
+             return
+         }

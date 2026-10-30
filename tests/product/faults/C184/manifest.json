@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C184-02-unmapped-audit-dropped",
+      "patch": "tests/product/faults/C184/02-unmapped-audit-dropped.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j7_2_unmapped_decision_event_keeps_caddie_feedback_audit",
+      "promise": "7.2"
+    },
+    {
+      "id": "tests-product-faults-C184-03-local-only-metadata-dropped",
+      "patch": "tests/product/faults/C184/03-local-only-metadata-dropped.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_mapped_local_only_keeps_phone_hole_and_audit_axis",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C184-04-unnumbered-back-raises",
+      "patch": "tests/product/faults/C184/04-unnumbered-back-raises.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_back_start_nonmerged_unnumbered_card_falls_back_to_display_axis",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C184-05-member-apply-open",
+      "patch": "tests/product/faults/C184/05-member-apply-open.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_admin_protection.ReconciliationAndCaddieContextAdminOnlyTests.test_j7_2_member_token_is_rejected_for_reconciliation_apply",
+      "promise": "7.2"
+    },
+    {
+      "id": "tests-product-faults-C184-07-eighteen-hole-fallback",
+      "patch": "tests/product/faults/C184/07-eighteen-hole-fallback.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_unmerged_eighteen_hole_no_number_card_does_not_use_nine_hole_fallback",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C184-08-media-unmapped-marker",
+      "patch": "tests/product/faults/C184/08-media-unmapped-marker.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_unmapped_photo_and_video_rows_are_marked",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C184-09-mapped-audit-hole",
+      "patch": "tests/product/faults/C184/09-mapped-audit-hole.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_mapped_local_only_keeps_phone_hole_and_audit_axis",
+      "promise": "7.2"
+    },
+    {
+      "id": "tests-product-faults-C184-10-feedback-exemption-dropped",
+      "patch": "tests/product/faults/C184/10-feedback-exemption-dropped.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j7_2_rotated_unmapped_feedback_survives_without_hole_corrections",
+      "promise": "7.2"
+    },
+    {
+      "id": "tests-product-faults-C184-11-occupied-display-rebound",
+      "patch": "tests/product/faults/C184/11-occupied-display-rebound.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_unmapped_phone_holes_do_not_correct_occupied_garmin_display_holes",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C184-12-unmapped-scores-suggested",
+      "patch": "tests/product/faults/C184/12-unmapped-scores-suggested.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_missing_garmin_card_keeps_phone_evidence_without_score_suggestions",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C184-13-unnumbered-missing-hole-suggestions",
+      "patch": "tests/product/faults/C184/13-unnumbered-missing-hole-suggestions.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_back_start_eighteen_with_only_unnumbered_first_card_keeps_evidence",
+      "promise": "1.3"
+    }
+  ]
+}

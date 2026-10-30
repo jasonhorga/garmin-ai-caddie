@@ -1,0 +1,13 @@
+diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
+index 896d9194..d50871de 100644
+--- a/ops/backfill_manual_gir.py
++++ b/ops/backfill_manual_gir.py
+@@ -269,8 +269,6 @@ def _apply(root: Path, report: dict[str, Any], mutations: dict[Path, dict[str, A
+     report["plannedChanges"] = planned
+     report["changes"] = actual_changes
+     for player, files in by_player.items():
+-        if any(path.parent.parent.parent != root / "data" / "players" for path, _entry in files):
+-            raise RuntimeError("refusing to apply GIR changes outside manual player storage")
+         with round_ingest._player_ingest_lock(player, root):
+             for path, entry in files:
+                 rows = entry["rows"]

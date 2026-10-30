@@ -2233,6 +2233,244 @@
       "kind": "native-unit",
       "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_2_hole_switch_respects_server_geometry_deadline",
       "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C134-5a-nearby-expansion",
+      "patch": "tests/product/faults/C134/5a-nearby-expansion.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyFirstTimeoutUsesTheExpandedPassBeforeFailure",
+      "promise": "5a"
+    },
+    {
+      "id": "tests-product-faults-C134-5b-nearby-failure",
+      "patch": "tests/product/faults/C134/5b-nearby-failure.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyEmptyFirstPassAndFailedExpansionEnterRetryState",
+      "promise": "5b"
+    },
+    {
+      "id": "tests-product-faults-C134-5d-pause-prep",
+      "patch": "tests/product/faults/C134/5d-pause-prep.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/TemplateAcquisitionTests/testAnInFlightOrdinaryDownloadIsCancelledByStartThenResumesAfterEntry",
+      "promise": "5d"
+    },
+    {
+      "id": "tests-product-faults-C134-5e-status-probe",
+      "patch": "tests/product/faults/C134/5e-status-probe-retries.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testPrepStatusProbeFailsThreeTimesThenCanRetryAndClearFailure",
+      "promise": "5e"
+    },
+    {
+      "id": "tests-product-faults-C134-5e-prep-asset-status",
+      "patch": "tests/product/faults/C134/5e-prep-asset-status.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testPrepStatusProbeFailsThreeTimesThenCanRetryAndClearFailure",
+      "promise": "5e-asset-status"
+    },
+    {
+      "id": "tests-product-faults-C134-5f-progress-source",
+      "patch": "tests/product/faults/C134/5f-progress-reset.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testReenteringStartKeepsTheExistingProgressTimer",
+      "promise": "5f"
+    },
+    {
+      "id": "tests-product-faults-C134-intent-cache-reuse",
+      "patch": "tests/product/faults/C134/intent-cache-reuse.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testCompletedCourseIntentIsReusedByStart",
+      "promise": "intent-reuse"
+    },
+    {
+      "id": "tests-product-faults-C134-intent-inflight-wait",
+      "patch": "tests/product/faults/C134/intent-inflight-wait.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testInFlightCourseIntentIsAwaitedByStartWithoutDuplicate",
+      "promise": "intent-wait"
+    },
+    {
+      "id": "tests-product-faults-C134-intent-wait-budget",
+      "patch": "tests/product/faults/C134/intent-wait-budget.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testInFlightCourseIntentTimesOutWithinTheForegroundBudget",
+      "promise": "intent-budget"
+    },
+    {
+      "id": "tests-product-faults-C134-intent-pause-other-course",
+      "patch": "tests/product/faults/C134/intent-pause-other-course.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testOtherCourseIntentIsPausedWhenStartTakesTheNetwork",
+      "promise": "intent-pause"
+    },
+    {
+      "id": "tests-product-faults-C134-block3-map-only",
+      "patch": "tests/product/faults/C134/block3-map-only-intent.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/TemplateAcquisitionTests/testDownloadWhileMapOnlyIntentIsInFlightUsesAnIndependentFullPackage",
+      "promise": "\u63213"
+    },
+    {
+      "id": "tests-product-faults-C134-N5-intent-followup",
+      "patch": "tests/product/faults/C134/N5-start-intent-followup.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/TemplateAcquisitionTests/testStartPrepIntentContinuesAsWholeCourseOfflineDownload",
+      "promise": "N5\u2460"
+    },
+    {
+      "id": "tests-product-faults-C134-r11-topo-status-retries",
+      "patch": "tests/product/faults/C134/r11-topo-status-retries.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testPrepDownloadWaitsForServerTopoReadyBeforeFetchingTopoBytes",
+      "promise": "C134-r12"
+    },
+    {
+      "id": "tests-product-faults-C134-r11-tee-identity",
+      "patch": "tests/product/faults/C134/r11-tee-identity-not-bound.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/TemplateAcquisitionTests/testDownloadWhileMapOnlyIntentIsInFlightUsesAnIndependentFullPackage",
+      "promise": "C134-r11"
+    },
+    {
+      "id": "tests-product-faults-C159-01",
+      "patch": "tests/product/faults/C159/01-legacy-baseline-reused.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_recomputes_baseline_for_legacy_oversized_row",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C159-02",
+      "patch": "tests/product/faults/C159/02-backup-cleanup-and-permissions.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_failure_removes_transient_backup_and_success_backup_is_private",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C159-03",
+      "patch": "tests/product/faults/C159/03-migration-without-intent.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_intent_recovers_after_log_replace",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C159-04",
+      "patch": "tests/product/faults/C159/04-ops-entrypoint-import.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_production_ops_migration_entrypoint_runs_without_scripts_package",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C159-05",
+      "patch": "tests/product/faults/C159/05-intent-not-cleared.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_dry_run_and_apply_preserve_identity",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C164b-21-multi-route-append",
+      "patch": "tests/product/faults/C164/21-multi-route-append.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LivePlanPagingTests/testOnlineSelectedSequenceReplacesInstalledAndOfflineRoutes",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-22-straight-distance",
+      "patch": "tests/product/faults/C164/22-straight-distance.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/OfflineCaddieDecisionEvaluatorTests/testDoglegUsesCumulativeRouteLengthAndExcludesPutter",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-23-target-point-as-hole-distance",
+      "patch": "tests/product/faults/C164/23-target-point-as-hole-distance.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_11_request_keeps_straight_distance_while_local_dogleg_uses_route",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-24-putter-in-local-chain",
+      "patch": "tests/product/faults/C164/24-putter-in-local-chain.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/OfflineCaddieDecisionEvaluatorTests/testLocalFallbackNeverUsesPutterAsAWholeHoleLeg",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-25-unscored-round-shows-E",
+      "patch": "tests/product/faults/C164/25-unscored-round-shows-E.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LivePlanPagingTests/testUnscoredRoundShowsDashInsteadOfEvenPar",
+      "promise": "5.10"
+    },
+    {
+      "id": "tests-product-faults-C164b-26-prep-route-scope-leak",
+      "patch": "tests/product/faults/C164/26-prep-route-scope-leak.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LivePlanPagingTests/testLiveHoleUsesOneRouteWhilePrepRetainsAlternatives",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-27-offline-source-priority",
+      "patch": "tests/product/faults/C164/27-offline-source-priority.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LivePlanPagingTests/testOfflineFallbackInDecisionSlotCannotDisplaceInstalledRoute",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-28-offline-retained-route",
+      "patch": "tests/product/faults/C164/28-offline-retained-route.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LivePlanPagingTests/testOfflineRefreshRetainsAuthoritativeRoute",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-29-target-point-in-wire-distance",
+      "patch": "tests/product/faults/C164/29-target-point-in-wire-distance.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_11_request_keeps_straight_distance_while_local_dogleg_uses_route",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-30-page-source-ignores-online-flag",
+      "patch": "tests/product/faults/C164/30-page-source-ignores-online-flag.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_11_online_then_error_retains_route",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-31-catch-keeps-online-flag",
+      "patch": "tests/product/faults/C164/31-catch-keeps-online-flag.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_11_online_then_error_retains_route",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-32-restored-local-marked-online",
+      "patch": "tests/product/faults/C164/32-restored-local-marked-online.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_11_restored_local_route_allows_later_installed_upgrade",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-33-unsigned-response-keeps-signature",
+      "patch": "tests/product/faults/C164/33-unsigned-response-keeps-signature.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_11_unsigned_online_response_clears_previous_cache_identity",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-34-wire-distance-uses-route",
+      "patch": "tests/product/faults/C164/34-wire-distance-uses-route.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_11_request_keeps_straight_distance_while_local_dogleg_uses_route",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164b-35-local-ignores-remaining-route",
+      "patch": "tests/product/faults/C164/35-local-ignores-remaining-route.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/OfflineCaddieDecisionEvaluatorTests/testRemainingRouteContextOverridesOriginalTeeLengthLocally",
+      "promise": "5.11"
     }
   ]
 }

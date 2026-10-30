@@ -120,10 +120,9 @@ struct PrepPlanOption: Equatable, Identifiable {
     /// The map legs, in the shared `HoleImageMapView` / `LivePlannedRouteRenderer` contract.
     let shots: [MapPlannedShot]
 
-    /// The hole's plans from the same decision authority as live play: the installed CoursePrep
-    /// chain first, then the caddie seed's routes through `OfflineCaddieDecisionEvaluator`, merged
-    /// and de-duplicated by `LiveCaddieRouteAuthority` exactly as the live hole does before any
-    /// network response
+    /// The hole's plans use the same route facts as live play: the installed CoursePrep chain
+    /// first, then the caddie seed's complete routes through `OfflineCaddieDecisionEvaluator`,
+    /// merged and de-duplicated by `LiveCaddieRouteAuthority` while retaining pre-round alternatives.
     /// (for a tee shot, before any GPS). Each plan is a physically different complete route. A
     /// package without a caddie seed or bag still shows its installed CoursePrep chain.
     static func options(template: LiveRoundPackage, hole: Hole, prep: CoursePrepHole?) -> [PrepPlanOption] {
@@ -160,7 +159,8 @@ struct PrepPlanOption: Equatable, Identifiable {
             online: nil,
             offline: decision,
             par: hole.par,
-            shotType: "tee"
+            shotType: "tee",
+            scope: .prep
         )
     }
 

@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -3693,7 +3693,7 @@
+         }
+         if prepDownloadID == nil {
+             await refreshServerInstallStatus()
+-        } else {
++        } else if !deferTemplateReplacement {
+             // Initial and replacement prep installs share the single-request polling endpoint.
+             // The worker owns the retry ladder; transport must not multiply each status step.
+             await refreshServerInstallStatus(useTransportRetries: false)

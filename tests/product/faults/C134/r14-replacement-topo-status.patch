@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -3926,7 +3926,7 @@
+         /// its own bounded cadence before the topo pass; geometry retry delays must not decide how
+         /// long a server-side topo render gets to finish (and may be empty in native fixtures).
+         func waitForPrepTopoReadiness() async -> Bool {
+-            guard prepDownloadID != nil else { return true }
++            guard prepDownloadID != nil, !deferTemplateReplacement else { return true }
+             let maxAttempts = 20
+             let maxWaitNanoseconds: UInt64 = 300_000_000_000
+             let startedAt = DispatchTime.now().uptimeNanoseconds

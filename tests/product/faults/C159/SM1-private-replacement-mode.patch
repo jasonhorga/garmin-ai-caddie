@@ -1,0 +1,9 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -834,4 +834,4 @@ class FileEventStore:
+         temporary_path = Path(temporary_name)
+         try:
+-            os.fchmod(descriptor, 0o600)
++            os.fchmod(descriptor, stat.S_IMODE(metadata.st_mode) if metadata is not None else 0o600)
+             if metadata is not None:

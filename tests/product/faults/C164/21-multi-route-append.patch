@@ -1,0 +1,27 @@
+diff --git a/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift b/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
+index 013488a4..86e659c2 100644
+--- a/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
++++ b/mobile/ios/AICaddie/Services/LiveCaddieRouteAuthority.swift
+@@ -59,6 +59,22 @@ enum LiveCaddieRouteAuthority {
+         }
+         // A selected online sequence is the authoritative route. An online response with no
+         // selected sequence is a sparse card and falls through to installed, then local.
++        var routes: [CaddiePlanSequence] = []
++        if let installedRoute {
++            routes.append(installedRoute)
++        }
++        for response in [authoritativeOnline, offline] {
++            if let route = selectedRoute(
++                from: response,
++                par: par,
++                shotType: shotType,
++                authority: authority,
++                requireExplicitSelection: false
++            ) {
++                routes.append(route)
++            }
++        }
++        if !routes.isEmpty { return routes }
+         if let selected = selectedRoute(
+             from: authoritativeOnline,
+             par: par,

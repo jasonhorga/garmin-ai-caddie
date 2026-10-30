@@ -1,0 +1,11 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -2213,6 +2213,2 @@ class FileEventStore:
+             self._write_committed_length(marker)
+-            try:
+-                os.chmod(self.log, payload["oldLogMode"])
+-            except OSError as exc:
+-                self._migration_recovery_failed("log_mode_restore_failed", exc)
+             try:
+                 self.round_index.unlink()

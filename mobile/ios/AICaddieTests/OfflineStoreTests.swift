@@ -366,6 +366,38 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(restored.requiredGeometryRevisions, ["778899:1": "release-b"])
     }
 
+    /// J4.1/C134: the one-time migration removes every unfinished pre-C134 row, even when the
+    /// legacy JSON has no ownership marker, while a second launch leaves newly added rows intact.
+    func testLegacyPrepRowsMigrateOnceAndKeepReadyAssets() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let ready = PrepCourseDownloadRecord(
+            course: MobileCourseOption(globalId: 880001, name: "Ready", holes: 18, teeBox: "blue"),
+            phase: .ready, preparedHoles: 18, downloadedHoles: 18, totalHoles: 18
+        )
+        let unfinished = PrepCourseDownloadRecord(
+            course: MobileCourseOption(globalId: 880002, name: "Legacy pending", holes: 18, teeBox: "blue"),
+            phase: .downloading, downloadedHoles: 2, totalHoles: 18
+        )
+        var legacy = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode([ready, unfinished]))
+                as? [[String: Any]]
+        )
+        for index in legacy.indices { legacy[index].removeValue(forKey: "isRoundPrefetch") }
+        let prepURL = directory.appendingPathComponent("prep_course_downloads.json")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: legacy).write(to: prepURL)
+
+        let firstLaunch = OfflineStore(directoryURL: directory)
+        XCTAssertTrue(try firstLaunch.migrateLegacyPrepCourseDownloadsIfNeeded())
+        XCTAssertEqual(try firstLaunch.loadPrepCourseDownloads().map(\.id), [ready.id])
+
+        try firstLaunch.savePrepCourseDownloads([unfinished])
+        let secondLaunch = OfflineStore(directoryURL: directory)
+        XCTAssertFalse(try secondLaunch.migrateLegacyPrepCourseDownloadsIfNeeded())
+        XCTAssertEqual(try secondLaunch.loadPrepCourseDownloads().map(\.id), [unfinished.id])
+    }
+
     func testPrepCourseDownloadLRUNeverEvictsUnfinishedIntent() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

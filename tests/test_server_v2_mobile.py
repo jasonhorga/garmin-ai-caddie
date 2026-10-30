@@ -63,6 +63,38 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(actual.holes[0]["geometryState"], "pending")
         self.assertGreater(actual.holes[0]["retryAfterEpoch"], 0)
 
+    def test_mobile_event_store_corrupt_logs_generic_warning(self) -> None:
+        """J7.3: non-intent event-store corruption uses a generic warning."""
+        from fastapi import HTTPException
+        from server_v2 import mobile as mobile_service
+        from server_v2.models import LiveRoundEventBatchRequest
+
+        request = LiveRoundEventBatchRequest.model_validate(
+            {
+                "roundId": "corrupt-round",
+                "events": [{
+                    "schema": "ai-caddie-live-round-event-v1",
+                    "eventId": "corrupt-event",
+                    "roundId": "corrupt-round",
+                    "timestamp": "2026-05-25T00:00:00Z",
+                    "hole": 1,
+                    "kind": "score",
+                    "payload": {"strokes": 4},
+                }],
+            }
+        )
+        with patch.object(
+            mobile_service,
+            "append_event_batch",
+            side_effect=ValueError("event_commit_store_corrupt"),
+        ), patch.object(mobile_service.logger, "warning") as warning:
+            with self.assertRaises(HTTPException) as raised:
+                mobile_service.append_mobile_events_response(
+                    "corrupt-round", request, idempotency_key="corrupt-key"
+                )
+        self.assertEqual(raised.exception.status_code, 422)
+        warning.assert_called_once_with("mobile_events store_corrupt")
+
     def _identity_course_package(self, root: Path, round_id: str, loops: list[tuple[int, str]]):
         from server_v2 import mobile as mobile_service
 

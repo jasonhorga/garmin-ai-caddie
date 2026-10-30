@@ -1,0 +1,24 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -89,20 +89,6 @@
+     # A materialized phone round already uses the phone's display holes, unlike Garmin cards.
+     if round_row.get("source") == "manual":
+         return {hole["number"]: hole["number"] for hole in identity["holes"]}
+-    # A standalone back-nine card from an older Garmin payload can omit every source number.  Its
+-    # only trustworthy axis is the card's own 1..9 display order; do not bind those rows to a
+-    # physical 10..18 identity (or raise C76's unresolved-identity guard).
+-    holes = [hole for hole in (round_row.get("holes") or []) if isinstance(hole, dict)]
+-    loops = identity.get("roundLoops") or []
+-    if (
+-        holes
+-        and not round_row.get("merged")
+-        and len(holes) <= 9
+-        and loops
+-        and loops[0].get("half") == "back"
+-        and all(not _safe_int(hole.get("number")) for hole in holes)
+-    ):
+-        return None
+     from ai_caddie.history.corrected_history import hole_sides
+ 
+     front_gid = _safe_int(

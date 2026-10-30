@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -518,7 +518,7 @@
+                 event = {**event, "hole": hole_map[hole]}
+                 hole = hole_map[hole]
+                 if audit:
+-                    audit["hole"] = hole
++                    pass
+         elif identity is not None and hole not in scores:
+             # Legacy unnumbered cards use the display axis, but absent card rows cannot consume
+             # hole corrections. Keep the phone evidence without suggesting an ineffective write.

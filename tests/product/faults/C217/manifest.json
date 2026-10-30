@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C217-01-shared-recovery",
+      "patch": "tests/product/faults/C217/01-shared-recovery.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_shared_readers_serialize_interrupted_migration_recovery",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C217-02-missing-backup",
+      "patch": "tests/product/faults/C217/02-missing-backup.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_dry_run_and_apply_preserve_identity",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C217-03-orphan-json-temps",
+      "patch": "tests/product/faults/C217/03-orphan-json-temps.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_recovery_cleans_only_event_owned_temporary_files",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C217-04-SM-A-public-backup-window",
+      "patch": "tests/product/faults/C217/04-SM-A-public-backup-window.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_migration_backup_is_private_at_every_metadata_boundary",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C217-05-SM-B-constant-partition",
+      "patch": "tests/product/faults/C217/05-SM-B-constant-partition.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_bad_migration_intent_logs_partition_only",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C217-06-filename-mode-policy",
+      "patch": "tests/product/faults/C217/06-filename-mode-policy.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_migration_replacement_mode_follows_explicit_policy",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C217-07-remove-writer-cache-exception",
+      "patch": "tests/product/faults/C217/07-remove-writer-cache-exception.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_indexed_round_read_after_append_stays_bounded_inside_prefix_safety_window",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C217-08-player-scope-is-main",
+      "patch": "tests/product/faults/C217/08-player-scope-is-main.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_bad_migration_intent_logs_partition_only",
+      "promise": "7.3"
+    }
+  ]
+}

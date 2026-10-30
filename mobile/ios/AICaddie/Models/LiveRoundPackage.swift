@@ -446,6 +446,49 @@ public struct LiveRoundPackage: Codable, Equatable {
         )
     }
 
+    /// Bind a package response to the Tee selection that owns its offline template. Some fixture
+    /// and legacy package responses carry the venue's default Tee even when the request selected a
+    /// different Tee; the durable template key must follow the request selection.
+    public func replacingCourseTeeBox(_ rawTeeBox: String?) -> LiveRoundPackage {
+        guard let teeBox = rawTeeBox?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !teeBox.isEmpty,
+              teeBox.caseInsensitiveCompare(course.teeBox) != .orderedSame else { return self }
+        return LiveRoundPackage(
+            schema: schema,
+            roundId: roundId,
+            dataMode: dataMode,
+            sourceCoverage: sourceCoverage,
+            missingData: missingData,
+            playerProfile: playerProfile,
+            course: Course(
+                globalId: course.globalId,
+                name: course.name,
+                teeBox: teeBox,
+                venueName: course.venueName,
+                venueNameSource: course.venueNameSource,
+                segmentLabel: course.segmentLabel
+            ),
+            holes: holes,
+            roundLoops: roundLoops,
+            loopKey: loopKey,
+            venueLoops: venueLoops,
+            coursePrep: coursePrep,
+            geometryCoverage: geometryCoverage,
+            readinessChecks: readinessChecks,
+            caddieContextSeeds: caddieContextSeeds,
+            weatherSnapshot: weatherSnapshot,
+            clubProfiles: clubProfiles,
+            caddieDecisionEndpoint: caddieDecisionEndpoint,
+            offlinePackageStatus: offlinePackageStatus,
+            eventCursor: eventCursor,
+            recentHistory: recentHistory,
+            cachedCaddieRules: cachedCaddieRules,
+            generatedAt: generatedAt,
+            readinessState: readinessState,
+            enrichmentState: enrichmentState
+        )
+    }
+
     /// Reuse immutable course/geometry/caddie facts for a brand-new offline round without reusing
     /// the old round's identity or server cursor. Hole events live in OfflineStore separately and
     /// are therefore intentionally absent from this new identity.

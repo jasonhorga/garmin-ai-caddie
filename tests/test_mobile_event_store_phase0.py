@@ -9,6 +9,8 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -237,7 +239,15 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
             with store.log.open("r+b") as handle:
                 store._recover_event_log_unlocked(handle=handle)
         store.ensure_round_event_index()
-        store.append_batch(appended_round, [_event("appended", round_id=appended_round)], request_key="appended")
+
+        def inside_window() -> int:
+            # Keep the append inside the racy window however slow fsync is: only the
+            # writer exception may seed the cache.
+            current = store.log.stat()
+            return max(current.st_mtime_ns, current.st_ctime_ns)
+
+        with mock.patch.object(mobile_event_store, "_PREFIX_CACHE_CLOCK", inside_window):
+            store.append_batch(appended_round, [_event("appended", round_id=appended_round)], request_key="appended")
         signature = store._log_signature()
         self.assertIsNotNone(signature)
         assert signature is not None
@@ -345,10 +355,18 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertEqual(self.root.joinpath("events.jsonl").read_bytes(), before)
         self.assertFalse(self.root.joinpath("events.jsonl.bak-20261029T000000Z").exists())
 
-        applied = migrate(self.root, apply=True, timestamp="20261029T000000Z")
         backup = self.root.joinpath("events.jsonl.bak-20261029T000000Z")
+        migration_error = None
+        try:
+            applied = migrate(self.root, apply=True, timestamp="20261029T000000Z")
+        except FileNotFoundError as exc:
+            migration_error = exc
+        self.assertTrue(backup.exists(), "apply must create its rollback backup before using it")
+        if migration_error is not None:
+            raise migration_error
         self.assertEqual(applied["changed"], 1)
         self.assertTrue(backup.exists())
+        self.assertFalse(self.root.joinpath("events.jsonl.migration.json").exists())
         self.assertTrue(self.root.joinpath("round_event_index.json").exists())
         cold_store = FileEventStore(self.root)
         rows = cold_store.read_rows(ROUND_A)
@@ -390,6 +408,518 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertEqual(store.commit_marker.read_bytes(), before["events.jsonl.commit.json"])
         self.assertEqual(store.round_index.read_bytes(), before["round_event_index.json"])
         self.assertEqual(FileEventStore(self.root).read_rows(ROUND_A)[0]["event"]["eventId"], "rollback")
+
+    def test_event_payload_migration_recomputes_baseline_for_legacy_oversized_row(self) -> None:
+        """J5.9: migration rewrites the sealed legacy region and preserves its identities."""
+        event = {
+            **_event("legacy-baseline-large"),
+            "kind": "club",
+            "payload": {"decision": {"detail": "x" * (65 * 1024)}},
+        }
+        row = {
+            "roundId": ROUND_A,
+            "serverSequence": 1,
+            "event": event,
+        }
+        log = self.root / "events.jsonl"
+        log.write_bytes((json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n").encode())
+        before = FileEventStore(self.root).read_rows(ROUND_A)
+
+        from scripts.migrate_mobile_event_payloads import migrate
+
+        report = migrate(self.root, apply=True, timestamp="20261029T000010Z")
+        self.assertEqual(report["changed"], 1)
+        after = FileEventStore(self.root).read_rows(ROUND_A)
+        self.assertEqual(
+            [(item["event"]["roundId"], item["event"]["eventId"]) for item in after],
+            [(item["event"]["roundId"], item["event"]["eventId"]) for item in before],
+        )
+        marker = FileEventStore(self.root)._load_commit_marker()
+        self.assertIsNotNone(marker)
+        assert marker is not None
+        self.assertEqual(marker.legacy_baseline_byte_length, marker.committed_byte_length)
+
+    def test_event_payload_migration_failure_removes_transient_backup_and_success_backup_is_private(self) -> None:
+        """J5.9: failed migration removes its backup while a committed backup is mode 0600."""
+        from scripts.migrate_mobile_event_payloads import migrate
+
+        store = FileEventStore(self.root)
+        event = {
+            **_event("backup-permissions"),
+            "kind": "club",
+            "payload": {"decision": {"detail": "x" * (65 * 1024)}},
+        }
+        store.append_batch(ROUND_A, [event], request_key="backup-permissions")
+        store.log.chmod(0o644)
+        row = json.loads(store.log.read_text(encoding="utf-8").splitlines()[0])
+        row["event"]["payload"]["decision"]["detail"] = "x" * (65 * 1024)
+        row["eventHash"] = _sha256(_normalized_event_for_hash(row["event"]))
+        rewritten = (json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n").encode()
+        store.log.write_bytes(rewritten)
+        marker = store._load_commit_marker()
+        assert marker is not None
+        store._write_committed_length(_CommitMarker(len(rewritten), hashlib.sha256(rewritten).hexdigest(), marker.legacy_baseline_byte_length))
+        with mock.patch.object(FileEventStore, "_write_committed_length", side_effect=OSError("injected marker failure")):
+            with self.assertRaisesRegex(OSError, "injected marker failure"):
+                migrate(self.root, apply=True, timestamp="20261029T000011Z")
+        self.assertFalse(list(self.root.glob("events.jsonl.bak-20261029T000011Z")))
+
+        applied = migrate(self.root, apply=True, timestamp="20261029T000012Z")
+        backup = Path(str(applied["backup"]))
+        self.assertTrue(backup.exists())
+        self.assertEqual(backup.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(store.log.stat().st_mode & 0o777, 0o644)
+
+    def test_event_payload_migration_intent_recovers_after_log_replace(self) -> None:
+        """J5.9: a restart after log replacement completes migration and repairs the index."""
+        from scripts.migrate_mobile_event_payloads import migrate
+
+        store = FileEventStore(self.root)
+        event = {**_event("intent-recovery"), "kind": "club", "payload": {"decision": {"detail": "x" * (65 * 1024)}}}
+        store.append_batch(ROUND_A, [event], request_key="intent-recovery")
+        row = json.loads(store.log.read_text(encoding="utf-8").splitlines()[0])
+        row["event"]["payload"]["decision"]["detail"] = "x" * (65 * 1024)
+        row["eventHash"] = _sha256(_normalized_event_for_hash(row["event"]))
+        rewritten = (json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n").encode()
+        store.log.write_bytes(rewritten)
+        marker = store._load_commit_marker()
+        assert marker is not None
+        store._write_committed_length(_CommitMarker(len(rewritten), hashlib.sha256(rewritten).hexdigest(), marker.legacy_baseline_byte_length))
+        before = FileEventStore(self.root).read_rows(ROUND_A)
+        original_replace = FileEventStore._replace_bytes_preserving_metadata
+        calls = 0
+
+        def replace_then_crash(self: FileEventStore, path: Path, data: bytes, metadata: os.stat_result | None, **kwargs: object) -> None:
+            nonlocal calls
+            original_replace(self, path, data, metadata, **kwargs)
+            calls += 1
+            if calls == 2:
+                raise SystemExit("simulated process death")
+
+        with mock.patch.object(FileEventStore, "_replace_bytes_preserving_metadata", replace_then_crash), \
+             mock.patch.object(FileEventStore, "_restore_file_snapshot", side_effect=SystemExit("simulated process death")):
+            with self.assertRaisesRegex(SystemExit, "simulated process death"):
+                migrate(self.root, apply=True, timestamp="20261029T000013Z")
+
+        recovered = FileEventStore(self.root)
+        stale_tmp = recovered.root / ".events.jsonl.migrate-stale.tmp"
+        stale_backup_tmp = recovered.root / ".events.jsonl.bak-stale.migrate-stale.tmp"
+        stale_tmp.write_bytes(b"private legacy bytes")
+        stale_tmp.chmod(0o644)
+        stale_backup_tmp.write_bytes(b"private legacy backup bytes")
+        stale_backup_tmp.chmod(0o644)
+        self.assertEqual([(row["event"]["eventId"]) for row in recovered.read_rows(ROUND_A)], ["intent-recovery"])
+        self.assertFalse(stale_tmp.exists())
+        self.assertFalse(stale_backup_tmp.exists())
+        recovered.append_batch(ROUND_A, [{**_event("intent-followup")}], request_key="intent-followup")
+        self.assertEqual({row["event"]["eventId"] for row in recovered.read_rows(ROUND_A)}, {"intent-recovery", "intent-followup"})
+        self.assertEqual(recovered.read_rows(ROUND_A)[0]["event"]["eventId"], before[0]["event"]["eventId"])
+
+    def test_mobile_event_redaction_precedes_decision_string_truncation(self) -> None:
+        """J7.3: a token crossing the 256-byte summary boundary leaves no secret fragment."""
+        store = FileEventStore(self.root)
+        event = {
+            **_event("cross-boundary-token"),
+            "kind": "club",
+            "payload": {"decision": {"detail": "x" * 252 + " token=secret-cross-boundary-value" + "y" * (65 * 1024)}},
+        }
+        store.append_batch(ROUND_A, [event], request_key="cross-boundary-token")
+        rendered = json.dumps(store.read_rows(ROUND_A), ensure_ascii=False)
+        detail = store.read_rows(ROUND_A)[0]["event"]["payload"]["decision"]["detail"]
+        self.assertNotIn("secret-cross-boundary-value", rendered)
+        self.assertNotIn("token=secret", rendered)
+        self.assertNotIn("tok", detail)
+
+    def test_mobile_event_redaction_keeps_far_credentials_bounded_and_appendable(self) -> None:
+        """J7.3: credentials after the preview boundary stay bounded and the event is accepted."""
+        for offset in (1000, 40 * 1024, 70 * 1024):
+            with self.subTest(offset=offset):
+                store = FileEventStore(self.root / f"far-{offset}")
+                event = {
+                    **_event(f"far-credential-{offset}"),
+                    "kind": "club",
+                    "payload": {
+                        "decision": {
+                            "detail": "x" * offset + " token=secret-far-boundary-value" + "y" * (65 * 1024),
+                        },
+                    },
+                }
+                result = store.append_batch(
+                    ROUND_A,
+                    [event],
+                    request_key=f"far-credential-{offset}",
+                )
+                self.assertEqual(result[0].status, "accepted")
+                detail = store.read_rows(ROUND_A)[0]["event"]["payload"]["decision"]["detail"]
+                self.assertLessEqual(len(detail.encode("utf-8")), 256)
+                self.assertNotIn("secret-far-boundary-value", detail)
+
+    def test_migration_temporary_files_are_private_from_creation(self) -> None:
+        """J7.3: migration replacement temporary files never expose complete event logs."""
+        store = FileEventStore(self.root)
+        target = store.log
+        target.write_bytes(b"legacy event bytes\n")
+        target.chmod(0o644)
+        observed_modes: list[int] = []
+        original_replace = os.replace
+
+        def inspect_replace(source: str | os.PathLike[str], destination: str | os.PathLike[str]) -> None:
+            if Path(source).name.startswith(".events.jsonl") and ".migrate-" in Path(source).name:
+                observed_modes.append(Path(source).stat().st_mode & 0o777)
+            original_replace(source, destination)
+
+        with mock.patch.object(os, "replace", side_effect=inspect_replace):
+            store._replace_bytes_preserving_metadata(target, b"private event bytes\n", target.stat())
+            backup = store.log.with_name("events.jsonl.bak-private")
+            store._replace_bytes_preserving_metadata(backup, b"private event bytes\n", target.stat())
+        self.assertEqual(observed_modes, [0o600, 0o600])
+
+    def _stage_interrupted_rollback(self, store: FileEventStore) -> bytes:
+        raw = store.log.read_bytes()
+        marker = store._load_commit_marker()
+        self.assertIsNotNone(marker)
+        backup = store.root / "events.jsonl.bak-interrupted"
+        backup.write_bytes(raw)
+        backup.chmod(0o600)
+        store._write_migration_intent(
+            old_marker=marker, old_length=len(raw),
+            old_sha256=hashlib.sha256(raw).hexdigest(), old_log_mode=0o644,
+            backup=backup,
+            new_marker=_CommitMarker(1, hashlib.sha256(b"x").hexdigest(), 0),
+        )
+        store.log.write_bytes(b"interrupted replacement\n")
+        return raw
+
+    def test_shared_readers_serialize_interrupted_migration_recovery(self) -> None:
+        """J5.9: two readers waiting behind a crashed writer preserve the live rollback tmp."""
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [_event("concurrent-recovery")], request_key="concurrent-recovery")
+        before_lock = threading.Barrier(3)
+        intent_ready = threading.Event()
+        temporary_ready = threading.Event()
+        competitor_checked = threading.Event()
+        original_flock = fcntl.flock
+        original_replace = os.replace
+        original_clear = FileEventStore._clear_migration_temps
+        attempted: set[str] = set()
+        survived: list[bool] = []
+
+        def flock(descriptor: int, mode: int) -> None:
+            name = threading.current_thread().name
+            if name in ("first-reader", "second-reader") and name not in attempted:
+                attempted.add(name)
+                before_lock.wait(timeout=5)
+                if not intent_ready.wait(5):
+                    raise AssertionError("writer did not stage its interrupted migration")
+                if name == "second-reader":
+                    if not temporary_ready.wait(5):
+                        raise AssertionError("first rollback did not create a temporary file")
+                    try:
+                        original_flock(descriptor, mode | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        # The first reader holds EX: the second cannot clean its live tmp.
+                        competitor_checked.set()
+                    else:
+                        return
+            original_flock(descriptor, mode)
+
+        def clear(other: FileEventStore) -> None:
+            original_clear(other)
+            if threading.current_thread().name == "second-reader":
+                competitor_checked.set()
+
+        def replace(source: object, destination: object) -> None:
+            if threading.current_thread().name == "first-reader" and Path(destination) == store.log:
+                temporary_ready.set()
+                if not competitor_checked.wait(5):
+                    raise AssertionError("second reader did not attempt recovery")
+                survived.append(Path(source).exists())
+            original_replace(source, destination)
+
+        def read(name: str) -> tuple[list[dict], str | None]:
+            threading.current_thread().name = name
+            try:
+                return FileEventStore(self.root).read_rows(ROUND_A), None
+            except Exception as exc:
+                return [], f"{type(exc).__name__}: {exc}"
+
+        with mock.patch.object(fcntl, "flock", side_effect=flock), \
+             mock.patch.object(os, "replace", side_effect=replace), \
+             mock.patch.object(FileEventStore, "_clear_migration_temps", clear), \
+             mock.patch.object(mobile_event_store.logger, "error") as error:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                first = pool.submit(read, "first-reader")
+                second = pool.submit(read, "second-reader")
+                try:
+                    before_lock.wait(timeout=5)
+                    with store._locked(store.event_lock):
+                        raw = self._stage_interrupted_rollback(store)
+                finally:
+                    intent_ready.set()
+                results = [first.result(timeout=10), second.result(timeout=10)]
+        self.assertEqual(survived, [True], "a reader must not unlink another reader's live rollback tmp")
+        self.assertEqual([failure for _, failure in results], [None, None])
+        self.assertEqual([[row["event"]["eventId"] for row in rows] for rows, _ in results],
+                         [["concurrent-recovery"], ["concurrent-recovery"]])
+        self.assertEqual(store.log.read_bytes(), raw)
+        self.assertFalse(store.migration_intent.exists())
+        error.assert_not_called()
+
+    def test_recovery_cleans_only_event_owned_temporary_files(self) -> None:
+        """J5.9/J7.3: cold reads clean abandoned migration/JSON temps, even without an intent."""
+        for has_intent in (False, True):
+            with self.subTest(has_intent=has_intent):
+                store = FileEventStore(self.root / str(has_intent))
+                store.append_batch(ROUND_A, [_event("clean-recovery")], request_key="clean-recovery")
+                if has_intent:
+                    self._stage_interrupted_rollback(store)
+                names = (
+                    ".events.jsonl.migrate-orphan.tmp",
+                    ".events.jsonl.bak-old.migrate-orphan.tmp",
+                    ".round_event_index.json.migrate-orphan.tmp",
+                    ".round_event_index.json.orphan.tmp",
+                    ".events.jsonl.commit.json.orphan.tmp",
+                    ".events.jsonl.pending.json.orphan.tmp",
+                    ".events.jsonl.migration.json.orphan.tmp",
+                )
+                abandoned = [store.root / name for name in names]
+                keep = [store.root / name for name in (
+                    ".client_acks.json.active.tmp", ".unrelated.tmp",
+                    "events.jsonl.bak-retained", ".round_event_index.json.keep",
+                )]
+                for path in abandoned + keep:
+                    path.write_bytes(b"fixture artifact")
+                rows = FileEventStore(store.root).read_rows(ROUND_A)
+                self.assertEqual([row["event"]["eventId"] for row in rows], ["clean-recovery"])
+                self.assertEqual([path.name for path in abandoned if path.exists()], [],
+                                 "cold recovery must remove abandoned event-store temporary files")
+                self.assertTrue(all(path.exists() for path in keep), "unrelated files and backups must survive")
+
+    def test_shared_read_does_not_clean_tmp_until_exclusive_lock(self) -> None:
+        """J5.9: migration tmp cleanup runs only after an exclusive event-lock acquisition."""
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [_event("shared-cleanup")], request_key="shared-cleanup")
+        temp = store.root / ".events.jsonl.migrate-shared.tmp"
+        original_fsync = os.fsync
+        created = False
+
+        def fsync(descriptor: int) -> None:
+            nonlocal created
+            original_fsync(descriptor)
+            if not created:
+                try:
+                    target = os.readlink(f"/proc/self/fd/{descriptor}")
+                except OSError:
+                    target = ""
+                if target == str(store.event_lock):
+                    temp.write_bytes(b"live migration bytes")
+                    created = True
+
+        with mock.patch.object(mobile_event_store.os, "fsync", side_effect=fsync):
+            self.assertEqual([row["event"]["eventId"] for row in store.read_rows()], ["shared-cleanup"])
+        self.assertTrue(temp.exists(), "a shared reader must not delete a tmp created during its lock")
+
+        self.assertEqual([row["event"]["eventId"] for row in store.read_rows()], ["shared-cleanup"])
+        self.assertFalse(temp.exists(), "an exclusive cleanup pass removes the abandoned tmp")
+
+    def test_cleanup_unlink_failure_warns_and_read_continues(self) -> None:
+        """J5.9: an undeletable event tmp warns without making the partition unreadable."""
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [_event("unlink-warning")], request_key="unlink-warning")
+        temp = store.root / ".events.jsonl.migrate-unlink-warning.tmp"
+        temp.write_bytes(b"undeletable")
+        original_unlink = Path.unlink
+
+        def unlink(path: Path, *, missing_ok: bool = False) -> None:
+            if path == temp:
+                raise PermissionError("synthetic unlink denial")
+            original_unlink(path, missing_ok=missing_ok)
+
+        with mock.patch.object(Path, "unlink", autospec=True, side_effect=unlink), \
+             mock.patch.object(mobile_event_store.logger, "warning") as warning:
+            rows = FileEventStore(self.root).read_rows(ROUND_A)
+
+        self.assertEqual([row["event"]["eventId"] for row in rows], ["unlink-warning"])
+        warning.assert_called_once()
+        self.assertIn("migration", str(warning.call_args).lower())
+
+    def test_reservation_temporary_files_are_cleaned_without_touching_formal_store(self) -> None:
+        """J5.9: request-reservation tmp artifacts are event-owned cleanup targets."""
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [_event("reservation-cleanup")], request_key="reservation-cleanup")
+        temporary = store.root / ".request_reservations.json.123.tmp"
+        temporary.write_bytes(b"stale reservation")
+        store.reservations.write_bytes(b"formal reservation store")
+
+        self.assertEqual([row["event"]["eventId"] for row in store.read_rows()], ["reservation-cleanup"])
+        self.assertFalse(temporary.exists())
+        self.assertEqual(store.reservations.read_bytes(), b"formal reservation store")
+
+    def test_migration_backup_is_private_at_every_metadata_boundary(self) -> None:
+        """J7.3: a 0644 source never makes the backup public, even before final chmod."""
+        store = FileEventStore(self.root)
+        # A legacy decision requiring migration, per J5.9's backwards-compatible replay.
+        row = {"roundId": ROUND_A, "event": {
+            **_event("private-backup"), "kind": "club",
+            "payload": {"decision": {"detail": "x" * (65 * 1024)}},
+        }}
+        store.log.write_text(json.dumps(row) + "\n")
+        store.log.chmod(0o644)
+        backup = store.root / "events.jsonl.bak-private-boundaries"
+        observed: list[int] = []
+        original_replace, original_chmod, original_chown = os.replace, os.chmod, os.chown
+        original_fsync = store._fsync_directory
+
+        def observe() -> None:
+            if backup.exists():
+                observed.append(backup.stat().st_mode & 0o777)
+
+        def replace(source: object, destination: object) -> None:
+            if Path(destination) == backup:
+                observed.append(Path(source).stat().st_mode & 0o777)
+            original_replace(source, destination)
+            observe()
+
+        def chmod(path: object, mode: int, *args: object, **kwargs: object) -> None:
+            observe()
+            original_chmod(path, mode, *args, **kwargs)
+            observe()
+
+        def chown(*args: object, **kwargs: object) -> None:
+            observe()
+            original_chown(*args, **kwargs)
+            observe()
+
+        def fsync(directory: Path | None = None) -> None:
+            observe()
+            original_fsync(directory)
+
+        with mock.patch.object(os, "replace", side_effect=replace), \
+             mock.patch.object(os, "chmod", side_effect=chmod), \
+             mock.patch.object(os, "chown", side_effect=chown), \
+             mock.patch.object(store, "_fsync_directory", side_effect=fsync):
+            report = store.migrate_event_payloads(apply=True, timestamp="private-boundaries")
+        self.assertEqual(report["changed"], 1)
+        self.assertTrue(observed)
+        self.assertEqual(set(observed), {0o600}, "backup must remain 0600 at every persistence boundary")
+        self.assertEqual(store.log.stat().st_mode & 0o777, 0o644)
+
+    def test_migration_replacement_mode_follows_explicit_policy(self) -> None:
+        """J7.3/J5.9: callers choose privacy vs mode preservation independently of filenames."""
+        store = FileEventStore(self.root)
+        store.log.write_bytes(b"source\n")
+        store.log.chmod(0o644)
+        metadata = store.log.stat()
+        for name, preserve, expected in (
+            ("renamed-private-copy", False, 0o600),
+            ("events.jsonl.bak-public-fixture", True, 0o644),
+        ):
+            with self.subTest(name=name):
+                target = store.root / name
+                store._replace_bytes_preserving_metadata(target, b"replacement\n", metadata,
+                                                         preserve_mode=preserve)
+                self.assertEqual(target.stat().st_mode & 0o777, expected,
+                                 "replacement mode must follow the explicit policy")
+                self.assertEqual(target.read_bytes(), b"replacement\n")
+
+    def test_migration_intent_recovery_restores_original_log_mode_after_new_log_replace(self) -> None:
+        """J5.9: recovery after a new-log replace restores the old log mode."""
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [{**_event("new-log-mode")}], request_key="new-log-mode")
+        old_raw = store.log.read_bytes()
+        old_marker = store._load_commit_marker()
+        assert old_marker is not None
+        new_row = json.loads(old_raw)
+        new_row["event"]["eventId"] = "new-log-mode-2"
+        new_row["eventHash"] = _sha256(_normalized_event_for_hash(new_row["event"]))
+        new_raw = (json.dumps(new_row, ensure_ascii=False, sort_keys=True) + "\n").encode()
+        new_marker = _CommitMarker(
+            len(new_raw), hashlib.sha256(new_raw).hexdigest(), old_marker.legacy_baseline_byte_length,
+        )
+        backup = store.log.with_name("events.jsonl.bak-new-log-mode")
+        backup.write_bytes(old_raw)
+        backup.chmod(0o600)
+        store.log.write_bytes(new_raw)
+        store.log.chmod(0o600)
+        store._write_migration_intent(
+            old_marker=old_marker,
+            old_length=len(old_raw),
+            old_sha256=hashlib.sha256(old_raw).hexdigest(),
+            old_log_mode=0o644,
+            backup=backup,
+            new_marker=new_marker,
+        )
+        recovered = FileEventStore(self.root)
+        rows = recovered.read_rows(ROUND_A)
+        self.assertEqual(recovered.log.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(rows[0]["event"]["eventId"], "new-log-mode-2")
+
+    def test_migration_intent_recovery_restores_original_log_mode(self) -> None:
+        """J5.9: rollback from a trusted backup restores the original event-log permissions."""
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [{**_event("mode-rollback")}], request_key="mode-rollback")
+        raw = store.log.read_bytes()
+        marker = store._load_commit_marker()
+        assert marker is not None
+        store.log.chmod(0o644)
+        backup = store.log.with_name("events.jsonl.bak-mode-rollback")
+        backup.write_bytes(raw)
+        backup.chmod(0o600)
+        store.log.write_bytes(b"tampered log\n")
+        store._write_migration_intent(
+            old_marker=marker,
+            old_length=len(raw),
+            old_sha256=hashlib.sha256(raw).hexdigest(),
+            old_log_mode=0o644,
+            backup=backup,
+            new_marker=_CommitMarker(1, hashlib.sha256(b"x").hexdigest(), marker.legacy_baseline_byte_length),
+        )
+        recovered = FileEventStore(self.root)
+        self.assertEqual(recovered.read_rows(ROUND_A)[0]["event"]["eventId"], "mode-rollback")
+        self.assertEqual(recovered.log.stat().st_mode & 0o777, 0o644)
+        self.assertFalse(backup.exists())
+
+    def test_bad_migration_intent_logs_partition_only(self) -> None:
+        """J7.3: unrecoverable migration state emits a dedicated partition-only event."""
+        partitions: list[str] = []
+        for relative, scope in (
+            ("mobile_events", "main"),
+            ("players/player-secret/mobile_events", "player"),
+            ("players/another-player/mobile_events", "player"),
+        ):
+            store = FileEventStore(self.root / relative)
+            store._ensure_root_durable()
+            store.migration_intent.write_text("{bad", encoding="utf-8")
+            with mock.patch.object(mobile_event_store.logger, "error") as error:
+                with self.assertRaisesRegex(ValueError, "event_commit_store_corrupt"):
+                    store.read_rows()
+            error.assert_called_once()
+            message = error.call_args.args[0] % error.call_args.args[1:]
+            self.assertIn("mobile_event_migration_intent_unrecoverable", message)
+            partition = error.call_args.args[1]
+            self.assertRegex(partition, rf"^{scope}:[0-9a-f]{{12}}$")
+            # The documented mapping command uses the resolved absolute directory's UTF-8 SHA.
+            expected_hash = hashlib.sha256(str(store.root).encode("utf-8")).hexdigest()[:12]
+            self.assertEqual(partition, f"{scope}:{expected_hash}")
+            partitions.append(partition)
+            for private_value in ("player-secret", "another-player", str(self.root)):
+                self.assertNotIn(private_value, message)
+        self.assertEqual(len(set(partitions)), 3, "each physical partition needs a distinct diagnostic id")
+
+    def test_production_ops_migration_entrypoint_runs_without_scripts_package(self) -> None:
+        """J5.9: the migration entrypoint available in the production image performs a dry-run."""
+        entrypoint = Path(__file__).resolve().parents[1] / "ops" / "migrate_mobile_event_payloads.py"
+        result = subprocess.run(
+            [sys.executable, str(entrypoint), str(self.root)],
+            cwd=entrypoint.parents[1],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertFalse(report["apply"])
+        self.assertEqual(report["changed"], 0)
 
     def test_legacy_oversized_non_decision_rows_remain_readable(self) -> None:
         """J5.9: read paths preserve an irreducibly large legacy event instead of raising."""

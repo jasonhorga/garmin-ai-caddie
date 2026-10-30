@@ -1,0 +1,7 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -5688,2 +5688,2 @@
+-        let localRemaining = explicitEndpoint ?? currentRemainingRouteMetres
++        let localRemaining = caddiePlanningDistanceMetres
+         if let remaining = localRemaining, remaining.isFinite, remaining > 0 {

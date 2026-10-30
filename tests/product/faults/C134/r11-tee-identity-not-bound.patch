@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -6901,7 +6901,7 @@
+             // The request's Tee owns the offline template key. Legacy/fixture responses may carry
+             // the venue default Tee in `course`; normalize that identity before caching or using
+             // the package for the independent whole-course row.
+-            let canonicalFetched = fetched.replacingCourseTeeBox(record.teeBox)
++            let canonicalFetched = fetched
+             let isIntentPrefetch = record.isIntentPrefetch
+             if isIntentPrefetch {
+                 prefetchFirstHoleTopo(in: canonicalFetched)
