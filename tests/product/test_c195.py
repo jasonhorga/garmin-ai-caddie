@@ -204,6 +204,222 @@ class ReleaseRecoveryTests(unittest.TestCase):
             warm.assert_not_called()
         return snapshots
 
+    @contextmanager
+    def _release_worker(self, root, now, render, *, raster_ready=None):
+        """Exercise production _sources: release metadata and geometry assets differ."""
+        from server_v2 import render_backfill as rb
+
+        info = {"release_version": "release-7", "holes": [
+            {"hole": hole, "geometryAssetVersion": f"geometry-{hole}",
+             "raster_url": f"https://example.invalid/h{hole}.jpg"}
+            for hole in (1, 2)
+        ]}
+        worker = self._worker(root, now, (1,), render, raster_ready=raster_ready)
+        worker._raster_version = None
+        with (
+            patch.object(rb.garmin_raster, "courseview_release_info", return_value=info),
+            patch.object(rb.garmin_raster, "RASTER_CACHE_DIR", root / "rasters"),
+        ):
+            try:
+                yield worker, info
+            finally:
+                worker.close()
+
+    def test_J42_scan_clears_completed_breaker_before_close(self):
+        """J4.2: boot/force scans clear externally repaired releases durably on return."""
+        from server_v2 import render_backfill as rb
+
+        for force in (False, True):
+            with self.subTest(force=force), TemporaryDirectory() as directory:
+                now, ready, calls = [1000.0], [False], []
+
+                def render(gid, hole, asset):
+                    calls.append((gid, hole, asset))
+                    raise rb.GarminRasterForbidden(gid, hole, "release-7")
+
+                with self._release_worker(Path(directory), now, render,
+                                          raster_ready=lambda *_: ready[0]) as (worker, _):
+                    worker.enqueue_all(downloaded=set())
+                    worker.run_to_completion()
+                    self.assertEqual(worker.status()["garminReleaseBackoff"][0]["attempts"], 1)
+                    ready[0], now[0] = True, 1001.0
+                    worker.enqueue_all(downloaded=set(), force=force)
+                    # No run_to_completion()/close(): they would hide delayed journal writes.
+                    status = worker.status(detail=True)
+                    self.assertEqual(status["pending"], 0)
+                    self.assertEqual(status["failures"], [])
+                    self.assertEqual(status["garminReleaseBackoff"], [])
+                    self.assertEqual(json.loads(worker.state_path.read_text())["garminForbiddenReleases"], {})
+                    loaded = rb.RenderBackfill(state_path=worker.state_path)
+                    try:
+                        self.assertEqual(loaded.status()["garminReleaseBackoff"], [])
+                    finally:
+                        loaded.close()
+                    self.assertEqual(calls, [(1, 1, "geometry-1")])
+
+    def test_J42_partial_release_keeps_history_and_uses_release_identity(self):
+        """J4.2: partial repair retains first=1000; deadlines/success use release, not asset."""
+        from server_v2 import render_backfill as rb
+
+        for force in (False, True):
+            with self.subTest(force=force), TemporaryDirectory() as directory:
+                now, repaired, failing, calls = [1000.0], set(), [True], []
+
+                def render(gid, hole, asset):
+                    calls.append((now[0], hole, asset))
+                    if failing[0]:
+                        raise rb.GarminRasterForbidden(gid, hole, "release-7")
+                    return True
+
+                with self._release_worker(Path(directory), now, render,
+                                          raster_ready=lambda gid, hole, asset: hole in repaired) as (worker, _):
+                    worker.enqueue_all(downloaded=set())
+                    worker.run_to_completion()
+                    repaired.add(1)
+                    now[0] = 1001.0
+                    worker.enqueue_all(downloaded=set(), force=force)
+                    status = worker.status(detail=True)
+                    self.assertEqual([t["garmin"] for t in status["tasks"].values()], ["done", "pending"])
+                    self.assertEqual([t["assetVersion"] for t in status["tasks"].values()],
+                                     ["geometry-1", "geometry-2"])
+                    self.assertEqual([t["garminRelease"] for t in status["tasks"].values()], ["release-7"] * 2)
+                    self.assertEqual(len(status["garminReleaseBackoff"]), 1)
+                    entry = status["garminReleaseBackoff"][0]
+                    self.assertEqual(entry["firstFailureAt"], 1000)
+                    self.assertEqual(entry["attempts"], 0 if force else 1)
+                    self.assertEqual(entry["retryAfter"], 0 if force else 1060)
+                    if force:
+                        worker.run_to_completion()  # Forced retry still preserves the original first failure.
+                        entry = worker.status()["garminReleaseBackoff"][0]
+                        self.assertEqual(entry["firstFailureAt"], 1000)
+                        self.assertEqual(entry["attempts"], 1)
+                        deadline = 1061.0  # Force retry at 1001 + J4.2's initial 60 seconds.
+                    else:
+                        deadline = 1060.0  # Initial 403 at 1000 + 60 seconds.
+                    now[0] = deadline - 1
+                    self.assertEqual(worker.due_release_keys(), [])
+                    now[0] = deadline
+                    self.assertEqual(worker.due_release_keys(), ["1:release-7"])
+                    failing[0] = False
+                    worker.enqueue_due_releases()
+                    self.assertTrue(worker.run_once())
+                    self.assertEqual(worker.status()["garminReleaseBackoff"], [])
+                    self.assertEqual(worker.status()["pending"], 0)
+                    self.assertEqual(calls[-1], (deadline, 2, "geometry-2"))
+
+    def test_J42_repaired_then_missing_assets_preserve_request_times(self):
+        """J4.2: P5's force/reset sequence preserves the hand-added 60..1920 s schedule."""
+        from server_v2 import render_backfill as rb
+
+        now, ready, calls = [1000.0], [False], []
+
+        def render(gid, hole, release):
+            calls.append(now[0])
+            raise rb.GarminRasterForbidden(gid, hole, release)
+
+        with TemporaryDirectory() as directory:
+            worker = self._worker(Path(directory), now, (1,), render, raster_ready=lambda *_: ready[0])
+            try:
+                worker.enqueue_all(downloaded=set())
+                worker.run_to_completion()
+                self._ticks(worker, now, [1000.0 + 60 * i for i in range(1, 40)])
+                ready[0], now[0] = True, 4000.0
+                worker.enqueue_all(downloaded=set(), force=True)
+                worker.run_to_completion()
+                ready[0], now[0] = False, 4100.0
+                worker.enqueue_all(downloaded=set())
+                worker.run_to_completion()
+                now[0] = 4200.0
+                worker.enqueue_all(downloaded=set(), force=True)
+                worker.run_to_completion()
+                self._ticks(worker, now, [4200.0 + 60 * i for i in range(1, 40)])
+                # J4.2 cumulative delays from 1000 and the explicit force at 4200.
+                self.assertEqual(calls, [1000, 1060, 1180, 1420, 1900, 2860,
+                                         4200, 4260, 4380, 4620, 5100, 6060])
+                self.assertEqual(worker.status()["garminReleaseBackoff"][0]["firstFailureAt"], 4200)
+            finally:
+                worker.close()
+
+    def test_J42_missing_asset_waits_for_source_without_rendering_none(self):
+        """J4.2: missing URLs keep release recovery history, but cannot render an unversioned asset."""
+        from server_v2 import render_backfill as rb
+
+        for force in (False, True):
+            with self.subTest(force=force), TemporaryDirectory() as directory:
+                now, failing, calls = [1000.0], [True], []
+
+                def render(gid, hole, asset):
+                    calls.append((now[0], hole, asset))
+                    if failing[0]:
+                        raise rb.GarminRasterForbidden(gid, hole, "release-7")
+                    return True
+
+                with self._release_worker(Path(directory), now, render) as (worker, info):
+                    worker.enqueue_all(downloaded=set())
+                    worker.run_to_completion()
+                    for row in info["holes"]:
+                        row.pop("raster_url")
+                    now[0] = 1060.0  # Old deadline has expired, even without force.
+                    worker.enqueue_all(downloaded=set(), force=force)
+                    status = worker.status(detail=True)
+                    self.assertTrue(all(t["assetVersion"] is None for t in status["tasks"].values()))
+                    worker.run_to_completion()
+                    self.assertEqual(calls, [(1000.0, 1, "geometry-1")])
+                    self.assertEqual(worker.status()["garminReleaseBackoff"][0]["firstFailureAt"], 1000)
+                    self.assertEqual(worker.due_release_keys(), [])
+                    # Recovery after a restart must not dispatch None either.
+                    loaded = rb.RenderBackfill(state_path=worker.state_path, clock=lambda: now[0],
+                                              render_garmin=render, should_yield=lambda: False)
+                    try:
+                        self.assertEqual(loaded.due_release_keys(), [])
+                        loaded.enqueue_due_releases()
+                        self.assertFalse(loaded.run_once())
+                    finally:
+                        loaded.close()
+                    # A subsequent source scan can restore the correctly versioned work.
+                    for row in info["holes"]:
+                        row["raster_url"] = "https://example.invalid/restored.jpg"
+                    failing[0], now[0] = False, 1120.0
+                    worker.enqueue_all(downloaded=set())
+                    worker.run_to_completion()
+                    self.assertEqual(calls[1:], [(1120.0, 1, "geometry-1"), (1120.0, 2, "geometry-2")])
+                    self.assertEqual(worker.status()["garminReleaseBackoff"], [])
+                    self.assertEqual(worker.status()["pending"], 0)
+
+    def test_J42_due_release_renders_only_holes_with_available_assets(self):
+        """J4.2: a due release may mix available assets and holes still missing URLs."""
+        from server_v2 import render_backfill as rb
+
+        now, failing, calls = [1000.0], [True], []
+
+        def render(gid, hole, asset):
+            calls.append((now[0], hole, asset))
+            if failing[0]:
+                raise rb.GarminRasterForbidden(gid, hole, "release-7")
+            return True
+
+        with TemporaryDirectory() as directory:
+            with self._release_worker(Path(directory), now, render) as (worker, info):
+                worker.enqueue_all(downloaded=set())
+                worker.run_to_completion()
+                info["holes"][0].pop("raster_url")
+                now[0] = 1001.0
+                worker.enqueue_all(downloaded=set())
+                worker.run_to_completion()
+                # Only hole 2 can render at the 1000 + 60 s deadline.
+                failing[0], now[0] = False, 1060.0
+                self.assertEqual(worker.due_release_keys(), ["1:release-7"])
+                worker.enqueue_due_releases()
+                worker.run_to_completion()
+                self.assertEqual(calls, [(1000.0, 1, "geometry-1"), (1060.0, 2, "geometry-2")])
+                self.assertEqual(worker.status()["pending"], 1)
+                self.assertEqual(worker.status()["garminReleaseBackoff"], [])
+                info["holes"][0]["raster_url"] = "https://example.invalid/restored.jpg"
+                worker.enqueue_all(downloaded=set())
+                worker.run_to_completion()
+                self.assertEqual(calls[-1], (1060.0, 1, "geometry-1"))
+                self.assertEqual(worker.status()["pending"], 0)
+
     def test_J42_persistent_403_ticks_follow_growing_backoff(self):
         """J4.2: 60 s ticks honor 60/120/240/480/960/1920/3600 s capped delays."""
         from server_v2 import render_backfill as rb

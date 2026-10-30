@@ -713,7 +713,9 @@ class RenderBackfill:
                         errors.setdefault(unit, previous["error"])
                     if task.get(unit) == "pending":
                         network = int(unit == "garmin" and not garmin_raster._raster_path(gid, hole, source).is_file())
-                        if unit != "garmin" or not blocked:
+                        # A release can remain pending while its signed URL is missing.
+                        # Preserve its breaker/history, but never render an unknown asset.
+                        if unit != "garmin" or (source and not blocked):
                             queue.append((task["priority"], network, key, unit))
                 task.pop("error", None)
                 task["errors"] = errors
@@ -726,13 +728,12 @@ class RenderBackfill:
             heapq.heapify(queue)
             with self._lock:
                 self._state = dict(old, styleVersion=self.style_version, matteVersion=self.matte_version, tasks=tasks)
-                if force:
-                    # Ready assets may have been repaired elsewhere, bypassing run_once's
-                    # success cleanup. Keep failure history only while this release needs work.
-                    self._prune_garmin_release_backoff({
-                        f"{task['globalId']}:{task.get('garminRelease')}"
-                        for task in tasks.values() if task.get("garmin") == "pending"
-                    })
+                # Ready assets may have been repaired elsewhere, bypassing run_once's
+                # success cleanup. Boot scans must clear these records too, before saving.
+                self._prune_garmin_release_backoff({
+                    f"{task['globalId']}:{task.get('garminRelease')}"
+                    for task in tasks.values() if task.get("garmin") == "pending"
+                })
                 self._queue = queue
                 self._dirty += 1
                 self._index_state()
@@ -744,7 +745,8 @@ class RenderBackfill:
         with self._lock:
             pending = {
                 f"{task['globalId']}:{task.get('garminRelease')}"
-                for task in self._state["tasks"].values() if task.get("garmin") == "pending"
+                for task in self._state["tasks"].values()
+                if task.get("garmin") == "pending" and task.get("assetVersion")
             }
             now = self._clock()
             entries = self._state["garminForbiddenReleases"]
@@ -765,6 +767,7 @@ class RenderBackfill:
                     (task["priority"], next(self._queue_order), key, "garmin")
                     for key, task in self._state["tasks"].items()
                     if task.get("garmin") == "pending"
+                    and task.get("assetVersion")
                     and f"{task['globalId']}:{task.get('garminRelease')}" in releases
                 ]
                 heapq.heapify(self._queue)

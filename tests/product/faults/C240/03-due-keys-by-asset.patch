@@ -1,0 +1,13 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index 74ff0f5c..139d5dce 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -744,7 +744,7 @@ class RenderBackfill:
+         """Cheap journal-only check; no writer lease, source scan or provider request."""
+         with self._lock:
+             pending = {
+-                f"{task['globalId']}:{task.get('garminRelease')}"
++                f"{task['globalId']}:{task.get('assetVersion')}"
+                 for task in self._state["tasks"].values()
+                 if task.get("garmin") == "pending" and task.get("assetVersion")
+             }

@@ -1,0 +1,13 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index 74ff0f5c..78c7c03f 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -715,7 +715,7 @@ class RenderBackfill:
+                         network = int(unit == "garmin" and not garmin_raster._raster_path(gid, hole, source).is_file())
+                         # A release can remain pending while its signed URL is missing.
+                         # Preserve its breaker/history, but never render an unknown asset.
+-                        if unit != "garmin" or (source and not blocked):
++                        if unit != "garmin" or not blocked:
+                             queue.append((task["priority"], network, key, unit))
+                 task.pop("error", None)
+                 task["errors"] = errors

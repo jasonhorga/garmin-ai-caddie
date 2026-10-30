@@ -1,0 +1,12 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index 3f5d30b0..74ff0f5c 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -767,7 +767,6 @@ class RenderBackfill:
+                     (task["priority"], next(self._queue_order), key, "garmin")
+                     for key, task in self._state["tasks"].items()
+                     if task.get("garmin") == "pending"
+-                    and task.get("assetVersion")
+                     and f"{task['globalId']}:{task.get('garminRelease')}" in releases
+                 ]
+                 heapq.heapify(self._queue)
