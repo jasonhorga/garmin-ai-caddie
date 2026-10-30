@@ -1832,6 +1832,9 @@ final class C33EventTests: XCTestCase {
             let start = WatchRoundStartPayload(roundId: package.roundId,
                 courseName: package.course.venueDisplayName, teeBox: "blue", loopKey: package.loopKey,
                 globalId: package.course.globalId, activeHole: 3, holes: seed.holes)
+            // The fixture's fresh-round handoff published hole 1 before Save & End sealed it.
+            // A rejected late start must clear that stale navigation intent as well.
+            XCTAssertEqual(model.pendingLiveHole, package.holes.first?.number)
             for _ in 0..<2 {
                 bridge.sendRoundSeedToWatch(seed)
                 await model.handleWatchRoundStart(start)

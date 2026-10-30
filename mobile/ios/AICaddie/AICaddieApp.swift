@@ -7484,6 +7484,9 @@ public final class LiveRoundAppModel: ObservableObject {
         // The Hub owns no finish sheet: nothing paused may carry into the next round.
         finishAttemptRoundId = nil
         finishErrorMessage = nil
+        // The Hub has no live destination: a fresh-entry navigation intent from the sealed
+        // round must not survive into a delayed Watch start or be consumed as a new hole.
+        pendingLiveHole = nil
         pendingEventCount = 0
         quarantinedEventCount = 0
         try? offlineStore.saveHomePackage(nextPackage)
