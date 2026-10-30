@@ -93,6 +93,19 @@ final class LiveMapFirstFrameTests: XCTestCase {
         XCTAssertEqual(state, .garminRaster)
     }
 
+    /// J4.5-1/2: decode failure overrides stale cache/readiness signals and releases Garmin.
+    func testFailedCachedPreciseDecodeAllowsGarminDespiteStaleReadySignals() {
+        let inputs = LiveMapDisplayState.liveInputs(
+            coverage: "ready", decodeFailed: true,
+            resolvedLocalTopoURL: URL(fileURLWithPath: "/tmp/failed-cached-topo.png"),
+            hasLiveTopoURL: true, hasEmbeddedTopoImage: false,
+            preciseTopoImageReady: true, memoryCached: true,
+            garminRaster: GarminRasterResponse(available: true, imageUrl: "/garmin.png"),
+            garminImageReady: true, garminImageFailed: false
+        )
+        XCTAssertEqual(LiveMapDisplayState.resolveLive(inputs), .garminRaster)
+    }
+
     /// J4.5-1/4: local decode completion promotes to precise; failure without Garmin waits neutrally.
     func testLocalPreciseDecodeCompletionAndFailureWithoutGarmin() {
         for failed in [false, true] {
