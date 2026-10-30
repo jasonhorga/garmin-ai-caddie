@@ -714,6 +714,16 @@ class MobileReconciliationTests(unittest.TestCase):
                 corrected = corrected_history_data(data, annotations_root=root).rounds[0]
                 self.assertEqual((corrected["holesCompleted"], corrected["strokes"], corrected["par"]),
                                  (18, 90, 72))
+                self.assertEqual(corrected["backNineGlobalCourseId"], 31794)
+                self.assertEqual(
+                    [(hole.get("number"), physical, side) for hole, _display, physical, side in hole_sides(corrected)],
+                    [(n, n, "front") for n in range(1, 10)]
+                    + [(n, n - 9, "back") for n in range(10, 19)],
+                )
+                self.assertEqual(
+                    [hole["par"] for hole in corrected["holes"] if hole["number"] >= 10],
+                    [4, 3, 5, 4, 5, 4, 3, 4, 4],
+                )
                 self.assertEqual(_to_par18(corrected), 18)
                 after = reconcile_mobile_round_events(
                     "two-all-first", data, root=root, annotations_root=root,
@@ -819,6 +829,95 @@ class MobileReconciliationTests(unittest.TestCase):
             after = reconcile_mobile_round_events(rid, HistoryData(raw_rounds=[], rounds=[projected], shots=[]),
                                                   root=root, annotations_root=root)
             self.assertEqual(after["annotationSuggestions"], [])
+
+    def test_j1_3_unmaterializable_score_suppresses_putt_and_penalty_suggestions(self) -> None:
+        # J1.3: putt/penalty evidence cannot be applied without a standard-par source for the
+        # missing score; all three facts stay evidence-only and report the same reason.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "no-par-facts", [(31796, "all"), (31794, "all")])
+            events = []
+            for n in range(10, 19):
+                events.extend([
+                    {"eventId": f"score-{n}", "roundId": "no-par-facts", "hole": n,
+                     "kind": "score", "payload": {"strokes": 5}},
+                    {"eventId": f"putt-{n}", "roundId": "no-par-facts", "hole": n,
+                     "kind": "putt", "payload": {"putts": 2}},
+                ])
+            events.append({"eventId": "penalty-12", "roundId": "no-par-facts", "hole": 12,
+                           "kind": "penalty", "payload": {"penalties": 1}})
+            append_event_batch("no-par-facts", events, idempotency_key="no-par-facts", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "no-par-facts", "globalId": 31796, "frontNineGlobalCourseId": 31796,
+                "holePars": "444444444",
+                "holes": [{"number": n, "strokes": 5, "par": 4} for n in range(1, 10)],
+            }], shots=[])
+            result = reconcile_mobile_round_events("no-par-facts", data, root=root)
+            self.assertEqual(result["annotationSuggestions"], [])
+            self.assertTrue(all(row.get("restoreUnavailableReason") == "standard_par_unavailable"
+                                for row in result["localOnly"] if row["hole"] >= 10))
+
+    def test_j1_3_partial_restore_does_not_count_existing_unscored_hole(self) -> None:
+        # J1.3: a Garmin row without strokes remains outside holesCompleted after restoration.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "existing-unscored", [(55555, "front"), (55555, "back")])
+            append_event_batch("existing-unscored", [{
+                "eventId": f"score-{n}", "roundId": "existing-unscored", "hole": n,
+                "kind": "score", "payload": {"strokes": 5},
+            } for n in range(1, 19)], idempotency_key="existing-unscored", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "existing-unscored", "globalId": 55555, "holePars": "4" * 18,
+                "holes": ([{"number": n, "strokes": 5, "par": 4} for n in range(1, 10)]
+                          + [{"number": 13, "par": 4}]),
+            }], shots=[])
+            result = reconcile_mobile_round_events("existing-unscored", data, root=root)
+            apply_mobile_reconciliation_suggestions(
+                "existing-unscored", data,
+                suggestion_ids=[row["id"] for row in result["annotationSuggestions"]],
+                root=root, annotations_root=root, data_loader=lambda: data,
+            )
+            corrected = corrected_history_data(data, annotations_root=root).rounds[0]
+            self.assertEqual(corrected["holesCompleted"], 17)
+            self.assertIsNone(_score18(corrected))
+
+    def test_j1_3_rotated_merged_second_card_missing_display_ten_preserves_axis(self) -> None:
+        # J1.3: phone back then front; the second Garmin card misses display 10 (physical 1).
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rid = "rotated-merged-second-missing"
+            _save_identity(root, rid, [(55555, "back"), (55555, "front")])
+            first = [{"number": n, "localHole": n + 9, "sourceLocalHole": n + 9,
+                      "sourceGlobalId": 55555, "strokes": 5} for n in range(1, 10)]
+            second = [{"number": n, "strokes": 5} for n in range(11, 19)]
+            baseline = {"id": rid, "globalId": 55555, "merged": True,
+                        "frontNineGlobalCourseId": 55555, "backNineGlobalCourseId": 55555,
+                        "holePars": "4" * 18,
+                        "holes": first + [{"number": 10, "strokes": 5}] + second}
+            row = {**baseline, "holes": first + second}
+            append_event_batch(rid, [{
+                "eventId": f"score-{n}", "roundId": rid, "hole": n,
+                "kind": "score", "payload": {"strokes": 5},
+            } for n in range(1, 19)], idempotency_key=rid, root=root)
+            result = reconcile_mobile_round_events(rid, HistoryData(raw_rounds=[], rounds=[row], shots=[]), root=root)
+            suggestions = [item for item in result["annotationSuggestions"] if item["kind"] == "score_correction"]
+            self.assertEqual([item["targetId"] for item in suggestions], [f"{rid}:10"])
+            apply_mobile_reconciliation_suggestions(
+                rid, HistoryData(raw_rounds=[], rounds=[row], shots=[]),
+                suggestion_ids=[suggestions[0]["id"]], root=root, annotations_root=root,
+                data_loader=lambda: HistoryData(raw_rounds=[], rounds=[row], shots=[]),
+            )
+            projected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[row], shots=[]), annotations_root=root,
+            ).rounds[0]
+            self.assertEqual(
+                [(hole.get("number"), display, physical, side) for hole, display, physical, side in hole_sides(projected)],
+                [(hole.get("number"), display, physical, side) for hole, display, physical, side in hole_sides(baseline)],
+            )
+            self.assertEqual(
+                _round_breakdowns(HistoryData(raw_rounds=[], rounds=[projected], shots=[]))["loops"],
+                _round_breakdowns(HistoryData(raw_rounds=[], rounds=[baseline], shots=[]))["loops"],
+            )
 
     def test_corrupt_identity_logs_and_reconciles_on_legacy_display_axis(self) -> None:
         for content in (b"{broken", b"{}", b"[]", b"\xff"):
