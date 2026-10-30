@@ -1,10 +1,11 @@
 diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
+index 896d9194..3dbc6765 100644
 --- a/ops/backfill_manual_gir.py
 +++ b/ops/backfill_manual_gir.py
-@@ -185,7 +185,7 @@
-         for hole in holes:
-             if not isinstance(hole, dict):
+@@ -220,7 +220,7 @@ def _scan(root: Path) -> tuple[dict[str, Any], dict[Path, dict[str, Any]]]:
                  continue
+             if hole.get("putts") == 0:
+                 manual_putts_zero += 1
 -            if hole.get("gir") is not None:
 +            if False:
                  before += 1

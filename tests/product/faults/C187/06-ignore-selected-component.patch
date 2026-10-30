@@ -1,7 +1,8 @@
 diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
+index 896d9194..4269e2ce 100644
 --- a/ops/backfill_manual_gir.py
 +++ b/ops/backfill_manual_gir.py
-@@ -101,7 +101,7 @@
+@@ -107,7 +107,7 @@ def _geometry_classification(
          point = core_data.wgs84_to_local(endpoint[0], endpoint[1], float(ref_lat), float(ref_lon))
      except (TypeError, ValueError, OverflowError):
          return None, "landing coordinate is invalid"
