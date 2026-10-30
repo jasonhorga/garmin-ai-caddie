@@ -30,8 +30,7 @@ VALID_KINDS = {
 
 class FaultRunnerTests(unittest.TestCase):
     def test_manifest_records_have_existing_patches_and_real_targets(self):
-        data = json.loads(runner.MANIFEST.read_text(encoding="utf-8"))
-        records = data["records"]
+        records = runner.load_manifest()
         self.assertTrue(records)
         self.assertEqual(len({record["id"] for record in records}), len(records))
         for record in records:
@@ -179,6 +178,46 @@ class ManifestFragmentTests(unittest.TestCase):
                         runner.load_manifest()
                     self.assertIn(field, str(caught.exception))
                     self.assertIn(str(path), str(caught.exception))
+
+    def test_duplicate_ids_within_one_manifest_are_rejected(self):
+        for name in (None, "Alpha"):
+            with self.subTest(manifest=name):
+                self.write_manifest(self.manifest, [])
+                path = self.manifest if name is None else self.fragment(name, [])
+                self.write_manifest(path, [self.record("duplicate"), self.record("duplicate")])
+                with self.assertRaises(ValueError) as caught:
+                    runner.load_manifest()
+                self.assertIn("duplicate manifest id", str(caught.exception))
+                self.assertIn(str(path), str(caught.exception))
+
+    def test_fragment_uses_existing_patch_and_kind_validation(self):
+        for field, value, diagnostic in (
+            ("patch", "absent.patch", "patch does not exist"),
+            ("kind", "unknown", "unknown fault kind"),
+        ):
+            with self.subTest(field=field):
+                record = self.record("invalid")
+                record[field] = value
+                path = self.fragment("Invalid", [record])
+                with self.assertRaises(ValueError) as caught:
+                    runner.load_manifest()
+                self.assertIn(diagnostic, str(caught.exception))
+                self.assertIn(str(path), str(caught.exception))
+
+    def test_malformed_fragment_structure_is_rejected(self):
+        path = self.fragment("Malformed", [])
+        for payload, diagnostic in (
+            ([], "records array"),
+            ({}, "records array"),
+            ({"records": {}}, "records array"),
+            ({"records": [None]}, "record must be an object"),
+        ):
+            with self.subTest(payload=payload):
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                with self.assertRaises(ValueError) as caught:
+                    runner.load_manifest()
+                self.assertIn(diagnostic, str(caught.exception))
+                self.assertIn(str(path), str(caught.exception))
 
     def test_check_covers_central_and_sorted_fragments(self):
         # Expected order is explicit: central first, directory names ascending,
