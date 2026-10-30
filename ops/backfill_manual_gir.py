@@ -8,10 +8,12 @@ same dry-run and apply paths as the production command.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -66,10 +68,10 @@ def _location_degrees(location: Any) -> tuple[float, float] | None:
     return float(lat), float(lon)
 
 
-def _landing(rows: list[dict[str, Any]], index: int) -> tuple[float, float] | None:
+def _landing(rows: list[dict[str, Any]], index: int) -> tuple[tuple[float, float] | None, str]:
     if index + 1 < len(rows):
-        return _location_degrees(rows[index + 1].get("startLoc"))
-    return _location_degrees(rows[index].get("endLoc"))
+        return _location_degrees(rows[index + 1].get("startLoc")), "nextShotStart"
+    return None, "lastShotAim"
 
 
 def _geometry_classification(
@@ -114,18 +116,18 @@ def _geometry_classification(
     return None, "landing is not classifiable against the selected Green.drc component"
 
 
-def _evaluate_hole(root: Path, raw: dict[str, Any], hole: dict[str, Any], shot_data: dict[str, Any] | None) -> tuple[bool | None, str]:
+def _evaluate_hole(
+    root: Path, raw: dict[str, Any], hole: dict[str, Any], shot_data: dict[str, Any] | None
+) -> tuple[bool | None, str, str | None]:
     number = _int(hole.get("number"))
     if number is None or number <= 0:
-        return None, "hole number is missing"
+        return None, "hole number is missing", None
     par = _hole_par(raw, hole, number)
     strokes = _int(hole.get("strokes"))
     if par is None:
-        return None, "hole par is missing"
+        return None, "hole par is missing", None
     if strokes is None:
-        return None, "hole strokes are missing"
-    if strokes <= par - 2:
-        return True, f"strokes {strokes} are at or below the regulation limit par-2={par - 2}"
+        return None, "hole strokes are missing", None
     rows = [
         shot
         for hole_row in (shot_data or {}).get("holeShots", []) or []
@@ -133,13 +135,20 @@ def _evaluate_hole(root: Path, raw: dict[str, Any], hole: dict[str, Any], shot_d
         for shot in (hole_row.get("shots") or [])
         if isinstance(shot, dict)
     ]
+    putts = round_ingest._shot_putt_count(rows, total_strokes=strokes)
+    if putts is not None:
+        gir = strokes - putts <= par - 2
+        return gir, f"shot log counted {putts} putts; strokes-putts={strokes - putts} vs par-2={par - 2}", None
+    if strokes <= par - 2:
+        return True, f"strokes {strokes} are at or below the regulation limit par-2={par - 2}", None
     required_index = par - 3
     if required_index < 0 or required_index >= len(rows):
-        return None, f"regulation landing shot {required_index + 1} is missing"
-    endpoint = _landing(rows, required_index)
+        return None, f"regulation landing shot {required_index + 1} is missing", None
+    endpoint, landing_source = _landing(rows, required_index)
     if endpoint is None:
-        return None, f"regulation landing shot {required_index + 1} has no endpoint"
-    return _geometry_classification(root, raw, number, endpoint)
+        return None, "regulation landing not recorded (only aim target)", landing_source
+    gir, basis = _geometry_classification(root, raw, number, endpoint)
+    return gir, basis, landing_source
 
 
 def _scorecard_files(root: Path) -> list[tuple[str, Path]]:
@@ -152,32 +161,52 @@ def _scorecard_files(root: Path) -> list[tuple[str, Path]]:
             continue
         for path in sorted((player_dir / "scorecards").glob("*.json")):
             rows.append((player_dir.name, path))
-    # Include the flat Garmin export in the read-only scan so the command proves it was skipped.
-    # It can never be an apply target: only ``data/players/<id>`` is a manual storage partition.
-    rows.extend(("__garmin__", path) for path in sorted((root / "data" / "scorecards").glob("*.json")))
     return rows
 
 
-def _scan(root: Path) -> tuple[dict[str, Any], dict[Path, list[dict[str, Any]]]]:
+def _digest_bytes(value: bytes | None) -> str | None:
+    return hashlib.sha256(value).hexdigest() if value is not None else None
+
+
+def _round_id(raw: Any) -> Any:
+    if not isinstance(raw, dict):
+        return None
+    details = raw.get("scorecardDetails")
+    if not isinstance(details, list) or not details or not isinstance(details[0], dict):
+        return None
+    scorecard = details[0].get("scorecard")
+    return scorecard.get("id") if isinstance(scorecard, dict) else None
+
+
+def _scan(root: Path) -> tuple[dict[str, Any], dict[Path, dict[str, Any]]]:
     changes: list[dict[str, Any]] = []
     unresolved: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
-    mutations: dict[Path, list[dict[str, Any]]] = {}
+    mutations: dict[Path, dict[str, Any]] = {}
     before = 0
     manual_rounds = 0
+    manual_putts_zero = 0
     for player_id, path in _scorecard_files(root):
         try:
             raw = core_data.read_json(path)
         except (OSError, ValueError, TypeError):
             skipped.append({"playerId": player_id, "path": str(path), "reason": "scorecard is unreadable"})
             continue
-        if not isinstance(raw, dict) or str(raw.get("source") or "manual") != "manual":
-            skipped.append({"roundId": raw.get("scorecardDetails", [{}])[0].get("scorecard", {}).get("id") if isinstance(raw, dict) else None, "reason": "Garmin/source is not manual"})
+        if not isinstance(raw, dict):
+            skipped.append({"playerId": player_id, "path": str(path), "reason": "scorecard is not an object"})
+            continue
+        if raw.get("source") != "manual":
+            reason = "source missing (treated as Garmin)" if "source" not in raw else "source is not manual (treated as Garmin)"
+            skipped.append({"playerId": player_id, "path": str(path), "roundId": _round_id(raw), "reason": reason})
             continue
         manual_rounds += 1
-        details = raw.get("scorecardDetails") or []
+        details = raw.get("scorecardDetails")
+        if not isinstance(details, list) or not details:
+            skipped.append({"playerId": player_id, "path": str(path), "reason": "scorecard details missing"})
+            continue
         scorecard = details[0].get("scorecard") if details and isinstance(details[0], dict) else None
         if not isinstance(scorecard, dict):
+            skipped.append({"playerId": player_id, "path": str(path), "roundId": _round_id(raw), "reason": "scorecard missing"})
             continue
         round_id = scorecard.get("id")
         shot_path = path.parent.parent / "shots" / path.name
@@ -189,6 +218,8 @@ def _scan(root: Path) -> tuple[dict[str, Any], dict[Path, list[dict[str, Any]]]]
         for hole in holes:
             if not isinstance(hole, dict):
                 continue
+            if hole.get("putts") == 0:
+                manual_putts_zero += 1
             if hole.get("gir") is not None:
                 before += 1
                 skipped.append({"roundId": round_id, "hole": hole.get("number"), "reason": "GIR already recorded"})
@@ -196,13 +227,16 @@ def _scan(root: Path) -> tuple[dict[str, Any], dict[Path, list[dict[str, Any]]]]
             if hole.get("putts") is not None:
                 skipped.append({"roundId": round_id, "hole": hole.get("number"), "reason": "putts already recorded"})
                 continue
-            gir, basis = _evaluate_hole(root, raw, hole, shot_data)
+            gir, basis, landing_source = _evaluate_hole(root, raw, hole, shot_data)
             if gir is None:
                 unresolved.append({"roundId": round_id, "hole": hole.get("number"), "oldGir": None, "newGir": None, "reason": basis})
                 continue
             change = {"playerId": player_id, "roundId": round_id, "hole": hole.get("number"), "oldGir": None, "newGir": bool(gir), "basis": basis, "path": str(path)}
+            if landing_source is not None:
+                change["landingSource"] = landing_source
             changes.append(change)
-            mutations.setdefault(path, []).append(change)
+            entry = mutations.setdefault(path, {"rows": [], "scorecardDigest": _digest_bytes(path.read_bytes()), "shotsDigest": _digest_bytes(shot_path.read_bytes() if shot_path.exists() else None)})
+            entry["rows"].append(change)
         # A missing GIR is not a recorded denominator, so only existing values count here.
     after = before + len(changes)
     report = {
@@ -216,33 +250,69 @@ def _scan(root: Path) -> tuple[dict[str, Any], dict[Path, list[dict[str, Any]]]]
             "unresolved": len(unresolved),
             "girRecordedBefore": before,
             "girRecordedAfter": after,
+            "manualHolesPuttsZero": manual_putts_zero,
         },
     }
     return report, mutations
 
 
-def _apply(root: Path, report: dict[str, Any], mutations: dict[Path, list[dict[str, Any]]]) -> None:
-    by_player: dict[str, list[tuple[Path, list[dict[str, Any]]]]] = {}
-    for path, rows in mutations.items():
+def _apply(root: Path, report: dict[str, Any], mutations: dict[Path, dict[str, Any]]) -> None:
+    by_player: dict[str, list[tuple[Path, dict[str, Any]]]] = {}
+    for path, entry in mutations.items():
+        rows = entry["rows"]
         player = path.parent.parent.name
-        by_player.setdefault(player, []).append((path, rows))
+        by_player.setdefault(player, []).append((path, entry))
+    backup_dir = root / "backups" / f"c187-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+    backup_manifest: list[dict[str, Any]] = []
+    actual_changes: list[dict[str, Any]] = []
+    planned = report.get("changes", [])
+    report["plannedChanges"] = planned
+    report["changes"] = actual_changes
     for player, files in by_player.items():
-        if any(path.parent.parent.parent != root / "data" / "players" for path, _rows in files):
+        if any(path.parent.parent.parent != root / "data" / "players" for path, _entry in files):
             raise RuntimeError("refusing to apply GIR changes outside manual player storage")
         with round_ingest._player_ingest_lock(player, root):
-            for path, rows in files:
-                raw = core_data.read_json(path)
-                details = raw["scorecardDetails"][0]["scorecard"]
-                holes = details.get("holes") or []
-                for change in rows:
-                    target = next((hole for hole in holes if hole.get("number") == change["hole"]), None)
-                    if target is not None and target.get("gir") is None and target.get("putts") is None:
+            for path, entry in files:
+                rows = entry["rows"]
+                try:
+                    current_bytes = path.read_bytes()
+                    shots_path = path.parent.parent / "shots" / path.name
+                    shots_bytes = shots_path.read_bytes() if shots_path.exists() else None
+                    if _digest_bytes(current_bytes) != entry["scorecardDigest"] or _digest_bytes(shots_bytes) != entry["shotsDigest"]:
+                        report.setdefault("skipped", []).extend({**row, "reason": "scorecard or shots changed after scan"} for row in rows)
+                        continue
+                    raw = json.loads(current_bytes.decode("utf-8"))
+                    details = raw.get("scorecardDetails") if isinstance(raw, dict) else None
+                    scorecard = details[0].get("scorecard") if isinstance(details, list) and details and isinstance(details[0], dict) else None
+                    if not isinstance(scorecard, dict) or raw.get("source") != "manual":
+                        report.setdefault("skipped", []).extend({**row, "reason": "scorecard no longer manual or is malformed"} for row in rows)
+                        continue
+                    holes = scorecard.get("holes") or []
+                    wrote: list[dict[str, Any]] = []
+                    for change in rows:
+                        target = next((hole for hole in holes if isinstance(hole, dict) and hole.get("number") == change["hole"]), None)
+                        if target is None or target.get("gir") is not None or target.get("putts") is not None:
+                            report.setdefault("skipped", []).append({**change, "reason": "hole changed after scan"})
+                            continue
                         target["gir"] = change["newGir"]
-                backup = path.with_name(path.name + ".bak")
-                if not backup.exists():
+                        wrote.append(change)
+                    if not wrote:
+                        continue
+                    backup_dir.mkdir(parents=True, exist_ok=True)
+                    backup = backup_dir / player / path.name
+                    backup.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(path, backup)
-                round_ingest._atomic_write_json(path, raw)
+                    round_ingest._atomic_write_json(path, raw)
+                    actual_changes.extend(wrote)
+                    backup_manifest.append({"path": str(path), "backup": str(backup), "changes": len(wrote)})
+                    print(f"C187 wrote {path} ({len(wrote)} GIR)", file=sys.stderr)
+                except Exception as exc:
+                    report.setdefault("applyErrors", []).append({"path": str(path), "error": f"{type(exc).__name__}: {exc}"})
             round_ingest._invalidate_cache(player)
+    if backup_manifest:
+        (backup_dir / "manifest.json").write_text(json.dumps(backup_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    report["summary"]["changes"] = len(actual_changes)
+    report["summary"]["girRecordedAfter"] = report["summary"]["girRecordedBefore"] + len(actual_changes)
 
 
 def backfill(*, root: Path | str | None = None, apply: bool = False) -> dict[str, Any]:

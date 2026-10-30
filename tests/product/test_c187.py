@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import contextlib
+import io
 import shutil
 import tempfile
 import unittest
@@ -78,8 +80,10 @@ class C187ManualGirBackfillTests(unittest.TestCase):
                     {"number": 4, "strokes": 2, "gir": False},
                     {"number": 5, "strokes": 4},
                     {"number": 6, "strokes": 5},
+                    {"number": 7, "strokes": 3},
+                    {"number": 8, "strokes": 4, "putts": 0},
                 ]}}],
-            "courseSnapshots": [{"name": "Manual Fixture", "holePars": "444444"}],
+            "courseSnapshots": [{"name": "Manual Fixture", "holePars": "44444444"}],
         }
         self.manual_path.write_text(json.dumps(manual, indent=2) + "\n", encoding="utf-8")
         # Hole 2's second-shot endpoint is the selected Green.drc component centroid.
@@ -106,6 +110,8 @@ class C187ManualGirBackfillTests(unittest.TestCase):
                 {"shotOrder": 4, "startLoc": {"lat": _semicircle(22.5410), "lon": _semicircle(113.9550)}, "club": {"lie": "green", "shotType": "putt"}},
                 {"shotOrder": 5, "startLoc": {"lat": _semicircle(22.5410), "lon": _semicircle(113.9550)}, "club": {"lie": "green", "shotType": "putt"}},
             ]},
+            {"holeNumber": 7, "shots": []},
+            {"holeNumber": 8, "shots": []},
         ]}, indent=2) + "\n", encoding="utf-8")
         garmin = {"scorecardDetails": [{"scorecard": {
             "id": 8001, "courseGlobalId": 31834, "formattedStartTime": "2026-09-01T08:00:00Z",
@@ -130,14 +136,14 @@ class C187ManualGirBackfillTests(unittest.TestCase):
         before_garmin = self.garmin_path.read_bytes()
         report = backfill_manual_gir.backfill(root=self.root)
         self.assertEqual(report["mode"], "dry-run")
-        self.assertEqual([(row["roundId"], row["hole"], row["newGir"]) for row in report["changes"]], [(7001, 2, True)])
+        self.assertEqual([(row["roundId"], row["hole"], row["newGir"]) for row in report["changes"]], [(7001, 2, True), (7001, 6, True)])
         self.assertIn("selected Green.drc", report["changes"][0]["basis"])
         unresolved = next(row for row in report["unresolved"] if row["hole"] == 5)
         self.assertIn("only aim target", unresolved["reason"])
         self.assertEqual(self.manual_path.read_bytes(), before_manual)
         self.assertEqual(self.garmin_path.read_bytes(), before_garmin)
         self.assertFalse(list(self.player.glob("scorecards/*.bak")))
-        self.assertEqual(report["summary"]["manualHolesPuttsZero"], 0)
+        self.assertEqual(report["summary"]["manualHolesPuttsZero"], 1)
         self.assertTrue(any(row.get("roundId") == 7001 and row.get("hole") == 5 and "only aim target" in row["reason"] for row in report["unresolved"]))
         self.assertFalse(any(row.get("roundId") in {8001, 9001} for row in report["changes"]))
         self.assertTrue(any(row.get("reason") == "source missing (treated as Garmin)" for row in report["skipped"]))
@@ -161,7 +167,7 @@ class C187ManualGirBackfillTests(unittest.TestCase):
         after_recorded = sum(row.get("gir") is not None for row in after_rows.values())
         self.assertEqual(after_recorded - before_recorded, len(report["changes"]))
         self.assertEqual(self.garmin_path.read_bytes(), before_garmin)
-        backups = list((self.root / "backups").glob("c187-*/7001.json"))
+        backups = list((self.root / "backups").glob("c187-*/me/7001.json"))
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_bytes(), before_manual)
         self.assertEqual(report["summary"]["girRecordedBefore"], before_recorded)
@@ -190,6 +196,49 @@ class C187ManualGirBackfillTests(unittest.TestCase):
         change = next(row for row in report["changes"] if row["hole"] == 6)
         self.assertTrue(change["newGir"])
         self.assertIn("putts", change["basis"])
+
+    def test_threshold_boundary_requires_landing_evidence(self) -> None:
+        report = backfill_manual_gir.backfill(root=self.root)
+        unresolved = next(row for row in report["unresolved"] if row["hole"] == 7)
+        self.assertIn("regulation landing shot", unresolved["reason"])
+
+    def test_selected_component_is_required_for_geometry_classification(self) -> None:
+        def selected_only(_point, _rows, *, selected_component=None):
+            return {"kind": "green"} if selected_component else None
+
+        with patch.object(backfill_manual_gir, "_mesh_gir_surface_match", side_effect=selected_only):
+            report = backfill_manual_gir.backfill(root=self.root)
+        self.assertTrue(any(row["hole"] == 2 and row["newGir"] is True for row in report["changes"]))
+
+    def test_apply_uses_player_lock_and_atomic_write_and_reports_file(self) -> None:
+        real_lock = backfill_manual_gir.round_ingest._player_ingest_lock
+        real_write = backfill_manual_gir.round_ingest._atomic_write_json
+        stderr = io.StringIO()
+        with (
+            patch.object(backfill_manual_gir.round_ingest, "_player_ingest_lock", wraps=real_lock) as lock,
+            patch.object(backfill_manual_gir.round_ingest, "_atomic_write_json", wraps=real_write) as atomic,
+            contextlib.redirect_stderr(stderr),
+        ):
+            report = backfill_manual_gir.backfill(root=self.root, apply=True)
+        self.assertTrue(lock.called)
+        self.assertTrue(atomic.called)
+        self.assertIn("C187 wrote", stderr.getvalue())
+        self.assertEqual(len(report["changes"]), 2)
+
+    def test_apply_skips_when_shots_change_after_scan(self) -> None:
+        report, mutations = backfill_manual_gir._scan(self.root)
+        self.manual_shots_path.write_text(self.manual_shots_path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        backfill_manual_gir._apply(self.root, report, mutations)
+        self.assertEqual(report["changes"], [])
+        self.assertTrue(any("shots changed" in row["reason"] for row in report["skipped"]))
+
+    def test_apply_rejects_flat_storage_target(self) -> None:
+        path = self.root / "data" / "scorecards" / "9999.json"
+        path.write_text(json.dumps({"source": "manual", "scorecardDetails": [{"scorecard": {"id": 9999, "holes": [{"number": 1}]}}]}) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "outside manual player storage"):
+            backfill_manual_gir._apply(self.root, {"changes": [], "summary": {}, "skipped": []}, {
+                path: {"rows": [{"roundId": 9999, "hole": 1, "newGir": True}], "scorecardDigest": backfill_manual_gir._digest_bytes(path.read_bytes()), "shotsDigest": None}
+            })
 
 
 if __name__ == "__main__":
