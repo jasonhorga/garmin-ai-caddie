@@ -10,3 +10,4 @@ index 9c01ec3f..c2ec13a2 100644
 +        return _int(pars[local % len(pars)]) if pars is not None and local <= len(pars) else None
      except (OSError, TypeError, ValueError, IndexError):
          return None
+ 

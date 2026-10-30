@@ -10,3 +10,4 @@ index 9c01ec3f..59b30a93 100644
 +            row["holesCompleted"] = len(holes)
          out.append(row)
      return out
+ 
