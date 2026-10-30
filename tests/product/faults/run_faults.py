@@ -26,6 +26,8 @@ MANIFEST = ROOT / "tests/product/faults/manifest.json"
 # Host-specific runners come from the environment; defaults work in any checkout.
 RUN_TESTS = os.environ.get("CADDIE_RUNTESTS", "")
 SHARED_PYTHON = Path(os.environ.get("CADDIE_SHARED_PYTHON", sys.executable))
+# Injectable batch budget; isolated retries retain their own full load budget.
+PYTHON_BATCH_TIMEOUT = 60.0
 
 
 # Use a result file: imported test modules may write arbitrary stdout/stderr.
@@ -72,10 +74,17 @@ def _run_python_load_probe(targets: list[str], repo: Path) -> dict[str, tuple[st
             source = Path(directory) / "targets.json"
             output = Path(directory) / "load.json"
             source.write_text(json.dumps(targets), encoding="utf-8")
-            result = subprocess.run(
-                [str(SHARED_PYTHON), "-c", PYTHON_LOAD_PROBE, str(source), str(output)],
-                cwd=repo, env=env, text=True, capture_output=True, timeout=60,
-            )
+            timeout = PYTHON_BATCH_TIMEOUT if len(targets) > 1 else 60.0
+            try:
+                result = subprocess.run(
+                    [str(SHARED_PYTHON), "-c", PYTHON_LOAD_PROBE, str(source), str(output)],
+                    cwd=repo, env=env, text=True, capture_output=True, timeout=timeout,
+                )
+            except subprocess.TimeoutExpired:
+                if len(targets) > 1:
+                    print(f"LOAD_PROBE_TIMEOUT timeout={timeout:g}s fallback_targets={len(targets)}",
+                          file=sys.stderr)
+                raise
             if result.returncode or not output.is_file():
                 reason = f"load probe exited {result.returncode}: {result.stderr.strip()}"
             else:
@@ -386,7 +395,12 @@ def main() -> int:
         records = [r for r in records if r["kind"] == args.kind]
     if args.id:
         records = [r for r in records if r["id"] == args.id]
-    if args.check:
+    no_match = bool(args.id and not records)
+    if no_match:
+        print(f"NO_MATCH {args.id}")
+        result = {"mode": "check" if args.check else "run" if args.run else "dispatch-native",
+                  "results": [], "summary": {}}
+    elif args.check:
         result = check(records)
     elif args.run:
         result = run_mutants(records)
@@ -394,7 +408,7 @@ def main() -> int:
         result = dispatch_native(records)
     if args.out:
         args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return int(any(row["status"] in {"unappliable", "unavailable", "leaked"}
+    return int(no_match or any(row["status"] in {"unappliable", "unavailable", "leaked"}
                    for row in result.get("results", [])))
 
 

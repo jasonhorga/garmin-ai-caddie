@@ -1,12 +1,12 @@
 diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
-index 5e2c2a6b..57b6655f 100644
+index 1d4c4c1c..279af542 100644
 --- a/tests/product/faults/run_faults.py
 +++ b/tests/product/faults/run_faults.py
-@@ -394,8 +394,7 @@ def main() -> int:
+@@ -408,8 +408,7 @@ def main() -> int:
          result = dispatch_native(records)
      if args.out:
          args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
--    return int(any(row["status"] in {"unappliable", "unavailable", "leaked"}
+-    return int(no_match or any(row["status"] in {"unappliable", "unavailable", "leaked"}
 -                   for row in result.get("results", [])))
 +    return 0
  

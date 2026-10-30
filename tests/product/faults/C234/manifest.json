@@ -63,6 +63,13 @@
       "kind": "python",
       "target": "tests.test_fault_runner.ManifestFragmentTests.test_check_batches_python_targets_without_spreading_import_failures",
       "promise": "fault-runner infrastructure: product spec 验收方式"
+    },
+    {
+      "id": "tests-product-faults-C234-10-batch-crash-is-ok",
+      "patch": "tests/product/faults/C234/10-batch-crash-is-ok.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_check_rechecks_every_target_after_probe_exits_without_results",
+      "promise": "fault-runner infrastructure: product spec 验收方式"
     }
   ]
 }
