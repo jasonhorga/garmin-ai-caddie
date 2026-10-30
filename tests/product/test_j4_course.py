@@ -354,3 +354,102 @@ class MobileRoundIndexTests(unittest.TestCase):
             self.assertEqual(store.round_event_holes("legacy-round"), [1])
             repaired = json.loads(store.round_index.read_text(encoding="utf-8"))
             self.assertEqual(repaired["committedByteLength"], store.log.stat().st_size)
+
+
+class InstallSupplementTests(unittest.TestCase):
+    """J4.2: background completion and retry plans belong to the current map only."""
+
+    def setUp(self):
+        from server_v2 import course_install as ci
+        self.ci = ci
+        self.root = Path(self.enterContext(TemporaryDirectory()))
+        self.enterContext(patch.dict(os.environ, {'AI_CADDIE_COURSE_INSTALL_DIR': str(self.root / 'jobs')}))
+        self.enterContext(patch.object(ci, '_launch'))
+        self.enterContext(patch.dict(ci._DERIVATIVE_WAITERS, {}, clear=True))
+        self.enterContext(patch.dict(ci._DERIVATIVE_LOG_SIGNATURES, {}, clear=True))
+        self.refs = [{'globalId': 123, 'localHole': 1, 'displayHole': 1,
+                      'geometryRevision': 'r1', 'geometryAuthorityObservation': 'current'}]
+        self.job = ci.enqueue(global_id=123, tee_box='blue', loop_key='123:all', player_id='fixture',
+                              refs=self.refs, requested={}, ready={123: [1]})['jobId']
+        ci.update(self.job, global_id=123, local_hole=1, topo='ready', topo_revision='r1')
+
+    def test_J42_late_running_observation_cannot_undo_completed_install(self):
+        from ai_caddie.geometry import geometry_sync as gs
+        ci = self.ci
+        def late_running(*args):
+            # The listener completes the same row while the earlier observer is outside _LOCK.
+            with patch.object(gs, 'derivative_state', return_value={'state': 'ready'}):
+                ci.derivatives_settled(123, 1)
+            return {'state': 'running'}
+        with patch.object(gs, 'derivative_state', side_effect=late_running):
+            ci.reconcile_derivatives(self.job, schedule=False)
+        self.assertEqual(ci.status_by_job(self.job, player_id='fixture')['phase'], 'ready')
+        self.assertEqual(ci.state_for_worker(self.job)['holes']['123:1']['derivatives'], 'ready')
+
+    def test_J42_old_observation_cannot_attach_to_rebound_map(self):
+        from ai_caddie.geometry import geometry_sync as gs
+        def late_running(*args):
+            self.ci.enqueue(global_id=123, tee_box='blue', loop_key='123:all', player_id='fixture',
+                            refs=[{**self.refs[0], 'geometryRevision': 'r2'}],
+                            requested={}, ready={123: [1]})
+            return {'state': 'running'}
+        with patch.object(gs, 'derivative_state', side_effect=late_running):
+            self.ci.reconcile_derivatives(self.job, schedule=False)
+        row = self.ci.state_for_worker(self.job)['holes']['123:1']
+        self.assertEqual(row['geometryRevision'], 'r2')
+        self.assertNotIn('derivatives', row)
+
+    def test_J42_changed_mesh_or_release_ignores_old_running_and_failure(self):
+        import time
+        from concurrent.futures import Future
+        from ai_caddie.geometry import batch_prodgeometry_course as bp, geometry_authority as ga
+        mesh_file, distance, hazard = [self.root / name for name in ('mesh', 'distance', 'hazard')]
+        mesh_file.write_text('{}')
+        authority = {'schema': ga.SCHEMA, 'releaseVersion': 'r1'}
+        ga.write_authority(ga.authority_path(mesh_file), authority)
+        old_identity = bp._derivative_snapshot(mesh_file)[0]
+        old_key = bp._derivative_key(123, 1, mesh_file, distance, hazard, old_identity)
+        job = bp._DerivativeJob(Future(), 20)
+        with patch.dict(bp._DERIVATIVE_JOBS, {}, clear=True):
+            for changed in ('mesh', 'release'):
+                with self.subTest(changed=changed):
+                    mesh_file.write_text('{}')
+                    ga.write_authority(ga.authority_path(mesh_file), authority)
+                    ga.write_derivatives_status(mesh_file, {
+                        'identity': old_identity, 'status': 'failed', 'failureCount': 4,
+                        'lastErrorType': 'ExportFailed', 'retryAfterEpoch': time.time() + 3600})
+                    bp._DERIVATIVE_JOBS[old_key] = job
+                    def observe():
+                        return bp.derivative_state(123, 1, mesh_file=mesh_file,
+                                                   distance_target=distance, hazard_target=hazard)
+                    self.assertEqual(observe()['state'], 'running')  # Same identity is still in flight.
+                    if changed == 'mesh':
+                        mesh_file.write_text('{"new": true}')
+                    else:
+                        ga.write_authority(ga.authority_path(mesh_file), {**authority, 'releaseVersion': 'r2'})
+                    self.assertEqual(observe()['state'], 'due')
+                    self.assertEqual(observe()['failureCount'], 0)
+                    bp._DERIVATIVE_JOBS.clear()
+                    self.assertEqual(observe()['state'], 'due')  # Old persisted backoff cannot delay r2.
+                    self.assertIsNone(observe()['lastErrorType'])
+
+    def test_J42_distance_only_gap_is_reported_and_reopens_completed_install(self):
+        from ai_caddie.geometry import geometry_evidence as ge
+        mesh_file, distance, hazard = [self.root / name for name in ('mesh', 'distance', 'hazard')]
+        mesh_file.write_text('{}')
+        hazard.write_text('{}')
+        with (patch.object(ge, 'mesh_path', return_value=mesh_file),
+              patch.object(ge, 'hazard_path', return_value=hazard),
+              patch('ai_caddie.geometry.batch_prodgeometry_course.distances_path', return_value=distance)):
+            coverage = ge.geometry_coverage_for_hole(123, 1)
+        self.assertEqual(coverage['topoCoverage'], 'ready')  # A missing supplement never hides the map.
+        self.assertIn('distances', [item['label'] for item in coverage['missingData']])
+        self.ci.update(self.job, phase='ready', stage='complete')
+        state = self.ci.enqueue(global_id=123, tee_box='blue', loop_key='123:all', player_id='fixture',
+                                refs=[{**self.refs[0], 'missingData': coverage['missingData']}],
+                                requested={}, ready={123: [1]})
+        self.assertEqual(state['phase'], 'ready')  # The map remains playable during supplementation.
+        self.assertEqual(state['stage'], 'derivatives')
+        journal = self.ci.state_for_worker(self.job)
+        self.assertEqual(journal['phase'], 'queued')
+        self.assertEqual(journal['holes']['123:1']['derivatives'], 'queued')

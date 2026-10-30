@@ -445,7 +445,13 @@ def reconcile_derivatives(identifier: str, *, schedule: bool = True) -> None:
             return
         for key, result in observed.items():
             row = (current.get("holes") or {}).get(key)
-            if isinstance(row, dict):
+            original = state["holes"][key]
+            # Observation/scheduling runs outside _LOCK. A completion callback or release
+            # rebind may have written a newer row in the meantime; only that observer owns it.
+            observation_fields = ("workRevision", "geometryRevision", *_DERIVATIVE_FIELDS)
+            if (isinstance(row, dict)
+                    and current.get("generation") == state.get("generation")
+                    and all(row.get(field) == original.get(field) for field in observation_fields)):
                 _apply_derivative_state(row, result)
         _recount(current)
         _write(current)
@@ -672,13 +678,13 @@ def enqueue(
     # package clients use the existing ``priority_hole`` request field. A missing signal means
     # “keep the journal's current hole” on repeated enqueue, with hole 1 only for a new journal.
     requested_start_hole = priority_hole if priority_hole is not None else current_hole
-    # A package row that is drawable but still names missing obstacles asks for its exports. This
+    # A drawable package row missing either supplement asks for its exports. This
     # is how a journal completed before supplements were tracked heals on the next package read.
     lacking_derivatives = {
         f"{int(raw.get('globalId') or 0)}:{int(raw.get('localHole') or raw.get('hole') or 0)}"
         for raw in refs
         if isinstance(raw, dict) and any(
-            isinstance(item, dict) and item.get("label") == "hazards"
+            isinstance(item, dict) and item.get("label") in {"hazards", "distances"}
             for item in raw.get("missingData") or []
         )
     }

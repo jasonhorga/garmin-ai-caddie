@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/garmin/fetch.py b/ai_caddie/garmin/fetch.py
+index fe4f22d5..2b994a5d 100644
+--- a/ai_caddie/garmin/fetch.py
++++ b/ai_caddie/garmin/fetch.py
+@@ -137,7 +137,7 @@ def _write_shot_cache_if_changed(
+     )
+     if should_log:
+         diffs = _field_diffs(before, payload)
+-        logger.info("garmin_sync_round_changed %s", _format_field_diffs(diffs))
++        logger.info("garmin_sync_round_changed player_id=player-secret %s", _format_field_diffs(diffs))
+         if logged_keys is not None and log_key is not None:
+             logged_keys.add(log_key)
+     return saved

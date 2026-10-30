@@ -2170,6 +2170,20 @@
       "kind": "native-unit",
       "target": "AICaddieTests/TemplateAcquisitionTests/testDownloadWhileMapOnlyIntentIsInFlightUsesAnIndependentFullPackage",
       "promise": "C134-r11"
+    },
+    {
+      "id": "tests-product-faults-C197-01-no-field-diff",
+      "patch": "tests/product/faults/C197/01-no-field-diff.patch",
+      "kind": "python",
+      "target": "tests.product.test_j1_sync.SyncProductTests.test_j1_1_pin_only_rewrite_logs_one_redacted_field_diff",
+      "promise": "J1.1"
+    },
+    {
+      "id": "tests-product-faults-C197-02-player-id-log",
+      "patch": "tests/product/faults/C197/02-player-id-log.patch",
+      "kind": "python",
+      "target": "tests.product.test_j1_sync.SyncProductTests.test_j1_1_pin_only_rewrite_logs_one_redacted_field_diff",
+      "promise": "J1.1"
     }
   ]
 }
