@@ -21,6 +21,7 @@ from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_
 from server_v2.main import app
 from tests.round_loop_authority import fixture_course_authority
 from tests.event_log_io import count_log_reads
+from tests.service_logging import preserve_service_logging
 
 
 class ServerV2MobileTests(unittest.TestCase):
@@ -3639,6 +3640,7 @@ class ServerV2MobileTests(unittest.TestCase):
             self.assertFalse((root / "data" / "mobile_events" / "events.jsonl").exists())
 
     def test_mobile_start_hole_422_names_actual_round_limit(self) -> None:
+        self.enterContext(preserve_service_logging())
         event = {
             "schema": "ai-caddie-live-round-event-v1", "eventId": "start-limit",
             "roundId": "start-limit", "timestamp": "2026-06-20T00:00:00Z", "hole": 1,

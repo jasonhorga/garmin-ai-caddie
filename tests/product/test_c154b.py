@@ -10,6 +10,7 @@ from unittest.mock import patch
 from fastapi import BackgroundTasks
 
 from ai_caddie.core.priority_work import ForegroundGate, PriorityExecutor
+from tests.service_logging import preserve_service_logging
 
 
 def background_slot_logging_isolation_suite():
@@ -78,22 +79,17 @@ class ForegroundAdmissionTests(unittest.TestCase):
         import io
         import logging
         from server_v2.main import configure_request_timing_logging
+        self.enterContext(preserve_service_logging())
         gate = ForegroundGate()
         service = logging.getLogger("uvicorn.error")
-        old_handlers = service.handlers[:]
-        old_level = service.level
         stream = io.StringIO()
         service.handlers[:] = [logging.StreamHandler(stream)]
-        try:
-            configure_request_timing_logging()
-            with gate.background(unit_type="fixture"):
-                pass
-            output = stream.getvalue()
-            self.assertIn("background_slot hold_ms=", output)
-            self.assertIn("unit=fixture", output)
-        finally:
-            service.handlers[:] = old_handlers
-            service.setLevel(old_level)
+        configure_request_timing_logging()
+        with gate.background(unit_type="fixture"):
+            pass
+        output = stream.getvalue()
+        self.assertIn("background_slot hold_ms=", output)
+        self.assertIn("unit=fixture", output)
 
     def test_J42_package_in_flight_delays_background_until_package_finishes(self):
         """J4.2: a package gets the CPU admission window before background work starts."""
