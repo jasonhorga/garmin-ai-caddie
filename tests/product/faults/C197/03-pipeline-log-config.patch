@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/pipeline.py b/ai_caddie/pipeline.py
+index 2c72488a..7238044c 100644
+--- a/ai_caddie/pipeline.py
++++ b/ai_caddie/pipeline.py
+@@ -265,7 +265,7 @@ def main(argv: list[str] | None = None) -> int:
+     from ai_caddie.connectors.sync_lock import SyncInProgress, acquire_sync_lock
+ 
+     argv = sys.argv[1:] if argv is None else argv
+-    _configure_sync_logging()
++    pass  # mutant: the cron entrypoint never configures the shot-diff logger
+     geometry_limit = _int_arg(argv, "--geometry-limit")
+     try:
+         # The cron process and the API container share the same data volume. Keep

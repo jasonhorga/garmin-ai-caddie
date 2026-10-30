@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C197-03-pipeline-log-config",
+      "patch": "tests/product/faults/C197/03-pipeline-log-config.patch",
+      "kind": "python",
+      "target": "tests.product.test_j1_sync.SyncProductTests.test_j1_1_pipeline_entrypoint_emits_diff_to_stderr",
+      "promise": "J1.1"
+    }
+  ]
+}
