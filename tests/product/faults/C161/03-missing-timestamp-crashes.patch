@@ -1,11 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index dc1a315d..72f4cc37 100644
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2606,7 +2606,7 @@
+@@ -2760,7 +2760,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
+                 restore_only = False
              current_timestamp = _ACTIVE_EVENT_TIMES.get(latest) if latest is not None else None
-             timed = event_timestamp_valid is True and event_timestamp is not None
              if event_timestamp_valid is False:
 -                logger.warning("active round event timestamp unavailable; using arrival order")
 +                raise ValueError("event timestamp required")
              if latest is None or latest == key:
-                 may_restore = True
+                 may_restore = not (latest is None and not timed and new_events and not restore_only_registration)
              elif timed:

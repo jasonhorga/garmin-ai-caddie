@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index dc1a315d..ae09fe6a 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2687,7 +2687,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
+     key = (str(player_id), str(round_id))
+     # A durable finish makes every later event an edit.  It must not recreate a lease, renew one,
+     # or provide package proof; explicit package requests remain eligible to restore a round.
+-    if not finished and new_events and not package_registration and _durable_round_is_finished(*key):
++    if False and not finished and new_events and not package_registration and _durable_round_is_finished(*key):
+         return
+ 
+     timed_request = event_timestamp_valid is True and event_timestamp is not None

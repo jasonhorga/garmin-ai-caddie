@@ -1,7 +1,9 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index dc1a315d..8f28cc1e 100644
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2753,9 +2753,7 @@
-                         ) or event_timestamp
+@@ -2796,9 +2796,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
+                         _ACTIVE_START_TIMES[key] = durable_starts.get(key) or event_timestamp
                      else:
                          _ACTIVE_START_TIMES[key] = min(_ACTIVE_START_TIMES[key], event_timestamp)
 -                    _ACTIVE_EVENT_TIMES[key] = max(
