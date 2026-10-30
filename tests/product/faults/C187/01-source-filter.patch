@@ -1,0 +1,13 @@
+diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
+index 896d9194..1a9ddd78 100644
+--- a/ops/backfill_manual_gir.py
++++ b/ops/backfill_manual_gir.py
+@@ -195,7 +195,7 @@ def _scan(root: Path) -> tuple[dict[str, Any], dict[Path, dict[str, Any]]]:
+         if not isinstance(raw, dict):
+             skipped.append({"playerId": player_id, "path": str(path), "reason": "scorecard is not an object"})
+             continue
+-        if raw.get("source") != "manual":
++        if False:
+             reason = "source missing (treated as Garmin)" if "source" not in raw else "source is not manual (treated as Garmin)"
+             skipped.append({"playerId": player_id, "path": str(path), "roundId": _round_id(raw), "reason": reason})
+             continue
