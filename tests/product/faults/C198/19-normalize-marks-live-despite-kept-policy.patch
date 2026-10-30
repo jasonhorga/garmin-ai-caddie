@@ -1,9 +1,8 @@
-diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
 --- a/ops/agenthub_deploy.py
 +++ b/ops/agenthub_deploy.py
-@@ -1213,9 +1213,7 @@ def normalize_restart_policy(cfg: Config, containers: list[Container], live: Con
-                                f"{container.name} could not be set to restart policy no")
-                 kept.append(container.name)
+@@ -1230,9 +1230,7 @@
+                 if container.restart_update_is_withheld:
+                     kept.append(container.name)
      if live is not None:
 -        if kept:
 -            withhold_live(live.name)
