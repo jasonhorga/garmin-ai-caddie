@@ -1,5 +1,5 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index 43c125fa..1b87ae2c 100644
+index 9a4520fa..7ea6fd64 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
 @@ -317,7 +317,7 @@ def corrected_rounds(
@@ -10,4 +10,4 @@ index 43c125fa..1b87ae2c 100644
 +                pass  # drop first-card physical identity
                  if _int(score_payload.get("restoreGlobalId")) is not None:
                      synthetic["sourceGlobalId"] = _int(score_payload["restoreGlobalId"])
-             if number >= 10 and isinstance(score_payload, dict) and _int(score_payload.get("restoreLocalHole")) != number:
+             front_gid = _int(row.get("frontNineGlobalCourseId") or row.get("globalId") or row.get("courseId"))
