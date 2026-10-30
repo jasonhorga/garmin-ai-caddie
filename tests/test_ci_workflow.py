@@ -656,6 +656,7 @@ class CIWorkflowTests(unittest.TestCase):
         steps = {step.get("name"): step for step in workflow["jobs"]["native-mobile"]["steps"]}
 
         native_gate = steps["J4.2 fixture DNS gate (native tests)"]["run"]
+        self.assertIn("test -f native-mobile-results/ios-app-xcodebuild.log", native_gate)
         self.assertIn("no fixture test logs were produced", native_gate)
         self.assertIn("exit 1", native_gate)
         self.assertNotIn("exit 0", native_gate)
