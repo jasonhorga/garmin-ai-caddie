@@ -123,7 +123,8 @@ class MobileReconciliationTests(unittest.TestCase):
                 "kind": "score", "payload": {"strokes": 5},
             } for n in range(1, 19)], idempotency_key="legacy-missing", root=root)
             data = HistoryData(raw_rounds=[], rounds=[{
-                "id": "legacy-missing", "holes": [{"number": n, "strokes": 5} for n in range(1, 10)],
+                "id": "legacy-missing", "holePars": "4" * 18,
+                "holes": [{"number": n, "strokes": 5} for n in range(1, 10)],
             }], shots=[])
             result = reconcile_mobile_round_events("legacy-missing", data, root=root)
 
@@ -271,7 +272,7 @@ class MobileReconciliationTests(unittest.TestCase):
                 "kind": "score", "payload": {"strokes": 5},
             } for n in range(1, 19)], idempotency_key="late-card", root=root)
             first = HistoryData(raw_rounds=[], rounds=[{
-                "id": "late-card", "globalId": 55555,
+                "id": "late-card", "globalId": 55555, "holePars": "4" * 18,
                 "holes": [{"number": n, "strokes": 5} for n in range(1, 10)],
             }], shots=[])
             initial = reconcile_mobile_round_events("late-card", first, root=root)
@@ -324,7 +325,7 @@ class MobileReconciliationTests(unittest.TestCase):
             restored = next(hole for hole in corrected["holes"] if hole["number"] == 10)
             self.assertEqual(restored["strokes"], 5)
             self.assertEqual(restored["par"], 4)
-            self.assertTrue(restored["_scoreCorrected"])
+            self.assertIs(restored.get("_scoreCorrected"), True)
             self.assertNotIn("putts", restored)
             self.assertNotIn("penalties", restored)
             self.assertIsNone(restored.get("gir"))

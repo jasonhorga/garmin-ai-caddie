@@ -1,13 +1,12 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index d556a328..42763526 100644
+index 23863beb..cbc66844 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -283,6 +283,8 @@ def corrected_rounds(
+@@ -315,6 +315,7 @@ def corrected_rounds(
                  continue
              synthetic["par"] = par
              synthetic["strokes"] = total
-+            if "penalty" in kinds and penalty is not None:
-+                synthetic["penalties"] = penalty
++            synthetic["penalties"] = penalty
              synthetic["_scoreCorrected"] = True
-             corrected_refs.append(f"{row.get('id')}:{number}")
-             added_total += total
+             if row.get("merged") and any(hole.get("localHole") for hole in row.get("holes") or []) \
+                     and isinstance(score_payload, dict) and _int(score_payload.get("restoreLocalHole")):
