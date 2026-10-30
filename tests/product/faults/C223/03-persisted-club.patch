@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/rounds/round_ingest.py b/ai_caddie/rounds/round_ingest.py
+index 88c3c88d..aed60de7 100644
+--- a/ai_caddie/rounds/round_ingest.py
++++ b/ai_caddie/rounds/round_ingest.py
+@@ -763,7 +763,7 @@ def _shot_putt_count(
+             club_name = str(club.get("clubName") or club.get("club") or "").strip().lower()
+             lie = str(club.get("lie") or "").strip().lower()
+         else:
+-            club = clubs.get(shot.get("clubId"), {})
++            club = {}
+             shot_type = str(shot.get("shotType") or "").strip().lower()
+             club_name = str(club.get("name") or "").strip().lower()
+             lie = str((shot.get("startLoc") or {}).get("lie") or "").strip().lower()

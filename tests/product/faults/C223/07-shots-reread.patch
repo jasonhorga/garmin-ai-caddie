@@ -1,0 +1,13 @@
+diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
+index 38e3f93a..f2c217a7 100644
+--- a/ops/backfill_manual_gir.py
++++ b/ops/backfill_manual_gir.py
+@@ -247,7 +247,7 @@ def _scan(root: Path) -> tuple[dict[str, Any], dict[Path, dict[str, Any]]]:
+             if landing_source is not None:
+                 change["landingSource"] = landing_source
+             changes.append(change)
+-            entry = mutations.setdefault(path, {"rows": [], "scorecardDigest": _digest_bytes(scorecard_bytes), "shotsDigest": _digest_bytes(shots_bytes)})
++            entry = mutations.setdefault(path, {"rows": [], "scorecardDigest": _digest_bytes(scorecard_bytes), "shotsDigest": _digest_bytes(shot_path.read_bytes() if shot_path.exists() else None)})
+             entry["rows"].append(change)
+         # A missing GIR is not a recorded denominator, so only existing values count here.
+     after = before + len(changes)

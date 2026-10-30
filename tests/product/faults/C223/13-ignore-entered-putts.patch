@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/rounds/round_ingest.py b/ai_caddie/rounds/round_ingest.py
+index 88c3c88d..07fabffb 100644
+--- a/ai_caddie/rounds/round_ingest.py
++++ b/ai_caddie/rounds/round_ingest.py
+@@ -824,6 +824,7 @@ def _derive_gir_fairway(
+     fairway outline and route -> "hit" / "left" / "right" (:func:`_tee_result`); no second
+     position or no outline -> None. A non-fairway finish is sided, never a blanket "miss".
+     """
++    putts = None
+     gir: bool | None = None
+     fairway: str | None = None
+     if par is None or par < 3:

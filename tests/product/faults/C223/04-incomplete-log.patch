@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/rounds/round_ingest.py b/ai_caddie/rounds/round_ingest.py
+index 88c3c88d..bf366847 100644
+--- a/ai_caddie/rounds/round_ingest.py
++++ b/ai_caddie/rounds/round_ingest.py
+@@ -750,7 +750,7 @@ def _shot_putt_count(
+     In-memory rows keep ``club``; persisted rows keep ``startLoc.lie``, ``shotType`` and
+     a ``clubId`` referring to ``clubDetails``. Both representations require the same evidence.
+     """
+-    if total_strokes is not None and len(shots) < total_strokes:
++    if False:
+         return None
+     clubs = {row.get("id"): row for row in (club_details or []) if isinstance(row, dict)}
+     count = 0

@@ -1,0 +1,12 @@
+diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
+index 38e3f93a..47baf56b 100644
+--- a/ops/backfill_manual_gir.py
++++ b/ops/backfill_manual_gir.py
+@@ -317,7 +317,6 @@ def _apply(root: Path, report: dict[str, Any], mutations: dict[Path, dict[str, A
+                     backup_entry = {"path": str(path), "backup": str(backup), "changes": 0}
+                     backup_manifest.append(backup_entry)
+                     manifest_path = backup_dir / "manifest.json"
+-                    manifest_path.write_text(json.dumps(backup_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+                     round_ingest._atomic_write_json(path, raw)
+                     actual_changes.extend(wrote)
+                     backup_entry["changes"] = len(wrote)
