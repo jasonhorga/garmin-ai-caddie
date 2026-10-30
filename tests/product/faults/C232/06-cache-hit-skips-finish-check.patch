@@ -1,0 +1,9 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index f68a6a7..691dbcf 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2665,3 +2665,3 @@ def _durable_round_is_finished(player_id: str, round_id: str) -> bool:
+         if cached is not None and cached[:2] == (str(path), generation):
+-            index = cached[2]
++            return False
+         else:

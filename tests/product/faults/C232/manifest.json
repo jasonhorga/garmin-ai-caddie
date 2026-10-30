@@ -28,6 +28,13 @@
       "kind": "python",
       "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_restart_direct_finish_of_unregistered_round_evicts_opening_cache",
       "promise": "4.2"
+    },
+    {
+      "id": "C232-S4-cache-hit-skips-finish-check",
+      "patch": "tests/product/faults/C232/06-cache-hit-skips-finish-check.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_retried_finished_edit_batch_stays_rejected_on_cached_index",
+      "promise": "4.2"
     }
   ]
 }

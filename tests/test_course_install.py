@@ -137,6 +137,7 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self.enterContext(patch.object(main, "_ACTIVE_EVENT_DEVICES", {}))
         self.enterContext(patch.object(main, "_ACTIVE_START_TIMES", {}))
         self.enterContext(patch.object(main, "_ROUND_START_CACHE", {}, create=True))
+        self.enterContext(patch.object(main, "_FINISH_INDEX_CACHE", {}))
         self.enterContext(patch.object(main, "_ACTIVE_PACKAGED_ROUNDS", set()))
         self.enterContext(patch.object(main, "_ACTIVE_SELECTIONS", {}))
         self.enterContext(patch.object(ci, "_CURRENT_COURSE_IDS", type(ci._CURRENT_COURSE_IDS)()))
@@ -616,6 +617,41 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self._post_events("old-finished", "o-edit", timestamp="2026-10-29T10:50:00Z")
         self.assertNotIn(("fixture", "old-finished"), self.main._ACTIVE_ROUNDS)
         self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
+    def test_restore_probe_then_old_backlog_cannot_take_packaged_current_round(self):
+        """J4.2: a pre-event restore miss cannot hide an older backlog's opening time."""
+        from server_v2.models import LiveRoundEventBatchRequest
+
+        self._identity("live", 123)
+        self.package(123, "live")
+        self._post_events("live", "l1", timestamp="2026-10-29T08:30:00Z")
+        self._identity("old", 456)
+        self.round_package("old", 456)  # Restore probes the opening time before any progress exists.
+        self.assertNotIn(("fixture", "old"), self.main._ACTIVE_ROUNDS)
+        body = LiveRoundEventBatchRequest(
+            roundId="old",
+            events=[
+                self._event("old", "backlog-start", timestamp="2026-10-29T07:00:00Z"),
+                self._event("old", "backlog-edit", timestamp="2026-10-29T10:00:00Z"),
+            ],
+        )
+        self.main.mobile_round_events("old", body, "backlog", acting_player_id="fixture")
+        # J4.2 compares opening times for packaged play: 07:00 < 08:30, despite the 10:00 edit.
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+        self.assertNotIn(("fixture", "old"), self.main._ACTIVE_ROUNDS)
+
+    def test_retried_finished_edit_batch_stays_rejected_on_cached_index(self):
+        """J4.2: retrying a finished edit with the same Idempotency-Key cannot revive play."""
+        self._identity("retry", 456)
+        self._post_events("retry", "start", timestamp="2026-10-29T08:00:00Z")
+        self._finish_persisted("retry", 456)
+        self._post_events("retry", "edit", timestamp="2026-10-29T12:00:00Z")
+        self.assertNotIn(("fixture", "retry"), self.main._ACTIVE_ROUNDS)
+        # Same event and Idempotency-Key: append is idempotent, leaving the index generation warm.
+        self._post_events("retry", "edit", timestamp="2026-10-29T12:00:00Z")
+        self.assertNotIn(("fixture", "retry"), self.main._ACTIVE_ROUNDS)
+        self.assertEqual(self.main._current_course_ids("fixture"), ())
+        self.assertFalse(self.main.nearby_work_blocked())
 
     def test_event_batch_finish_index_reads_are_bounded_and_reused(self):
         """J4.2: cold batch <=2 index loads; unchanged warm batch <=1, for 1 or 32 events.
