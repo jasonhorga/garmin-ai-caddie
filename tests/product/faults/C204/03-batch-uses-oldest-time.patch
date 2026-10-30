@@ -1,0 +1,11 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2580,7 +2580,7 @@
+             devices.add(str(raw_device or ""))
+         except (TypeError, ValueError):
+             return None, None, False
+-    return (max(parsed) if parsed else None), (next(iter(devices)) if len(devices) == 1 else None), True
++    return (min(parsed) if parsed else None), (next(iter(devices)) if len(devices) == 1 else None), True
+ 
+ 
+ def _round_start_timestamp(player_id: str, round_id: str) -> datetime | None:

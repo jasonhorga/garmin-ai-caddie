@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C204-01-selection-uses-last-registration",
+      "patch": "tests/product/faults/C204/01-selection-uses-last-registration.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_selection_uses_timestamp_current_round_over_last_registration",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-02-finish-retires-later-untimed",
+      "patch": "tests/product/faults/C204/02-finish-retires-later-untimed.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_finish_old_timed_round_keeps_later_untimed_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-03-batch-uses-oldest-time",
+      "patch": "tests/product/faults/C204/03-batch-uses-oldest-time.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_event_batch_uses_latest_timestamp",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-04-takeover-ignores-time-order",
+      "patch": "tests/product/faults/C204/04-takeover-ignores-time-order.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_older_unregistered_event_cannot_take_event_recovered_current",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-05-event-time-overwrites-max",
+      "patch": "tests/product/faults/C204/05-event-time-overwrites-max.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_current_round_event_time_does_not_move_backwards",
+      "promise": "4.2"
+    }
+  ]
+}

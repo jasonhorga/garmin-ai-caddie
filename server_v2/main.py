@@ -2489,6 +2489,10 @@ def _current_geometry_revision(global_id: int, hole: int) -> str | None:
 _ACTIVE_ROUNDS: dict[tuple[str, str], float] = {}
 _ACTIVE_COURSES: dict[tuple[str, str], tuple[int, ...]] = {}
 _ACTIVE_EVENT_TIMES: dict[tuple[str, str], datetime] = {}
+# Earliest accepted play time for each round.  The active selector uses the latest event, while the
+# package guard needs the round's opening time so a newly started offline round can replace an older
+# packaged round without allowing a late edit from that older round to take it back.
+_ACTIVE_START_TIMES: dict[tuple[str, str], datetime] = {}
 # Kept for diagnostics only. Timestamp ordering is per player; a phone batch may contain both
 # ios-phone and relayed apple-watch events, so clientId never creates separate clock domains.
 _ACTIVE_EVENT_DEVICES: dict[tuple[str, str], str] = {}
@@ -2592,6 +2596,32 @@ def _request_event_timestamp(request) -> tuple[datetime | None, str | None, bool
     return (max(parsed) if parsed else None), (next(iter(devices)) if len(devices) == 1 else None), True
 
 
+def _round_start_timestamp(player_id: str, round_id: str) -> datetime | None:
+    """Read the earliest accepted play-progress timestamp for a round after a restart."""
+    from . import mobile
+
+    try:
+        events = mobile.round_events(round_id, root=mobile.MOBILE_ROOT, player_id=player_id)
+    except (OSError, ValueError):
+        return None
+    progress_kinds = {"score", "club", "putt", "penalty", "location"}
+    parsed: list[datetime] = []
+    for event in events:
+        if not isinstance(event, dict) or str(event.get("kind") or "").strip().lower() not in progress_kinds:
+            continue
+        raw = event.get("timestamp")
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        try:
+            value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            parsed.append(value)
+        except (TypeError, ValueError):
+            continue
+    return min(parsed) if parsed else None
+
+
 def _latest_rounds_by_player() -> dict[str, tuple[str, str]]:
     # Timestamps share one player clock: the phone uploads its own and relayed Watch events in one
     # batch. A newly packaged last registration without an event time is switch evidence and wins
@@ -2644,6 +2674,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                 _ACTIVE_ROUNDS.pop(stale, None)
                 _ACTIVE_COURSES.pop(stale, None)
                 _ACTIVE_SELECTIONS.pop(stale, None)
+                _ACTIVE_START_TIMES.pop(stale, None)
                 _ACTIVE_EVENT_TIMES.pop(stale, None)
                 _ACTIVE_EVENT_DEVICES.pop(stale, None)
                 _ACTIVE_PACKAGED_ROUNDS.discard(stale)
@@ -2673,6 +2704,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                     _ACTIVE_ROUNDS.pop(old, None)
                     _ACTIVE_COURSES.pop(old, None)
                     _ACTIVE_SELECTIONS.pop(old, None)
+                    _ACTIVE_START_TIMES.pop(old, None)
                     _ACTIVE_EVENT_TIMES.pop(old, None)
                     _ACTIVE_EVENT_DEVICES.pop(old, None)
                     _ACTIVE_PACKAGED_ROUNDS.discard(old)
@@ -2680,6 +2712,14 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
             # Uploads and round refreshes may be delayed for days. A valid timestamp may replace an
             # older event-recovered round, but an event from an old round (e.g. a late score edit)
             # cannot displace a current round already proven by its course package.
+            timed = event_timestamp_valid is True and event_timestamp is not None
+            restore_only_registration = restore_only
+            if latest == key and not timed:
+                new_events = False
+            elif latest is None and not timed and (restore_only or package_registration
+                                                   or event_timestamp_valid is False):
+                new_events = False
+                restore_only = False
             current_timestamp = _ACTIVE_EVENT_TIMES.get(latest) if latest is not None else None
             timed = event_timestamp_valid is True and event_timestamp is not None
             if event_timestamp_valid is False:
@@ -2699,6 +2739,16 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                 # No usable play time (legacy/invalid timestamps, note-only batches, packages):
                 # arrival order, so uploads and round refreshes cannot displace the current round.
                 may_restore = not (new_events or restore_only)
+            if latest is None and not timed and new_events and not restore_only_registration:
+                may_restore = False
+            if timed and latest not in _ACTIVE_PACKAGED_ROUNDS and current_timestamp is None:
+                may_restore = True
+            if timed and latest in _ACTIVE_PACKAGED_ROUNDS and not may_restore:
+                candidate_start = _ACTIVE_START_TIMES.get(key) or _round_start_timestamp(
+                    key[0], key[1]
+                ) or event_timestamp
+                current_start = _ACTIVE_START_TIMES.get(latest) or current_timestamp
+                may_restore = current_start is not None and candidate_start > current_start
             # The current round renews its lease, course binding and selection on every package or
             # event; an older registration is renewed only when its event time takes over.
             if may_restore and (key not in _ACTIVE_ROUNDS or latest in (None, key) or timed):
@@ -2707,9 +2757,15 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                     _ACTIVE_COURSES[key] = tuple(sorted({int(value) for value in global_ids if int(value) > 0}))
                 if selection is not None:
                     _ACTIVE_SELECTIONS[key] = (str(selection[0]), str(selection[1]).strip().lower())
-                if package_registration:
+                if package_registration and not restore_only_registration:
                     _ACTIVE_PACKAGED_ROUNDS.add(key)
                 if event_timestamp is not None:
+                    if key not in _ACTIVE_START_TIMES:
+                        _ACTIVE_START_TIMES[key] = _round_start_timestamp(
+                            key[0], key[1]
+                        ) or event_timestamp
+                    else:
+                        _ACTIVE_START_TIMES[key] = min(_ACTIVE_START_TIMES[key], event_timestamp)
                     _ACTIVE_EVENT_TIMES[key] = max(
                         event_timestamp, _ACTIVE_EVENT_TIMES.get(key, event_timestamp)
                     )

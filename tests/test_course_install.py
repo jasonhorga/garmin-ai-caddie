@@ -134,7 +134,7 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self.enterContext(patch.object(main, "_ACTIVE_COURSES", {}))
         self.enterContext(patch.object(main, "_ACTIVE_EVENT_TIMES", {}))
         self.enterContext(patch.object(main, "_ACTIVE_EVENT_DEVICES", {}))
-        self.enterContext(patch.object(main, "_ACTIVE_START_TIMES", {}, create=True))
+        self.enterContext(patch.object(main, "_ACTIVE_START_TIMES", {}))
         self.enterContext(patch.object(main, "_ACTIVE_PACKAGED_ROUNDS", set()))
         self.enterContext(patch.object(main, "_ACTIVE_SELECTIONS", {}))
         self.enterContext(patch.object(ci, "_CURRENT_COURSE_IDS", type(ci._CURRENT_COURSE_IDS)()))
@@ -532,6 +532,8 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
     def test_old_round_late_score_edit_cannot_take_packaged_current_round(self):
         """J4.2: an old round's later score edit cannot steal the packaged current round."""
         self._identity("saved-old", 456)
+        # The durable log carries the old round's opening event; the later score is an edit.
+        self._post_events("saved-old", "o-start", timestamp="2026-10-29T08:00:00Z")
         self.package(123, "live-l")
         self._post_events("live-l", "l1", timestamp="2026-10-29T10:00:00Z")
         self._post_events("saved-old", "o-edit", timestamp="2026-10-29T10:30:00Z")
@@ -679,6 +681,7 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self._identity("round-old", 456)
         self._post_events("round-current", "new", timestamp="2026-10-29T10:00:00Z")
         self._post_events("round-old", "old", timestamp="2026-10-29T09:00:00Z")
+        self.assertNotIn(("fixture", "round-old"), self.main._ACTIVE_ROUNDS)
         self.assertEqual(self.main._current_course_ids("fixture"), (123,))
 
     def test_event_batch_uses_latest_timestamp(self):

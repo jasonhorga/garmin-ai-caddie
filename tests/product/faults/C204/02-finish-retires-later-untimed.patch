@@ -1,0 +1,12 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2680,8 +2680,7 @@
+                                    _ACTIVE_EVENT_TIMES.get(old) is not None
+                                    and _ACTIVE_EVENT_TIMES[old] < own_timestamp
+                                ) or (
+-                                   index < key_index
+-                                   and _ACTIVE_EVENT_TIMES.get(old) is None
++                                   _ACTIVE_EVENT_TIMES.get(old) is None
+                                )]
+                 else:
+                     # No play time of its own yet (package-only round, or a legacy direct call):
