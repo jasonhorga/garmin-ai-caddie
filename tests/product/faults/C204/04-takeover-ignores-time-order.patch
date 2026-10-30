@@ -1,23 +1,13 @@
 diff --git a/server_v2/main.py b/server_v2/main.py
-index dc1a315d..bd517bb2 100644
+index 43919d5c..df1ea65d 100644
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2764,17 +2764,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
-             if latest is None or latest == key:
-                 may_restore = not (latest is None and not timed and new_events and not restore_only_registration)
-             elif timed:
--                # A timed event may replace an event-recovered round by newest event time.  A
--                # packaged current round (or a recovered round with no event time) uses durable
--                # opening times for the takeover guard instead.
--                if latest not in _ACTIVE_PACKAGED_ROUNDS and current_timestamp is None:
--                    may_restore = True
--                elif latest in _ACTIVE_PACKAGED_ROUNDS:
--                    candidate_start = _ACTIVE_START_TIMES.get(key) or durable_starts.get(key) or event_timestamp
--                    current_start = _ACTIVE_START_TIMES.get(latest) or durable_starts.get(latest)
--                    may_restore = current_start is not None and candidate_start > current_start
--                else:
+@@ -2783,7 +2783,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
+                 elif latest in _ACTIVE_PACKAGED_ROUNDS:
+                     may_restore = current_start is not None and candidate_start > current_start
+                 else:
 -                    may_restore = current_timestamp is not None and event_timestamp >= current_timestamp
-+                may_restore = current_timestamp is not None
++                    may_restore = current_timestamp is not None
              else:
                  # No usable play time (legacy/invalid timestamps, note-only batches, packages):
                  # arrival order, so uploads and round refreshes cannot displace the current round.

@@ -727,16 +727,16 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
     def test_durable_start_ignores_note_timestamp(self):
         """J4.2: note timestamps do not become durable opening times."""
         self._identity("note-old", 456)
-        self._post_events("note-old", "memo", timestamp="2026-10-29T12:00:00Z",
+        self._post_events("note-old", "memo", timestamp="2026-10-29T08:00:00Z",
                           kind="note", payload={"note": "late memo"})
         for name in ("_ACTIVE_ROUNDS", "_ACTIVE_COURSES", "_ACTIVE_EVENT_TIMES", "_ACTIVE_EVENT_DEVICES",
                      "_ACTIVE_SELECTIONS", "_ACTIVE_START_TIMES", "_ROUND_START_CACHE"):
             getattr(self.main, name).clear()
         self.main._ACTIVE_PACKAGED_ROUNDS.clear()
         self.package(123, "live-round")
-        self._post_events("live-round", "live", timestamp="2026-10-29T11:00:00Z")
+        self._post_events("live-round", "live", timestamp="2026-10-29T10:00:00Z")
         self._post_events("note-old", "score-edit", timestamp="2026-10-29T10:30:00Z")
-        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+        self.assertEqual(self.main._current_course_ids("fixture"), (456,))
 
     def test_finish_index_read_error_keeps_round_eligible(self):
         """J4.2: an unreadable finish index is treated as unfinished and logged safely."""

@@ -75,7 +75,7 @@
       "id": "C204-S7-durable-start-minimum",
       "patch": "tests/product/faults/C204/S7-durable-start-uses-max.patch",
       "kind": "python",
-      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_finished_old_edit_uses_durable_opening_time_for_guard",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_unfinished_old_round_durable_minimum_guards_packaged_round",
       "promise": "4.2"
     },
     {
@@ -83,6 +83,41 @@
       "patch": "tests/product/faults/C204/B1-finished-edit-registers.patch",
       "kind": "python",
       "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_finished_round_nonopening_requests_never_register_or_renew",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-M3-candidate-start-durable",
+      "patch": "tests/product/faults/C204/M3-candidate-start-ignores-durable.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_unfinished_old_round_durable_minimum_guards_packaged_round",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-M9-finished-package-allowed",
+      "patch": "tests/product/faults/C204/M9-finished-package-blocked.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_finished_round_package_can_restore_explicitly",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-M13-note-not-start",
+      "patch": "tests/product/faults/C204/M13-note-counts-as-start.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_durable_start_ignores_note_timestamp",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-M14-index-error-unfinished",
+      "patch": "tests/product/faults/C204/M14-index-error-blocks.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_finish_index_read_error_keeps_round_eligible",
+      "promise": "4.2"
+    },
+    {
+      "id": "C204-M16-finish-clears-cache",
+      "patch": "tests/product/faults/C204/M16-finish-keeps-cache.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_finish_clears_round_start_cache",
       "promise": "4.2"
     }
   ]

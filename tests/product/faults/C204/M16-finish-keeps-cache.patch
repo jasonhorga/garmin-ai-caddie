@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 43919d5c..ae28b303 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2749,8 +2749,6 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
+                     _ACTIVE_COURSES.pop(old, None)
+                     _ACTIVE_SELECTIONS.pop(old, None)
+                     _ACTIVE_START_TIMES.pop(old, None)
+-                    with _ROUND_START_CACHE_LOCK:
+-                        _ROUND_START_CACHE.pop(old, None)
+                     _ACTIVE_EVENT_TIMES.pop(old, None)
+                     _ACTIVE_EVENT_DEVICES.pop(old, None)
+                     _ACTIVE_PACKAGED_ROUNDS.discard(old)
