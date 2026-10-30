@@ -383,6 +383,83 @@ class ManifestFragmentTests(unittest.TestCase):
         self.assertEqual(trees.count("worktree "), 1)
         self.assertEqual(runner.run_target(self.record("clean-control"), self.root)[0], "leaked")
 
+    def test_check_rechecks_every_target_after_probe_exits_without_results(self):
+        """验收方式 infrastructure: a crashed batch is never evidence of loading."""
+        (self.root / "test_exit.py").write_text("import os\nos._exit(0)\n", encoding="utf-8")
+        self.init_repo()
+        targets = ["test_witness.Witness.test_subject", "test_exit", "test_witness.Witness"]
+        records = [{**self.record(str(i)), "target": target} for i, target in enumerate(targets)]
+        with mock.patch.object(runner.subprocess, "run", wraps=subprocess.run) as processes:
+            code, rows, _ = self.invoke_main("--check", records)
+        self.assertEqual([row["status"] for row in rows], ["ok", "unavailable", "ok"])
+        self.assertNotEqual(code, 0)
+        self.assertIn("target 无法加载：", rows[1]["detail"])
+        probes = [call for call in processes.call_args_list
+                  if call.args[0][:2] == [str(runner.SHARED_PYTHON), "-c"]]
+        self.assertEqual(len(probes), 4)  # One batch + all three isolated retries.
+
+    def test_run_rejects_probe_exit_before_patching_and_preserves_checkout(self):
+        """验收方式 infrastructure: a process exit cannot count as a kill."""
+        (self.root / "test_exit.py").write_text("import os\nos._exit(0)\n", encoding="utf-8")
+        record = {**self.record("exits-on-import"), "target": "test_exit"}
+        self.write_manifest(self.manifest, [record])
+        self.init_repo()
+        patch_before = self.patch.read_bytes()
+        status_before = subprocess.run(["git", "status", "--porcelain"], cwd=self.root,
+                                       text=True, capture_output=True, check=True).stdout
+        with tempfile.TemporaryDirectory(prefix="fault-run-result-") as directory:
+            output = Path(directory) / "results.json"
+            args = ["run_faults.py", "--run", "--id", record["id"], "--out", str(output)]
+            with mock.patch.object(sys, "argv", args):
+                with mock.patch.object(runner, "apply_patch", wraps=runner.apply_patch) as apply:
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        code = runner.main()
+            rows = json.loads(output.read_text())["results"]
+        self.assertEqual(rows[0]["status"], "unavailable")
+        self.assertNotEqual(code, 0)
+        apply.assert_not_called()
+        self.assertEqual(self.patch.read_bytes(), patch_before)
+        status_after = subprocess.run(["git", "status", "--porcelain"], cwd=self.root,
+                                      text=True, capture_output=True, check=True).stdout
+        self.assertEqual(status_after, status_before)
+
+    def test_run_unknown_id_reports_no_match_and_fails(self):
+        """验收方式 infrastructure: a mistyped fault id cannot report success."""
+        self.write_manifest(self.manifest, [self.record("known")])
+        output = self.root / "results.json"
+        args = ["run_faults.py", "--run", "--id", "missing-id", "--out", str(output)]
+        with mock.patch.object(sys, "argv", args):
+            with contextlib.redirect_stdout(io.StringIO()) as printed:
+                code = runner.main()
+        self.assertNotEqual(code, 0)
+        self.assertIn("NO_MATCH missing-id", printed.getvalue())
+        self.assertEqual(json.loads(output.read_text())["results"], [])
+
+    def test_batch_timeout_reports_duration_and_isolated_retry_count(self):
+        """验收方式 infrastructure: timeout degradation must be visible."""
+        (self.root / "test_slow.py").write_text(
+            "import time\nimport unittest\ntime.sleep(0.5)\n"
+            "class Slow(unittest.TestCase):\n"
+            "    def test_slow(self): pass\n", encoding="utf-8",
+        )
+        self.init_repo()
+        targets = ["test_witness.Witness.test_subject", "test_slow", "test_witness.Witness"]
+        records = [{**self.record(str(i)), "target": target} for i, target in enumerate(targets)]
+        with mock.patch.object(runner, "PYTHON_BATCH_TIMEOUT", 0.05, create=True):
+            with contextlib.redirect_stderr(io.StringIO()) as errors:
+                with mock.patch.object(runner.subprocess, "run", wraps=subprocess.run) as processes:
+                    code, rows, _ = self.invoke_main("--check", records)
+        self.assertEqual([row["status"] for row in rows], ["ok", "ok", "ok"])
+        self.assertEqual(code, 0)
+        warning = errors.getvalue()
+        self.assertIn("LOAD_PROBE_TIMEOUT", warning)
+        self.assertIn("0.05s", warning)
+        self.assertIn("fallback_targets=3", warning)
+        self.assertEqual(len(warning.splitlines()), 1)
+        probes = [call for call in processes.call_args_list
+                  if call.args[0][:2] == [str(runner.SHARED_PYTHON), "-c"]]
+        self.assertEqual(len(probes), 4)
+
     def test_check_validates_native_class_and_method_in_the_target_bundle(self):
         source = self.root / "mobile/ios/NativeTests/Witness.swift"
         source.parent.mkdir(parents=True)
