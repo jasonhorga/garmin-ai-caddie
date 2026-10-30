@@ -1,0 +1,10 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 9bdf3bdc..4ffc0f43 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -243,3 +243,4 @@ public struct StartRoundView: View {
+     ) -> String? {
+-        guard let venue = row.segments.first else { return nil }
++        guard row.source == .recent || row.source == .downloaded,
++              let venue = row.segments.first else { return nil }
+         if let installed = downloadedCoverageLabel(for: venue, downloaded: downloaded, catalogue: catalogue) {

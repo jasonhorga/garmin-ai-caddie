@@ -105,6 +105,55 @@
       "kind": "native-unit",
       "target": "AICaddieTests/StartRoundDiscoveryTests/testRecentVenueIncludesAllCatalogueNines",
       "promise": "4.1"
+    },
+    {
+      "id": "C162-tee-before-setup",
+      "patch": "tests/product/faults/C162/tee-before-setup.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testTeeLookupBeginsWhenSetupBecomesVisible",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-repeat-nearby-delay",
+      "patch": "tests/product/faults/C162/repeat-nearby-delay.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyExpansionDoesNotRepeatInitialDiscoveryDelay",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-drop-main-download-status",
+      "patch": "tests/product/faults/C162/drop-main-download-status.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyVenueRetainsDownloadStatusAfterOfflineRowIsDeduplicated",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-nearby-pending-never-ends",
+      "patch": "tests/product/faults/C162/nearby-pending-never-ends.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyPendingEndsAfterEveryExpansionSuccessOrFailure",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-tee-task-ignores-page",
+      "patch": "tests/product/faults/C162/tee-task-ignores-page.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/ProductPhoneUITests/test_j4_2_teeLoadingAndRetryKeepKnownRowsVisible",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-repeat-nearby-delay-wiring",
+      "patch": "tests/product/faults/C162/repeat-nearby-delay-wiring.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/TeeSelectionUITests/testDownloadedNearbyCourseStartsACompletelyNewRoundWithAllLiveServicesOffline",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-hide-main-download-status",
+      "patch": "tests/product/faults/C162/hide-main-download-status.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/RealFlowUITests/testCaptureRealAppFlow",
+      "promise": "4.1"
     }
   ]
 }

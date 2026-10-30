@@ -1,0 +1,9 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 9bdf3bdc..2692c224 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -2404,3 +2404,3 @@ public struct StartRoundView: View {
+         setLoading(true)
+-        defer { setLoading(false) }
++        defer { setLoading(true) }
+         var publishedProviderResult = false
