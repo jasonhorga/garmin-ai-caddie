@@ -1,0 +1,14 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+index 5e2c2a6b..7e61519b 100644
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -60,6 +60,9 @@ for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
+     except (Exception, SystemExit):
+         report = {"ok": False, "reason": traceback.format_exc()}
+     reports[target] = report
++if any(not report["ok"] for report in reports.values()):
++    failure = next(report for report in reports.values() if not report["ok"])
++    reports = dict.fromkeys(reports, failure)
+ Path(sys.argv[2]).write_text(json.dumps(reports), encoding="utf-8")
+ '''
+ 

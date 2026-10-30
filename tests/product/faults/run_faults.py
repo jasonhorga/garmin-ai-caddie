@@ -26,6 +26,109 @@ MANIFEST = ROOT / "tests/product/faults/manifest.json"
 # Host-specific runners come from the environment; defaults work in any checkout.
 RUN_TESTS = os.environ.get("CADDIE_RUNTESTS", "")
 SHARED_PYTHON = Path(os.environ.get("CADDIE_SHARED_PYTHON", sys.executable))
+# Injectable batch budget; isolated retries retain their own full load budget.
+PYTHON_BATCH_TIMEOUT = 60.0
+
+
+# Use a result file: imported test modules may write arbitrary stdout/stderr.
+# Inspect unittest's objects and loader errors, never its formatted console output.
+PYTHON_LOAD_PROBE = r'''
+import json
+from pathlib import Path
+import sys
+import traceback
+import unittest
+
+def failed_tests(test):
+    if isinstance(test, unittest.loader._FailedTest):
+        return True
+    if isinstance(test, unittest.TestSuite):
+        return any(failed_tests(child) for child in test)
+    return False
+
+reports = {}
+for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
+    try:
+        # A fresh loader keeps one target's errors out of the next target.
+        loader = unittest.TestLoader()
+        suite = loader.loadTestsFromName(target)
+        count = suite.countTestCases()
+        if loader.errors or failed_tests(suite):
+            report = {"ok": False, "reason": "\n".join(loader.errors) or "unittest _FailedTest"}
+        elif count == 0:
+            report = {"ok": False, "reason": "0 tests loaded"}
+        else:
+            report = {"ok": True, "reason": ""}
+    except (Exception, SystemExit):
+        report = {"ok": False, "reason": traceback.format_exc()}
+    reports[target] = report
+Path(sys.argv[2]).write_text(json.dumps(reports), encoding="utf-8")
+'''
+
+
+def _run_python_load_probe(targets: list[str], repo: Path) -> dict[str, tuple[str, str]]:
+    """Load a batch in one interpreter, returning a separate result per target."""
+    env = {**os.environ, "AI_CADDIE_DATA_MODE": "fixture", "PYTHONDONTWRITEBYTECODE": "1"}
+    try:
+        with tempfile.TemporaryDirectory(prefix="fault-load-") as directory:
+            source = Path(directory) / "targets.json"
+            output = Path(directory) / "load.json"
+            source.write_text(json.dumps(targets), encoding="utf-8")
+            timeout = PYTHON_BATCH_TIMEOUT if len(targets) > 1 else 60.0
+            try:
+                result = subprocess.run(
+                    [str(SHARED_PYTHON), "-c", PYTHON_LOAD_PROBE, str(source), str(output)],
+                    cwd=repo, env=env, text=True, capture_output=True, timeout=timeout,
+                )
+            except subprocess.TimeoutExpired:
+                if len(targets) > 1:
+                    print(f"LOAD_PROBE_TIMEOUT timeout={timeout:g}s fallback_targets={len(targets)}",
+                          file=sys.stderr)
+                raise
+            if result.returncode or not output.is_file():
+                reason = f"load probe exited {result.returncode}: {result.stderr.strip()}"
+            else:
+                reports = json.loads(output.read_text(encoding="utf-8"))
+                return {
+                    target: ("ok", "") if reports[target]["ok"] else
+                    ("unavailable", f"target 无法加载：{reports[target]['reason'][-5800:]}")
+                    for target in targets
+                }
+    except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
+        reason = str(error)
+    return {target: ("unavailable", f"target 无法加载：{reason[-5800:]}") for target in targets}
+
+
+def probe_python_targets(targets: Iterable[str], repo: Path) -> dict[str, tuple[str, str]]:
+    """Use one batch, retrying only failures without other modules' side effects."""
+    targets = list(dict.fromkeys(targets))
+    if not targets:
+        return {}
+    results = _run_python_load_probe(targets, repo)
+    if len(targets) > 1:
+        for target in targets:
+            if results[target][0] != "ok":
+                results[target] = _run_python_load_probe([target], repo)[target]
+    return results
+
+
+def target_check(record: dict[str, Any], repo: Path) -> tuple[str, str]:
+    """Validate a target without executing tests or applying its fault patch."""
+    kind, target = record["kind"], record["target"]
+    if kind == "python":
+        return probe_python_targets([target], repo)[target]
+    if kind in {"native-unit", "native-ui"}:
+        parts = target.split("/")
+        if len(parts) != 3 or not all(re.fullmatch(r"\w+", part) for part in parts):
+            return "unavailable", f"target 无法加载：invalid native target {target}"
+        bundle, class_name, method = parts
+        for source in (repo / "mobile/ios" / bundle).rglob("*.swift"):
+            text = source.read_text(encoding="utf-8")
+            if (re.search(rf"\bclass\s+{re.escape(class_name)}\b", text)
+                    and re.search(rf"\bfunc\s+{re.escape(method)}\s*\(", text)):
+                return "ok", ""
+        return "unavailable", f"target 无法加载：Swift test class/method not found: {target}"
+    return "ok", ""
 
 
 def load_manifest() -> list[dict[str, Any]]:
@@ -103,15 +206,28 @@ def patch_check(record: dict[str, Any], repo: Path) -> tuple[str, str]:
 
 
 def check(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    records = list(records)
     rows: list[dict[str, Any]] = []
     worktree, holder = make_worktree()
+    targets: dict[tuple[str, str], tuple[str, str]] = {}
     try:
+        python_targets = [record["target"] for record in records
+                          if record["kind"] == "python" and not record.get("disabled")]
+        targets.update({("python", target): result
+                        for target, result in probe_python_targets(python_targets, worktree).items()})
         for record in records:
             status, detail = patch_check(record, worktree)
+            if status != "disabled":
+                key = (record["kind"], record["target"])
+                if key not in targets:
+                    targets[key] = target_check(record, worktree)
+                target_status, target_detail = targets[key]
+                if target_status != "ok":
+                    status, detail = target_status, target_detail + (f"\npatch: {detail}" if detail else "")
             rows.append({"id": record["id"], "kind": record["kind"], "status": status, "detail": detail})
     finally:
         remove_worktree(worktree, holder)
-    print_results(rows, title="patch check")
+    print_results(rows, title="patch and target check")
     return {"mode": "check", "results": rows, "summary": summarize(rows)}
 
 
@@ -142,8 +258,11 @@ def run_target(record: dict[str, Any], repo: Path) -> tuple[str, str, list[str]]
         command = [str(SHARED_PYTHON), *script]
         result = subprocess.run(command, cwd=repo, env=env, text=True, capture_output=True)
     elif kind == "python":
-        if not SHARED_PYTHON.exists():
-            return "unavailable", f"shared Python not found: {SHARED_PYTHON}", []
+        # Recheck after patching: a mutant-induced import/collection error is
+        # unavailable too, rather than evidence of an assertion killing it.
+        status, detail = target_check(record, repo)
+        if status != "ok":
+            return status, detail, []
         if RUN_TESTS:
             command = ["bash", RUN_TESTS, str(repo), target]
         else:
@@ -173,9 +292,8 @@ def run_target(record: dict[str, Any], repo: Path) -> tuple[str, str, list[str]]
     else:
         return "native-pending", "native tests are dispatched by the project console", []
     output = (result.stdout + "\n" + result.stderr).strip()
-    # A mutant is killed when the selected test exits non-zero.  The runner deliberately leaves
-    # the assertion text in the JSON so a console reviewer can distinguish a semantic red from a
-    # collection/import failure.
+    # Python unittest targets have passed structured loading checks before this
+    # execution. Keep the assertion/error text for review of the actual test red.
     if kind == "python-script":
         # c16c_mutants.py is a harness: a successful N/N report means every mutation was
         # rejected by its green control, while a non-zero exit is a failed harness run.
@@ -200,6 +318,11 @@ def run_mutants(records: list[dict[str, Any]]) -> dict[str, Any]:
             continue
         worktree, holder = make_worktree()
         try:
+            if record["kind"] == "python":
+                status, detail = target_check(record, worktree)
+                if status != "ok":
+                    rows.append({"id": record["id"], "kind": record["kind"], "status": status, "detail": detail})
+                    continue
             applied, detail = apply_patch(record, worktree)
             if not applied:
                 rows.append({"id": record["id"], "kind": record["kind"], "status": "unappliable", "detail": detail})
@@ -251,7 +374,7 @@ def print_results(rows: list[dict[str, Any]], title: str) -> None:
             f" {counts.get('native-pending', 0):>7} {counts.get('disabled', 0):>8} {counts.get('ok', 0):>2}"
         )
     for row in rows:
-        if row["status"] in {"unappliable", "leaked"}:
+        if row["status"] in {"unappliable", "leaked", "unavailable"}:
             print(f"{row['status'].upper()} {row['id']}: {row.get('detail', '')[:600]}")
 
 
@@ -272,7 +395,12 @@ def main() -> int:
         records = [r for r in records if r["kind"] == args.kind]
     if args.id:
         records = [r for r in records if r["id"] == args.id]
-    if args.check:
+    no_match = bool(args.id and not records)
+    if no_match:
+        print(f"NO_MATCH {args.id}")
+        result = {"mode": "check" if args.check else "run" if args.run else "dispatch-native",
+                  "results": [], "summary": {}}
+    elif args.check:
         result = check(records)
     elif args.run:
         result = run_mutants(records)
@@ -280,7 +408,8 @@ def main() -> int:
         result = dispatch_native(records)
     if args.out:
         args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return 0
+    return int(no_match or any(row["status"] in {"unappliable", "unavailable", "leaked"}
+                   for row in result.get("results", [])))
 
 
 if __name__ == "__main__":

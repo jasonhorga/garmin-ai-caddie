@@ -139,6 +139,12 @@ J7.3 迁移制品细则：备份从临时文件创建、replace、元数据恢�
 ## 验收方式
 故障清单 = 每条承诺至少一处"改坏代码"，新套件必须红（例：2.5 默认洞放回推杆分母；5.1 锁定改读 sourceStartHole；5.12 去掉新鲜判断；3.4 去掉重放幂等；7.1 去掉球员作用域）。新测试在现产品上红 → 逐条判是产品 bug 还是承诺写错，修产品或改清单，不改测试迁就。新套件全绿 + 故障清单全红后，旧测试同一 PR 整批删。
 
+故障 runner 的基础设施契约（不单列 J/G 产品承诺）：Python unittest target 必须先在干净 worktree 的独立子进程中，用 unittest loader 确认能加载、没有加载错误或 `_FailedTest`，且至少含 1 条测试；失败记 `unavailable`，detail 为 `target 无法加载：<原因>`，不打补丁。打补丁后再次用同一探测确认可加载；补丁导致的 ImportError、SyntaxError 或测试消失同样记 `unavailable`，不能当作断言杀死。通过加载检查后，实际执行测试非 0 仍为 `killed`（含测试执行阶段的错误），全过为 `leaked`。`--run` 存在 unavailable、unappliable 或 leaked 时整体非 0 退出。`--check` 在干净树上同时检查补丁可用性及 Python target 加载；native-unit/native-ui target 静态核对 mobile/ios 对应测试 bundle 内 Swift 测试类及方法名（只核名字，不代表编译或执行通过），失效 target 列出并非 0 退出。disabled 条目继续跳过，python-script 不按 unittest target 探测。
+
+`--check` 的 Python 加载探测用一个子进程批量处理所有不同 target，每个 target 使用独立 loader、单独捕获加载异常并记录结果，最后一次写出 JSON；一条加载失败不能污染其他条目的判定。只对批量判失败的 target 再分别起子进程复核，以独立复核结果为准；全过时仅起 1 个探测进程，正常批量探测的进程总数为 1 + 批量失败数。若批量进程崩溃或未返回完整结果，无法确定的条目按失败候选独立复核。`--run --id` 的补丁前后探测共用该函数，单 target 只起一个进程。全仓 `--check` 本机目标为 2 分钟以内，既有逐条状态不变。
+
+探测进程退出但未返回结果（含 `os._exit(0)`）同样不能证明 target 可加载：批量按全部失败候选逐个复核，单条 `--run` 记 unavailable、不打补丁。批量探测默认超时 60 秒，超时退化时在 stderr 输出一行 `LOAD_PROBE_TIMEOUT`，包含超时秒数和转为独立复核的 target 数；该批量超时预算可注入，独立复核仍保留完整预算。指定 `--id` 没有匹配条目时打印 `NO_MATCH <id>` 并非 0 退出。
+
 ## Jason 10-23 已定
 手表距离用码；开球后前/中/后按实时位置重算；Web 保留；成绩首页 = 四块 + "全部 N 场"链接（按现行上线）；旧"球场回顾页"RecentRoundReviewView 删除（连同路由与截图测试，不写承诺）。文档按此改一致（C19）。
 

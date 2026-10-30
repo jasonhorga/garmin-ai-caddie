@@ -3,7 +3,6 @@ import contextlib
 import io
 import json
 from pathlib import Path
-import re
 import subprocess
 import sys
 import tempfile
@@ -46,19 +45,20 @@ class FaultRunnerTests(unittest.TestCase):
             parts = record["target"].split("/")
             self.assertEqual(len(parts), 3, record["target"])
             target, class_name, method = parts
-            source_root = runner.ROOT / "mobile/ios" / target
-            sources = list(source_root.rglob("*.swift"))
-            self.assertTrue(sources, record["target"])
-            text = "\n".join(path.read_text(encoding="utf-8") for path in sources)
-            self.assertRegex(text, rf"\bclass\s+{re.escape(class_name)}\b", record["target"])
-            self.assertRegex(text, rf"\bfunc\s+{re.escape(method)}\s*\(", record["target"])
             if target == "AICaddieUITests":
                 self.assertEqual(record["kind"], "native-ui", record["id"])
             self.assertEqual(runner.native_include_ui(record), target == "AICaddieUITests")
 
     def test_check_applies_every_enabled_fault(self):
-        result = runner.check(runner.load_manifest())
-        failures = [row for row in result["results"] if row["status"] not in {"ok", "disabled"}]
+        # Target drift is reported by --check; this existing corpus test guards
+        # patch applicability independently, without pinning stale target names.
+        worktree, holder = runner.make_worktree()
+        try:
+            failures = [(record["id"], runner.patch_check(record, worktree))
+                        for record in runner.load_manifest() if not record.get("disabled")]
+        finally:
+            runner.remove_worktree(worktree, holder)
+        failures = [row for row in failures if row[1][0] != "ok"]
         self.assertEqual(failures, [])
 
     def test_run_target_distinguishes_killed_from_leaked(self):
@@ -125,7 +125,7 @@ class ManifestFragmentTests(unittest.TestCase):
             "import unittest\nfrom pathlib import Path\n"
             "class Witness(unittest.TestCase):\n"
             "    def test_subject(self):\n"
-            "        self.assertEqual(Path('subject.txt').read_text(), 'before\\n')\n",
+            "        self.assertEqual(Path('subject.txt').read_text(), 'before\\n', 'ImportError _FailedTest')\n",
             encoding="utf-8",
         )
         for args in (
@@ -232,10 +232,251 @@ class ManifestFragmentTests(unittest.TestCase):
         output = self.root / "check.json"
         with mock.patch.object(sys, "argv", ["run_faults.py", "--check", "--out", str(output)]):
             with contextlib.redirect_stdout(io.StringIO()):
-                self.assertEqual(runner.main(), 0)
+                self.assertEqual(runner.main(), 1)
         rows = json.loads(output.read_text())["results"]
         self.assertEqual(
             [(row["id"], row["status"]) for row in rows],
             [("central", "ok"), ("alpha-second-id", "ok"),
              ("alpha-first-id", "ok"), ("zulu-bad-patch", "unappliable")],
         )
+
+    # Infrastructure contract: product spec, “验收方式” (runnable fault corpus),
+    # refined by the missing-target card; this is not a separate J/G promise.
+    def invoke_main(self, mode, records):
+        self.write_manifest(self.manifest, records)
+        output = self.root / "results.json"
+        with mock.patch.object(sys, "argv", ["run_faults.py", mode, "--out", str(output)]):
+            with contextlib.redirect_stdout(io.StringIO()) as printed:
+                code = runner.main()
+        return code, json.loads(output.read_text())["results"], printed.getvalue()
+
+    def test_run_rejects_unloadable_targets_before_applying_patch(self):
+        (self.root / "test_empty.py").write_text("# No tests.\n", encoding="utf-8")
+        self.init_repo()
+        for target, reason in (
+            ("test_witness.Witness.test_removed", "AttributeError"),
+            ("missing_test_module", "ModuleNotFoundError"),
+            ("test_empty", "0 tests"),
+        ):
+            with self.subTest(target=target):
+                record = {**self.record("missing"), "target": target}
+                with mock.patch.object(runner, "apply_patch", wraps=runner.apply_patch) as apply:
+                    code, rows, printed = self.invoke_main("--run", [record])
+                self.assertEqual(rows[0]["status"], "unavailable")
+                self.assertTrue(rows[0]["detail"].startswith("target 无法加载："))
+                self.assertIn(reason, rows[0]["detail"])
+                self.assertNotEqual(code, 0)
+                self.assertIn("UNAVAILABLE missing", printed)
+                apply.assert_not_called()
+
+    def test_check_requires_loadable_nonempty_python_targets_without_running_them(self):
+        (self.root / "test_empty.py").write_text("# No tests.\n", encoding="utf-8")
+        (self.root / "test_load_only.py").write_text(
+            "import unittest\nprint('ImportError _FailedTest: harmless import output')\n"
+            "class LoadOnly(unittest.TestCase):\n"
+            "    def test_not_executed(self):\n"
+            "        raise AssertionError('check must only load')\n", encoding="utf-8",
+        )
+        (self.root / "test_mixed.py").write_text(
+            "import unittest\n"
+            "class Marker(unittest.TestCase):\n"
+            "    def test_not_executed(self):\n"
+            "        raise AssertionError('check must only load')\n"
+            "def load_tests(loader, tests, pattern):\n"
+            "    isolated = unittest.TestLoader()\n"
+            "    tests.addTest(unittest.TestSuite([isolated.loadTestsFromName('absent_nested_module')]))\n"
+            "    return tests\n", encoding="utf-8",
+        )
+        self.init_repo()
+        targets = ["test_witness.Witness.test_subject", "test_load_only", "test_empty",
+                   "missing_test_module", "test_witness.Witness.test_removed", "test_mixed"]
+        records = [{**self.record(str(i)), "target": target} for i, target in enumerate(targets)]
+        code, rows, printed = self.invoke_main("--check", records)
+        self.assertEqual([row["status"] for row in rows], ["ok", "ok"] + ["unavailable"] * 4)
+        self.assertNotEqual(code, 0)
+        self.assertIn("0 tests", rows[2]["detail"])
+        for row in rows[2:]:
+            self.assertIn("target 无法加载：", row["detail"])
+            self.assertIn("UNAVAILABLE " + row["id"], printed)
+
+    def test_loaded_assertion_failure_is_killed_and_green_test_is_leaked(self):
+        (self.root / "test_green.py").write_text(
+            "import unittest\nclass Green(unittest.TestCase):\n"
+            "    def test_green(self):\n"
+            "        self.assertTrue(True, 'ImportError _FailedTest are ordinary assertion text')\n",
+            encoding="utf-8",
+        )
+        self.init_repo()
+        red = self.record("red")
+        green = {**self.record("green"), "target": "test_green.Green.test_green"}
+        code, rows, _ = self.invoke_main("--run", [red])
+        self.assertEqual((code, rows[0]["status"]), (0, "killed"))
+        self.assertIn("AssertionError", rows[0]["detail"])
+        code, rows, _ = self.invoke_main("--run", [green])
+        self.assertEqual(rows[0]["status"], "leaked")
+        self.assertNotEqual(code, 0)
+
+    def test_check_batches_python_targets_without_spreading_import_failures(self):
+        """验收方式 infrastructure: one batch, then only failed targets retried."""
+        (self.root / "test_broken.py").write_text(
+            "raise ImportError('broken target dependency')\n", encoding="utf-8",
+        )
+        (self.root / "test_other.py").write_text(
+            "import unittest\nclass Other(unittest.TestCase):\n"
+            "    def test_other(self):\n"
+            "        raise AssertionError('load only')\n", encoding="utf-8",
+        )
+        self.init_repo()
+        targets = ["test_witness.Witness.test_subject", "test_broken", "test_other"]
+        records = [{**self.record(str(i)), "target": target} for i, target in enumerate(targets)]
+        with mock.patch.object(runner.subprocess, "run", wraps=subprocess.run) as processes:
+            code, rows, _ = self.invoke_main("--check", records)
+        self.assertEqual([row["status"] for row in rows], ["ok", "unavailable", "ok"])
+        self.assertIn("broken target dependency", rows[1]["detail"])
+        self.assertNotEqual(code, 0)
+        probes = [call for call in processes.call_args_list
+                  if call.args[0][:2] == [str(runner.SHARED_PYTHON), "-c"]]
+        # Card contract: one batch process + one isolated retry for the bad target.
+        self.assertEqual(len(probes), 2)
+
+    def test_check_rechecks_batch_failures_in_fresh_processes(self):
+        """验收方式 infrastructure: import side effects cannot cause false reds."""
+        (self.root / "test_poison.py").write_text(
+            "import os\nimport unittest\nos.environ['FAULT_RUNNER_TEST_POISON'] = '1'\n"
+            "class Poison(unittest.TestCase):\n"
+            "    def test_poison(self): pass\n", encoding="utf-8",
+        )
+        (self.root / "test_clean.py").write_text(
+            "import os\nimport unittest\n"
+            "if os.environ.get('FAULT_RUNNER_TEST_POISON'):\n"
+            "    raise ImportError('another target polluted the batch')\n"
+            "class Clean(unittest.TestCase):\n"
+            "    def test_clean(self): pass\n", encoding="utf-8",
+        )
+        self.init_repo()
+        records = [{**self.record(str(i)), "target": target}
+                   for i, target in enumerate(["test_poison", "test_clean"])]
+        with mock.patch.dict(runner.os.environ, {"FAULT_RUNNER_TEST_POISON": ""}):
+            with mock.patch.object(runner.subprocess, "run", wraps=subprocess.run) as processes:
+                code, rows, _ = self.invoke_main("--check", records)
+        self.assertEqual([row["status"] for row in rows], ["ok", "ok"])
+        self.assertEqual(code, 0)
+        probes = [call for call in processes.call_args_list
+                  if call.args[0][:2] == [str(runner.SHARED_PYTHON), "-c"]]
+        self.assertEqual(len(probes), 2)
+
+    def test_patch_induced_import_failure_is_unavailable_and_worktree_is_removed(self):
+        self.patch.write_text(
+            "diff --git a/test_witness.py b/test_witness.py\n"
+            "--- a/test_witness.py\n+++ b/test_witness.py\n@@ -1,2 +1,2 @@\n"
+            "-import unittest\n+import absent_mutant_dependency\n from pathlib import Path\n",
+            encoding="utf-8",
+        )
+        self.init_repo()
+        code, rows, _ = self.invoke_main("--run", [self.record("broken-import")])
+        self.assertEqual(rows[0]["status"], "unavailable")
+        self.assertIn("target 无法加载：", rows[0]["detail"])
+        self.assertIn("absent_mutant_dependency", rows[0]["detail"])
+        self.assertNotEqual(code, 0)
+        trees = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=self.root,
+                               text=True, capture_output=True, check=True).stdout
+        self.assertEqual(trees.count("worktree "), 1)
+        self.assertEqual(runner.run_target(self.record("clean-control"), self.root)[0], "leaked")
+
+    def test_check_rechecks_every_target_after_probe_exits_without_results(self):
+        """验收方式 infrastructure: a crashed batch is never evidence of loading."""
+        (self.root / "test_exit.py").write_text("import os\nos._exit(0)\n", encoding="utf-8")
+        self.init_repo()
+        targets = ["test_witness.Witness.test_subject", "test_exit", "test_witness.Witness"]
+        records = [{**self.record(str(i)), "target": target} for i, target in enumerate(targets)]
+        with mock.patch.object(runner.subprocess, "run", wraps=subprocess.run) as processes:
+            code, rows, _ = self.invoke_main("--check", records)
+        self.assertEqual([row["status"] for row in rows], ["ok", "unavailable", "ok"])
+        self.assertNotEqual(code, 0)
+        self.assertIn("target 无法加载：", rows[1]["detail"])
+        probes = [call for call in processes.call_args_list
+                  if call.args[0][:2] == [str(runner.SHARED_PYTHON), "-c"]]
+        self.assertEqual(len(probes), 4)  # One batch + all three isolated retries.
+
+    def test_run_rejects_probe_exit_before_patching_and_preserves_checkout(self):
+        """验收方式 infrastructure: a process exit cannot count as a kill."""
+        (self.root / "test_exit.py").write_text("import os\nos._exit(0)\n", encoding="utf-8")
+        record = {**self.record("exits-on-import"), "target": "test_exit"}
+        self.write_manifest(self.manifest, [record])
+        self.init_repo()
+        patch_before = self.patch.read_bytes()
+        status_before = subprocess.run(["git", "status", "--porcelain"], cwd=self.root,
+                                       text=True, capture_output=True, check=True).stdout
+        with tempfile.TemporaryDirectory(prefix="fault-run-result-") as directory:
+            output = Path(directory) / "results.json"
+            args = ["run_faults.py", "--run", "--id", record["id"], "--out", str(output)]
+            with mock.patch.object(sys, "argv", args):
+                with mock.patch.object(runner, "apply_patch", wraps=runner.apply_patch) as apply:
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        code = runner.main()
+            rows = json.loads(output.read_text())["results"]
+        self.assertEqual(rows[0]["status"], "unavailable")
+        self.assertNotEqual(code, 0)
+        apply.assert_not_called()
+        self.assertEqual(self.patch.read_bytes(), patch_before)
+        status_after = subprocess.run(["git", "status", "--porcelain"], cwd=self.root,
+                                      text=True, capture_output=True, check=True).stdout
+        self.assertEqual(status_after, status_before)
+
+    def test_run_unknown_id_reports_no_match_and_fails(self):
+        """验收方式 infrastructure: a mistyped fault id cannot report success."""
+        self.write_manifest(self.manifest, [self.record("known")])
+        output = self.root / "results.json"
+        args = ["run_faults.py", "--run", "--id", "missing-id", "--out", str(output)]
+        with mock.patch.object(sys, "argv", args):
+            with contextlib.redirect_stdout(io.StringIO()) as printed:
+                code = runner.main()
+        self.assertNotEqual(code, 0)
+        self.assertIn("NO_MATCH missing-id", printed.getvalue())
+        self.assertEqual(json.loads(output.read_text())["results"], [])
+
+    def test_batch_timeout_reports_duration_and_isolated_retry_count(self):
+        """验收方式 infrastructure: timeout degradation must be visible."""
+        (self.root / "test_slow.py").write_text(
+            "import time\nimport unittest\ntime.sleep(0.5)\n"
+            "class Slow(unittest.TestCase):\n"
+            "    def test_slow(self): pass\n", encoding="utf-8",
+        )
+        self.init_repo()
+        targets = ["test_witness.Witness.test_subject", "test_slow", "test_witness.Witness"]
+        records = [{**self.record(str(i)), "target": target} for i, target in enumerate(targets)]
+        with mock.patch.object(runner, "PYTHON_BATCH_TIMEOUT", 0.05, create=True):
+            with contextlib.redirect_stderr(io.StringIO()) as errors:
+                with mock.patch.object(runner.subprocess, "run", wraps=subprocess.run) as processes:
+                    code, rows, _ = self.invoke_main("--check", records)
+        self.assertEqual([row["status"] for row in rows], ["ok", "ok", "ok"])
+        self.assertEqual(code, 0)
+        warning = errors.getvalue()
+        self.assertIn("LOAD_PROBE_TIMEOUT", warning)
+        self.assertIn("0.05s", warning)
+        self.assertIn("fallback_targets=3", warning)
+        self.assertEqual(len(warning.splitlines()), 1)
+        probes = [call for call in processes.call_args_list
+                  if call.args[0][:2] == [str(runner.SHARED_PYTHON), "-c"]]
+        self.assertEqual(len(probes), 4)
+
+    def test_check_validates_native_class_and_method_in_the_target_bundle(self):
+        source = self.root / "mobile/ios/NativeTests/Witness.swift"
+        source.parent.mkdir(parents=True)
+        source.write_text(
+            "import XCTest\nfinal class Witness: XCTestCase {\n"
+            "    func test_subject() {}\n}\n", encoding="utf-8",
+        )
+        self.init_repo()
+        targets = ["NativeTests/Witness/test_subject", "NativeTests/Missing/test_subject",
+                   "NativeTests/Witness/test_removed", "MissingBundle/Witness/test_subject"]
+        for kind in ("native-unit", "native-ui"):
+            with self.subTest(kind=kind):
+                records = [{**self.record(str(i)), "kind": kind, "target": target}
+                           for i, target in enumerate(targets)]
+                code, rows, printed = self.invoke_main("--check", records)
+                self.assertEqual([row["status"] for row in rows], ["ok"] + ["unavailable"] * 3)
+                self.assertNotEqual(code, 0)
+                for row in rows[1:]:
+                    self.assertIn("target 无法加载：", row["detail"])
+                    self.assertIn("UNAVAILABLE " + row["id"], printed)

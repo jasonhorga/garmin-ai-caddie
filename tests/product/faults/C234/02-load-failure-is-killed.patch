@@ -1,0 +1,13 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+index 5e2c2a6b..3e09560a 100644
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -82,7 +82,7 @@ def _run_python_load_probe(targets: list[str], repo: Path) -> dict[str, tuple[st
+                 reports = json.loads(output.read_text(encoding="utf-8"))
+                 return {
+                     target: ("ok", "") if reports[target]["ok"] else
+-                    ("unavailable", f"target 无法加载：{reports[target]['reason'][-5800:]}")
++                    ("killed", f"target 无法加载：{reports[target]['reason'][-5800:]}")
+                     for target in targets
+                 }
+     except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
