@@ -71,6 +71,7 @@ final class ProductLiveHolePageTests: XCTestCase {
     private func withDecisionPage(
         package: LiveRoundPackage? = nil,
         cache: LiveHoleSessionCache = LiveHoleSessionCache(),
+        locationProvider: LocationProvider? = nil,
         _ exercise: (LiveHoleDecisionProbe) async throws -> Void
     ) async throws {
         let package = try package ?? decisionPackage()
@@ -78,12 +79,15 @@ final class ProductLiveHolePageTests: XCTestCase {
         let session = C33URLProtocol.session()
         let client = CaddieDecisionClient(baseURL: URL(string: "https://decisions.example.test")!, session: session)
         let probe = LiveHoleDecisionProbe()
-        let fix = LocationFix(coordinate: .init(latitude: 0, longitude: 0), horizontalAccuracyM: 5,
-                              altitudeM: nil, capturedAt: "2026-10-01T00:00:00Z")
+        let defaultFix = LocationFix(coordinate: .init(latitude: 0, longitude: 0), horizontalAccuracyM: 5,
+                                     altitudeM: nil, capturedAt: "2026-10-01T00:00:00Z")
         // A nonselected mounted page retains SwiftUI state but starts no lifecycle/network tasks.
         let view = CurrentHoleView(package: package, hole: hole, caddieClient: client,
                                    sessionCache: cache, isSelected: false)
-            .observingDecisionsForTesting(probe, locationProvider: LocationProvider(fixedFix: fix))
+            .observingDecisionsForTesting(
+                probe,
+                locationProvider: locationProvider ?? LocationProvider(fixedFix: defaultFix)
+            )
         let host = UIHostingController(rootView: view)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = host
@@ -125,6 +129,34 @@ final class ProductLiveHolePageTests: XCTestCase {
             XCTAssertEqual(route.steps.map(\.clubName), ["Driver", "8I"])
             XCTAssertGreaterThanOrEqual(route.steps.last?.routeOffsetM ?? 0, 306.2)
             XCTAssertEqual(try XCTUnwrap(probe.planningDistance)() ?? -1, 320.9, accuracy: 0.1)
+        }
+    }
+
+    /// J5.11: off-hole and no-GPS tee requests keep the full factual dogleg for local planning;
+    /// a static straight fallback must not masquerade as a measured remaining route.
+    func test_j5_11_off_hole_or_no_location_keeps_whole_tee_route() async throws {
+        let offHoleFix = LocationFix(
+            coordinate: .init(latitude: 0.01, longitude: 0.01), horizontalAccuracyM: 5,
+            altitudeM: nil, capturedAt: "2026-10-01T00:00:00Z"
+        )
+        let cases: [(String, LocationProvider)] = [
+            ("off-hole", LocationProvider(fixedFix: offHoleFix)),
+            ("no-location", LocationProvider()),
+        ]
+        for (label, provider) in cases {
+            try await withDecisionPage(locationProvider: provider) { probe in
+                let offlineRequest = try XCTUnwrap(probe.offlineRequest)
+                let context = try XCTUnwrap(offlineRequest()?.context)
+                XCTAssertEqual(
+                    context["canonicalPlanRemainingRouteLength_m"], .number(320.9),
+                    "\(label) must use the factual full route, not a straight fallback"
+                )
+                let offlineDecision = try XCTUnwrap(probe.offlineDecision)
+                let decision = try XCTUnwrap(offlineDecision())
+                let route = try XCTUnwrap(CaddiePlanSequence.selectedSequence(from: decision))
+                XCTAssertEqual(route.steps.map(\.clubName), ["Driver", "8I"], "\(label) route")
+                XCTAssertGreaterThanOrEqual(route.steps.last?.routeOffsetM ?? 0, 306.2, "\(label) endpoint")
+            }
         }
     }
 
