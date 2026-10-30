@@ -70,7 +70,11 @@ docker exec "$C" python /app/ops/migrate_mobile_event_payloads.py /var/lib/ai-ca
 ```
 
 apply 持有该分区的事件锁；同一分区的追加、读和 ACK 会等待锁完成。备份只留在原目录，权限为 0600。
-若出现 `mobile_event_migration_intent_unrecoverable`，先停止该分区的写入，保留 `events.jsonl.migration.json` 和对应 `.bak-*`，核对 intent 中的旧日志 sha、长度和 `backupPath`，再由人工用备份恢复原日志权限与内容；无法核对时保留现场交项目台处理，不要删除日志。
+若出现 `mobile_event_migration_intent_unrecoverable`，先停止该分区的写入。用下面命令找出仍在盘上的 intent，再保留对应 `events.jsonl.migration.json` 和 `.bak-*`，核对 intent 中的旧日志 sha、长度和 `backupPath`，由人工用备份恢复原日志权限与内容；无法核对时保留现场交项目台处理，不要删除日志。
+
+```bash
+docker exec "$C" find /var/lib/ai-caddie/data -name events.jsonl.migration.json -print
+```
 
 **native PR 要看截图**：拉同一次 `native-mobile` run 的两份产物，交子代理逐张看，
 在 PR 里写每份产物看到了什么、和卡的验收对不对得上；看完删目录。

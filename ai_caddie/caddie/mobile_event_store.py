@@ -848,7 +848,10 @@ class FileEventStore:
                 os.fsync(handle.fileno())
             os.replace(temporary_path, path)
             if metadata is not None:
-                os.chmod(path, stat.S_IMODE(metadata.st_mode))
+                # Backups are private artifacts even when the source event log is 0644.
+                # Keep their replacement at 0600; only ownership comes from the source.
+                if not path.name.startswith(f"{self.log.name}.bak-"):
+                    os.chmod(path, stat.S_IMODE(metadata.st_mode))
                 if hasattr(os, "chown"):
                     try:
                         os.chown(path, metadata.st_uid, metadata.st_gid)
@@ -2143,9 +2146,12 @@ class FileEventStore:
         reason: str,
         cause: BaseException | None = None,
     ) -> None:
+        path_text = str(self.root.resolve())
+        scope = "player" if self.root.parent.parent.name == "players" else "main"
+        partition = f"{scope}:{hashlib.sha256(path_text.encode('utf-8')).hexdigest()[:12]}"
         logger.error(
             "mobile_event_migration_intent_unrecoverable partition=%s reason=%s",
-            self.root.name,
+            partition,
             reason,
         )
         raise ValueError("event_commit_store_corrupt") from cause
@@ -2205,6 +2211,10 @@ class FileEventStore:
                 payload["newLegacyBaselineByteLength"],
             )
             self._write_committed_length(marker)
+            try:
+                os.chmod(self.log, payload["oldLogMode"])
+            except OSError as exc:
+                self._migration_recovery_failed("log_mode_restore_failed", exc)
             try:
                 self.round_index.unlink()
             except FileNotFoundError:

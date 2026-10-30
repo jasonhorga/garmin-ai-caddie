@@ -435,6 +435,7 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
             "payload": {"decision": {"detail": "x" * (65 * 1024)}},
         }
         store.append_batch(ROUND_A, [event], request_key="backup-permissions")
+        store.log.chmod(0o644)
         row = json.loads(store.log.read_text(encoding="utf-8").splitlines()[0])
         row["event"]["payload"]["decision"]["detail"] = "x" * (65 * 1024)
         row["eventHash"] = _sha256(_normalized_event_for_hash(row["event"]))
@@ -452,6 +453,7 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         backup = Path(str(applied["backup"]))
         self.assertTrue(backup.exists())
         self.assertEqual(backup.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(store.log.stat().st_mode & 0o777, 0o644)
 
     def test_event_payload_migration_intent_recovers_after_log_replace(self) -> None:
         """J5.9: a restart after log replacement completes migration and repairs the index."""
@@ -486,10 +488,14 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
 
         recovered = FileEventStore(self.root)
         stale_tmp = recovered.root / ".events.jsonl.migrate-stale.tmp"
+        stale_backup_tmp = recovered.root / ".events.jsonl.bak-stale.migrate-stale.tmp"
         stale_tmp.write_bytes(b"private legacy bytes")
         stale_tmp.chmod(0o644)
+        stale_backup_tmp.write_bytes(b"private legacy backup bytes")
+        stale_backup_tmp.chmod(0o644)
         self.assertEqual([(row["event"]["eventId"]) for row in recovered.read_rows(ROUND_A)], ["intent-recovery"])
         self.assertFalse(stale_tmp.exists())
+        self.assertFalse(stale_backup_tmp.exists())
         recovered.append_batch(ROUND_A, [{**_event("intent-followup")}], request_key="intent-followup")
         self.assertEqual({row["event"]["eventId"] for row in recovered.read_rows(ROUND_A)}, {"intent-recovery", "intent-followup"})
         self.assertEqual(recovered.read_rows(ROUND_A)[0]["event"]["eventId"], before[0]["event"]["eventId"])
@@ -537,17 +543,53 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         """J7.3: migration replacement temporary files never expose complete event logs."""
         store = FileEventStore(self.root)
         target = store.log
+        target.write_bytes(b"legacy event bytes\n")
+        target.chmod(0o644)
         observed_modes: list[int] = []
         original_replace = os.replace
 
         def inspect_replace(source: str | os.PathLike[str], destination: str | os.PathLike[str]) -> None:
-            if Path(source).name.startswith(".events.jsonl.migrate-"):
+            if Path(source).name.startswith(".events.jsonl") and ".migrate-" in Path(source).name:
                 observed_modes.append(Path(source).stat().st_mode & 0o777)
             original_replace(source, destination)
 
         with mock.patch.object(os, "replace", side_effect=inspect_replace):
-            store._replace_bytes_preserving_metadata(target, b"private event bytes\n", None)
-        self.assertEqual(observed_modes, [0o600])
+            store._replace_bytes_preserving_metadata(target, b"private event bytes\n", target.stat())
+            backup = store.log.with_name("events.jsonl.bak-private")
+            store._replace_bytes_preserving_metadata(backup, b"private event bytes\n", target.stat())
+        self.assertEqual(observed_modes, [0o600, 0o600])
+
+    def test_migration_intent_recovery_restores_original_log_mode_after_new_log_replace(self) -> None:
+        """J5.9: recovery after a new-log replace restores the old log mode."""
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [{**_event("new-log-mode")}], request_key="new-log-mode")
+        old_raw = store.log.read_bytes()
+        old_marker = store._load_commit_marker()
+        assert old_marker is not None
+        new_row = json.loads(old_raw)
+        new_row["event"]["eventId"] = "new-log-mode-2"
+        new_row["eventHash"] = _sha256(_normalized_event_for_hash(new_row["event"]))
+        new_raw = (json.dumps(new_row, ensure_ascii=False, sort_keys=True) + "\n").encode()
+        new_marker = _CommitMarker(
+            len(new_raw), hashlib.sha256(new_raw).hexdigest(), old_marker.legacy_baseline_byte_length,
+        )
+        backup = store.log.with_name("events.jsonl.bak-new-log-mode")
+        backup.write_bytes(old_raw)
+        backup.chmod(0o600)
+        store.log.write_bytes(new_raw)
+        store.log.chmod(0o600)
+        store._write_migration_intent(
+            old_marker=old_marker,
+            old_length=len(old_raw),
+            old_sha256=hashlib.sha256(old_raw).hexdigest(),
+            old_log_mode=0o644,
+            backup=backup,
+            new_marker=new_marker,
+        )
+        recovered = FileEventStore(self.root)
+        rows = recovered.read_rows(ROUND_A)
+        self.assertEqual(recovered.log.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(rows[0]["event"]["eventId"], "new-log-mode-2")
 
     def test_migration_intent_recovery_restores_original_log_mode(self) -> None:
         """J5.9: rollback from a trusted backup restores the original event-log permissions."""
@@ -584,9 +626,10 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "event_commit_store_corrupt"):
                 with store._locked(store.event_lock):
                     store._recover_event_log_unlocked()
+        error.assert_called_once()
         message = " ".join(str(value) for value in error.call_args.args)
         self.assertIn("mobile_event_migration_intent_unrecoverable", message)
-        self.assertIn("partition=%s", message)
+        self.assertRegex(message, r"partition=%s reason=%s (?:main|player):[0-9a-f]{12}")
         self.assertNotIn("player-secret", message)
 
     def test_production_ops_migration_entrypoint_runs_without_scripts_package(self) -> None:

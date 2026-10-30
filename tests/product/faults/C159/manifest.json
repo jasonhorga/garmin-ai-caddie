@@ -33,7 +33,7 @@
       "id": "tests-product-faults-C159-r2-10-rollback-log-mode",
       "patch": "tests/product/faults/C159/10-rollback-log-mode.patch",
       "kind": "python",
-      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_intent_recovery_restores_original_log_mode",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_migration_intent_recovery_restores_original_log_mode",
       "promise": "5.9"
     },
     {
@@ -42,6 +42,41 @@
       "kind": "python",
       "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_bad_migration_intent_logs_partition_only",
       "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C159-r3-12-new-log-mode-recovery",
+      "patch": "tests/product/faults/C159/12-new-log-mode-recovery.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_migration_intent_recovery_restores_original_log_mode_after_new_log_replace",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C159-r3-SM4-generic-store-corrupt-log",
+      "patch": "tests/product/faults/C159/SM4-generic-store-corrupt-log.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_mobile_event_store_corrupt_logs_generic_warning",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C159-r3-SM1-private-replacement-mode",
+      "patch": "tests/product/faults/C159/SM1-private-replacement-mode.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_migration_temporary_files_are_private_from_creation",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C159-r3-SM2-backup-temp-cleanup",
+      "patch": "tests/product/faults/C159/SM2-backup-temp-cleanup.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_intent_recovers_after_log_replace",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C159-r3-SM6-success-log-mode",
+      "patch": "tests/product/faults/C159/SM6-success-log-mode.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_failure_removes_transient_backup_and_success_backup_is_private",
+      "promise": "5.9"
     }
   ]
 }
