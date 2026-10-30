@@ -7599,8 +7599,9 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         // A slow nearby answer (a cold GPS / slow network on the course): the start page must keep
         // the downloaded courses usable under its "正在找附近球场…" line until the answer lands.
+        // Expansion continues that same discovery; do not inject another cold-start delay.
         if let delay = ProcessInfo.processInfo.environment["UITEST_NEARBY_DELAY_MS"].flatMap(UInt64.init),
-           delay > 0 {
+           StartRoundView.nearbyDelayMilliseconds(delay, radiusKm: radiusKm) > 0 {
             try await Task.sleep(nanoseconds: delay * 1_000_000)
         }
         #endif

@@ -230,20 +230,25 @@ public struct StartRoundView: View {
     }
 
     static func teeLookupKey(page: Page, globalIdText: String) -> String {
-        globalIdText
+        page == .setup ? globalIdText : ""
     }
 
     static func nearbyDelayMilliseconds(_ delay: UInt64, radiusKm: Int) -> UInt64 {
-        delay
+        radiusKm <= nearbyInitialRadiusKm ? delay : 0
     }
 
     static func courseDownloadStatus(
         for row: StartCourseListRow, downloaded: [MobileCourseOption],
         catalogue: [MobileCourseOption], downloads: [PrepCourseDownloadRecord]
     ) -> String? {
-        guard row.source == .recent || row.source == .downloaded,
-              let venue = row.segments.first else { return nil }
-        return downloadedCoverageLabel(for: venue, downloaded: downloaded, catalogue: catalogue)
+        guard let venue = row.segments.first else { return nil }
+        if let installed = downloadedCoverageLabel(for: venue, downloaded: downloaded, catalogue: catalogue) {
+            return installed
+        }
+        guard let record = StartRoundPresentation.offlineRows(downloads).first(where: {
+            samePhysicalVenue($0.course, venue)
+        }) else { return nil }
+        return downloadStatus(for: record, downloaded: downloaded, catalogue: catalogue)
     }
 
     private var courseGlobalId: Int? {
@@ -317,8 +322,10 @@ public struct StartRoundView: View {
         }
         .onDisappear { locationProvider.stopUpdatingLocation() }
         .task(id: nearbyDiscoveryTaskKey) { await discoverNearbyCourses() }
-        // 选了/换了球场 → 拉该球场的可选发球台(颜色 + 码数 + 默认),填充选台器。
-        .task(id: courseGlobalIdText) {
+        // Start the lookup when setup is visible. Automatic selection on the course list must not
+        // consume the loading/retry state before the player opens the Tee picker.
+        .task(id: Self.teeLookupKey(page: page, globalIdText: courseGlobalIdText)) {
+            guard page == .setup else { return }
             await loadTees()
         }
         .task(id: courseIntentKey) {
@@ -464,6 +471,12 @@ public struct StartRoundView: View {
     }
 
     private func downloadStatus(_ row: PrepCourseDownloadRecord) -> String {
+        Self.downloadStatus(for: row, downloaded: downloadedCourseOptions, catalogue: courseOptions)
+    }
+
+    static func downloadStatus(
+        for row: PrepCourseDownloadRecord, downloaded: [MobileCourseOption], catalogue: [MobileCourseOption]
+    ) -> String {
         if let message = row.errorText,
            row.phase == .preparing || row.phase == .downloading || row.phase == .queued {
             return message
@@ -475,8 +488,8 @@ public struct StartRoundView: View {
         case .ready:
             return Self.downloadedCoverageLabel(
                 for: row.course,
-                downloaded: downloadedCourseOptions,
-                catalogue: courseOptions
+                downloaded: downloaded,
+                catalogue: catalogue
             ) ?? "已下载"
         case .failed: return row.errorText ?? "下载失败"
         }
@@ -1057,6 +1070,17 @@ public struct StartRoundView: View {
                     if let subtitle = courseRowSubtitle(row) {
                         Text(subtitle)
                             .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    if let status = Self.courseDownloadStatus(
+                        for: row, downloaded: downloadedCourseOptions,
+                        catalogue: courseOptions, downloads: prepCourseDownloads
+                    ), status != Self.holeCaption(
+                        for: row, downloaded: downloadedCourseOptions,
+                        catalogue: courseOptions, recent: recentCourseOption
+                    ) {
+                        Text(status)
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -2377,6 +2401,8 @@ public struct StartRoundView: View {
         request: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch],
         resolve: @escaping (MobileCourseSearchMatch) -> MobileCourseOption?
     ) async -> NearbyDiscoveryLoopResult {
+        setLoading(true)
+        defer { setLoading(false) }
         var publishedProviderResult = false
         var lastError: Error?
         var carriedTees: [Int: [CourseTee]] = [:]
@@ -2488,16 +2514,13 @@ public struct StartRoundView: View {
         nearbyCourseOptions = []
         offlineCourseOptions = resolvedOfflineOptions(localNearby)
         nearbyDiscoveryFailed = false
-        isLoadingNearby = true
         nearbyStatusText = nil
-        defer {
-            if nearbyRequestToken == requestToken {
-                isLoadingNearby = false
-            }
-        }
         let outcome = await Self.performNearbyDiscovery(
             latitude: fix.coordinate.latitude,
             longitude: fix.coordinate.longitude,
+            setLoading: { loading in
+                if nearbyRequestToken == requestToken { isLoadingNearby = loading }
+            },
             request: onNearbyCourses,
             resolve: { self.resolvedOption(for: $0) }
         )
