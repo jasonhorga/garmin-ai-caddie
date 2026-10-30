@@ -229,6 +229,23 @@ public struct StartRoundView: View {
         return defaultCourseGlobalId == nil ? .course : .setup
     }
 
+    static func teeLookupKey(page: Page, globalIdText: String) -> String {
+        globalIdText
+    }
+
+    static func nearbyDelayMilliseconds(_ delay: UInt64, radiusKm: Int) -> UInt64 {
+        delay
+    }
+
+    static func courseDownloadStatus(
+        for row: StartCourseListRow, downloaded: [MobileCourseOption],
+        catalogue: [MobileCourseOption], downloads: [PrepCourseDownloadRecord]
+    ) -> String? {
+        guard row.source == .recent || row.source == .downloaded,
+              let venue = row.segments.first else { return nil }
+        return downloadedCoverageLabel(for: venue, downloaded: downloaded, catalogue: catalogue)
+    }
+
     private var courseGlobalId: Int? {
         Int(courseGlobalIdText.trimmingCharacters(in: .whitespacesAndNewlines))
     }
@@ -2356,6 +2373,7 @@ public struct StartRoundView: View {
         longitude: Double,
         radii: [Int] = nearbyDiscoveryRadii,
         automaticRetryCount: Int = nearbyAutomaticRetryCount,
+        setLoading: (Bool) -> Void = { _ in },
         request: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch],
         resolve: @escaping (MobileCourseSearchMatch) -> MobileCourseOption?
     ) async -> NearbyDiscoveryLoopResult {

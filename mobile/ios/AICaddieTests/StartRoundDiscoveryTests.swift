@@ -3,6 +3,32 @@ import AICaddieDomain
 @testable import AICaddie
 
 final class StartRoundDiscoveryTests: XCTestCase {
+    /// J4.2: automatic selection on the list must not consume the setup page's Tee loading state.
+    func testTeeLookupBeginsWhenSetupBecomesVisible() {
+        XCTAssertEqual(StartRoundView.teeLookupKey(page: .course, globalIdText: "82001"), "")
+        XCTAssertEqual(StartRoundView.teeLookupKey(page: .setup, globalIdText: "82001"), "82001")
+    }
+
+    /// J4.1/J4.2: simulate one slow initial discovery, not a new cold GPS delay at every radius.
+    func testNearbyExpansionDoesNotRepeatInitialDiscoveryDelay() {
+        XCTAssertEqual(StartRoundView.nearbyDelayMilliseconds(45_000, radiusKm: 5), 45_000)
+        XCTAssertEqual(StartRoundView.nearbyDelayMilliseconds(45_000, radiusKm: 20), 0)
+        XCTAssertEqual(StartRoundView.nearbyDelayMilliseconds(45_000, radiusKm: 50), 0)
+    }
+
+    /// J4.1/J4.2: cross-section venue deduplication retains download progress on the surviving row.
+    func testNearbyVenueRetainsDownloadStatusAfterOfflineRowIsDeduplicated() {
+        let a = loop(82001, venue: "Example", label: "A")
+        let b = loop(82002, venue: "Example", label: "B")
+        let row = StartCourseListRow(venue: "Example", segments: [a, b], source: .nearby)
+        let ready = PrepCourseDownloadRecord(course: a, phase: .ready, downloadedHoles: 9)
+        XCTAssertEqual(StartRoundView.courseDownloadStatus(
+            for: row, downloaded: [a], catalogue: [a, b], downloads: [ready]), "已下载 9/18 洞")
+        let pending = PrepCourseDownloadRecord(course: a, phase: .queued)
+        XCTAssertEqual(StartRoundView.courseDownloadStatus(
+            for: row, downloaded: [], catalogue: [a, b], downloads: [pending]), "等待下载")
+        XCTAssertTrue(StartRoundPresentation.offlineRows([ready], excludingVenues: [row.venue]).isEmpty)
+    }
     /// J4.1/J5.1: a recent A plus catalogue B/C is one 27-hole venue, with three opening nines.
     func testRecentVenueIncludesAllCatalogueNines() throws {
         let recent = loop(31832, venue: "沙河测试球会", label: "A")
@@ -1430,6 +1456,32 @@ final class StartRoundDiscoveryTests: XCTestCase {
         }
         XCTAssertEqual(StartRoundView.cappedNearbyOptions(options).count, 10)
         XCTAssertEqual(StartRoundView.nearbyVenueCount(StartRoundView.cappedNearbyOptions(options)), 10)
+    }
+
+    /// J4.1/J4.2: all radius requests settle before pending clears, even when expansions fail.
+    @MainActor
+    func testNearbyPendingEndsAfterEveryExpansionSuccessOrFailure() async {
+        for failedRadii in [Set<Int>(), Set([20]), Set([50]), Set([5, 20, 50])] {
+            var radii: [Int] = []
+            var states: [Bool] = []
+            var loading = false
+            let outcome = await StartRoundView.performNearbyDiscovery(
+                latitude: 31, longitude: 121,
+                setLoading: { loading = $0; states.append($0) },
+                request: { _, _, radius in
+                    XCTAssertTrue(loading, "pending must remain visible until every radius settles")
+                    radii.append(radius)
+                    if failedRadii.contains(radius) { throw URLError(.timedOut) }
+                    return [MobileCourseSearchMatch(globalId: 7101, name: "虹桥", holes: 18,
+                        city: nil, province: nil, ratio: 1)]
+                },
+                resolve: { MobileCourseOption(globalId: $0.globalId, name: $0.name, holes: 18) }
+            )
+            XCTAssertEqual(radii, [5, 20, 50])
+            XCTAssertEqual(states, [true, false], "pending ends exactly once after success or terminal failure")
+            XCTAssertFalse(loading)
+            XCTAssertEqual(outcome.providerOptions.count, failedRadii.count == 3 ? 0 : 1)
+        }
     }
 
     // MARK: - B4b: one course list, first-loop tiles, start title
