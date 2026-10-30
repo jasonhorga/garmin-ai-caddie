@@ -135,6 +135,58 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(_geometry_target(corrected, 12), (55555, 12))
         self.assertEqual(_hole_geometry_target(corrected, 12), {"globalId": 55555, "localHole": 12})
 
+    def test_j1_3_mixed_course_back_half_first_card_only_keeps_other_course_back_gid(self) -> None:
+        # J1.3: a 9-hole course A + course B back nine (E1), or A front + B back (E2), with only the
+        # first Garmin card: restored 10..18 keep their Garmin hole numbers but belong to B, so the
+        # corrected row must carry back gid B and the same loops as the merged full cards.
+        from ai_caddie.history.history import merge_same_day_halves
+
+        a, b, p18 = 31796, 31794, "534443545443454344"
+        shapes = {
+            "E1": ([(a, "all"), (b, "back")], "444444444", "444444444"),
+            "E2": ([(a, "front"), (b, "back")], "443454344534443545", "443454344"),
+        }
+        for name, (identity, a_pars, front_pars) in shapes.items():
+            with self.subTest(shape=name):
+                def card(rid: str, gid: int, numbers: range, pars: str, hole_pars: str, when: str) -> dict:
+                    holes = [{"number": n, "strokes": int(p) + 1, "par": int(p)} for n, p in zip(numbers, pars)]
+                    return {"id": rid, "date": f"2026-10-01 {when}", "course": "Mixed", "courseCanonical": "mixed",
+                            "globalId": gid, "courseId": gid, "frontNineGlobalCourseId": gid,
+                            "backNineGlobalCourseId": None, "holePars": hole_pars, "holes": holes,
+                            "holesCompleted": 9, "strokes": sum(h["strokes"] for h in holes),
+                            "par": sum(h["par"] for h in holes)}
+
+                first = card("mixed", a, range(1, 10), front_pars, a_pars, "08:00")
+                second = card("mixed-b", b, range(10, 19), p18[9:], p18, "10:00")
+                with TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    _save_identity(root, "mixed", identity)
+                    _save_course_par(root, a, a_pars)
+                    _save_course_par(root, b, p18)
+                    strokes = [h["strokes"] for h in first["holes"] + second["holes"]]
+                    append_event_batch("mixed", [{
+                        "eventId": f"score-{n}", "roundId": "mixed", "hole": n,
+                        "kind": "score", "payload": {"strokes": strokes[n - 1]},
+                    } for n in range(1, 19)], idempotency_key="mixed", root=root)
+                    data = HistoryData(raw_rounds=[], rounds=[dict(first)], shots=[])
+                    result = reconcile_mobile_round_events("mixed", data, root=root, annotations_root=root)
+                    ids = [row["id"] for row in result["annotationSuggestions"] if row["kind"] == "score_correction"]
+                    self.assertEqual(len(ids), 9)
+                    apply_mobile_reconciliation_suggestions(
+                        "mixed", data, suggestion_ids=ids, root=root, annotations_root=root,
+                        data_loader=lambda: data,
+                    )
+                    corrected = corrected_history_data(data, annotations_root=root, course_root=root).rounds[0]
+
+                truth = merge_same_day_halves([dict(first), dict(second)])[0]
+
+                def loops(row: dict) -> list:
+                    table = _round_breakdowns(HistoryData(raw_rounds=[], rounds=[row], shots=[]))["loops"]
+                    return [(loop.get("loopKey"), [hole.get("hole") for hole in loop.get("holes", [])]) for loop in table]
+
+                self.assertEqual(corrected.get("backNineGlobalCourseId"), b)
+                self.assertEqual(loops(corrected), loops(truth))
+
     def test_j1_3_rotated_missing_front_restores_to_physical_front(self) -> None:
         # J1.3: a back-start phone round must map phone 1..9 to Garmin 10..18;
         # missing front holes are phone 10..18 and may only target Garmin 1..9.
