@@ -47,6 +47,15 @@ gh pr view <PR> --repo jasonhorga/garmin-ai-caddie --json headRefOid,mergeable,s
 
 `agenthub-native-mutant.yml`（AgentHub 的对抗变异门）不再是必需检查。
 
+### 1.0 测试与上线流程（C248，Jason 10-31 定；本节与项目台 DESK.md、Codex 共同规矩 COMMON.md 同文）
+
+- 时长目标：①每次推送的快速反馈——服务端 ≤10 分钟；iOS「只编译 + 本卡相关测试」≤15 分钟（估值，实测有依据可调，调前报土土）；②合并前全量只跑 1 次，≤30 分钟，不在每轮返工里重复；③排队 ≤10 分钟，超了就减并发或减触发。
+- 本地不跑后端全量（项目台、Codex、复审都不跑）：本地只跑本卡相关模块 + related-tests（按文件名找引用改动文件的测试模块）；全量交 PR 上的 CI `backend`，合并前必须绿。
+- iOS：Codex 交回后先跑「只编译 + 本卡相关测试」原生 job，编译过了才送复审；带真模拟器截图的 fixture 只在合并前跑一次。
+- 原生 mutant 不每轮实跑：复审只做静态判断，列出「可能假杀」的几条（被编译失败、崩溃或无关测试杀死，不是被断言杀死）；合并前只对这几条实跑一次。Python mutant 是秒级的，复审照常实跑。
+- 复审限轮：B（挡）只限产品行为真错/回归、或本卡验收测试不咬旧代码；其它都是 N，项目台另开卡，不许把 N 升级成 B。同一张卡到第 3 轮还在返工，就停下来重拆卡或重定方案，不再一轮轮磨。
+- 改同一个大文件的卡串行派（CurrentHoleView.swift、AICaddieApp.swift、StartRoundView.swift、LiveHoleComponents.swift、server_v2/main.py、ai_caddie/courses/course_prep.py 等）：开卡写清改哪些文件，和在途卡重叠就排队。
+
 ### 1.1 事件库 payload 迁移（C159）
 
 新镜像里的入口是 `ops/migrate_mobile_event_payloads.py`。部署新代码并确认健康后，先对所有有日志的分区 dry-run：
