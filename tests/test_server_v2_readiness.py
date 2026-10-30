@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
 from ai_caddie.history import stats_cache
 from server_v2.main import app
+from server_v2 import readiness
 from server_v2.readiness import PACKAGING_LABELS, build_readiness_response
 from tests.round_loop_authority import fixture_course_authority
 
@@ -39,11 +40,21 @@ class ServerV2ReadinessTests(unittest.TestCase):
             return original(*args, **kwargs)
 
         result: list[dict] = []
+        warm_called = threading.Event()
+        original_warm = readiness.warm_stats_cache_in_background
+
+        def start_warm(*args, **kwargs):
+            warm_called.set()
+            return original_warm(*args, **kwargs)
+
         worker = threading.Thread(
             target=lambda: result.append(build_readiness_response()), daemon=True
         )
-        with patch.object(stats_cache, "_build_history_stats", blocked):
+        with patch.object(stats_cache, "_build_history_stats", blocked), \
+             patch("server_v2.readiness.warm_stats_cache_in_background", side_effect=start_warm) as warm:
             worker.start()
+            self.assertTrue(warm_called.wait(timeout=5), "readiness did not start the background warm")
+            warm.assert_called_once_with()
             self.assertTrue(entered.wait(timeout=5), "stats barrier was not reached")
             worker.join(timeout=5)
             self.assertFalse(worker.is_alive(), "readiness waited for the blocked stats build")

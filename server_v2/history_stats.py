@@ -32,6 +32,7 @@ _WARM_LOCK = threading.Lock()
 _WARM_THREADS: dict[str, threading.Thread] = {}
 _WARM_FAILURES: dict[str, str] = {}
 _WARM_FAILURE_AT: dict[str, float] = {}
+_WARM_FAILURE_TIME: dict[str, float] = {}
 WARM_RETRY_DELAY_S = 0.1
 
 
@@ -191,13 +192,16 @@ def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Threa
                     if not thread.warm_succeeded:
                         _WARM_FAILURES[clean_player_id] = "stats warm returned false"
                         _WARM_FAILURE_AT[clean_player_id] = time.monotonic() + WARM_RETRY_DELAY_S
+                        _WARM_FAILURE_TIME[clean_player_id] = time.time()
                     else:
                         _WARM_FAILURES.pop(clean_player_id, None)
                         _WARM_FAILURE_AT.pop(clean_player_id, None)
+                        _WARM_FAILURE_TIME.pop(clean_player_id, None)
             except Exception as exc:  # noqa: BLE001 - background warm must leave a retryable record
                 with _WARM_LOCK:
                     _WARM_FAILURES[clean_player_id] = f"{exc.__class__.__name__}: {exc}"
                     _WARM_FAILURE_AT[clean_player_id] = time.monotonic() + WARM_RETRY_DELAY_S
+                    _WARM_FAILURE_TIME[clean_player_id] = time.time()
             finally:
                 with _WARM_LOCK:
                     if _WARM_THREADS.get(clean_player_id) is threading.current_thread():
@@ -227,7 +231,7 @@ def history_warm_failure_details(player_id: str = OWNER_ID) -> dict[str, object]
     clean_player_id = str(player_id or OWNER_ID).strip() or OWNER_ID
     with _WARM_LOCK:
         reason = _WARM_FAILURES.get(clean_player_id)
-        failed_at = _WARM_FAILURE_AT.get(clean_player_id)
+        failed_at = _WARM_FAILURE_TIME.get(clean_player_id)
     if reason is None:
         return None
-    return {"reason": reason, "failedAtMonotonic": failed_at}
+    return {"reason": reason, "failedAt": failed_at}
