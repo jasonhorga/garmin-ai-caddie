@@ -1,8 +1,8 @@
 diff --git a/server_v2/main.py b/server_v2/main.py
-index 43919d5c..ae28b303 100644
+index 3304915b..ae28b303 100644
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2749,8 +2749,6 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
+@@ -2749,16 +2749,9 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                      _ACTIVE_COURSES.pop(old, None)
                      _ACTIVE_SELECTIONS.pop(old, None)
                      _ACTIVE_START_TIMES.pop(old, None)
@@ -11,3 +11,11 @@ index 43919d5c..ae28b303 100644
                      _ACTIVE_EVENT_TIMES.pop(old, None)
                      _ACTIVE_EVENT_DEVICES.pop(old, None)
                      _ACTIVE_PACKAGED_ROUNDS.discard(old)
+-            # A finish can arrive after a restart when the round is no longer registered in memory;
+-            # clear its durable opening-time cache in that case as well.
+-            _ACTIVE_START_TIMES.pop(key, None)
+-            with _ROUND_START_CACHE_LOCK:
+-                _ROUND_START_CACHE.pop(key, None)
+         elif new_events or not str(round_id).startswith(("home-", "prep-library-", "watch-template-")):
+             # Uploads and round refreshes may be delayed for days. A valid timestamp may replace an
+             # older event-recovered round, but an event from an old round (e.g. a late score edit)
