@@ -81,9 +81,10 @@ class GarminRasterForbidden(RuntimeError):
 
 def exponential_backoff_seconds(attempt: int) -> float:
     """Return the shared bounded retry delay for provider and history warm failures."""
+    exponent = min(max(0, int(attempt) - 1), 6)
     return min(
         GARMIN_403_BACKOFF_MAX_SECONDS,
-        GARMIN_403_BACKOFF_BASE_SECONDS * 2 ** max(0, int(attempt) - 1),
+        GARMIN_403_BACKOFF_BASE_SECONDS * 2 ** exponent,
     )
 
 
@@ -775,13 +776,16 @@ class RenderBackfill:
                 with self._lock:
                     previous = self._state["garminForbiddenReleases"].get(release_key, {})
                     attempts = int(previous.get("attempts") or 0) + 1
+                    failed_at = self._clock()
                     delay = exponential_backoff_seconds(attempts)
-                    retry_after = self._clock() + delay
+                    retry_after = failed_at + delay
                     error = f"garmin download failed: {exc}"
                     self._state["garminForbiddenReleases"][release_key] = dict(
                         globalId=exc.global_id, release=exc.release, attempts=attempts,
                         retryAfter=retry_after, backoffSeconds=delay, error=error,
-                        state="backoff")
+                        firstFailureAt=previous.get("firstFailureAt") or failed_at,
+                        lastFailureAt=failed_at,
+                        state="persistent" if delay >= GARMIN_403_BACKOFF_MAX_SECONDS else "backoff")
                     affected = [k for k, row in self._state["tasks"].items()
                                 if row["globalId"] == exc.global_id
                                 and str(row.get("garminRelease")) == exc.release
@@ -790,11 +794,12 @@ class RenderBackfill:
                 for affected_key in affected:
                     self._record_unit(affected_key, "garmin",
                                       state="pending", error=error)
-                if not previous:
-                    logger.warning(
-                        "render_backfill garmin raster HTTP 403; backing off gid=%s release=%s retry_after=%s",
-                        exc.global_id, exc.release, round(retry_after),
-                    )
+                logger.warning(
+                    "render_backfill garmin raster HTTP 403; backing off gid=%s release=%s attempts=%s state=%s retry_after=%s",
+                    exc.global_id, exc.release, attempts,
+                    "persistent" if delay >= GARMIN_403_BACKOFF_MAX_SECONDS else "backoff",
+                    round(retry_after),
+                )
                 self._save(force=True)
                 return True
             except Exception as exc:

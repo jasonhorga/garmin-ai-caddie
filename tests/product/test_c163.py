@@ -540,7 +540,7 @@ class ReleaseBackoffTests(unittest.TestCase):
                             while w.run_once():
                                 pass
                         self.assertEqual(download.call_count, attempts)
-                    self.assertEqual(w.status()["garminReleaseBackoff"][0]["state"], "backoff")
+                    self.assertEqual(w.status()["garminReleaseBackoff"][0]["state"], "persistent")
                     self.assertEqual(w.status()["garminReleaseBackoff"][0]["backoffSeconds"], 3600)
                     # New release opens exactly one fresh attempt.
                     w._raster_version = lambda *_: "release-2"
