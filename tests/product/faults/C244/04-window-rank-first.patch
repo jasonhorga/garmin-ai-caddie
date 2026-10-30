@@ -1,0 +1,16 @@
+diff --git a/ai_caddie/caddie/decision.py b/ai_caddie/caddie/decision.py
+index 38f190f1..3a1800ea 100644
+--- a/ai_caddie/caddie/decision.py
++++ b/ai_caddie/caddie/decision.py
+@@ -1992,10 +1992,10 @@ def _sequence_tail(
+                 )
+             else:
+                 key = (
++                    layup_window_rank,
+                     excessive_overshoot,
+                     unresolved_leave,
+                     float(step_count) if needs_layup else 0.0,
+-                    layup_window_rank,
+                     chain_cost + extra_step_cost,
+                     overshoot_m,
+                     -float(sample_strength),
