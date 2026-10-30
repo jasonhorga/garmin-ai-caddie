@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -519,7 +519,7 @@
+                 hole = hole_map[hole]
+                 if audit:
+                     audit["hole"] = hole
+-        elif identity is not None and hole not in scores:
++        elif False:
+             # Legacy unnumbered cards use the display axis, but absent card rows cannot consume
+             # hole corrections. Keep the phone evidence without suggesting an ineffective write.
+             local_only.append(_unmapped_local_only_row(event, payload, kind=kind, hole=hole))

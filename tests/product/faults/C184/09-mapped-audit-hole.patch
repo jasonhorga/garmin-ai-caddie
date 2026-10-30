@@ -1,13 +1,12 @@
 diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
-index 60664440..b4160c1f 100644
 --- a/ai_caddie/caddie/mobile_reconciliation.py
 +++ b/ai_caddie/caddie/mobile_reconciliation.py
-@@ -539,7 +539,7 @@ def reconcile_mobile_round_events(
+@@ -518,7 +518,7 @@
                  event = {**event, "hole": hole_map[hole]}
                  hole = hole_map[hole]
                  if audit:
 -                    audit["hole"] = hole
 +                    pass
- 
-         if kind == "score":
-             local_value = _payload_value(payload, "strokes", "score")
+         elif identity is not None and hole not in scores:
+             # Legacy unnumbered cards use the display axis, but absent card rows cannot consume
+             # hole corrections. Keep the phone evidence without suggesting an ineffective write.

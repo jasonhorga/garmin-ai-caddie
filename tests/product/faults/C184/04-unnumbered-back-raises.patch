@@ -1,8 +1,7 @@
 diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
-index 60664440..854913c9 100644
 --- a/ai_caddie/caddie/mobile_reconciliation.py
 +++ b/ai_caddie/caddie/mobile_reconciliation.py
-@@ -89,20 +89,6 @@ def _reconciliation_hole_map(
+@@ -89,20 +89,6 @@
      # A materialized phone round already uses the phone's display holes, unlike Garmin cards.
      if round_row.get("source") == "manual":
          return {hole["number"]: hole["number"] for hole in identity["holes"]}

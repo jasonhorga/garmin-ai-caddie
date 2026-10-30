@@ -87,7 +87,10 @@ class MobileReconciliationTests(unittest.TestCase):
                 "id": "unnumbered-back", "globalId": 55555,
                 "holes": [{"strokes": 5} for _ in range(9)],
             }], shots=[])
-            result = reconcile_mobile_round_events("unnumbered-back", data, root=root)
+            try:
+                result = reconcile_mobile_round_events("unnumbered-back", data, root=root)
+            except MobileRoundIdentityError:
+                self.fail("J1.3: an unnumbered back-nine card must reconcile on its display axis")
 
         self.assertEqual([row["hole"] for row in result["matched"]], list(range(1, 10)))
         self.assertEqual([row["ref"] for row in result["matched"]],

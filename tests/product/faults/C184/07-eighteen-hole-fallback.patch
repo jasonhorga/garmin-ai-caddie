@@ -1,8 +1,7 @@
 diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
-index 60664440..5583a06f 100644
 --- a/ai_caddie/caddie/mobile_reconciliation.py
 +++ b/ai_caddie/caddie/mobile_reconciliation.py
-@@ -97,7 +97,6 @@ def _reconciliation_hole_map(
+@@ -97,7 +97,6 @@
      if (
          holes
          and not round_row.get("merged")

@@ -1,13 +1,12 @@
 diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
-index 60664440..5b78000a 100644
 --- a/ai_caddie/caddie/mobile_reconciliation.py
 +++ b/ai_caddie/caddie/mobile_reconciliation.py
-@@ -695,7 +695,7 @@ def reconcile_mobile_round_events(
+@@ -679,7 +679,7 @@
      for row in local_only:
          row.setdefault("unmapped", False)
          event_id = str(row.get("eventId") or "")
 -        row["phoneHole"] = phone_holes.get(event_id, row.get("phoneHole", row.get("hole")))
 +        row["phoneHole"] = row.get("hole")
-         if event_id in unmapped_event_ids:
-             row["unmapped"] = True
-             row["_suggestionSafe"] = False
+     annotation_suggestions = _annotation_suggestions(
+         conflicts=conflicts,
+         local_only=local_only,

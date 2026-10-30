@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -689,7 +689,7 @@
+     unsafe_event_ids = {
+         str(row.get("eventId") or "")
+         for row in local_only
+-        if row.get("unmapped")
++        if row.get("unmapped") and row.get("kind") != "score"
+     }
+     annotation_suggestions = [
+         row for row in annotation_suggestions
