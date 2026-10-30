@@ -41,14 +41,14 @@ class ServerV2MobileTests(unittest.TestCase):
                 map_only=True, include_event_cursor=False, priority_hole=10,
                 loops="123:front,123:back", tee_box="white", player_id="fixture-player",
             )
+            self.assertTrue(read.called)
+            self.assertTrue(all(c.kwargs.get("build_if_missing") is False for c in read.call_args_list),
+                            "J4.2 map-only must never synchronously build even priority hole 10")
             self.assertEqual(len(jobs), 18, "the real enqueue schedules every cold selected Tee")
             self.assertEqual(len(actual.holes), 18)
             self.assertTrue(all(h["geometryState"] == "pending" for h in actual.holes))
             import time
             self.assertTrue(all(h["retryAfterEpoch"] > time.time() for h in actual.holes))
-            self.assertTrue(read.called)
-            self.assertTrue(all(c.kwargs.get("build_if_missing") is False for c in read.call_args_list),
-                            "J4.2 map-only must never synchronously build even priority hole 10")
 
 
     def test_mobile_event_store_corrupt_logs_generic_warning(self) -> None:
