@@ -2,11 +2,7 @@ diff --git a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift b/mobile/ios/AIC
 index 9c34d076..cbf06598 100644
 --- a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
 +++ b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
-@@ -2486,7 +2486,6 @@ enum LiveMapDisplayState: Equatable {
-         }
-         // A precise bitmap is a one-way upgrade. A transient decode/error update must not replace
+@@ -2488,3 +2488,2 @@ enum LiveMapDisplayState: Equatable {
          // it with Garmin or the neutral surface after it has become visible.
 -        if previous == .precise { return .precise }
          return resolved
-     }
- 
