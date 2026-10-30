@@ -1005,6 +1005,53 @@ final class ProductMapAndPackageTests: XCTestCase {
         )
     }
 
+    /// J5.4/C164b: a restored flag is a pin input, never a typed distance on a tee request.
+    func test_j5_4_restored_pin_keeps_tee_request_and_manual_distance_separate() throws {
+        let package = try c136Package()
+        let hole = try XCTUnwrap(package.holes.first)
+        let tee = CLLocationCoordinate2D(
+            latitude: try XCTUnwrap(hole.teeLatitude), longitude: try XCTUnwrap(hole.teeLongitude)
+        )
+        let pin = CLLocationCoordinate2D(latitude: tee.latitude + 0.0015, longitude: tee.longitude)
+        // Fixture static middle is 382.9 m; 0.0015 degrees of latitude is 166.79239 m.
+        // A typed 200 yards is exactly 182.88 m and must still win, including on a tee request.
+        let cases: [(shotType: String, manualM: Double?, expectedM: Double)] = [
+            ("tee", nil, 382.9), ("approach", nil, 166.79239), ("tee", 182.88, 182.88),
+        ]
+        for input in cases {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let store = OfflineStore(directoryURL: directory)
+            let builder = LiveRoundEventBuilder(roundId: package.roundId)
+            try store.appendEvent(builder.makeClubEvent(
+                hole: hole.number, clubName: "7I", shotType: input.shotType, distanceToPinM: input.manualM
+            ))
+            try store.appendEvent(builder.makeLocationEvent(
+                hole: hole.number, coordinate: tee, horizontalAccuracyM: 5,
+                targetCoordinate: pin, targetKind: "pin"
+            ))
+            let state = try store.restoreLiveRoundState(roundId: package.roundId, package: package)
+            let restored = try XCTUnwrap(state.holeState(for: hole.number))
+            XCTAssertEqual(restored.selectedShotType, input.shotType)
+            XCTAssertEqual(restored.distanceToPinM, input.manualM, "a pin event does not supply manualM")
+            XCTAssertEqual(restored.targetKind, "pin")
+            let provider = LocationProvider()
+            provider.setFixForTesting(nil)
+            let host = hostCurrentHole(CurrentHoleView(
+                package: package, hole: hole, locationProvider: provider, offlineStore: store,
+                liveRoundState: state, isSelected: false
+            ))
+            defer { host.window.isHidden = true; host.window.rootViewController = nil }
+            let request = try XCTUnwrap(host.controller.rootView.caddieRequestForTesting())
+            XCTAssertEqual(request.shotType, input.shotType)
+            guard case let .number(distance)? = request.context["distanceToPin_m"] else {
+                return XCTFail("J5.4 production request distance is missing")
+            }
+            XCTAssertEqual(distance, input.expectedM, accuracy: 0.01,
+                           "J5.4 typed distance wins; a moved pin applies only to a non-tee request")
+        }
+    }
+
     func test_j5_5_saved_gps_and_accuracy_or_unknown_score_position() throws {
         for (id, accuracy) in [("accurate", 5.0), ("poor", 120.0)] {
             let event = LiveRoundEventBuilder(roundId: "synthetic", idFactory: { id }).makeLocationEvent(
