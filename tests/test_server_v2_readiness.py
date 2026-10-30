@@ -163,6 +163,22 @@ class ServerV2ReadinessTests(unittest.TestCase):
             release.set()
             worker.join(timeout=5)
 
+    def test_C263_readiness_snapshot_hit_only_reports_mobile_status(self) -> None:
+        """C263: history hit must not synchronously rebuild corrections or mobile seeds."""
+        stats = {"summary": {"totalRounds": 1}, "drillDown": {"roundIds": ["900001"]}, "dataMode": "fixture"}
+        with patch.object(readiness, "load_history_stats_snapshot", side_effect=lambda *, window="all": {
+            "value": stats,
+            "revision": "fixture-revision",
+            "stale": False,
+            "dataMode": "fixture",
+            "source": "memory",
+        }), patch.object(readiness, "build_mobile_round_package_response",
+                         side_effect=AssertionError("readiness built mobile package synchronously")):
+            payload = build_readiness_response()
+        mobile = next(row for row in payload["checks"] if row["label"] == "mobile_package")
+        self.assertEqual(mobile["state"], "warming")
+        self.assertTrue(mobile["evidence"]["stale"])
+
     def test_G7_readiness_accepts_warming_as_non_failing_runtime_state(self) -> None:
         """G7: history warming is visible but does not close the readiness gate."""
         with patch("server_v2.readiness.load_history_stats_snapshot", return_value=None), \
