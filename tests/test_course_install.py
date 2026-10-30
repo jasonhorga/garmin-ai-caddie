@@ -654,6 +654,7 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self._post_events("finished-old", "old-start", timestamp="2026-10-29T08:00:00Z")
         self._finish("finished-old")
         opening = datetime.fromisoformat("2026-10-29T08:00:00+00:00")
+        self.main._ROUND_START_CACHE.clear()
         with patch.object(self.main, "_round_start_timestamp", return_value=opening) as read:
             self._post_events("finished-old", "old-edit-1", timestamp="2026-10-29T10:30:00Z")
             self._post_events("finished-old", "old-edit-2", timestamp="2026-10-29T10:31:00Z")

@@ -2493,6 +2493,11 @@ _ACTIVE_EVENT_TIMES: dict[tuple[str, str], datetime] = {}
 # package guard needs the round's opening time so a newly started offline round can replace an older
 # packaged round without allowing a late edit from that older round to take it back.
 _ACTIVE_START_TIMES: dict[tuple[str, str], datetime] = {}
+# Durable opening times are read from the append-only mobile log after a restart.  Cache both
+# timestamps and misses so a round blocked by the package guard does not reread its whole journal
+# on every late event.
+_ROUND_START_CACHE: dict[tuple[str, str], datetime | None] = {}
+_ROUND_START_CACHE_LOCK = threading.Lock()
 # Kept for diagnostics only. Timestamp ordering is per player; a phone batch may contain both
 # ios-phone and relayed apple-watch events, so clientId never creates separate clock domains.
 _ACTIVE_EVENT_DEVICES: dict[tuple[str, str], str] = {}
@@ -2622,6 +2627,31 @@ def _round_start_timestamp(player_id: str, round_id: str) -> datetime | None:
     return min(parsed) if parsed else None
 
 
+def _cached_round_start_timestamp(player_id: str, round_id: str) -> datetime | None:
+    key = (str(player_id), str(round_id))
+    with _ROUND_START_CACHE_LOCK:
+        if key in _ROUND_START_CACHE:
+            return _ROUND_START_CACHE[key]
+    # Keep the potentially large event-log read outside _ACTIVE_ROUNDS_LOCK.  A concurrent first
+    # read may duplicate the I/O, but the second writer observes the same cached value.
+    value = _round_start_timestamp(key[0], key[1])
+    with _ROUND_START_CACHE_LOCK:
+        return _ROUND_START_CACHE.setdefault(key, value)
+
+
+def _durable_round_is_finished(player_id: str, round_id: str) -> bool:
+    """Return whether the persistent ingest index already materialized this round's finish."""
+    from . import mobile
+
+    try:
+        index = round_ingest._load_index(player_id, mobile.MOBILE_ROOT)
+    except Exception:
+        # The event append must remain usable if an old/corrupt optional index cannot be read.
+        return False
+    entry = (index.get("entries") or {}).get(f"mobile-finish:{round_id}")
+    return isinstance(entry, dict) and entry.get("id") is not None
+
+
 def _latest_rounds_by_player() -> dict[str, tuple[str, str]]:
     # Timestamps share one player clock: the phone uploads its own and relayed Watch events in one
     # batch. A newly packaged last registration without an event time is switch evidence and wins
@@ -2667,6 +2697,26 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                            package_registration: bool = False) -> None:
     if not round_id:
         return
+    key = (str(player_id), str(round_id))
+    # A durable finish makes every later event an edit.  It must not recreate a lease, renew one,
+    # or provide package proof; explicit package requests remain eligible to restore a round.
+    if not finished and new_events and not package_registration and _durable_round_is_finished(*key):
+        return
+
+    timed_request = event_timestamp_valid is True and event_timestamp is not None
+    durable_starts: dict[tuple[str, str], datetime | None] = {}
+    if not finished and (timed_request or package_registration):
+        # Snapshot keys before taking the global selector lock, then perform all journal reads here.
+        # The active dictionaries are process-local coordination state; a stale snapshot only costs
+        # an extra cache lookup and never changes the admission decision's safety.
+        keys_to_read = {key}
+        keys_to_read.update(
+            existing for existing in list(_ACTIVE_ROUNDS)
+            if existing[0] == key[0] and existing not in _ACTIVE_START_TIMES
+        )
+        for existing in keys_to_read:
+            if existing not in _ACTIVE_START_TIMES:
+                durable_starts[existing] = _cached_round_start_timestamp(*existing)
     with _ACTIVE_ROUNDS_LOCK:
         now = time.monotonic()
         for stale, deadline in list(_ACTIVE_ROUNDS.items()):
@@ -2675,10 +2725,11 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                 _ACTIVE_COURSES.pop(stale, None)
                 _ACTIVE_SELECTIONS.pop(stale, None)
                 _ACTIVE_START_TIMES.pop(stale, None)
+                with _ROUND_START_CACHE_LOCK:
+                    _ROUND_START_CACHE.pop(stale, None)
                 _ACTIVE_EVENT_TIMES.pop(stale, None)
                 _ACTIVE_EVENT_DEVICES.pop(stale, None)
                 _ACTIVE_PACKAGED_ROUNDS.discard(stale)
-        key = (str(player_id), str(round_id))
         latest = _latest_rounds_by_player().get(key[0])
         if finished:
             own_timestamp = _ACTIVE_EVENT_TIMES.get(key)
@@ -2712,7 +2763,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
             # Uploads and round refreshes may be delayed for days. A valid timestamp may replace an
             # older event-recovered round, but an event from an old round (e.g. a late score edit)
             # cannot displace a current round already proven by its course package.
-            timed = event_timestamp_valid is True and event_timestamp is not None
+            timed = timed_request
             restore_only_registration = restore_only
             if latest == key and not timed:
                 new_events = False
@@ -2721,34 +2772,26 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                 new_events = False
                 restore_only = False
             current_timestamp = _ACTIVE_EVENT_TIMES.get(latest) if latest is not None else None
-            timed = event_timestamp_valid is True and event_timestamp is not None
             if event_timestamp_valid is False:
                 logger.warning("active round event timestamp unavailable; using arrival order")
             if latest is None or latest == key:
-                may_restore = True
+                may_restore = not (latest is None and not timed and new_events and not restore_only_registration)
             elif timed:
-                # Another round's newer play time may take over only an event-recovered current
-                # round; once the current round has its own package, it yields to a new package
-                # or to its own earlier event time, never to an old round's upload.
-                may_restore = (
-                    latest not in _ACTIVE_PACKAGED_ROUNDS
-                    and current_timestamp is not None
-                    and event_timestamp >= current_timestamp
-                )
+                # A timed event may replace an event-recovered round by newest event time.  A
+                # packaged current round (or a recovered round with no event time) uses durable
+                # opening times for the takeover guard instead.
+                if latest not in _ACTIVE_PACKAGED_ROUNDS and current_timestamp is None:
+                    may_restore = True
+                elif latest in _ACTIVE_PACKAGED_ROUNDS:
+                    candidate_start = _ACTIVE_START_TIMES.get(key) or durable_starts.get(key) or event_timestamp
+                    current_start = _ACTIVE_START_TIMES.get(latest) or durable_starts.get(latest)
+                    may_restore = current_start is not None and candidate_start > current_start
+                else:
+                    may_restore = current_timestamp is not None and event_timestamp >= current_timestamp
             else:
                 # No usable play time (legacy/invalid timestamps, note-only batches, packages):
                 # arrival order, so uploads and round refreshes cannot displace the current round.
                 may_restore = not (new_events or restore_only)
-            if latest is None and not timed and new_events and not restore_only_registration:
-                may_restore = False
-            if timed and latest not in _ACTIVE_PACKAGED_ROUNDS and current_timestamp is None:
-                may_restore = True
-            if timed and latest in _ACTIVE_PACKAGED_ROUNDS and not may_restore:
-                candidate_start = _ACTIVE_START_TIMES.get(key) or _round_start_timestamp(
-                    key[0], key[1]
-                ) or event_timestamp
-                current_start = _ACTIVE_START_TIMES.get(latest) or current_timestamp
-                may_restore = current_start is not None and candidate_start > current_start
             # The current round renews its lease, course binding and selection on every package or
             # event; an older registration is renewed only when its event time takes over.
             if may_restore and (key not in _ACTIVE_ROUNDS or latest in (None, key) or timed):
@@ -2759,11 +2802,11 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                     _ACTIVE_SELECTIONS[key] = (str(selection[0]), str(selection[1]).strip().lower())
                 if package_registration and not restore_only_registration:
                     _ACTIVE_PACKAGED_ROUNDS.add(key)
+                if key not in _ACTIVE_START_TIMES and durable_starts.get(key) is not None:
+                    _ACTIVE_START_TIMES[key] = durable_starts[key]
                 if event_timestamp is not None:
                     if key not in _ACTIVE_START_TIMES:
-                        _ACTIVE_START_TIMES[key] = _round_start_timestamp(
-                            key[0], key[1]
-                        ) or event_timestamp
+                        _ACTIVE_START_TIMES[key] = durable_starts.get(key) or event_timestamp
                     else:
                         _ACTIVE_START_TIMES[key] = min(_ACTIVE_START_TIMES[key], event_timestamp)
                     _ACTIVE_EVENT_TIMES[key] = max(
