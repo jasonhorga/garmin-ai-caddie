@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
+index 599466b9..f42192de 100644
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -570,7 +570,6 @@ class FileEventStore:
+         self.migration_intent = self.root / EVENT_MIGRATION_INTENT_FILENAME
+         self.round_index = self.root / ROUND_INDEX_FILENAME
+         self._additional_sanitizer = sanitizer
+-        self._migration_temp_paths = self._event_owned_migration_temp_paths
+ 
+     @contextmanager
+     def _locked(self, path: Path, *, shared: bool = False) -> Iterator[None]:
