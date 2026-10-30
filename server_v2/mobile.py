@@ -686,6 +686,7 @@ def build_mobile_course_package_response(
         package["coursePrep"] = first_hole_lightweight_course_prep(
             package,
             player_id=player_id,
+            priority_hole=priority_hole,
             **({"map_only": True} if map_only or cache_only else {}),
         )
         if package.get("coursePrep"):

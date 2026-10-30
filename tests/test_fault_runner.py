@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 RUNNER_PATH = Path(__file__).parent / "product/faults/run_faults.py"
@@ -33,6 +34,24 @@ class FaultRunnerTests(unittest.TestCase):
             self.assertTrue((runner.ROOT / record["patch"]).is_file(), record["id"])
             self.assertIn(record["kind"], VALID_KINDS, record["id"])
             self.assertTrue(record["target"].strip(), record["id"])
+
+    def test_card_fragments_join_central_records_and_reject_duplicate_ids(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "sample.patch").touch()
+            manifest = root / "manifest.json"
+            card = root / "C136"
+            card.mkdir()
+            record = {"id": "base", "patch": "sample.patch", "kind": "python",
+                      "target": "tests.example.test_case", "promise": "J4.4"}
+            manifest.write_text(json.dumps({"schema": 1, "records": [record]}))
+            fragment = card / "manifest.json"
+            fragment.write_text(json.dumps({"schema": 1, "records": [{**record, "id": "card"}]}))
+            with patch.object(runner, "MANIFEST", manifest), patch.object(runner, "ROOT", root):
+                self.assertEqual([r["id"] for r in runner.load_manifest()], ["base", "card"])
+                fragment.write_text(json.dumps({"schema": 1, "records": [record]}))
+                with self.assertRaisesRegex(ValueError, "duplicate manifest id"):
+                    runner.load_manifest()
 
     def test_native_targets_are_real_three_part_xcode_tests(self):
         records = runner.load_manifest()

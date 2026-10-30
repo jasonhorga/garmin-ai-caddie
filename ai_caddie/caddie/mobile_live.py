@@ -1480,6 +1480,7 @@ def first_hole_lightweight_course_prep(
     *,
     player_id: str = OWNER_ID,
     map_only: bool = False,
+    priority_hole: int | None = None,
 ) -> dict[str, Any] | None:
     """Read persisted vectors and lightweight CourseView seeds for every playable hole.
 
@@ -1505,10 +1506,17 @@ def first_hole_lightweight_course_prep(
     if ladder:
         prep_kwargs["ladder"] = ladder
     selected_tee_box = str(course.get("teeBox") or "").strip()
+    current = next((row for row in holes if _safe_int(row.get("number")) == priority_hole), None)
+    current_source = (
+        (_safe_int(current.get("sourceGlobalId") or course.get("globalId")),
+         _safe_int(current.get("sourceLocalHole") or current.get("number")))
+        if current else None
+    )
 
     # Composite rounds can show the same physical local hole twice (A+A). Build it once and
     # renumber the returned factual row for each display hole instead of doing duplicate work.
     by_source: dict[tuple[int, int], dict[str, Any] | None] = {}
+    pending_sources: set[tuple[int, int]] = set()
     tee_sets: dict[int, int | None] = {}
     tee_facts_bound: dict[int, bool] = {}
     seeded_rows: list[dict[str, Any]] = []
@@ -1522,6 +1530,7 @@ def first_hole_lightweight_course_prep(
         source_key = (source_global_id, source_local_hole)
         if source_key not in by_source:
             vector = None
+            selected_vector_pending = False
             # The install/foreground path already persisted factual vectors. Reuse them before
             # trying the optional CourseView catalogue or rebuilding a frame for every package.
             from ai_caddie.core.data import mesh_path
@@ -1547,25 +1556,29 @@ def first_hole_lightweight_course_prep(
                     )
                     if vector is not None and not tee_facts_bound.get(source_global_id, True):
                         vector = _tee_independent_vector(vector)
+                    selected_vector_pending = (
+                        vector is None and selected_set is not None
+                        and geometry_coverage_for_hole(
+                            source_global_id, source_local_hole,
+                            require_current_authority=True, refresh_release=False,
+                        ).get("coverage") == "ready"
+                    )
                     if vector is None and not map_only and (
                         selected_set is not None or selected_tee_box not in {"", "unknown"}
                     ):
-                        # A full package must carry the selected Tee's distances even when its
-                        # precise vector cache is absent.  The precise route seed uses the same
-                        # mesh route and green-distance calculation as /prep, without waiting for
-                        # strategy/raster work; CourseView lightweight prep remains the fallback
-                        # when the mesh is not installed yet.
+                        # Only the requested display hole may spend foreground CPU. Persist it
+                        # through the same authority-bound cache as /prep/startup, so later package
+                        # rebuilds never repeat the mesh work. Other holes yield to foreground work.
                         if selected_set is not None:
-                            try:
-                                vector = course_prep.precise_route_seed_hole(
-                                    source_global_id,
-                                    source_local_hole,
-                                    tee_set=selected_set,
-                                    include_facts=True,
+                            from ai_caddie.courses.vector_prep import enqueue_vector_hole
+                            if source_key == current_source:
+                                vector = cached_vector_hole(
+                                    source_global_id, source_local_hole, tee_set=selected_set,
+                                    build_if_missing=True,
                                 )
-                            except Exception:
-                                vector = None
-                        if vector is None:
+                            else:
+                                enqueue_vector_hole(source_global_id, source_local_hole, selected_set)
+                        if vector is None and not selected_vector_pending:
                             prep_call_kwargs = dict(prep_kwargs)
                             if selected_tee_box:
                                 prep_call_kwargs["tee_set"] = selected_set
@@ -1589,9 +1602,11 @@ def first_hole_lightweight_course_prep(
                             vector = _tee_independent_vector(fallback_vector)
                 except Exception:
                     pass
+            if selected_vector_pending and (vector is None or not vector.get("greenDistances")):
+                pending_sources.add(source_key)
             try:
                 by_source[source_key] = vector
-                if vector is None and not map_only and (
+                if vector is None and not selected_vector_pending and not map_only and (
                     not selected_tee_box or tee_sets.get(source_global_id) is not None
                 ):
                     prep_call_kwargs = dict(prep_kwargs)
@@ -1605,6 +1620,11 @@ def first_hole_lightweight_course_prep(
                 # that were successfully extracted for the other holes in the same package.
                 by_source[source_key] = None
         prep = by_source[source_key]
+        if source_key in pending_sources:
+            # Reuse the existing client package-polling mechanism even when physical geometry
+            # itself is installed and only the selected Tee vector is still warming.
+            package_hole["geometryState"] = "pending"
+            package_hole["retryAfterEpoch"] = time.time() + 2
 
         if not _has_drawable_route_seed(prep):
             missing_rows.append({

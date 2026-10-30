@@ -57,6 +57,29 @@ def request_vector_tee(global_id: int, local_hole: int, tee_set: int | None) -> 
         _REQUESTED_TEES.setdefault(key, set()).add(int(tee_set))
 
 
+def enqueue_vector_hole(global_id: int, local_hole: int, tee_set: int) -> None:
+    """Queue a selected-Tee supplement; never build mesh facts on the package caller.
+
+    Reuse the existing bounded work queue, foreground admission and CPU process pool. Keyed
+    submission coalesces package retries while one physical hole/Tee is queued or running.
+    """
+    from ai_caddie.caddie.mobile_live import _GEOMETRY_INSTALL_POOL
+    from ai_caddie.core.priority_work import SELECTED_COURSE, background_work
+
+    request_vector_tee(global_id, local_hole, tee_set)
+
+    def build():
+        with background_work():
+            return cached_vector_hole(
+                global_id, local_hole, tee_set=tee_set, use_process_pool=True,
+            )
+
+    _GEOMETRY_INSTALL_POOL.submit_keyed(
+        ("selected-tee-vector", str(_CACHE_DIR), global_id, local_hole, tee_set),
+        build, priority=SELECTED_COURSE,
+    )
+
+
 def warm_requested_vectors(global_id: int, local_hole: int) -> None:
     cached_vector_hole(global_id, local_hole)
     with _REQUESTED_TEES_LOCK:

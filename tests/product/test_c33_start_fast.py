@@ -8,6 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import asyncio
+import json
 import logging
 import threading
 import time
@@ -61,6 +62,59 @@ def cold_package():
         release.set()
         holder.join(2)
         pool.shutdown()
+
+
+@contextmanager
+def selected_tee_fixture_course():
+    """J4.4/J4.2: 18 physical fixture holes, real mesh reader and durable vector cache.
+
+    Only metadata/provider IO is replaced. White starts 40 m up the C16 synthetic hole.
+    Background units are retained for deterministic execution after the foreground assertions.
+    """
+    from ai_caddie.caddie import mobile_live as ml
+    from ai_caddie.courses import course_prep as cp, course_reference as cr, vector_prep as vp
+    from ai_caddie.core import data as disk
+    from server_v2 import mobile
+    jobs = []
+
+    class QueuedWork:
+        def submit_keyed(self, key, fn, *args, **kwargs):
+            kwargs.pop('priority', None)
+            jobs.append(lambda: fn(*args, **kwargs))
+            return Future()
+
+    with TemporaryDirectory() as directory, ExitStack() as stack:
+        root = Path(directory)
+        mesh = json.loads((Path(__file__).parent / 'fixtures/c16a/garmin.json').read_text())['mesh']
+        mesh['hole']['TeeLocations'] = [
+            {'Sets': [2], 'X': 0, 'Y': 0}, {'Sets': [3], 'X': 0, 'Y': 40}]
+        for hole in range(1, 19):
+            (root / f'gid123_h{hole:02d}_meshes.json').write_text(json.dumps(mesh))
+        coverage = {'coverage': 'ready', 'geometryRevision': 'fixture-r1'}
+        template = {'id': 'live-course-123', 'globalId': 123, 'course': 'Fixture Golf',
+                    'courseKey': 'gid_123', 'holesCompleted': 18,
+                    'holes': [{'number': n, 'par': 4} for n in range(1, 19)]}
+        for obj, name, kw in [
+            (disk, 'MESH_DIR', {'new': root}),
+            (vp, '_CACHE_DIR', {'new': root / 'vectors'}),
+            (vp, 'geometry_coverage_for_hole', {'return_value': coverage}),
+            (cp, 'geometry_coverage_for_hole', {'return_value': coverage}),
+            (ml, 'geometry_coverage_for_hole', {'return_value': coverage}),
+            (cr, 'courseview_release_info', {'return_value': None}),
+            (cr, 'courseview_tees', {'return_value': [{'name': 'Blue', 'index': 2}, {'name': 'White', 'index': 3}]}),
+            (cr, 'load_course_par', {'return_value': cr.CoursePar(123, [4] * 18, 'fixture', 'high')}),
+            (ml, '_GEOMETRY_INSTALL_POOL', {'new': QueuedWork()}),
+            (ml, '_geometry_only_course_template', {'return_value': template}),
+            (ml, '_authoritative_course_holes', {'return_value': 18}),
+            (ml, '_courseview_segment_resolver', {'return_value': ('Fixture Golf', 18)}),
+            (ml, '_load_mobile_hazards', {'return_value': {'tees': [{'sets': [2]}, {'sets': [3]}]}}),
+            (cp, 'effective_club_ladder', {'return_value': [('7I', 140)]}),
+            (cp, 'lightweight_prep_hole', {'return_value': None}),
+            (mobile, 'load_history_data_for_mode', {'return_value': (ml.HistoryData(raw_rounds=[], rounds=[], shots=[]), 'fixture')}),
+            (mobile, '_package_singleflight', {'side_effect': lambda key, build, **kw: build()}),
+        ]:
+            stack.enter_context(patch.object(obj, name, **kw))
+        yield mobile, vp, cp, root, jobs
 
 
 class StartFastTests(unittest.TestCase):
@@ -478,13 +532,52 @@ class ReworkContractTests(unittest.TestCase):
             }),
             patch('ai_caddie.courses.course_reference.courseview_tees', return_value=[]),
             patch('ai_caddie.caddie.analysis.tee_set_for_box', side_effect=lambda gid, box, **kw: 4),
-            patch('ai_caddie.courses.vector_prep.cached_vector_hole', return_value=None),
+            patch('ai_caddie.courses.vector_prep.cached_vector_hole',
+                  side_effect=lambda *a, **kw: precise if kw.get('build_if_missing') else None),
             patch.object(ml.course_prep, 'precise_route_seed_hole', return_value=precise) as precise_seed,
             patch.object(ml.course_prep, 'lightweight_prep_hole', return_value=lightweight),
         ):
-            result = ml.first_hole_lightweight_course_prep(package, map_only=False)
+            result = ml.first_hole_lightweight_course_prep(package, map_only=False, priority_hole=1)
         self.assertEqual(result['holes'][0]['greenDistances']['middleM'], 344.0)
-        self.assertEqual(precise_seed.call_args.kwargs, {'tee_set': 4, 'include_facts': True})
+        self.assertFalse(precise_seed.called, 'package delegates to the persistent vector builder')
+
+    def test_j4_4_cold_full_selected_tee_bounds_work_and_persists_exact_distances(self):
+        """J4.2/J4.4: one requested hole may build now; the other 17 must not hold the package."""
+        with selected_tee_fixture_course() as (mobile, vp, cp, root, jobs):
+            def fetch():
+                return mobile.build_mobile_course_package_response(
+                    123, tee_box='white', loops=[(123, 'front'), (123, 'back')],
+                    priority_hole=2, include_event_cursor=False)
+
+            with patch.object(cp, 'precise_route_seed_hole', wraps=cp.precise_route_seed_hole) as precise:
+                first = fetch()
+                self.assertEqual(precise.call_count, 1, 'at most the requested current hole builds synchronously')
+                self.assertEqual(precise.call_args.args, (123, 2))
+                current = next(row for row in first.coursePrep['holes'] if row['hole'] == 2)
+                self.assertEqual(current['teeSet'], 3)
+                # C16 green corners x=±10,y=290/310, White at (0,40):
+                # round(hypot(10,250),1)=250.2; centre=260; hypot(10,270)=270.2.
+                self.assertEqual([current['greenDistances'][key] for key in ('frontM', 'middleM', 'backM')],
+                                 [250.2, 260.0, 270.2])
+                self.assertTrue(list((root / 'vectors').rglob('*.json')), 'current hole is durable')
+                precise.reset_mock()
+                fetch()
+                self.assertEqual(precise.call_count, 0, 'even a package rebuild reuses the persisted current hole')
+            self.assertTrue(jobs, 'other selected Tee vectors must be scheduled')
+            self.assertTrue(all(h['geometryState'] == 'pending' for h in first.holes if h['number'] != 2))
+            # Execute the actual background unit after the request, with its process boundary inlined.
+            with patch.object(vp, 'precise_route_seed_hole_in_process', side_effect=cp.precise_route_seed_hole):
+                for job in jobs[:]:
+                    job()
+            with patch.object(cp, 'precise_route_seed_hole', wraps=cp.precise_route_seed_hole) as precise:
+                complete = fetch()
+                self.assertEqual(precise.call_count, 0)
+            self.assertEqual(len(complete.coursePrep['holes']), 18)
+            for row in complete.coursePrep['holes']:
+                # Real mesh and real planner: exactly the facts /prep publishes, including all edges.
+                prep = cp.prep_hole(123, row['hole'], tee_set=3, render=False, ladder=[('7I', 140)])
+                expected = prep if isinstance(prep, dict) else prep.to_dict()
+                self.assertEqual(row['greenDistances'], expected['greenDistances'])
 
     def test_follower_waits_one_second_and_marks_uncacheable(self):
         from server_v2 import mobile

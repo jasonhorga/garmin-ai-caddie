@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C136-18",
+      "patch": "tests/product/faults/C136/18-full-builds-every-hole.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_cold_full_selected_tee_bounds_work_and_persists_exact_distances",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-19",
+      "patch": "tests/product/faults/C136/19-current-vector-not-persisted.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_cold_full_selected_tee_bounds_work_and_persists_exact_distances",
+      "promise": "J4.4"
+    }
+  ]
+}

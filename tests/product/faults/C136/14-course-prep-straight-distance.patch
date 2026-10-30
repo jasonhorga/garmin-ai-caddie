@@ -1,12 +1,13 @@
 --- a/ai_caddie/caddie/mobile_live.py
 +++ b/ai_caddie/caddie/mobile_live.py
-@@ -1557,7 +1557,7 @@
-                         # when the mesh is not installed yet.
+@@ -1572,9 +1572,8 @@
                          if selected_set is not None:
-                             try:
--                                vector = course_prep.precise_route_seed_hole(
+                             from ai_caddie.courses.vector_prep import enqueue_vector_hole
+                             if source_key == current_source:
+-                                vector = cached_vector_hole(
 +                                vector = course_prep.lightweight_prep_hole(
-                                     source_global_id,
-                                     source_local_hole,
-                                     tee_set=selected_set,
-                                     include_facts=True,
+                                     source_global_id, source_local_hole, tee_set=selected_set,
+-                                    build_if_missing=True,
+                                 )
+                             else:
+                                 enqueue_vector_hole(source_global_id, source_local_hole, selected_set)

@@ -32,7 +32,13 @@ def load_manifest() -> list[dict[str, Any]]:
     data = json.loads(MANIFEST.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or not isinstance(data.get("records"), list):
         raise ValueError("manifest must contain a records array")
-    records = data["records"]
+    records = list(data["records"])
+    # Per-card fragments avoid a shared manifest conflict; validate the merged corpus below.
+    for fragment in sorted(MANIFEST.parent.glob("*/manifest.json")):
+        section = json.loads(fragment.read_text(encoding="utf-8"))
+        if not isinstance(section, dict) or not isinstance(section.get("records"), list):
+            raise ValueError(f"fragment must contain a records array: {fragment.name}")
+        records.extend(section["records"])
     seen: set[str] = set()
     for record in records:
         required = ("id", "patch", "kind", "target", "promise")
