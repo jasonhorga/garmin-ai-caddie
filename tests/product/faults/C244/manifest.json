@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C244-01-restore-old-layup-tail",
+      "patch": "tests/product/faults/C244/01-restore-old-layup-tail.patch",
+      "kind": "python",
+      "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j4_6_course_prep_tail_matches_online_tail_club_order",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C244-02-reverse-tail-order",
+      "patch": "tests/product/faults/C244/02-reverse-tail-order.patch",
+      "kind": "python",
+      "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j4_6_course_prep_tail_matches_online_tail_club_order",
+      "promise": "4.6"
+    }
+  ]
+}
