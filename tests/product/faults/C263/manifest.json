@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C263-F1",
+      "patch": "tests/product/faults/C263-allow-weather.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_C263_readiness_snapshot_hit_only_reports_mobile_status",
+      "promise": "C263"
+    }
+  ]
+}
