@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import threading
 from datetime import UTC, datetime, timedelta
@@ -1059,6 +1060,9 @@ def warm_mobile_readiness_in_background(stats_snapshot: dict[str, Any]) -> threa
                 }
                 _MOBILE_READINESS_THREADS.pop("me", None)
 
+        if os.getenv("AI_CADDIE_READINESS_TRACE") == "1":
+            run()
+            return None
         thread = threading.Thread(target=run, name="readiness-mobile-warm", daemon=True)
         _MOBILE_READINESS_THREADS["me"] = thread
         thread.start()
