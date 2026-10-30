@@ -47,6 +47,9 @@ WRITER_RETRY_SECONDS = 30.0
 WRITER_RETRY_MAX_SECONDS = 600.0
 GARMIN_403_BACKOFF_BASE_SECONDS = 60.0
 GARMIN_403_BACKOFF_MAX_SECONDS = 3600.0
+# Two releases per 60 s history tick bounds recovery fan-out after an outage. Each
+# hole still reacquires the shared background slot, letting stats/readiness warmers in.
+GARMIN_403_RETRY_RELEASES_PER_TICK = 2
 
 _FOREGROUND_LOCK = threading.Lock()
 _FOREGROUND_REQUESTS = 0
@@ -198,6 +201,12 @@ class RenderBackfill:
                  "updatedAt": str(payload.get("updatedAt") or ""), "tasks": tasks,
                  "journalSequence": int(payload.get("journalSequence") or 0),
                  "garminForbiddenReleases": payload.get("garminForbiddenReleases") or {}}
+        for entry in state["garminForbiddenReleases"].values():
+            delay = exponential_backoff_seconds(int(entry.get("attempts") or 0))
+            entry["state"] = "persistent" if delay >= GARMIN_403_BACKOFF_MAX_SECONDS else "backoff"
+            # An older journal cannot tell us when the streak started. Keep that
+            # uncertainty through later failures and operator force retries.
+            entry.setdefault("firstFailureAt", "unknown")
         # The small write-ahead log makes submission intent durable without rewriting every
         # hole on every attempt. A snapshot sequence makes checkpoint + log truncation crash safe.
         try:
@@ -654,8 +663,8 @@ class RenderBackfill:
                 if force:
                     # An operator scan is an explicit recovery action for the active authority.
                     self._state["garminForbiddenReleases"] = {
-                        key: value for key, value in self._state["garminForbiddenReleases"].items()
-                        if key not in active_release_keys
+                        key: dict(value, attempts=0, retryAfter=0, backoffSeconds=0, state="backoff")
+                        for key, value in self._state["garminForbiddenReleases"].items()
                     }
                     self._dirty += 1
                 old = self._state
@@ -723,6 +732,36 @@ class RenderBackfill:
             self._save(force=True)
         return self.status()
 
+    def due_release_keys(self) -> list[str]:
+        """Cheap journal-only check; no writer lease, source scan or provider request."""
+        with self._lock:
+            pending = {
+                f"{task['globalId']}:{task.get('garminRelease')}"
+                for task in self._state["tasks"].values() if task.get("garmin") == "pending"
+            }
+            now = self._clock()
+            entries = self._state["garminForbiddenReleases"]
+            return sorted(
+                (key for key, row in entries.items()
+                 if key in pending and row["retryAfter"] <= now),
+                key=lambda key: (entries[key]["retryAfter"], key),
+            )[:GARMIN_403_RETRY_RELEASES_PER_TICK]
+
+    def enqueue_due_releases(self) -> None:
+        """Non-force recovery of journaled holes only; retain attempts and other releases."""
+        with self._unit_lock:
+            self._acquire_writer()
+            with self._lock:
+                # Recheck after taking the lease: another container may have retried.
+                releases = set(self.due_release_keys())
+                self._queue = [
+                    (task["priority"], next(self._queue_order), key, "garmin")
+                    for key, task in self._state["tasks"].items()
+                    if task.get("garmin") == "pending"
+                    and f"{task['globalId']}:{task.get('garminRelease')}" in releases
+                ]
+                heapq.heapify(self._queue)
+
     def run_once(self) -> bool:
         """Run one asset with at most one pool slot; status locks never cover waits/rendering."""
         with self._unit_lock:
@@ -783,7 +822,7 @@ class RenderBackfill:
                     self._state["garminForbiddenReleases"][release_key] = dict(
                         globalId=exc.global_id, release=exc.release, attempts=attempts,
                         retryAfter=retry_after, backoffSeconds=delay, error=error,
-                        firstFailureAt=previous.get("firstFailureAt") or failed_at,
+                        firstFailureAt=previous.get("firstFailureAt", failed_at),
                         lastFailureAt=failed_at,
                         state="persistent" if delay >= GARMIN_403_BACKOFF_MAX_SECONDS else "backoff")
                     affected = [k for k, row in self._state["tasks"].items()
@@ -856,15 +895,22 @@ def _automatic_enabled() -> bool:
             os.environ.get("AI_CADDIE_TEST_MODE", "").lower() not in truthy)
 
 
-def start_background(*, force: bool = False, manual: bool = False) -> RenderBackfill | None:
+def start_background(*, force: bool = False, manual: bool = False,
+                     retry_due: bool = False) -> RenderBackfill | None:
     """Boot/retrigger the sole writer; fixture startup does not even construct a worker."""
     if not manual and not _automatic_enabled():
         return None
     global _BACKGROUND, _BACKGROUND_THREAD, _RESCAN, _FORCE
     with _BACKGROUND_LOCK:
+        if retry_due:
+            # Boot owns construction. A tick never queues another scan behind an
+            # existing writer, even if several ticks pass while a slot is busy.
+            if (_BACKGROUND is None or _BACKGROUND_THREAD is not None
+                    or not _BACKGROUND.due_release_keys()):
+                return _BACKGROUND
         if _BACKGROUND is None:
             _BACKGROUND = RenderBackfill()
-        _RESCAN = True
+        _RESCAN = _RESCAN or not retry_due
         _FORCE = _FORCE or force
         if _BACKGROUND_THREAD is None:
             _BACKGROUND._stopping.clear()
@@ -874,9 +920,16 @@ def start_background(*, force: bool = False, manual: bool = False) -> RenderBack
                     while True:
                         with _BACKGROUND_LOCK:
                             retry = _FORCE
+                            due_only = retry_due and not _RESCAN
                             _RESCAN, _FORCE = False, False
                         _BACKGROUND._wait_for_writer()
-                        _BACKGROUND.enqueue_all(recent=_BACKGROUND._recent_holes(), force=retry)
+                        if due_only:
+                            # Do not hold a slot while waiting for a cross-process writer,
+                            # or across the drain (run_once admits each hole separately).
+                            with background_work(unit_type="backfill-scan"):
+                                _BACKGROUND.enqueue_due_releases()
+                        else:
+                            _BACKGROUND.enqueue_all(recent=_BACKGROUND._recent_holes(), force=retry)
                         _BACKGROUND.run_to_completion()
                         with _BACKGROUND_LOCK:
                             if not _RESCAN:

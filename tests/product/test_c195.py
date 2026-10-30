@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+import json
 from pathlib import Path
 import threading
 import time
@@ -90,6 +92,9 @@ class C195BackfillBackoffTests(unittest.TestCase):
                 attempts.append(worker.status()["garminReleaseBackoff"][0]["attempts"])
                 self.assertEqual(attempts, [1, 1])
                 self.assertEqual(len(render_calls), 2)
+                entry = worker.status()["garminReleaseBackoff"][0]
+                self.assertEqual(entry["firstFailureAt"], 1000.0)
+                self.assertEqual(entry["lastFailureAt"], 1001.0)
             finally:
                 worker.close()
 
@@ -139,6 +144,232 @@ class C195BackfillBackoffTests(unittest.TestCase):
                 self.assertEqual(worker.status()["garminReleaseBackoff"], [])
             finally:
                 worker.close()
+
+
+class ReleaseRecoveryTests(unittest.TestCase):
+    """J4.2: unfinished Garmin maps recover through the existing monitor, without requests."""
+
+    def _worker(self, root, now, gids, render):
+        from server_v2 import render_backfill as rb
+
+        mesh = root / "meshes"
+        mesh.mkdir()
+        for gid in gids:
+            for hole in (1, 2):
+                (mesh / f"gid{gid}_h{hole:02}_meshes.json").write_text("{}")
+        return rb.RenderBackfill(
+            state_path=root / "state.json", mesh_root=mesh,
+            topo_ready=lambda *_: True, raster_version=lambda *_: "release-1",
+            raster_ready=lambda *_: False, render_garmin=render,
+            should_yield=lambda: False, clock=lambda: now[0], wait_seconds=0,
+        )
+
+    def _ticks(self, worker, now, times, *, initial_warm=None):
+        from server_v2 import main, render_backfill as rb
+
+        snapshots = []
+        times = iter(times)
+        stop = threading.Event()
+        threads = []
+
+        def wait(_interval):
+            # Finish real one-shot workers before advancing injected wall time; no sleep races.
+            background = rb._BACKGROUND_THREAD
+            if background is not None:
+                threads.append(background)
+                background.join(5)
+            snapshots.append(worker.status(detail=True))
+            try:
+                now[0] = next(times)
+                return False
+            except StopIteration:
+                return True
+
+        with (
+            patch.object(rb, "_BACKGROUND", worker),
+            patch.object(rb, "_BACKGROUND_THREAD", None),
+            patch.object(rb, "_RESCAN", False), patch.object(rb, "_FORCE", False),
+            patch.object(rb, "_automatic_enabled", return_value=True),
+            patch.object(main, "_history_input_signature", return_value=("unchanged",)),
+            patch.object(main, "warm_stats_cache_in_background") as warm,
+        ):
+            monitor = main._start_history_signature_monitor(
+                stop_event=stop, clock=lambda: now[0], wait=wait, player_id="fixture-recovery",
+                initial_warm=initial_warm,
+            )
+            monitor.join(10)
+            stop.set()
+            self.assertFalse(monitor.is_alive())
+            self.assertTrue(all(not thread.is_alive() for thread in threads))
+            warm.assert_not_called()
+        return snapshots
+
+    def test_J42_monitor_retries_only_due_releases_and_completes_their_holes(self):
+        """J4.2: 60 s backoff from 1000/1030 expires at 1060/1090, inclusively."""
+        from server_v2 import render_backfill as rb
+
+        now, failing, calls = [1000.0], [True], []
+
+        def render(gid, hole, release):
+            calls.append((now[0], gid, hole))
+            if failing[0]:
+                raise rb.GarminRasterForbidden(gid, hole, release)
+            return True
+
+        with TemporaryDirectory() as directory:
+            worker = self._worker(Path(directory), now, (1, 2), render)
+            try:
+                worker.enqueue_all(downloaded=set())
+                worker.run_once()  # gid1 fails at 1000; the other hole shares its breaker.
+                now[0] = 1030.0
+                worker.run_to_completion()  # gid2 fails at 1030.
+                self.assertEqual(calls, [(1000.0, 1, 1), (1030.0, 2, 1)])
+                failing[0] = False
+                with patch.object(worker, "_wait_for_writer", wraps=worker._wait_for_writer) as starts:
+                    before = self._ticks(worker, now, [1059.0])
+                    starts.assert_not_called()
+                self.assertEqual(before[-1]["pending"], 4)
+                snapshots = self._ticks(worker, now, [1060.0, 1089.0, 1090.0])
+                self.assertEqual(calls[2:], [
+                    (1060.0, 1, 1), (1060.0, 1, 2),
+                    (1090.0, 2, 1), (1090.0, 2, 2),
+                ])
+                self.assertEqual([row["globalId"] for row in snapshots[1]["garminReleaseBackoff"]], [2])
+                self.assertEqual(snapshots[-1]["garminReleaseBackoff"], [])
+                self.assertEqual(snapshots[-1]["pending"], 0)
+                self.assertTrue(all(task["garmin"] == "done" for task in snapshots[-1]["tasks"].values()))
+                persisted = json.loads(worker.state_path.read_text())
+                self.assertEqual(persisted["garminForbiddenReleases"], {})
+            finally:
+                worker.close()
+
+    def test_J42_monitor_bounds_release_retries_per_tick(self):
+        """J4.2: at most two releases per tick; four due releases drain over two ticks."""
+        from server_v2 import render_backfill as rb
+
+        now, failing, calls = [1000.0], [True], []
+
+        def render(gid, hole, release):
+            if failing[0]:
+                raise rb.GarminRasterForbidden(gid, hole, release)
+            calls.append((now[0], gid, hole))
+            return True
+
+        with TemporaryDirectory() as directory:
+            worker = self._worker(Path(directory), now, (1, 2, 3, 4), render)
+            try:
+                worker.enqueue_all(downloaded=set())
+                worker.run_to_completion()
+                failing[0] = False
+                class PendingWarm:
+                    is_alive = lambda self: True
+
+                snapshots = self._ticks(worker, now, [1060.0, 1120.0], initial_warm=PendingWarm())
+                self.assertEqual(calls, [
+                    (1060.0, 1, 1), (1060.0, 1, 2), (1060.0, 2, 1), (1060.0, 2, 2),
+                    (1120.0, 3, 1), (1120.0, 3, 2), (1120.0, 4, 1), (1120.0, 4, 2),
+                ])
+                self.assertEqual(len(snapshots[1]["garminReleaseBackoff"]), 2)
+                self.assertEqual(snapshots[-1]["pending"], 0)
+            finally:
+                worker.close()
+
+    def test_J42_busy_background_slot_does_not_block_monitor_or_duplicate_recovery(self):
+        """J4.2: a warmer owns the slot; ticks return and share one waiting backfill worker."""
+        from ai_caddie.core.priority_work import ForegroundGate
+        from server_v2 import main, render_backfill as rb
+
+        now, failing, calls = [1000.0], [True], []
+        waiting = threading.Event()
+        gate = ForegroundGate(slot_timeout_s=60)
+
+        def render(gid, hole, release):
+            if failing[0]:
+                raise rb.GarminRasterForbidden(gid, hole, release)
+            calls.append((gid, hole))
+            return True
+
+        @contextmanager
+        def admitted(**kwargs):
+            with gate.background(while_waiting=waiting.set, **kwargs):
+                yield
+
+        with TemporaryDirectory() as directory:
+            worker = self._worker(Path(directory), now, (1,), render)
+            worker.enqueue_all(downloaded=set())
+            worker.run_to_completion()
+            failing[0], now[0] = False, 1060.0
+            monitor, background = None, None
+            stop = threading.Event()
+            ticks = iter([False, False, False, True])
+            with (
+                patch.object(rb, "_BACKGROUND", worker), patch.object(rb, "_BACKGROUND_THREAD", None),
+                patch.object(rb, "_RESCAN", False), patch.object(rb, "_FORCE", False),
+                patch.object(rb, "_automatic_enabled", return_value=True),
+                patch.object(rb, "background_work", side_effect=admitted),
+                patch.object(worker, "enqueue_all", wraps=worker.enqueue_all) as full_scan,
+                patch.object(main, "_history_input_signature", return_value=("unchanged",)),
+            ):
+                try:
+                    with gate.background(unit_type="stats"):
+                        monitor = main._start_history_signature_monitor(
+                            stop_event=stop, wait=lambda _: next(ticks), clock=lambda: now[0],
+                        )
+                        self.assertTrue(waiting.wait(5), "recovery did not queue for the warm slot")
+                        monitor.join(5)
+                        self.assertFalse(monitor.is_alive(), "tick waited for background admission")
+                        background = rb._BACKGROUND_THREAD
+                        self.assertIsNotNone(background)
+                        self.assertTrue(background.is_alive())
+                        self.assertEqual(calls, [])
+                    background.join(5)
+                    self.assertFalse(background.is_alive())
+                    self.assertIsNone(rb._BACKGROUND_THREAD)
+                    full_scan.assert_not_called()
+                    self.assertEqual(calls, [(1, 1), (1, 2)])
+                    self.assertEqual(worker.status()["pending"], 0)
+                finally:
+                    stop.set()
+                    if monitor is not None:
+                        monitor.join(5)
+                    if rb._BACKGROUND_THREAD is not None:
+                        rb._BACKGROUND_THREAD.join(5)
+                    worker.close()
+
+    def test_J42_legacy_breakers_normalize_state_and_keep_first_failure_unknown(self):
+        """J4.2: old blocked records use current 60..3600 s rules, without invented dates."""
+        from server_v2 import render_backfill as rb
+
+        now = [1000.0]
+        def render(gid, hole, release):
+            raise rb.GarminRasterForbidden(gid, hole, release)
+
+        with TemporaryDirectory() as directory:
+            worker = self._worker(Path(directory), now, (1, 2), render)
+            worker.enqueue_all(downloaded=set())
+            worker.run_to_completion()
+            payload = json.loads(worker.state_path.read_text())
+            for gid, attempts in ((1, 3), (2, 7)):
+                entry = payload["garminForbiddenReleases"][f"{gid}:release-1"]
+                entry.pop("firstFailureAt")
+                entry.update(state="blocked", attempts=attempts, retryAfter=1000.0)
+            worker.state_path.write_text(json.dumps(payload))
+            loaded = rb.RenderBackfill(
+                state_path=worker.state_path, mesh_root=worker.mesh_root,
+                render_garmin=render, should_yield=lambda: False, clock=lambda: now[0],
+            )
+            try:
+                entries = loaded.status()["garminReleaseBackoff"]
+                self.assertEqual([row["state"] for row in entries], ["backoff", "persistent"])
+                self.assertEqual([row.get("firstFailureAt") for row in entries], ["unknown", "unknown"])
+                self._ticks(loaded, now, [1060.0])
+                entries = loaded.status()["garminReleaseBackoff"]
+                self.assertEqual([row["firstFailureAt"] for row in entries], ["unknown", "unknown"])
+                self.assertEqual([row["lastFailureAt"] for row in entries], [1060.0, 1060.0])
+                reloaded = rb.RenderBackfill(state_path=worker.state_path)
+                self.assertEqual([row["firstFailureAt"] for row in reloaded.status()["garminReleaseBackoff"]], ["unknown", "unknown"])
+            finally:
+                loaded.close()
 
 
 class C195HistoryWarmBackoffTests(unittest.TestCase):

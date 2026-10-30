@@ -312,6 +312,12 @@ def _start_history_signature_monitor(
         retry_after = float("-inf")
         while not wait_for_stop(max(0.01, float(interval_s))):
             try:
+                # Independent of history changes and warm backoff. This only starts
+                # a bounded one-shot worker; admission/rendering never block the tick.
+                start_render_backfill(retry_due=True)
+            except Exception:
+                logger.warning("render backfill retry tick deferred", exc_info=True)
+            try:
                 if pending is not None:
                     if not pending.is_alive():
                         if pending.warm_succeeded:

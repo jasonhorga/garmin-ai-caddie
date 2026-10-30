@@ -1,0 +1,13 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index 0df03a55..18f36949 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -745,7 +745,7 @@ class RenderBackfill:
+                 (key for key, row in entries.items()
+                  if key in pending and row["retryAfter"] <= now),
+                 key=lambda key: (entries[key]["retryAfter"], key),
+-            )[:GARMIN_403_RETRY_RELEASES_PER_TICK]
++            )
+ 
+     def enqueue_due_releases(self) -> None:
+         """Non-force recovery of journaled holes only; retain attempts and other releases."""
