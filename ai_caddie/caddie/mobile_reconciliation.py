@@ -689,9 +689,9 @@ def reconcile_mobile_round_events(
         }
         for ref, shot in sorted(unmatched_shots.items())
     ]
-    # Keep one response contract for every local-only cause.  ``hole`` is always the reconciliation
-    # axis; ``phoneHole`` retains the original phone axis, and ``unmapped`` distinguishes an absent
-    # physical Garmin mapping from a mapped hole whose fact is simply missing.
+    # Keep one response contract for every local-only cause.  Mapped rows use Garmin's display axis
+    # in ``hole`` and retain the phone axis in ``phoneHole``; an unmapped row has no Garmin axis, so
+    # both fields intentionally carry the phone hole. ``unmapped`` distinguishes those cases.
     for row in local_only:
         row.setdefault("unmapped", False)
         event_id = str(row.get("eventId") or "")
