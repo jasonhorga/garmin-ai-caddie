@@ -1,8 +1,11 @@
 diff --git a/tests/test_server_v2_mobile.py b/tests/test_server_v2_mobile.py
-index 5749a811..a1aa66af 100644
+index 858b5d37..306b3744 100644
 --- a/tests/test_server_v2_mobile.py
 +++ b/tests/test_server_v2_mobile.py
-@@ -3642,3 +3642,2 @@ class ServerV2MobileTests(unittest.TestCase):
-     def test_mobile_start_hole_422_names_actual_round_limit(self) -> None:
--        self.enterContext(preserve_service_logging())
-         event = {
+@@ -27,2 +27,6 @@ from tests.service_logging import ServiceLoggingIsolationMixin
+ class ServerV2MobileTests(ServiceLoggingIsolationMixin, unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        pass
++
+     def test_mobile_event_store_corrupt_logs_generic_warning(self) -> None:

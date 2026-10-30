@@ -5,8 +5,22 @@
       "id": "C226-01-skip-mobile-logging-cleanup",
       "patch": "tests/product/faults/C226/01-skip-logging-cleanup.patch",
       "kind": "python",
+      "target": "tests.test_service_logging_isolation.ServiceLoggingIsolationTests.test_mobile_restores_logging",
+      "promise": "J4.2 startup test classes restore service logging at their boundary"
+    },
+    {
+      "id": "C226-02-keep-inherited-handlers",
+      "patch": "tests/product/faults/C226/02-keep-inherited-handlers.patch",
+      "kind": "python",
       "target": "tests.product.test_c154b.background_slot_logging_isolation_suite",
-      "promise": "J4.2 background slot duration logging remains observable after a mobile lifespan"
+      "promise": "J4.2 slot duration capture works after c33 observability in an already running application"
+    },
+    {
+      "id": "C226-03-restore-only-handlers",
+      "patch": "tests/product/faults/C226/03-restore-only-handlers.patch",
+      "kind": "python",
+      "target": "tests.test_service_logging_isolation.ServiceLoggingIsolationTests.test_start_fast_restores_logging",
+      "promise": "J4.2 class isolation restores level and propagation as well as handlers and filters"
     }
   ]
 }
