@@ -1862,6 +1862,7 @@ def _sequence_tail(
     allow_replan_gap: bool = False,
     forbid_repeated_clubs: bool = False,
     max_overshoot_m: float = MAX_SEQUENCE_OVERSHOOT_M,
+    prefer_layup_window: bool = False,
     memo: dict[Any, Any] | None = None,
 ) -> list[dict[str, Any]]:
     if remaining_m <= 20.0:
@@ -1890,6 +1891,7 @@ def _sequence_tail(
         bool(allow_replan_gap),
         bool(forbid_repeated_clubs),
         round(float(max_overshoot_m), 1),
+        bool(prefer_layup_window),
     )
     if memo is not None and tail_key in memo:
         return memo[tail_key]
@@ -1926,6 +1928,7 @@ def _sequence_tail(
     minimum_steps = max(1, math.ceil(max(0.0, remaining_m - 20.0) / longest_m))
     first_candidate_steps = max(1, minimum_steps - 1) if allow_replan_gap else minimum_steps
     maximum_steps = min(MAX_SEQUENCE_STEPS - 1, minimum_steps + 1)
+    needs_layup = prefer_layup_window and remaining_m > longest_m + max_overshoot_m
     best: tuple[tuple[float, ...], list[dict[str, Any]]] | None = None
     for step_count in range(first_candidate_steps, maximum_steps + 1):
         for indexes in combinations_with_replacement(range(len(playable)), step_count):
@@ -1964,11 +1967,17 @@ def _sequence_tail(
                 for position in range(1, len(candidate))
             )
             chain_cost += repeated_clubs * REPEATED_CLUB_PENALTY_M
+            if needs_layup and len(indexes) >= 2:
+                pre_final_leave_m = remaining_m - sum(carry_by_index[index] for index in indexes[:-1])
+                layup_window_rank = 0.0 if LAYUP_WEDGE_MIN_M <= pre_final_leave_m <= LAYUP_WEDGE_MAX_M else 1.0
+            else:
+                layup_window_rank = 0.0
             if allow_replan_gap:
                 # In degraded mode prefer a bounded shortfall to a large overshoot. A missing
                 # wedge is a reason to re-plan from the next lie, never a reason to add another
                 # arbitrary full swing.
                 key = (
+                    layup_window_rank,
                     excessive_overshoot,
                     unresolved_leave,
                     abs(leave_m),
@@ -1978,6 +1987,7 @@ def _sequence_tail(
                 )
             else:
                 key = (
+                    layup_window_rank,
                     excessive_overshoot,
                     unresolved_leave,
                     chain_cost + extra_step_cost,
@@ -2036,6 +2046,7 @@ def _whole_hole_sequence_key(
             if _club_water_safety(first, avoid_zones) == "safe_before"
             else first_carry_m + MAX_SEQUENCE_CARRY_INCREASE_M
         ),
+        prefer_layup_window=True,
         memo=memo,
     )
     planned = [first, *tail]
@@ -2198,6 +2209,7 @@ def _sequence_option(
                 allow_replan_gap=allow_replan_gap,
                 forbid_repeated_clubs=not allow_repeats,
                 max_overshoot_m=max_overshoot_m,
+                prefer_layup_window=not _non_tee_context(context),
                 memo=memo,
             ),
         ]

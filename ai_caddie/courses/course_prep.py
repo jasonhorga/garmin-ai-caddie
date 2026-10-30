@@ -1806,6 +1806,7 @@ def _shared_sequence_tail(remaining_m: float, approach_ladder, *, start_m: float
         avoid_zones=avoid_zones,
         travelled_m=float(start_m),
         forbid_driver=True,
+        prefer_layup_window=True,
     )
     return [(str(row.get("clubName") or ""), float(row.get("median_m") or 0.0)) for row in tail]
 

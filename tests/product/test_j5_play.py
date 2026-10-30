@@ -251,7 +251,7 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
 
         cases = [
             ("owner", owner_ladder, 377.0, 180.0, ["3W"]),
-            ("owner_layup", owner_ladder, 396.0, 199.0, ["8I", "50"]),
+            ("owner_layup", owner_ladder, 396.0, 199.0, ["9I", "50"]),
             ("trigger", trigger_ladder, 377.0, 180.0, ["3W"]),
         ]
         for label, ladder, route_len, remaining_m, expected_tail in cases:
@@ -263,7 +263,9 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
                     {"clubName": name, "median_m": carry, "p10_m": carry, "p90_m": carry, "sampleSize": 20}
                     for name, carry in ladder[1:]
                 ]
-                online_tail = _sequence_tail(rows, remaining_m, forbid_driver=True)
+                online_tail = _sequence_tail(
+                    rows, remaining_m, forbid_driver=True, prefer_layup_window=True,
+                )
                 self.assertEqual([row["clubName"] for row in online_tail], expected_tail)
                 self.assertEqual([step["club"] for step in steps], ["Driver", *expected_tail])
                 carries = [step["targetCarry_m"] for step in steps]
@@ -305,7 +307,7 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
             4, 396.0, {"water_carry": [], "bunkers": [], "details": []}, owner_ladder,
         )
         prep_clubs = [step["club"] for step in prep_steps]
-        self.assertEqual(online_clubs, ["Driver", "8I", "50"])
+        self.assertEqual(online_clubs, ["Driver", "9I", "50"])
         self.assertEqual(prep_clubs, online_clubs)
         self.assertGreaterEqual(stock["clubs"][1]["expectedRemaining_m"], 70.0)
         self.assertLessEqual(stock["clubs"][1]["expectedRemaining_m"], 115.0)
