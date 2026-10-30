@@ -119,6 +119,20 @@
       "kind": "python",
       "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_synthetic_hole_only_has_score_par_and_count",
       "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-18-penalty-without-materializable-score",
+      "patch": "tests/product/faults/C219/R12-penalty-without-score.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_unmaterializable_score_suppresses_putt_and_penalty_suggestions",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C219-19-holes-completed-counts-stroked-only",
+      "patch": "tests/product/faults/C219/R5-holes-completed-len.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_partial_restore_does_not_count_existing_unscored_hole",
+      "promise": "1.3"
     }
   ]
 }

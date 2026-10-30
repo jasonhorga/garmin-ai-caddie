@@ -73,6 +73,7 @@ def _hole_scores(
         player_id=player_id,
         annotations_root=annotations_root if annotations_root is not None else root,
         corrections_root=root,
+        course_root=root,
     )
     round_row = projected.rounds[0] if projected.rounds else round_row
     # Restore annotations have already been materialized by the corrected projection.  Do
@@ -361,9 +362,22 @@ def _annotation_suggestions(
     root: Path | str | None = None,
 ) -> list[dict[str, Any]]:
     from ai_caddie.history.corrected_history import restore_hole_par
+    def restore_payload(row: dict[str, Any], event_id: str, local_value: Any) -> dict[str, Any]:
+        return {
+            "from": None,
+            "to": local_value,
+            "sourceEventId": event_id,
+            "restore": True,
+            "restoreGlobalId": row.get("sourceGlobalId"),
+            "restoreLocalHole": row.get("sourceLocalHole"),
+        }
+
     score_holes = {
         _safe_int(row.get("hole")) for row in local_only
         if row.get("kind") == "score" and row.get("localValue") is not None
+        and restore_hole_par(round_row or {}, _safe_int(row.get("hole")) or 0,
+                              restore_payload(row, str(row.get("eventId") or ""), row.get("localValue")),
+                              root=root) is not None
     }
     suggestions: list[dict[str, Any]] = []
     for conflict in conflicts:
@@ -429,15 +443,9 @@ def _annotation_suggestions(
         if kind == "score":
             if local_value is None:
                 continue
-            restore_payload = {
-                "from": None, "to": local_value, "sourceEventId": event_id,
-                "restore": True,
-                "restoreGlobalId": row.get("sourceGlobalId"),
-                "restoreLocalHole": row.get("sourceLocalHole"),
-            }
-            if restore_hole_par(round_row or {}, hole, restore_payload, root=root) is None:
-                if not row.get("unmapped"):
-                    row["restoreUnavailableReason"] = "standard_par_unavailable"
+            payload = restore_payload(row, event_id, local_value)
+            if restore_hole_par(round_row or {}, hole, payload, root=root) is None:
+                row["restoreUnavailableReason"] = "standard_par_unavailable"
                 continue
             suggestions.append(
                 _suggestion(
@@ -445,12 +453,14 @@ def _annotation_suggestions(
                     target_type="hole",
                     target_id=f"{row.get('roundId') or ''}:{hole}",
                     kind="score_correction",
-                    payload=restore_payload,
+                    payload=payload,
                     reason="Local score input fills a hole missing from synced Garmin facts.",
                 )
             )
         elif kind == "putt":
             if local_value is None or hole not in score_holes:
+                if local_value is not None:
+                    row["restoreUnavailableReason"] = "standard_par_unavailable"
                 continue
             suggestions.append(
                 _suggestion(
@@ -478,6 +488,7 @@ def _annotation_suggestions(
                 )
         elif kind == "penalty":
             if hole not in score_holes:
+                row["restoreUnavailableReason"] = "standard_par_unavailable"
                 continue
             suggestions.append(
                 _suggestion(
@@ -789,7 +800,7 @@ def reconcile_mobile_round_events(
         garmin_only=garmin_only,
         candidate_audits=candidate_audits,
         round_row=round_row,
-        root=annotations_root if annotations_root is not None else root,
+        root=root,
     )
     unsafe_event_ids = {
         str(row.get("eventId") or "")

@@ -1,0 +1,104 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index 23863beb..59b30a93 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -108,11 +108,9 @@ def hole_sides(row: dict[str, Any]) -> list[tuple[dict[str, Any], int, int, str]
+     if row.get("merged"):
+         # Normalized merged rows use display 1..9 then 10..18.  A missing hole makes
+         # the second run non-contiguous, so find its boundary from the first display
+-        # number >= 10 instead of requiring a complete tail.  Legacy back-first rows
+-        # carry localHole on the first card; their boundary is the first row without it.
+-        if any(hole.get("localHole") for hole in holes):
+-            split = next((index for index, hole in enumerate(holes) if not hole.get("localHole")), len(holes))
+-        elif any(1 <= int(hole.get("number") or 0) <= 9 for hole in holes):
++        # number >= 10 instead of requiring a complete tail. Physical localHole metadata
++        # is attached only to the first half's restored rows and never determines the split.
++        if any(1 <= int(hole.get("number") or 0) <= 9 for hole in holes):
+             # Normalized 1..9 + 10..18 storage; a missing second-card hole leaves a gap
+             # but the first number at or above ten still identifies the boundary.
+             split = next((index for index, number in enumerate(numbers) if number >= 10), len(holes))
+@@ -231,6 +229,7 @@ def corrected_rounds(
+         added_total = 0
+         added_par = 0
+         corrected_refs: list[str] = []
++        added_back_gid: int | None = None
+         changed = False
+         display_numbers = {id(hole): display for hole, display, _physical, _side in hole_sides(row)}
+         for source_index, hole in enumerate(row.get("holes") or []):
+@@ -316,11 +315,13 @@ def corrected_rounds(
+             synthetic["par"] = par
+             synthetic["strokes"] = total
+             synthetic["_scoreCorrected"] = True
+-            if row.get("merged") and any(hole.get("localHole") for hole in row.get("holes") or []) \
+-                    and isinstance(score_payload, dict) and _int(score_payload.get("restoreLocalHole")):
++            if (row.get("merged") and number <= 9
++                    and isinstance(score_payload, dict) and _int(score_payload.get("restoreLocalHole"))):
+                 synthetic["localHole"] = _int(score_payload["restoreLocalHole"])
+                 if _int(score_payload.get("restoreGlobalId")) is not None:
+                     synthetic["sourceGlobalId"] = _int(score_payload["restoreGlobalId"])
++            if number >= 10 and isinstance(score_payload, dict):
++                added_back_gid = _int(score_payload.get("restoreGlobalId")) or added_back_gid
+             corrected_refs.append(f"{row.get('id')}:{number}")
+             added_total += total
+             added_par += par
+@@ -331,6 +332,8 @@ def corrected_rounds(
+             continue
+         holes = [hole for _number, _index, hole in sorted(hole_entries, key=lambda item: (item[0], item[1]))]
+         row = {**row, "holes": holes}
++        if added_back_gid is not None and not row.get("backNineGlobalCourseId"):
++            row["backNineGlobalCourseId"] = added_back_gid
+         if corrected_refs:
+             if _int(row.get("strokes")) is not None:
+                 row["strokes"] = _int(row["strokes"]) + delta + added_total
+@@ -338,7 +341,7 @@ def corrected_rounds(
+                 row["par"] = _int(row["par"]) + added_par
+             row["_scoreCorrectedRefs"] = corrected_refs
+         if added_total:
+-            row["holesCompleted"] = sum(1 for hole in holes if _int(hole.get("strokes")) is not None)
++            row["holesCompleted"] = len(holes)
+         out.append(row)
+     return out
+ 
+@@ -421,6 +424,7 @@ def corrected_history_data(
+     holes_by_round: dict[str, set[int]] | None = None,
+     projection_data: HistoryData | None = None,
+     ladder=None,
++    course_root: Path | str | None = None,
+ ) -> HistoryData:
+     """Share the complete corrected snapshot by source, player and both edit-store revisions.
+ 
+@@ -432,7 +436,7 @@ def corrected_history_data(
+         return data
+     kwargs = dict(player_id=player_id, annotations_root=annotations_root,
+                   corrections_root=corrections_root, round_refs=round_refs,
+-                  holes_by_round=holes_by_round, ladder=ladder)
++                  holes_by_round=holes_by_round, ladder=ladder, course_root=course_root)
+     if round_refs is not None or holes_by_round is not None:
+         return _build_corrected_history_data(data, **kwargs)
+     # Lazy import: stats_cache imports the stats builder, which imports this module.
+@@ -450,7 +454,7 @@ def corrected_history_data(
+             data=projection_data if projection_data is not None else data,
+         )
+         key = (player_id, data.source_fingerprint or history_data_fingerprint(data),
+-               inputs)
++               inputs, str(course_root or ""))
+         mark("history_correction_revision")
+         with _PROJECTION_LOCK:
+             cached = _PROJECTIONS.get(key)
+@@ -507,6 +511,7 @@ def _build_corrected_history_data(
+     round_refs: set[str] | None = None,
+     holes_by_round: dict[str, set[int]] | None = None,
+     ladder=None,
++    course_root: Path | str | None = None,
+ ) -> HistoryData:
+     """``data`` as the player corrected it. ``corrections_root`` defaults to ``history.ROOT``, where
+     ``round_corrections`` writes; ``annotations_root`` is the reader's annotation root. A reader of one
+@@ -521,7 +526,7 @@ def _build_corrected_history_data(
+         return data
+     annotations = list_annotation_records(root=annotations_root, player_id=player_id)
+     events_by_round = round_correction_events(data, player_id=player_id, root=corrections_root, round_refs=round_refs)
+-    rounds = corrected_rounds(data.rounds, annotations, events_by_round, restore_root=annotations_root)
++    rounds = corrected_rounds(data.rounds, annotations, events_by_round, restore_root=course_root)
+     shot_data = HistoryData(raw_rounds=data.raw_rounds, rounds=data.rounds, shots=_annotated_shots(data.shots, annotations))
+     shots = _corrected_shots(shot_data, events_by_round, holes_by_round, ladder=ladder)
+     correction_fingerprint = history_data_fingerprint(

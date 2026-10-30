@@ -76,7 +76,7 @@ class MobileReconciliationTests(unittest.TestCase):
                 root=root, annotations_root=root, data_loader=lambda: data,
             )
             self.assertEqual(applied["appliedCount"], len(missing))
-            corrected = corrected_history_data(data, annotations_root=root).rounds[0]
+            corrected = corrected_history_data(data, annotations_root=root, course_root=root).rounds[0]
             self.assertEqual(len(corrected["holes"]), 18)
             self.assertEqual([(hole["number"], hole["strokes"]) for hole in corrected["holes"]],
                              [(n, 5) for n in range(1, 19)])
@@ -199,7 +199,7 @@ class MobileReconciliationTests(unittest.TestCase):
             self.assertEqual(applied["appliedCount"], 9)
             after = reconcile_mobile_round_events("partial", data, root=root, annotations_root=root)
             self.assertEqual(after["annotationSuggestions"], [])
-            actual = corrected_history_data(data, annotations_root=root).rounds[0]
+            actual = corrected_history_data(data, annotations_root=root, course_root=root).rounds[0]
             self.assertEqual([(h["number"], h["strokes"]) for h in actual["holes"]],
                              [(n, 5) for n in range(1, 19)])
 
@@ -233,7 +233,7 @@ class MobileReconciliationTests(unittest.TestCase):
                 root=root, annotations_root=root, data_loader=lambda: data,
             )
             self.assertEqual(applied["appliedCount"], 1)
-            corrected = corrected_history_data(data, annotations_root=root).rounds[0]
+            corrected = corrected_history_data(data, annotations_root=root, course_root=root).rounds[0]
             self.assertEqual([hole["number"] for hole in corrected["holes"]], list(range(1, 19)))
             after = reconcile_mobile_round_events(round_id, data, root=root, annotations_root=root)
             self.assertEqual(after["annotationSuggestions"], [])
@@ -321,7 +321,7 @@ class MobileReconciliationTests(unittest.TestCase):
                 root=root, annotations_root=root, data_loader=lambda: data,
             )
             self.assertEqual(applied["appliedCount"], 3)
-            corrected = corrected_history_data(data, annotations_root=root).rounds[0]
+            corrected = corrected_history_data(data, annotations_root=root, course_root=root).rounds[0]
             restored = next(hole for hole in corrected["holes"] if hole["number"] == 10)
             self.assertEqual(restored["strokes"], 5)
             self.assertEqual(restored["par"], 4)
@@ -348,7 +348,7 @@ class MobileReconciliationTests(unittest.TestCase):
                 "putt-only", data, root=root, annotations_root=root, data_loader=lambda: data,
             )
             self.assertEqual(applied["appliedCount"], 0)
-            corrected = corrected_history_data(data, annotations_root=root).rounds[0]
+            corrected = corrected_history_data(data, annotations_root=root, course_root=root).rounds[0]
             self.assertEqual(len(corrected["holes"]), 9)
 
     def test_j7_2_unmapped_decision_event_keeps_caddie_feedback_audit(self) -> None:
@@ -391,6 +391,7 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(result["localOnly"], [{
             "eventId": "mapped-score", "roundId": "mapped-missing", "kind": "score",
             "hole": 1, "localValue": 5, "unmapped": True, "phoneHole": 1,
+            "restoreUnavailableReason": "standard_par_unavailable",
         }])
 
     def test_back_start_eighteen_round_with_only_first_garmin_card_is_partial(self) -> None:
@@ -566,7 +567,7 @@ class MobileReconciliationTests(unittest.TestCase):
                 "occupied", data, root=root, annotations_root=root, data_loader=lambda: data,
             )
             self.assertEqual(applied["appliedCount"], 0)
-            actual = corrected_history_data(data, annotations_root=root).rounds[0]
+            actual = corrected_history_data(data, annotations_root=root, course_root=root).rounds[0]
             self.assertEqual([(h["number"], h["strokes"]) for h in actual["holes"]],
                              [(n, 5) for n in range(1, 10)] + [(n, 4) for n in range(10, 19)])
 
@@ -690,7 +691,7 @@ class MobileReconciliationTests(unittest.TestCase):
             with self.subTest(loops=loops), TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 _save_identity(root, "two-all-first", loops)
-                _save_course_par(root, 31794, "444444444")
+                _save_course_par(root, 31794, "435454344")
                 append_event_batch("two-all-first", [{
                     "eventId": f"score-{n}", "roundId": "two-all-first", "hole": n,
                     "kind": "score", "payload": {"strokes": 5},
@@ -711,14 +712,14 @@ class MobileReconciliationTests(unittest.TestCase):
                     root=root, annotations_root=root, data_loader=lambda: data,
                 )
                 self.assertEqual(applied["appliedCount"], 9)
-                corrected = corrected_history_data(data, annotations_root=root).rounds[0]
+                corrected = corrected_history_data(data, annotations_root=root, course_root=root).rounds[0]
                 self.assertEqual((corrected["holesCompleted"], corrected["strokes"], corrected["par"]),
                                  (18, 90, 72))
                 self.assertEqual(corrected["backNineGlobalCourseId"], 31794)
                 self.assertEqual(
                     [(hole.get("number"), physical, side) for hole, _display, physical, side in hole_sides(corrected)],
                     [(n, n, "front") for n in range(1, 10)]
-                    + [(n, n - 9, "back") for n in range(10, 19)],
+                    + [(n, n, "back") for n in range(10, 19)],
                 )
                 self.assertEqual(
                     [hole["par"] for hole in corrected["holes"] if hole["number"] >= 10],
@@ -749,7 +750,7 @@ class MobileReconciliationTests(unittest.TestCase):
                 {"to": 5, "restore": True, "restoreGlobalId": 31794,
                  "restoreLocalHole": 1}, root=root,
             )
-            projected = corrected_history_data(data, annotations_root=root).rounds[0]
+            projected = corrected_history_data(data, annotations_root=root, course_root=root).rounds[0]
         self.assertEqual(result["annotationSuggestions"], [])
         self.assertEqual(result["localOnly"][0]["restoreUnavailableReason"], "standard_par_unavailable")
         self.assertEqual(len(projected["holes"]), 9)
@@ -777,7 +778,7 @@ class MobileReconciliationTests(unittest.TestCase):
                     suggestion_ids=[row["id"] for row in result["annotationSuggestions"]],
                     root=root, annotations_root=root, data_loader=lambda: data,
                 )
-                corrected = corrected_history_data(data, annotations_root=root).rounds[0]
+                corrected = corrected_history_data(data, annotations_root=root, course_root=root).rounds[0]
                 self.assertEqual(corrected["holesCompleted"], expected_count)
                 self.assertIsNone(_score18(corrected))
                 pack = _period_pack("2026", [corrected], total_rounds=1)
@@ -819,7 +820,7 @@ class MobileReconciliationTests(unittest.TestCase):
                 rid, data, suggestion_ids=[suggestions[0]["id"]],
                 root=root, annotations_root=root, data_loader=lambda: data,
             )
-            projected = corrected_history_data(data, annotations_root=root).rounds[0]
+            projected = corrected_history_data(data, annotations_root=root, course_root=root).rounds[0]
             self.assertEqual([(hole.get("number"), display, physical, side)
                               for hole, display, physical, side in hole_sides(projected)],
                              [(hole.get("number"), display, physical, side)
@@ -865,7 +866,7 @@ class MobileReconciliationTests(unittest.TestCase):
             append_event_batch("existing-unscored", [{
                 "eventId": f"score-{n}", "roundId": "existing-unscored", "hole": n,
                 "kind": "score", "payload": {"strokes": 5},
-            } for n in range(1, 19)], idempotency_key="existing-unscored", root=root)
+            } for n in range(1, 19) if n != 13], idempotency_key="existing-unscored", root=root)
             data = HistoryData(raw_rounds=[], rounds=[{
                 "id": "existing-unscored", "globalId": 55555, "holePars": "4" * 18,
                 "holes": ([{"number": n, "strokes": 5, "par": 4} for n in range(1, 10)]
@@ -877,7 +878,7 @@ class MobileReconciliationTests(unittest.TestCase):
                 suggestion_ids=[row["id"] for row in result["annotationSuggestions"]],
                 root=root, annotations_root=root, data_loader=lambda: data,
             )
-            corrected = corrected_history_data(data, annotations_root=root).rounds[0]
+            corrected = corrected_history_data(data, annotations_root=root, course_root=root).rounds[0]
             self.assertEqual(corrected["holesCompleted"], 17)
             self.assertIsNone(_score18(corrected))
 
@@ -1379,7 +1380,7 @@ class MobileReconciliationTests(unittest.TestCase):
                     [(r["audit"]["entries"][0]["hole"], r["audit"]["entries"][0]["before"])
                      for r in records], [(1, 5), (10, 7)],
                 )
-                corrected = corrected_history_data(data, annotations_root=root, corrections_root=root)
+                corrected = corrected_history_data(data, annotations_root=root, corrections_root=root, course_root=root)
                 self.assertEqual([corrected.rounds[0]["holes"][i]["strokes"] for i in (0, 9)], [6, 8])
 
     def test_penalty_reconciliation_only_suggests_effective_value_conflicts(self) -> None:
@@ -1429,7 +1430,7 @@ class MobileReconciliationTests(unittest.TestCase):
                 root=root,
                 annotations_root=root,
             )
-            corrected = corrected_history_data(data, annotations_root=root, corrections_root=root)
+            corrected = corrected_history_data(data, annotations_root=root, corrections_root=root, course_root=root)
 
         suggestions = {row["id"]: row for row in result["annotationSuggestions"]}
         self.assertNotIn("same-penalty:penalty-correction", suggestions)
