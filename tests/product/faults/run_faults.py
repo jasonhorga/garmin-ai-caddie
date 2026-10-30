@@ -48,12 +48,24 @@ def failed_tests(test):
 
 reports = {}
 baseline_path = list(sys.path)
-baseline_modules = dict(sys.modules)
+previous_modules = set(sys.modules)
 for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
-    # Restore the batch baseline before each target so imports cannot leak forward.
+    # Remove only the previous target's imports from paths it added. Normal
+    # dependencies must stay cached: some C extensions cannot initialize twice.
+    added_paths = [Path(entry).resolve() for entry in sys.path if entry not in baseline_path]
+    if added_paths:
+        for name in set(sys.modules) - previous_modules:
+            module = sys.modules[name]
+            spec = getattr(module, "__spec__", None)
+            origin = getattr(spec, "origin", None) or getattr(module, "__file__", None)
+            locations = list(getattr(spec, "submodule_search_locations", None) or [])
+            if origin and origin not in {"built-in", "frozen"}:
+                locations.append(origin)
+            if any(Path(location).resolve().is_relative_to(directory)
+                   for location in locations for directory in added_paths):
+                del sys.modules[name]
     sys.path[:] = baseline_path
-    sys.modules.clear()
-    sys.modules.update(baseline_modules)
+    previous_modules = set(sys.modules)
     try:
         loader = unittest.TestLoader()
         suite = loader.loadTestsFromName(target)
