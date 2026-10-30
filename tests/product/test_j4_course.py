@@ -59,9 +59,13 @@ class CourseHTTPTests(HTTPFixture, unittest.TestCase):
             for gid in (31832, 31833, 31834):
                 (cache / f"{gid}_catalogue_name.json").write_text(json.dumps({
                     "globalId": gid, "languageCode": "zh_CHS", "name": names[gid]}))
+            # A sidecar for an unrelated venue must never be imported into 沙河's sibling set.
+            (cache / "99999_catalogue_name.json").write_text(json.dumps({
+                "globalId": 99999, "languageCode": "zh_CHS", "name": "另一测试球会 ~ A"}))
             result = options(rounds)
             self.assertEqual({c["globalId"] for c in result if c["globalId"] < 40000},
                              {31832, 31833, 31834})
+            self.assertNotIn(99999, {c["globalId"] for c in result})
             # One 3-loop venue + 23 single-course venues = 26 rows (24 venue cap).
             self.assertEqual(len(result), 26)
             self.assertEqual(len({c["venueName"] for c in result}), 24)
@@ -80,6 +84,28 @@ class CourseHTTPTests(HTTPFixture, unittest.TestCase):
             indexed = options([r for r in rounds if r["globalId"] != 31834])
             self.assertEqual({c["globalId"] for c in indexed if c["globalId"] < 40000},
                              {31832, 31833, 31834})
+
+    def test_j4_1_unplayed_siblings_of_a_truncated_venue_stay_hidden(self):
+        """J4.1: a venue outside the 24-venue cap contributes no unplayed loop."""
+        rounds = [
+            {"id": f"r{i}", "globalId": 52000 + i, "course": f"场地 {i}",
+             "date": f"2026-{12 - (i % 9):02d}-01", "holesCompleted": 9}
+            for i in range(25)
+        ]
+        rounds[24]["course"] = "截断场地 ~ A"
+        with TemporaryDirectory() as directory, patch.object(mobile_live, "ROOT", Path(directory)):
+            cache = Path(directory) / "data" / "courseview"
+            cache.mkdir(parents=True)
+            (cache / "52024_catalogue_name.json").write_text(json.dumps({
+                "globalId": 52024, "languageCode": "zh_CHS", "name": "截断场地 ~ A"}))
+            (cache / "52025_catalogue_name.json").write_text(json.dumps({
+                "globalId": 52025, "languageCode": "zh_CHS", "name": "截断场地 ~ B"}))
+            result = mobile_live.build_mobile_course_options(
+                HistoryData(raw_rounds=[], rounds=rounds, shots=[]),
+                segment_resolver=lambda gid: ("截断场地 ~ A" if gid == 52024 else f"场地 {gid - 52000}", 9),
+                tee_resolver=lambda gid: [],
+            )["courses"]
+            self.assertNotIn(52025, {row["globalId"] for row in result})
 
     def catalogue(self):
         """Fake only cached provider facts, never a package or a hole mapping."""

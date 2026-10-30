@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from ai_caddie.caddie import mobile_live
+from ai_caddie.courses import course_reference
 from ai_caddie.history.history import HistoryData
 
 
@@ -44,6 +45,22 @@ class CourseOptionTruncationTests(unittest.TestCase):
         self.assertEqual(optimized["courses"], expected)
         self.assertEqual(len(calls), 40)
         self.assertEqual(len(tee_calls), 64)
+
+    def test_venue_index_is_loaded_once_for_a_large_history(self) -> None:
+        """J4.1: the 106 gid production shape does not reread venue_loops per gid."""
+        rows = [
+            {"id": f"r{index}", "date": "2026-01-01", "globalId": 60_000 + index,
+             "course": "同一场地 ~ A"}
+            for index in range(106)
+        ]
+        data = HistoryData(raw_rounds=[], rounds=rows, shots=[])
+        with patch.object(course_reference, "courseview_venue_loops", return_value=[]) as index_read:
+            mobile_live.build_mobile_course_options(
+                data,
+                segment_resolver=lambda gid: ("同一场地 ~ A", 9),
+                tee_resolver=lambda gid: [],
+            )
+        self.assertLessEqual(index_read.call_count, 1)
 
 
 if __name__ == "__main__":

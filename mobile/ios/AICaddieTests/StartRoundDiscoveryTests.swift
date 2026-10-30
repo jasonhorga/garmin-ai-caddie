@@ -63,6 +63,14 @@ final class StartRoundDiscoveryTests: XCTestCase {
     func testRecentTeeLookupFailureOffersRetry() {
         XCTAssertTrue(StartRoundView.showsTeeRetry(
             requiresRemoteTees: false, teeLoadFailed: true, fetchedTees: [], courseTees: ["blue"]))
+        XCTAssertEqual(
+            StartRoundView.resolvedTeeOptions(
+                fetchedTees: [], courseTees: [], teeBox: "blue",
+                requiresRemoteTees: true, wasManualSearch: false
+            ),
+            ["blue"],
+            "a remembered Tee remains visible while retry is offered"
+        )
     }
 
     func testOpeningPageIsCourseUnlessACourseIsPassed() {
@@ -1334,7 +1342,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
-    /// J4.2/C134: a first timeout expands to the 50 km pass before the setup page can fail.
+    /// J4.2/C134: a first timeout expands through the 20 km pass before the wider fallback.
     func testNearbyFirstTimeoutUsesTheExpandedPassBeforeFailure() async {
         var radii: [Int] = []
         let match = MobileCourseSearchMatch(globalId: 7001, name: "扩大范围球场", holes: 18, city: nil, province: nil, ratio: 1)
@@ -1349,7 +1357,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 MobileCourseOption(globalId: match.globalId, name: match.name, holes: match.holes ?? 18)
             }
         )
-        XCTAssertEqual(radii, [5, 50])
+        XCTAssertEqual(radii, [5, 20, 50])
         XCTAssertEqual(outcome.providerOptions.map(\.globalId), [7001])
         XCTAssertFalse(StartRoundView.nearbyDiscoveryShouldFail(
             publishedProviderResult: outcome.publishedProviderResult,
@@ -1358,21 +1366,21 @@ final class StartRoundDiscoveryTests: XCTestCase {
         ))
     }
 
-    /// J4.2/C134: an empty 5 km response followed by a failed 50 km response enters retry state.
+    /// J4.2/C134: fewer than five venues expands through 20 km and then 50 km before retry.
     func testNearbyEmptyFirstPassAndFailedExpansionEnterRetryState() async {
         var radii: [Int] = []
         let outcome = await StartRoundView.performNearbyDiscovery(
             latitude: 31, longitude: 121,
             request: { _, _, radius in
                 radii.append(radius)
-                if radius == 5 { return [] }
+                if radius == 5 || radius == 20 { return [] }
                 throw URLError(.timedOut)
             },
             resolve: { match in
                 MobileCourseOption(globalId: match.globalId, name: match.name, holes: match.holes ?? 18)
             }
         )
-        XCTAssertEqual(radii, [5, 50])
+        XCTAssertEqual(radii, [5, 20, 50])
         XCTAssertTrue(StartRoundView.nearbyDiscoveryShouldFail(
             publishedProviderResult: outcome.publishedProviderResult,
             lastError: outcome.lastError,
