@@ -1,0 +1,13 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index 7dd2edce..a612152f 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -750,7 +750,7 @@ class RenderBackfill:
+             entries = self._state["garminForbiddenReleases"]
+             return sorted(
+                 (key for key, row in entries.items()
+-                 if key in pending and row["retryAfter"] <= now),
++                 if row["retryAfter"] <= now),
+                 key=lambda key: (entries[key]["retryAfter"], key),
+             )[:GARMIN_403_RETRY_RELEASES_PER_TICK]
+ 
