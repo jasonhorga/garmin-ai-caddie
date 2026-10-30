@@ -1571,11 +1571,14 @@ def first_hole_lightweight_course_prep(
                         # rebuilds never repeat the mesh work. Other holes yield to foreground work.
                         if selected_set is not None:
                             from ai_caddie.courses.vector_prep import enqueue_vector_hole
-                            if source_key == current_source and not map_only:
-                                vector = cached_vector_hole(
-                                    source_global_id, source_local_hole, tee_set=selected_set,
-                                    build_if_missing=True,
-                                )
+                            if source_key == current_source:
+                                if not map_only:
+                                    vector = cached_vector_hole(
+                                        source_global_id, source_local_hole, tee_set=selected_set,
+                                        build_if_missing=True,
+                                    )
+                                else:
+                                    enqueue_vector_hole(source_global_id, source_local_hole, selected_set)
                             else:
                                 enqueue_vector_hole(source_global_id, source_local_hole, selected_set)
                         if vector is None and not map_only and not selected_vector_pending:
