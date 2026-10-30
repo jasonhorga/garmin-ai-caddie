@@ -54,7 +54,7 @@
       "id": "tests-product-faults-C184-10-feedback-exemption-dropped",
       "patch": "tests/product/faults/C184/10-feedback-exemption-dropped.patch",
       "kind": "python",
-      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j7_2_rotated_unmapped_feedback_survives_without_hole_corrections",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j7_2_unmapped_decision_event_keeps_caddie_feedback_audit",
       "promise": "7.2"
     },
     {

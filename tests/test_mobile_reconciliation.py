@@ -18,6 +18,7 @@ from ai_caddie.caddie.mobile_reconciliation import (
     reconcile_mobile_round_events,
 )
 from ai_caddie.history.corrected_history import corrected_history_data
+from ai_caddie.history.history_stats import _period_pack, _to_par18
 from ai_caddie.caddie.mobile_round_identity import (
     MobileRoundIdentityError, load_mobile_round_identity, save_mobile_round_identity,
 )
@@ -50,7 +51,9 @@ class MobileReconciliationTests(unittest.TestCase):
             } for n in range(1, 19)], idempotency_key="restore", root=root)
             data = HistoryData(raw_rounds=[], rounds=[{
                 "id": "restore", "globalId": 55555,
-                "holes": [{"number": n, "strokes": 5} for n in range(1, 10)],
+                "holesCompleted": 9, "strokes": 45, "par": 36,
+                "holePars": "444444444444444445",
+                "holes": [{"number": n, "strokes": 5, "par": 4} for n in range(1, 10)],
             }], shots=[])
 
             result = reconcile_mobile_round_events("restore", data, root=root)
@@ -68,6 +71,11 @@ class MobileReconciliationTests(unittest.TestCase):
             self.assertEqual(len(corrected["holes"]), 18)
             self.assertEqual([(hole["number"], hole["strokes"]) for hole in corrected["holes"]],
                              [(n, 5) for n in range(1, 19)])
+            self.assertEqual(corrected["strokes"], 90)
+            self.assertEqual(corrected["holesCompleted"], 18)
+            self.assertEqual(corrected["par"], 73)
+            self.assertEqual(_to_par18(corrected), 17)
+            self.assertEqual(_period_pack("2026", [corrected], total_rounds=1)["averageToPar18"], 17.0)
             after = reconcile_mobile_round_events(
                 "restore", data, root=root, annotations_root=root,
             )
@@ -158,7 +166,7 @@ class MobileReconciliationTests(unittest.TestCase):
                 "kind": "score", "payload": {"strokes": 5},
             } for n in range(1, 19)], idempotency_key="partial", root=root)
             data = HistoryData(raw_rounds=[], rounds=[{
-                "id": "partial", "globalId": 55555,
+                "id": "partial", "globalId": 55555, "holePars": "4" * 18,
                 "holes": [{"number": n, "strokes": 5} for n in range(1, 10)],
             }], shots=[])
             result = reconcile_mobile_round_events("partial", data, root=root)
@@ -184,6 +192,41 @@ class MobileReconciliationTests(unittest.TestCase):
             self.assertEqual([(h["number"], h["strokes"]) for h in actual["holes"]],
                              [(n, 5) for n in range(1, 19)])
 
+    def test_j1_3_merged_missing_first_card_hole_preserves_display_axis_after_apply(self) -> None:
+        self._assert_merged_missing_hole_preserves_axis(5)
+
+    def test_j1_3_merged_missing_second_card_hole_preserves_display_axis_after_apply(self) -> None:
+        self._assert_merged_missing_hole_preserves_axis(14)
+
+    def _assert_merged_missing_hole_preserves_axis(self, missing: int) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            round_id = f"merged-missing-{missing}"
+            _save_identity(root, round_id, [(55555, "front"), (55555, "back")])
+            append_event_batch(round_id, [{
+                "eventId": f"score-{missing}", "roundId": round_id, "hole": missing,
+                "kind": "score", "payload": {"strokes": 5},
+            }], idempotency_key=round_id, root=root)
+            holes = [{"number": n, "strokes": 4} for n in range(1, 19) if n != missing]
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": round_id, "globalId": 55555, "merged": True,
+                "holePars": "4" * 18,
+                "holes": holes,
+            }], shots=[])
+            result = reconcile_mobile_round_events(round_id, data, root=root)
+            suggestions = [row for row in result["annotationSuggestions"]
+                           if row["kind"] == "score_correction"]
+            self.assertEqual([row["targetId"] for row in suggestions], [f"{round_id}:{missing}"])
+            applied = apply_mobile_reconciliation_suggestions(
+                round_id, data, suggestion_ids=[suggestions[0]["id"]],
+                root=root, annotations_root=root, data_loader=lambda: data,
+            )
+            self.assertEqual(applied["appliedCount"], 1)
+            corrected = corrected_history_data(data, annotations_root=root).rounds[0]
+            self.assertEqual([hole["number"] for hole in corrected["holes"]], list(range(1, 19)))
+            after = reconcile_mobile_round_events(round_id, data, root=root, annotations_root=root)
+            self.assertEqual(after["annotationSuggestions"], [])
+
     def test_j1_3_back_start_nonmerged_unnumbered_card_falls_back_to_display_axis(self) -> None:
         # J1.3: without source hole numbers, a standalone back-nine card falls back to its own
         # display axis 1..9 rather than inventing a physical 10..18 binding.
@@ -208,6 +251,95 @@ class MobileReconciliationTests(unittest.TestCase):
                          [f"unnumbered-back:{n}" for n in range(1, 10)])
         self.assertEqual(result["localOnly"], [])
         self.assertEqual(result["annotationSuggestions"], [])
+
+    def test_j1_3_restore_does_not_overwrite_late_garmin_card(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "late-card", [(55555, "front"), (55555, "back")])
+            append_event_batch("late-card", [{
+                "eventId": f"score-{n}", "roundId": "late-card", "hole": n,
+                "kind": "score", "payload": {"strokes": 5},
+            } for n in range(1, 19)], idempotency_key="late-card", root=root)
+            first = HistoryData(raw_rounds=[], rounds=[{
+                "id": "late-card", "globalId": 55555,
+                "holes": [{"number": n, "strokes": 5} for n in range(1, 10)],
+            }], shots=[])
+            initial = reconcile_mobile_round_events("late-card", first, root=root)
+            score_suggestions = [row for row in initial["annotationSuggestions"]
+                                 if row["kind"] == "score_correction"]
+            apply_mobile_reconciliation_suggestions(
+                "late-card", first, suggestion_ids=[row["id"] for row in score_suggestions],
+                root=root, annotations_root=root, data_loader=lambda: first,
+            )
+            late = HistoryData(raw_rounds=[], rounds=[{
+                "id": "late-card", "ids": ["late-card-2"], "globalId": 55555,
+                "merged": True,
+                "holes": ([{"number": n, "strokes": 5} for n in range(1, 10)]
+                          + [{"number": n, "strokes": 6} for n in range(10, 19)]),
+            }], shots=[])
+            corrected = corrected_history_data(late, annotations_root=root).rounds[0]
+            self.assertEqual([hole["strokes"] for hole in corrected["holes"]], [5] * 9 + [6] * 9)
+            result = reconcile_mobile_round_events("late-card", late, root=root, annotations_root=root)
+            self.assertEqual(len(result["conflicts"]), 9)
+            self.assertEqual({row["garminValue"] for row in result["conflicts"]}, {6})
+            self.assertEqual(len([row for row in result["annotationSuggestions"]
+                                 if row["kind"] == "score_correction"]), 9)
+
+    def test_j1_3_synthetic_hole_only_has_score_par_and_count(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "synthetic-facts", [(55555, "front"), (55555, "back")])
+            append_event_batch("synthetic-facts", [
+                {"eventId": "score-10", "roundId": "synthetic-facts", "hole": 10,
+                 "kind": "score", "payload": {"strokes": 5}},
+                {"eventId": "putt-10", "roundId": "synthetic-facts", "hole": 10,
+                 "kind": "putt", "payload": {"putts": 2}},
+                {"eventId": "penalty-10", "roundId": "synthetic-facts", "hole": 10,
+                 "kind": "penalty", "payload": {"penalties": 1}},
+            ], idempotency_key="synthetic-facts", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "synthetic-facts", "globalId": 55555, "holesCompleted": 9,
+                "strokes": 36, "par": 36, "holePars": "4" * 18,
+                "holes": [{"number": n, "strokes": 4, "par": 4, "putts": 2,
+                           "penalties": 0} for n in range(1, 10)],
+            }], shots=[])
+            result = reconcile_mobile_round_events("synthetic-facts", data, root=root)
+            ids = [row["id"] for row in result["annotationSuggestions"]]
+            applied = apply_mobile_reconciliation_suggestions(
+                "synthetic-facts", data, suggestion_ids=ids,
+                root=root, annotations_root=root, data_loader=lambda: data,
+            )
+            self.assertEqual(applied["appliedCount"], 3)
+            corrected = corrected_history_data(data, annotations_root=root).rounds[0]
+            restored = next(hole for hole in corrected["holes"] if hole["number"] == 10)
+            self.assertEqual(restored["strokes"], 5)
+            self.assertEqual(restored["par"], 4)
+            self.assertNotIn("putts", restored)
+            self.assertNotIn("penalties", restored)
+            self.assertIsNone(restored.get("gir"))
+
+    def test_j1_3_putt_without_score_does_not_materialize_synthetic_hole(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "putt-only", [(55555, "front"), (55555, "back")])
+            append_event_batch("putt-only", [{
+                "eventId": "putt-10", "roundId": "putt-only", "hole": 10,
+                "kind": "putt", "payload": {"putts": 2},
+            }], idempotency_key="putt-only", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "putt-only", "globalId": 55555, "holesCompleted": 9,
+                "holes": [{"number": n, "strokes": 4} for n in range(1, 10)],
+            }], shots=[])
+            result = reconcile_mobile_round_events("putt-only", data, root=root)
+            suggestion = next(row for row in result["annotationSuggestions"]
+                              if row["kind"] == "putt_correction")
+            applied = apply_mobile_reconciliation_suggestions(
+                "putt-only", data, suggestion_ids=[suggestion["id"]],
+                root=root, annotations_root=root, data_loader=lambda: data,
+            )
+            self.assertEqual(applied["appliedCount"], 1)
+            corrected = corrected_history_data(data, annotations_root=root).rounds[0]
+            self.assertEqual(len(corrected["holes"]), 9)
 
     def test_j7_2_unmapped_decision_event_keeps_caddie_feedback_audit(self) -> None:
         # J7.2: an unmapped phone hole still carries an auditable decision feedback suggestion.
@@ -262,6 +394,7 @@ class MobileReconciliationTests(unittest.TestCase):
             } for n in range(1, 19)], idempotency_key="back-start-partial", root=root)
             data = HistoryData(raw_rounds=[], rounds=[{
                 "id": "back-start-partial", "globalId": 55555, "holesCompleted": 9,
+                "holePars": "4" * 18,
                 "holes": [{"number": n, "strokes": 5} for n in range(10, 19)],
             }], shots=[])
 
@@ -537,6 +670,25 @@ class MobileReconciliationTests(unittest.TestCase):
                 self.assertEqual(load_mobile_round_identity("offline", root=root)["loopKey"],
                                  "55555:front+55555:back" if loops[0][0] == 55555
                                  else "31796:all+31796:all")
+
+    def test_two_distinct_all_nine_courses_first_card_only_complete_mapping(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "two-all-first", [(31796, "all"), (31794, "all")])
+            append_event_batch("two-all-first", [{
+                "eventId": f"score-{n}", "roundId": "two-all-first", "hole": n,
+                "kind": "score", "payload": {"strokes": 5},
+            } for n in range(1, 19)], idempotency_key="two-all-first", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "two-all-first", "globalId": 31796,
+                "frontNineGlobalCourseId": 31796, "backNineGlobalCourseId": 31794,
+                "holes": [{"number": n, "strokes": 5} for n in range(1, 10)],
+            }], shots=[])
+            result = reconcile_mobile_round_events("two-all-first", data, root=root)
+            self.assertEqual([row["ref"] for row in result["matched"]],
+                             [f"two-all-first:{n}" for n in range(1, 10)])
+            self.assertEqual([row["targetId"] for row in result["annotationSuggestions"]],
+                             [f"two-all-first:{n}" for n in range(10, 19)])
 
     def test_corrupt_identity_logs_and_reconciles_on_legacy_display_axis(self) -> None:
         for content in (b"{broken", b"{}", b"[]", b"\xff"):
