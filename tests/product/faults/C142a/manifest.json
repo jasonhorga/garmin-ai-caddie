@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C142a-01-active-request-no-feedback",
+      "patch": "tests/product/faults/C142a/01-active-request-no-feedback.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testActiveOfflineDownloadRequestShowsFeedbackWithoutRestarting",
+      "promise": "J4.2 offline preparation feedback"
+    },
+    {
+      "id": "C142a-02-server-progress-hidden",
+      "patch": "tests/product/faults/C142a/02-server-progress-hidden.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testOfflinePreparationShowsServerProgressAndHidesResumeAction",
+      "promise": "J4.2 offline preparation feedback"
+    },
+    {
+      "id": "C142a-03-stalled-job-never-fails",
+      "patch": "tests/product/faults/C142a/03-stalled-job-never-fails.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testOfflinePreparationFailsAtTenMinutesWithoutProgress",
+      "promise": "J4.2 offline preparation feedback"
+    },
+    {
+      "id": "C142a-04-progress-does-not-renew-window",
+      "patch": "tests/product/faults/C142a/04-progress-does-not-renew-window.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testOfflinePreparationWaitsWhileAnyServerProgressAdvances",
+      "promise": "J4.2 offline preparation feedback"
+    },
+    {
+      "id": "C142a-05-worker-before-preparation-gate",
+      "patch": "tests/product/faults/C142a/05-worker-before-preparation-gate.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testPrepStartDoesNotCreateAndImmediatelyCancelADownloadWorker",
+      "promise": "J4.2 offline preparation feedback"
+    },
+    {
+      "id": "C142a-06-running-row-offers-resume",
+      "patch": "tests/product/faults/C142a/06-running-row-offers-resume.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testOfflinePreparationShowsServerProgressAndHidesResumeAction",
+      "promise": "J4.2 offline preparation feedback"
+    },
+    {
+      "id": "C142a-07-polling-drops-server-observation",
+      "patch": "tests/product/faults/C142a/07-polling-drops-server-observation.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testOfflinePreparationPollingPersistsProgressThenFailsAndCanRetry",
+      "promise": "J4.2 offline preparation feedback"
+    },
+    {
+      "id": "C142a-08-retry-keeps-expired-window",
+      "patch": "tests/product/faults/C142a/08-retry-keeps-expired-window.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testOfflinePreparationPollingPersistsProgressThenFailsAndCanRetry",
+      "promise": "J4.2 offline preparation feedback"
+    }
+  ]
+}

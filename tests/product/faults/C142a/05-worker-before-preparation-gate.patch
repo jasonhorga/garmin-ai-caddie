@@ -1,0 +1,16 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 6becb66c..f5ff8d65 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4904,10 +4904,8 @@ public final class LiveRoundAppModel: ObservableObject {
+         foregroundRoundStartIntentKey = PrepCourseDownloadRecord.intentKey(
+             globalId: course.globalId, teeBox: teeBox
+         )
+-        let preparationToken = beginRoundPreparation()
+-        // Raise the foreground gate first: the independent durable download is queued without
+-        // creating a worker that beginRoundPreparation would immediately cancel.
+         downloadPrepCourse(course)
++        let preparationToken = beginRoundPreparation()
+         recordRoundStartStep("startPrepCourse.scheduled", token: preparationToken)
+         activeRoundStartTask = Task { @MainActor [weak self] in
+             guard let self else { return }
