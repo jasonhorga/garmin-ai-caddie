@@ -13,6 +13,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
+from ai_caddie.history import stats_cache
 from server_v2.main import app
 from server_v2.readiness import PACKAGING_LABELS, build_readiness_response
 from tests.round_loop_authority import fixture_course_authority
@@ -27,26 +28,56 @@ class ServerV2ReadinessTests(unittest.TestCase):
 
     def test_G7_readiness_cold_history_returns_warming_without_waiting_for_stats_build(self) -> None:
         """G7: a cold stats build cannot hold the release readiness request open."""
-        with patch("server_v2.readiness.load_history_stats_snapshot", return_value=None), \
-             patch("server_v2.readiness.warm_stats_cache_in_background") as warm, \
-             patch("server_v2.readiness.build_mobile_round_package_response", return_value=SimpleNamespace(
-                 schema_="ai-caddie-live-round-package-v2", sourceCoverage={"state": "ready"},
-                 geometryCoverage={"state": "ready"}, readinessChecks=[], caddieContextSeeds=[],
-                 roundId="900001", holes=[], caddieDecisionEndpoint="", offlinePackageStatus={},
-                 cachedCaddieRules={}, missingData=[],
-             )):
-            result: list[dict] = []
-            worker = threading.Thread(
-                target=lambda: result.append(build_readiness_response()), daemon=True
-            )
+        stats_cache.clear()
+        release = threading.Event()
+        entered = threading.Event()
+        original = stats_cache._build_history_stats
+
+        def blocked(*args, **kwargs):
+            entered.set()
+            release.wait(timeout=5)
+            return original(*args, **kwargs)
+
+        result: list[dict] = []
+        worker = threading.Thread(
+            target=lambda: result.append(build_readiness_response()), daemon=True
+        )
+        with patch.object(stats_cache, "_build_history_stats", blocked):
             worker.start()
-            worker.join(timeout=0.2)
+            self.assertTrue(entered.wait(timeout=5), "stats barrier was not reached")
+            worker.join(timeout=5)
             self.assertFalse(worker.is_alive(), "readiness waited for the blocked stats build")
             self.assertEqual(len(result), 1)
-            history = next(row for row in result[0]["checks"] if row["label"] == "history")
-            self.assertEqual(history["state"], "warming")
-            self.assertTrue(history["evidence"]["stale"])
-            warm.assert_called_once_with()
+            for label in ("history", "mobile_package", "reports"):
+                check = next(row for row in result[0]["checks"] if row["label"] == label)
+                self.assertEqual(check["state"], "warming", label)
+            release.set()
+            worker.join(timeout=5)
+        self.assertFalse(worker.is_alive())
+
+    def test_G7_failed_warm_retries_after_backoff_and_clears_failure(self) -> None:
+        """G7/J4.2: one failed warm is retried after backoff and success clears the failure."""
+        from server_v2 import history_stats
+
+        calls: list[str] = []
+
+        def warm(*, player_id: str):
+            calls.append(player_id)
+            return len(calls) > 1
+
+        with patch.object(history_stats, "warm_stats_cache", side_effect=warm), \
+             patch.object(history_stats, "WARM_RETRY_DELAY_S", 0, create=True):
+            first = history_stats.warm_stats_cache_in_background(player_id="readiness-retry")
+            self.assertIsNotNone(first)
+            first.join(timeout=5)
+            self.assertFalse(first.is_alive())
+            self.assertIn("stats warm returned false", history_stats.history_warm_failure("readiness-retry"))
+            second = history_stats.warm_stats_cache_in_background(player_id="readiness-retry")
+            self.assertIsNotNone(second)
+            second.join(timeout=5)
+            self.assertFalse(second.is_alive())
+        self.assertEqual(calls, ["readiness-retry", "readiness-retry"])
+        self.assertIsNone(history_stats.history_warm_failure("readiness-retry"))
 
     def test_G7_failed_background_warm_is_degraded_with_reason(self) -> None:
         """G7: a failed history warm cannot leave the release check warming forever."""
