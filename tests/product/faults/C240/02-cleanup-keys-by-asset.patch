@@ -1,0 +1,13 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index 74ff0f5c..cd8d88c8 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -731,7 +731,7 @@ class RenderBackfill:
+                 # Ready assets may have been repaired elsewhere, bypassing run_once's
+                 # success cleanup. Boot scans must clear these records too, before saving.
+                 self._prune_garmin_release_backoff({
+-                    f"{task['globalId']}:{task.get('garminRelease')}"
++                    f"{task['globalId']}:{task.get('assetVersion')}"
+                     for task in tasks.values() if task.get("garmin") == "pending"
+                 })
+                 self._queue = queue

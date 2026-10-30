@@ -1,0 +1,24 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index 74ff0f5c..17d6bcb7 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -728,12 +728,13 @@ class RenderBackfill:
+             heapq.heapify(queue)
+             with self._lock:
+                 self._state = dict(old, styleVersion=self.style_version, matteVersion=self.matte_version, tasks=tasks)
+-                # Ready assets may have been repaired elsewhere, bypassing run_once's
+-                # success cleanup. Boot scans must clear these records too, before saving.
+-                self._prune_garmin_release_backoff({
+-                    f"{task['globalId']}:{task.get('garminRelease')}"
+-                    for task in tasks.values() if task.get("garmin") == "pending"
+-                })
++                if force:
++                    # Ready assets may have been repaired elsewhere, bypassing run_once's
++                    # success cleanup. Boot scans must clear these records too, before saving.
++                    self._prune_garmin_release_backoff({
++                        f"{task['globalId']}:{task.get('garminRelease')}"
++                        for task in tasks.values() if task.get("garmin") == "pending"
++                    })
+                 self._queue = queue
+                 self._dirty += 1
+                 self._index_state()

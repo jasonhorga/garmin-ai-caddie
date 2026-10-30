@@ -1,0 +1,13 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index 74ff0f5c..5accbd38 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -746,7 +746,7 @@ class RenderBackfill:
+             pending = {
+                 f"{task['globalId']}:{task.get('garminRelease')}"
+                 for task in self._state["tasks"].values()
+-                if task.get("garmin") == "pending" and task.get("assetVersion")
++                if task.get("garmin") == "pending"
+             }
+             now = self._clock()
+             entries = self._state["garminForbiddenReleases"]

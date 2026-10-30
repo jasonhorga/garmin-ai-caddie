@@ -1,0 +1,13 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index 74ff0f5c..4cfd7b94 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -859,7 +859,7 @@ class RenderBackfill:
+             self._record_unit(key, unit, state="failed" if error else "done", error=error)
+             if unit == "garmin" and error is None:
+                 with self._lock:
+-                    release_key = f"{task['globalId']}:{task.get('garminRelease')}"
++                    release_key = f"{task['globalId']}:{task.get('assetVersion')}"
+                     if release_key in self._state["garminForbiddenReleases"]:
+                         self._state["garminForbiddenReleases"].pop(release_key, None)
+                         self._dirty += 1
