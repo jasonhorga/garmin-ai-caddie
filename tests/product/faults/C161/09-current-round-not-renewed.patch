@@ -1,7 +1,7 @@
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2624,7 +2624,7 @@
-                 may_restore = not (new_events or restore_only)
+@@ -2738,7 +2738,7 @@
+                 may_restore = current_start is not None and candidate_start > current_start
              # The current round renews its lease, course binding and selection on every package or
              # event; an older registration is renewed only when its event time takes over.
 -            if may_restore and (key not in _ACTIVE_ROUNDS or latest in (None, key) or timed):
