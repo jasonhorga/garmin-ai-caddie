@@ -31,6 +31,7 @@ enum StartRoundPresentation {
            row.phase == .preparing || row.phase == .downloading || row.phase == .queued {
             return message
         }
+        if row.isActive, let server = row.serverPreparation { return server.statusText }
         switch row.phase {
         case .queued: return "等待下载"
         case .preparing: return "正在准备"
@@ -44,8 +45,8 @@ enum StartRoundPresentation {
         switch row.phase {
         case .ready: return nil
         case .failed: return "重试"
-        case .queued: return "下载"
-        case .preparing, .downloading: return "继续下载"
+        case .queued: return row.serverPreparation == nil ? "下载" : nil
+        case .preparing, .downloading: return nil
         }
     }
 
@@ -207,6 +208,27 @@ enum StartRoundPresentation {
         result.preparedHoles = current.preparedHoles + row.preparedHoles
         result.downloadedHoles = current.downloadedHoles + row.downloadedHoles
         result.updatedAt = max(current.updatedAt, row.updatedAt)
+        // A physical venue can contain several independently installed loops. Aggregate server
+        // counts for its visible row, keeping every real task's watchdog in its own durable record.
+        if let server = current.serverPreparation ?? row.serverPreparation {
+            let leftTotal = current.serverPreparation?.totalHoles ?? current.totalHoles
+            let rightTotal = row.serverPreparation?.totalHoles ?? row.totalHoles
+            let leftPercent = current.phase == .ready ? 100 : current.serverPreparation?.progress
+            let rightPercent = row.phase == .ready ? 100 : row.serverPreparation?.progress
+            let percent: Int?
+            if let leftPercent, let rightPercent {
+                percent = (leftPercent * leftTotal + rightPercent * rightTotal) / max(1, leftTotal + rightTotal)
+            } else { percent = nil }
+            result.serverPreparation = PrepServerPreparationProgress(
+                jobId: server.jobId, generation: server.generation, progress: percent,
+                geometryReady: (current.phase == .ready ? leftTotal : (current.serverPreparation?.geometryReady ?? 0))
+                    + (row.phase == .ready ? rightTotal : (row.serverPreparation?.geometryReady ?? 0)),
+                topoReady: (current.phase == .ready ? leftTotal : (current.serverPreparation?.topoReady ?? 0))
+                    + (row.phase == .ready ? rightTotal : (row.serverPreparation?.topoReady ?? 0)),
+                totalHoles: leftTotal + rightTotal, heartbeatAt: server.heartbeatAt,
+                lastProgressAt: server.lastProgressAt
+            )
+        }
         if current.phase == .failed || row.phase == .failed {
             result.phase = .failed
             result.errorText = current.phase == .failed ? current.errorText : row.errorText

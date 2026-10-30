@@ -24,6 +24,34 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(StartRoundPresentation.offlineActionTitle(row), "重试")
     }
 
+    /// J4.2/J4.1: one venue row sums its ready loop and server preparation of the other loop.
+    func testOfflinePreparationProgressIncludesEveryLoopOfTheVisibleVenue() throws {
+        let ready = PrepCourseDownloadRecord(
+            course: loop(8100, venue: "Fixture Links", label: "A"), phase: .ready, downloadedHoles: 9, totalHoles: 9
+        )
+        var preparing = PrepCourseDownloadRecord(course: loop(8101, venue: "Fixture Links", label: "B"))
+        let status = CourseInstallStatus(
+            schema: "course-install/v1", jobId: "loop-b", globalId: 8101, teeBox: "blue",
+            loopKey: "8101:all", phase: "running", stage: "geometry", totalHoles: 9, geometryReady: 6, topoReady: 0
+        )
+        preparing.applyServerPreparation(status, at: Date(timeIntervalSince1970: 0))
+        let row = try XCTUnwrap(StartRoundPresentation.offlineRows([ready, preparing]).first)
+        XCTAssertEqual(StartRoundPresentation.offlineStatusText(row), "服务器准备中 15/18 洞")
+        XCTAssertNil(StartRoundPresentation.offlineActionTitle(row))
+    }
+
+    /// J4.2: optional progress fields remain compatible with rows saved by older apps.
+    func testOfflinePreparationRestoresLegacyRowsWithoutServerProgress() throws {
+        let data = try JSONEncoder().encode(prepFeedbackRow())
+        var fields = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        fields.removeValue(forKey: "serverPreparation")
+        let legacy = try JSONSerialization.data(withJSONObject: fields)
+        let row = try JSONDecoder().decode(PrepCourseDownloadRecord.self, from: legacy)
+        XCTAssertNil(row.serverPreparation)
+        XCTAssertEqual(StartRoundPresentation.offlineStatusText(row), "等待下载")
+        XCTAssertEqual(StartRoundPresentation.offlineActionTitle(row), "下载")
+    }
+
     /// J4.2: 600 seconds is the specified inactivity boundary, independent of updatedAt.
     func testOfflinePreparationFailsAtTenMinutesWithoutProgress() throws {
         for heartbeat in [nil, "2026-01-01T00:00:00Z"] as [String?] {

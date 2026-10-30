@@ -579,6 +579,12 @@ struct PrepServerPreparationProgress: Codable, Equatable {
     let totalHoles: Int
     let heartbeatAt: String?
     let lastProgressAt: Date
+
+    var statusText: String {
+        let holes = "服务器准备中 \(geometryReady)/\(totalHoles) 洞"
+        guard let progress else { return holes }
+        return "\(holes) · \(min(100, max(0, progress)))%"
+    }
 }
 
 public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
@@ -708,9 +714,34 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
 
     /// J4.2: receives the polling clock explicitly; ordinary record updates are not progress.
     mutating func applyServerPreparation(_ status: CourseInstallStatus, at now: Date) {
-        // Old queued/running behaviour, retained for the assertion-red baseline.
-        phase = downloadedHoles > 0 ? .downloading : .preparing
-        errorText = nil
+        let previous = serverPreparation
+        let sameJob = previous?.jobId == status.jobId && previous?.generation == status.generation
+        let heartbeat = status.heartbeatAt?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasHeartbeat = heartbeat?.isEmpty == false
+        let advanced = !sameJob
+            || (hasHeartbeat && heartbeat != previous?.heartbeatAt)
+            || status.progress.map { $0 > (previous?.progress ?? -1) } == true
+            || status.geometryReady > (previous?.geometryReady ?? 0)
+            || status.topoReady > (previous?.topoReady ?? 0)
+        // Only server evidence advances this clock. Local updates, polls and duplicate taps do not.
+        let lastProgressAt = advanced ? now : (previous?.lastProgressAt ?? now)
+        let highestProgress = max(status.progress ?? -1, sameJob ? (previous?.progress ?? -1) : -1)
+        serverPreparation = PrepServerPreparationProgress(
+            jobId: status.jobId, generation: status.generation,
+            progress: highestProgress >= 0 ? highestProgress : nil,
+            geometryReady: max(0, sameJob ? max(status.geometryReady, previous?.geometryReady ?? 0) : status.geometryReady),
+            topoReady: max(0, sameJob ? max(status.topoReady, previous?.topoReady ?? 0) : status.topoReady),
+            totalHoles: max(1, status.totalHoles > 0 ? status.totalHoles : totalHoles),
+            heartbeatAt: hasHeartbeat ? heartbeat : (sameJob ? previous?.heartbeatAt : nil),
+            lastProgressAt: lastProgressAt
+        )
+        if now.timeIntervalSince(lastProgressAt) >= 600 {
+            phase = .failed
+            errorText = "服务器准备没有进展，点重试"
+        } else {
+            phase = downloadedHoles > 0 ? .downloading : .preparing
+            errorText = nil
+        }
     }
 
     public var isActive: Bool {
