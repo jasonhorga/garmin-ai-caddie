@@ -19,6 +19,17 @@ _DNS_MARKERS = (
     "error code: -1003",
 )
 _URL_RE = re.compile(r"(?:NSErrorFailingURL(?:String)?Key=)(https?://[^,\s}]+)")
+_TASK_RE = re.compile(r"Task <([0-9A-Fa-f-]{36})>\.<(\d+)>")
+
+
+def _route_marked_tasks(lines: list[str]) -> set[tuple[str, str]]:
+    """Tasks whose error carries a test route marker on any log line.
+
+    Concurrent processes can interleave stderr mid-line, splitting one error so
+    the ``Code=-1003`` half lands on a line without its ``route=`` half.
+    """
+
+    return {m.groups() for line in lines if "route=" in line for m in _TASK_RE.finditer(line)}
 
 
 def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]:
@@ -32,8 +43,12 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
     findings: list[tuple[str, int, str, str]] = []
     seen_urls: set[str] = set()
     pending_without_url: list[tuple[int, str]] = []
-    for line_number, line in enumerate(log_text.splitlines(), start=1):
+    lines = log_text.splitlines()
+    marked_tasks = _route_marked_tasks(lines)
+    for line_number, line in enumerate(lines, start=1):
         if "route=" in line:
+            continue
+        if any(m.groups() in marked_tasks for m in _TASK_RE.finditer(line)):
             continue
         match = _URL_RE.search(line)
         has_dns_marker = any(marker in line for marker in _DNS_MARKERS)
