@@ -173,4 +173,3 @@ class C195HistoryWarmBackoffTests(unittest.TestCase):
             thread.join(1)
         self.assertFalse(thread.is_alive())
         self.assertEqual(calls, [60.0, 180.0, 360.0, 660.0])
-
