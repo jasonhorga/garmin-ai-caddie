@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
+index 9c34d076..0b2d3385 100644
+--- a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
++++ b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
+@@ -2560,6 +2560,6 @@ enum LiveMapDisplaySelection {
+     }
+ 
+     static func gestureScale(for state: LiveMapDisplayState, proposed: CGFloat) -> CGFloat {
+-        guard state != .numericPlaceholder, state != .waiting else { return 1 }
++        guard state != .numericPlaceholder, state != .waiting, state != .garminRaster else { return 1 }
+         return min(max(proposed, 1), 4)
+     }

@@ -4013,9 +4013,9 @@ public struct CurrentHoleView: View {
     /// was then planned from there (a 308 y "tee shot" on a 397 y hole, 2026-10-10). Only the
     /// caddie's planning inputs change; the map, recording and on-screen GPS numbers do not.
     private var isTeeShotOffTheHole: Bool {
-        let route = (liveMapOverlay?.route ?? []).compactMap { point -> CLLocationCoordinate2D? in
+        let route = (planningMapOverlay?.route ?? []).compactMap { point -> CLLocationCoordinate2D? in
             guard point.count >= 2 else { return nil }
-            return liveCoordinate(forOverlayPixel: CGPoint(x: point[0], y: point[1]))
+            return planningCoordinate(forOverlayPixel: CGPoint(x: point[0], y: point[1]))
         }
         return Self.isTeeShotOffTheHole(
             shotsRecorded: recordedNonPuttShotCount,
@@ -4336,16 +4336,16 @@ public struct CurrentHoleView: View {
         if let coordinateDistance = distanceFromMapReference(to: targetCoordinate) {
             return coordinateDistance
         }
-        return pixelDistanceMetres(from: mapReferencePixel, to: validMapPixel(targetPixel))
+        return pixelDistanceMetres(from: mapReferencePixel, to: planningValidMapPixel(targetPixel))
     }
 
     /// The shared topo pixel frame is still measurable when a searched/off-course course has no
     /// affine geo anchors. Prefer a projected coordinate when available, then use the factual route
     /// endpoints as the tee/pin references.
     private var mapReferencePixel: CGPoint? {
-        guard let overlay = liveMapOverlay else { return nil }
+        guard let overlay = planningMapOverlay else { return nil }
         if let reference = mapReferenceCoordinate,
-           let refs = liveMapProjection?.refs,
+           let refs = planningMapProjection?.refs,
            let projected = WatchEventBridge.projectToTopoPx(
                lat: reference.latitude,
                lon: reference.longitude,
@@ -4366,7 +4366,7 @@ public struct CurrentHoleView: View {
     private func pixelDistanceMetres(from start: CGPoint?, to end: CGPoint?) -> Double? {
         guard let start,
               let end,
-              let ppm = liveMapOverlay?.ppm,
+              let ppm = planningMapOverlay?.ppm,
               ppm.isFinite,
               ppm > 0,
               start.x.isFinite,
@@ -4382,6 +4382,31 @@ public struct CurrentHoleView: View {
 
     private func validMapPixel(_ pixel: CGPoint?) -> CGPoint? {
         LiveMapDisplaySelection.validTargetPixel(pixel, in: liveMapOverlay)
+    }
+
+    /// Planning keeps using the installed CourseView facts when Garmin is the visible backdrop
+    /// without a projection. These facts drive local distances and off-hole detection only; they
+    /// are never passed to the Garmin drawing layer as route/label/flag overlays.
+    private var planningMapOverlay: CoursePrepOverlay? {
+        liveMapOverlay ?? (holePrep ?? packagePrepForCurrentHole)?.resolvedMapOverlay
+    }
+
+    private var planningMapProjection: CoursePrepHoleImageProjection? {
+        liveMapProjection ?? (holePrep ?? packagePrepForCurrentHole)?.holeImageProjection
+    }
+
+    private func planningValidMapPixel(_ pixel: CGPoint?) -> CGPoint? {
+        LiveMapDisplaySelection.validTargetPixel(pixel, in: planningMapOverlay)
+    }
+
+    private func planningCoordinate(forOverlayPixel pixel: CGPoint) -> CLLocationCoordinate2D? {
+        guard let refs = planningMapProjection?.refs,
+              let projected = WatchEventBridge.projectFromTopoPx(
+                  px: pixel.x,
+                  py: pixel.y,
+                  refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+              ) else { return nil }
+        return CLLocationCoordinate2D(latitude: projected.latitude, longitude: projected.longitude)
     }
 
     private var displayedTargetYards: Int? {
@@ -6758,9 +6783,9 @@ public struct CurrentHoleView: View {
     #endif
     private var currentRemainingRouteMetres: Double? {
         guard !isTeeShotOffTheHole,
-              let overlay = liveMapOverlay,
+              let overlay = planningMapOverlay,
               let coordinate = liveCoordinateForCurrentHole,
-              let refs = liveMapProjection?.refs,
+              let refs = planningMapProjection?.refs,
               let px = WatchEventBridge.projectToTopoPx(
                   lat: coordinate.latitude,
                   lon: coordinate.longitude,

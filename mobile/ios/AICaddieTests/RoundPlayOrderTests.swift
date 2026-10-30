@@ -498,13 +498,15 @@ final class RoundPlayOrderTests: XCTestCase {
     }
 
     func testGarminDescriptorNeedsDecodedImageBeforeRasterState() {
+        // J4.5: descriptor metadata alone is not a bitmap; wait neutrally until decode succeeds.
         let descriptor = GarminRasterResponse(available: true, imageUrl: "/raster.webp")
         XCTAssertEqual(
             LiveMapDisplayState.resolveLive(.init(
                 coverage: "partial", preciseTopoImageReady: false, garminRaster: descriptor,
                 garminImageReady: false, garminImageFailed: false, hasCachedPreciseTopo: false
             )),
-            .numericPlaceholder
+            .waiting,
+            "J4.5 an undecoded descriptor has no bitmap, so the map stays neutral"
         )
         XCTAssertEqual(
             LiveMapDisplayState.resolveLive(.init(

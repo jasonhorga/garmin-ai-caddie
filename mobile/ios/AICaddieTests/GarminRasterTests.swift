@@ -300,7 +300,8 @@ final class GarminRasterTests: XCTestCase {
                 hasCachedPreciseTopo: false
             )
         )
-        XCTAssertEqual(numericState, .numericPlaceholder)
+        XCTAssertEqual(numericState, .waiting,
+                       "J4.5 no decoded precise/Garmin bitmap uses the neutral waiting surface")
         XCTAssertNil(
             LiveMapDisplaySelection.projection(
                 for: numericState,
@@ -335,14 +336,17 @@ final class GarminRasterTests: XCTestCase {
     /// Product spec 4.5: replacing a route tier with a precise map keeps the same gestures.
     func testPreciseMapReplacesRouteTierWithoutChangingInteractionPolicy() {
         let route = LiveMapDisplayState.resolveLive(.init(
-            coverage: "partial", preciseTopoImageReady: false, garminRaster: nil,
-            garminImageFailed: true, hasCachedPreciseTopo: false, hasRoute: true
+            coverage: "partial", preciseTopoImageReady: false,
+            garminRaster: GarminRasterResponse(available: true, imageUrl: "/raster.jpg"),
+            garminImageReady: true, garminImageFailed: false, hasCachedPreciseTopo: false,
+            hasRoute: true
         ))
         let precise = LiveMapDisplayState.resolveLive(.init(
             coverage: "ready", preciseTopoImageReady: true, garminRaster: nil,
             garminImageFailed: true, hasCachedPreciseTopo: false, hasRoute: true
         ))
-        XCTAssertEqual(route, .waiting)
+        XCTAssertEqual(route, .garminRaster,
+                       "J4.5 Garmin is the visible fallback before precise decode")
         XCTAssertEqual(precise, .precise)
         XCTAssertEqual(LiveMapDisplaySelection.gestureScale(for: route, proposed: 2.4), 2.4)
         XCTAssertEqual(LiveMapDisplaySelection.gestureScale(for: precise, proposed: 2.4), 2.4)

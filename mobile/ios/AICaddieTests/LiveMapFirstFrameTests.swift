@@ -17,8 +17,8 @@ final class LiveMapFirstFrameTests: XCTestCase {
             hasCachedPreciseTopo: false,
             preciseTopoAvailable: true
         ))
-        XCTAssertNotEqual(state, .garminRaster)
-        XCTAssertEqual(state, .factualPending)
+        XCTAssertEqual(state, .garminRaster,
+                       "J4.5 Garmin remains visible until the precise bitmap decodes")
     }
 
     /// Product spec 4.5: a known precise map stays neutral while its bitmap decodes, even without
