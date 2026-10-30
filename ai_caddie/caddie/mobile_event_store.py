@@ -824,6 +824,8 @@ class FileEventStore:
         path: Path,
         data: bytes,
         metadata: os.stat_result | None,
+        *,
+        preserve_mode: bool = True,
     ) -> None:
         self._ensure_root_durable()
         descriptor, temporary_name = tempfile.mkstemp(
