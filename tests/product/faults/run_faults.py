@@ -47,9 +47,13 @@ def failed_tests(test):
     return False
 
 reports = {}
+baseline_path = list(sys.path)
+baseline_modules = dict(sys.modules)
 for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
-    saved_path = list(sys.path)
-    saved_modules = dict(sys.modules)
+    # Restore the batch baseline before each target so imports cannot leak forward.
+    sys.path[:] = baseline_path
+    sys.modules.clear()
+    sys.modules.update(baseline_modules)
     try:
         loader = unittest.TestLoader()
         suite = loader.loadTestsFromName(target)
@@ -62,10 +66,6 @@ for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
             report = {"ok": True, "reason": ""}
     except (Exception, SystemExit):
         report = {"ok": False, "reason": traceback.format_exc()}
-    finally:
-        sys.path[:] = saved_path
-        sys.modules.clear()
-        sys.modules.update(saved_modules)
     reports[target] = report
 Path(sys.argv[2]).write_text(json.dumps(reports), encoding="utf-8")
 '''
