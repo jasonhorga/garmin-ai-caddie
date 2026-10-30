@@ -1434,6 +1434,7 @@ def _cached_map_vector_for_selected_tee(
     *,
     selected_set: int | None,
     hazards: dict[str, Any] | None,
+    coverage: dict[str, Any],
 ) -> dict[str, Any] | None:
     """Borrow only Tee-independent geometry when the selected Tee vector is absent.
 
@@ -1443,36 +1444,11 @@ def _cached_map_vector_for_selected_tee(
     never masquerade as the selected Tee's facts.
     """
     from ai_caddie.caddie.analysis import resolve_selected_tee_set, tee_set_for_box
-    from ai_caddie.courses.vector_prep import cached_vector_hole
-
-    candidates: list[int] = []
     blue_set = resolve_selected_tee_set(hazards, "blue", global_id=global_id)
     if blue_set is None:
-        # Older/fixture hazard exports may omit Tee rows even though a durable
-        # Blue vector is present. This lookup only chooses which cache entry to
-        # inspect; all displayed Tee facts still come from the selected resolver.
         blue_set = tee_set_for_box(global_id, "blue", colour_fallback=True)
-    for value in (selected_set, blue_set):
-        if value is not None and value not in candidates:
-            candidates.append(value)
-    for row in (hazards or {}).get("tees") or []:
-        for raw in row.get("sets") or [] if isinstance(row, dict) else ():
-            try:
-                value = int(raw)
-            except (TypeError, ValueError):
-                continue
-            if value not in candidates:
-                candidates.append(value)
-    for tee_set in candidates:
-        try:
-            vector = cached_vector_hole(
-                int(global_id), int(local_hole), tee_set=tee_set, build_if_missing=False
-            )
-        except Exception:
-            vector = None
-        if isinstance(vector, dict):
-            return vector
-    return None
+    from ai_caddie.courses.vector_prep import cached_map_vector_hole
+    return cached_map_vector_hole(global_id, local_hole, coverage=coverage, preferred_tee=blue_set)
 
 
 def first_hole_lightweight_course_prep(
@@ -1554,18 +1530,19 @@ def first_hole_lightweight_course_prep(
                             or tee_sets[source_global_id] is not None
                         )
                     selected_set = tee_sets.get(source_global_id)
+                    coverage = geometry_coverage_for_hole(
+                        source_global_id, source_local_hole,
+                        require_current_authority=True, refresh_release=False,
+                    )
                     vector = cached_vector_hole(
                         source_global_id, source_local_hole, tee_set=selected_set,
-                        build_if_missing=False,
+                        coverage=coverage, build_if_missing=False,
                     )
                     if vector is not None and not tee_facts_bound.get(source_global_id, True):
                         vector = _tee_independent_vector(vector)
                     selected_vector_pending = (
                         vector is None and selected_set is not None
-                        and geometry_coverage_for_hole(
-                            source_global_id, source_local_hole,
-                            require_current_authority=True, refresh_release=False,
-                        ).get("coverage") == "ready"
+                        and coverage.get("coverage") == "ready"
                     )
                     if vector is None and (
                         selected_set is not None or selected_tee_box not in {"", "unknown"}
@@ -1600,7 +1577,7 @@ def first_hole_lightweight_course_prep(
                             source_global_id,
                             source_local_hole,
                             selected_set=selected_set,
-                            hazards=hazards,
+                            hazards=hazards, coverage=coverage,
                         )
                         if isinstance(fallback_vector, dict):
                             vector = _tee_independent_vector(fallback_vector)
@@ -1628,7 +1605,8 @@ def first_hole_lightweight_course_prep(
             # Reuse the existing client package-polling mechanism even when physical geometry
             # itself is installed and only the selected Tee vector is still warming.
             package_hole["geometryState"] = "pending"
-            package_hole["retryAfterEpoch"] = time.time() + 2
+            # The HTTP route re-judges this using the in-flight provider cadence (30 seconds).
+            package_hole["retryAfterEpoch"] = time.time() + _GEOMETRY_INSTALL_POLL_SECONDS
 
         if not _has_drawable_route_seed(prep):
             missing_rows.append({

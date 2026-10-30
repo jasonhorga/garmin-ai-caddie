@@ -125,6 +125,45 @@ def warm_requested_vectors(global_id: int, local_hole: int) -> None:
         cached_vector_hole(global_id, local_hole, tee_set=tee_set)
 
 
+def cached_map_vector_hole(global_id: int, local_hole: int, *, coverage: dict,
+                           preferred_tee: int | None = None) -> dict | None:
+    """Read existing variants in one directory pass, sharing one authority/signature lookup.
+
+    Only callers stripping Tee-dependent facts may use this fallback. Do not probe every Tee
+    in the release: a cold first package normally has no entries at all for this physical hole.
+    """
+    gid, hole = int(global_id), int(local_hole)
+    revision = str(coverage.get("geometryRevision") or "")
+    if coverage.get("coverage") != "ready" or not revision:
+        return None
+    paths = list((_CACHE_DIR / str(gid)).glob(f"h{hole:02d}-*.json"))
+    if not paths:
+        return None
+    geometry_sig = prep_cache._requested_geometry_sig(gid, [hole])
+    course_sig = prep_cache._course_data_sig(gid)
+    candidates = []
+    for path in paths:
+        try:
+            stored = json.loads(path.read_text())
+            row = stored["hole"]
+            tee_set = row.get("teeSet")
+            signature = (_VERSION, revision, tee_set, geometry_sig, course_sig)
+            token = hashlib.sha256(json.dumps(signature, sort_keys=True).encode()).hexdigest()[:32]
+            if (stored.get("schema") == _VERSION and stored.get("geometryRevision") == revision
+                    and path.name == f"h{hole:02d}-{token}.json"):
+                candidates.append(row)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            continue
+    if not candidates:
+        return None
+    # Do not reuse a row if authority changed while the batch was being read.
+    if (prep_cache._requested_geometry_sig(gid, [hole]) != geometry_sig
+            or prep_cache._course_data_sig(gid) != course_sig):
+        return None
+    return min(candidates, key=lambda row: (row.get("teeSet") != preferred_tee,
+                                            str(row.get("teeSet"))))
+
+
 def cached_vector_hole(global_id: int, local_hole: int, *, tee_set: int | None = None,
                        coverage: dict | None = None, build_if_missing: bool = True,
                        use_process_pool: bool = False) -> dict | None:

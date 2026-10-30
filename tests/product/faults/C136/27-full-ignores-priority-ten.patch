@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/caddie/mobile_live.py b/ai_caddie/caddie/mobile_live.py
+--- a/ai_caddie/caddie/mobile_live.py
++++ b/ai_caddie/caddie/mobile_live.py
+@@ -1482,7 +1482,7 @@
+     if ladder:
+         prep_kwargs["ladder"] = ladder
+     selected_tee_box = str(course.get("teeBox") or "").strip()
+-    current = next((row for row in holes if _safe_int(row.get("number")) == priority_hole), None)
++    current = next((row for row in holes if _safe_int(row.get("number")) == 1), None)
+     current_source = (
+         (_safe_int(current.get("sourceGlobalId") or course.get("globalId")),
+          _safe_int(current.get("sourceLocalHole") or current.get("number")))

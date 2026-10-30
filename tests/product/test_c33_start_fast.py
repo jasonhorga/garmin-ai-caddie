@@ -513,10 +513,10 @@ class ReworkContractTests(unittest.TestCase):
                          'surfaces': [{'kind': 'Fairway', 'polygons': []}]}}}
         package = {'course': {'globalId': 123, 'teeBox': 'white'}, 'clubProfiles': [],
                    'holes': [{'number': 1, 'sourceGlobalId': 123, 'sourceLocalHole': 1}]}
-        with (patch('ai_caddie.core.data.mesh_path', return_value=Path(__file__)),
-              patch('ai_caddie.caddie.analysis.tee_set_for_box', side_effect=lambda gid, box, **kw: 4 if box == 'white' else 2),
-              patch('ai_caddie.courses.vector_prep.cached_vector_hole', side_effect=lambda *a, **kw: route if kw.get('tee_set') == 2 else None),
-              patch.object(ml.course_prep, 'lightweight_prep_hole', return_value=None)):
+        with selected_tee_fixture_course() as (_mobile, vp, cp, _root, _jobs):
+            route['teeSet'] = 2
+            with patch.object(cp, 'precise_route_seed_hole', return_value=route):
+                vp.cached_vector_hole(123, 1, tee_set=2)
             result = ml.first_hole_lightweight_course_prep(package, map_only=True)
         self.assertIsNone(result['holes'][0].get('route'))  # C33 P1: map geometry may be reused, route facts may not.
         self.assertNotIn('greenDistances', result['holes'][0])
@@ -550,17 +550,12 @@ class ReworkContractTests(unittest.TestCase):
                  'greenDistances': {'middleM': 300.0}, 'teeSet': 5}
         package = {'course': {'globalId': 123, 'teeBox': 'white'}, 'clubProfiles': [],
                    'holes': [{'number': 1, 'sourceGlobalId': 123, 'sourceLocalHole': 1}]}
-        with (
-            patch('ai_caddie.core.data.mesh_path', return_value=Path(__file__)),
-            patch('ai_caddie.caddie.mobile_live._load_mobile_hazards', return_value={
-                'globalId': 123, 'tees': [{'sets': [4]}, {'sets': [5]}],
-            }),
-            patch('ai_caddie.caddie.analysis.tee_set_for_box', side_effect=lambda gid, box, **kw: 4 if box == 'white' else 2),
-            patch('ai_caddie.courses.vector_prep.cached_vector_hole',
-                  side_effect=lambda *a, **kw: route if kw.get('tee_set') == 5 else None),
-            patch.object(ml.course_prep, 'lightweight_prep_hole', return_value=None),
-        ):
-            result = ml.first_hole_lightweight_course_prep(package, map_only=True)
+        with selected_tee_fixture_course() as (_mobile, vp, cp, _root, _jobs):
+            with patch.object(cp, 'precise_route_seed_hole', return_value=route):
+                vp.cached_vector_hole(123, 1, tee_set=5)
+            with patch.object(ml, '_load_mobile_hazards', return_value={
+                    'globalId': 123, 'tees': [{'sets': [3]}, {'sets': [5]}]}):
+                result = ml.first_hole_lightweight_course_prep(package, map_only=True)
         self.assertIsNotNone(result)
         self.assertIsNone(result['holes'][0].get('route'))
         self.assertNotIn('greenDistances', result['holes'][0])
@@ -601,6 +596,35 @@ class ReworkContractTests(unittest.TestCase):
             result = ml.first_hole_lightweight_course_prep(package, map_only=False, priority_hole=1)
         self.assertEqual(result['holes'][0]['greenDistances']['middleM'], 344.0)
         self.assertFalse(precise_seed.called, 'package delegates to the persistent vector builder')
+
+    def test_j4_2_map_only_cache_queries_are_bounded_per_physical_hole(self):
+        """J4.2: a cold map checks each hole once, independent of how many Tee sets exist."""
+        from ai_caddie.caddie import mobile_live as ml
+        with selected_tee_fixture_course() as (_mobile, vp, _cp, _root, _jobs):
+            package = {"course": {"globalId": 123, "teeBox": "white"}, "clubProfiles": [],
+                       "holes": [{"number": n, "sourceGlobalId": 123, "sourceLocalHole": n}
+                                 for n in range(1, 19)]}
+            with (patch.object(ml, '_load_mobile_hazards', return_value={
+                    'tees': [{'sets': [n]} for n in range(1, 9)]}),
+                  patch.object(vp, 'cached_vector_hole', wraps=vp.cached_vector_hole) as cache,
+                  patch.object(vp, 'geometry_coverage_for_hole', wraps=vp.geometry_coverage_for_hole) as cache_coverage,
+                  patch.object(ml, 'geometry_coverage_for_hole', wraps=ml.geometry_coverage_for_hole) as coverage):
+                ml.first_hole_lightweight_course_prep(package, map_only=True, priority_hole=10)
+            self.assertEqual(cache.call_count, 18, "one selected-Tee lookup per physical hole")
+            self.assertEqual(coverage.call_count + cache_coverage.call_count, 18,
+                             "coverage is shared by cache, fallback and pending classification")
+
+    def test_j4_4_full_package_synchronously_builds_requested_tenth_hole(self):
+        """J4.2/J4.4: a round starting at 10 warms that playing hole, never default hole 1."""
+        with selected_tee_fixture_course() as (mobile, _vp, cp, _root, jobs):
+            with patch.object(cp, 'precise_route_seed_hole', wraps=cp.precise_route_seed_hole) as build:
+                package = mobile.build_mobile_course_package_response(
+                    123, tee_box='white', loops=[(123, 'front'), (123, 'back')],
+                    priority_hole=10, include_event_cursor=False)
+            self.assertEqual(build.call_count, 1)
+            self.assertEqual(build.call_args.args, (123, 10))
+            self.assertEqual([h['hole'] for h in package.coursePrep['holes']], [10])
+            self.assertEqual(len(jobs), 17)
 
     def test_j4_4_cold_full_selected_tee_bounds_work_and_persists_exact_distances(self):
         """J4.2/J4.4: one requested hole may build now; the other 17 must not hold the package."""

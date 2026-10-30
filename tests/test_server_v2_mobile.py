@@ -27,41 +27,29 @@ from tests.event_log_io import count_log_reads
 class ServerV2MobileTests(unittest.TestCase):
     def test_mobile_course_package_keeps_selected_vector_pending_after_background_enqueue(self) -> None:
         """J4.4: the HTTP route exposes retryable selected-Tee work to the client."""
-        from server_v2 import main as server_main
-        from ai_caddie.courses import vector_prep
+        from server_v2 import main as server_main, map_startup
+        from tests.product.test_c33_start_fast import selected_tee_fixture_course
 
-        package = SimpleNamespace(
-            course={"globalId": 31832},
-            holes=[{
-                "number": 1,
-                "sourceGlobalId": 31832,
-                "sourceLocalHole": 1,
-                "geometryCoverage": "partial",
-                "geometryState": "unavailable",
-                "retryAfterEpoch": None,
-            }],
-        )
-        key = (str(vector_prep._CACHE_DIR), 31832, 1, 2)
-        in_flight = SimpleNamespace(done=lambda: False)
         with (
-            patch.object(server_main, "build_mobile_course_package_response", return_value=package),
+            selected_tee_fixture_course() as (_mobile, vp, _cp, _root, jobs),
             patch.object(server_main.course_install, "enqueue", return_value={"phase": "queued"}),
-            patch.dict(vector_prep._VECTOR_FUTURES, {key: in_flight}, clear=True),
+            patch.object(map_startup, "prepare_priority_hole", return_value={}),
+            patch.object(vp, "cached_vector_hole", wraps=vp.cached_vector_hole) as read,
         ):
             actual = server_main.mobile_course_package(
-                31832,
-                background_tasks=BackgroundTasks(),
-                background_geometry=True,
-                map_only=True,
-                include_event_cursor=False,
-                priority_hole=1,
-                loops="31832:all",
-                tee_box="white",
-                player_id="fixture-player",
+                123, background_tasks=BackgroundTasks(), background_geometry=True,
+                map_only=True, include_event_cursor=False, priority_hole=10,
+                loops="123:front,123:back", tee_box="white", player_id="fixture-player",
             )
+            self.assertEqual(len(jobs), 18, "the real enqueue schedules every cold selected Tee")
+            self.assertEqual(len(actual.holes), 18)
+            self.assertTrue(all(h["geometryState"] == "pending" for h in actual.holes))
+            import time
+            self.assertTrue(all(h["retryAfterEpoch"] > time.time() for h in actual.holes))
+            self.assertTrue(read.called)
+            self.assertTrue(all(c.kwargs.get("build_if_missing") is False for c in read.call_args_list),
+                            "J4.2 map-only must never synchronously build even priority hole 10")
 
-        self.assertEqual(actual.holes[0]["geometryState"], "pending")
-        self.assertGreater(actual.holes[0]["retryAfterEpoch"], 0)
 
     def test_mobile_event_store_corrupt_logs_generic_warning(self) -> None:
         """J7.3: non-intent event-store corruption uses a generic warning."""

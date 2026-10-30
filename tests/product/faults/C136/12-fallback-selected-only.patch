@@ -1,21 +1,13 @@
---- a/ai_caddie/caddie/mobile_live.py
-+++ b/ai_caddie/caddie/mobile_live.py
-@@ -1427,18 +1427,10 @@
-         # inspect; all displayed Tee facts still come from the selected resolver.
-         blue_set = tee_set_for_box(global_id, "blue", colour_fallback=True)
-     for value in (selected_set, blue_set):
-         if value is not None and value not in candidates:
-             candidates.append(value)
--    for row in (hazards or {}).get("tees") or []:
--        for raw in row.get("sets") or [] if isinstance(row, dict) else ():
--            try:
--                value = int(raw)
--            except (TypeError, ValueError):
--                continue
--            if value not in candidates:
--                candidates.append(value)
-     for tee_set in candidates:
-         try:
-             vector = cached_vector_hole(
-                 int(global_id), int(local_hole), tee_set=tee_set, build_if_missing=False
-             )
+diff --git a/ai_caddie/courses/vector_prep.py b/ai_caddie/courses/vector_prep.py
+--- a/ai_caddie/courses/vector_prep.py
++++ b/ai_caddie/courses/vector_prep.py
+@@ -159,6 +159,9 @@
+     # Do not reuse a row if authority changed while the batch was being read.
+     if (prep_cache._requested_geometry_sig(gid, [hole]) != geometry_sig
+             or prep_cache._course_data_sig(gid) != course_sig):
++        return None
++    candidates = [row for row in candidates if row.get("teeSet") == preferred_tee]
++    if not candidates:
+         return None
+     return min(candidates, key=lambda row: (row.get("teeSet") != preferred_tee,
+                                             str(row.get("teeSet"))))

@@ -595,6 +595,7 @@ final class LiveHoleDecisionProbe {
     var offlineRequest: (() -> CaddieDecisionRequest?)?
     var mapTargetDistance: (() -> Double?)?
     var setTarget: ((CGPoint?) -> Void)?
+    var setCoordinate: ((CLLocationCoordinate2D?) -> Void)?
     var clientUnavailable = false
 }
 #endif
@@ -635,6 +636,7 @@ public struct CurrentHoleView: View {
         decisionProbe.offlineRequest = { makeOfflineCaddieDecisionRequest() }
         decisionProbe.mapTargetDistance = { mapTargetDistanceMetres }
         decisionProbe.setTarget = { targetPixel = $0 }
+        decisionProbe.setCoordinate = { currentCoordinate = $0 }
         currentCoordinate = locationProvider.latestFix?.coordinate
     }
 
@@ -5916,15 +5918,8 @@ public struct CurrentHoleView: View {
                 shotType: selectedShotType,
                 // Preserve the API's straight-distance semantics on the hole. Off-hole tee
                 // requests still plan from manual/static facts rather than the clubhouse GPS.
-                distanceToPinM: Self.caddiePlanningDistanceMetres(
-                    recordedShotCount: recordedNonPuttShotCount,
-                    hasLeftSelectedTee: hasLeftSelectedTee,
-                    manualM: distanceToPinMetres,
-                    isTeeShotOffTheHole: isTeeShotOffTheHole, routeRemainingM: nil,
-                    liveMiddleM: liveGreenMetres?.middle,
-                    staticMiddleM: liveGreenDistances?.middleM, holeYards: hole.yards,
-                    pinM: greenPinDistanceMetres, shotType: selectedShotType
-                ),
+                distanceToPinM: (recordedNonPuttShotCount == 0 && !hasLeftSelectedTee) || isTeeShotOffTheHole
+                    ? caddiePlanningDistanceMetres : effectiveDistanceToPinMetres,
                 lie: selectedLie,
                 coordinate: caddieRequestCoordinate,
                 // Keep the flag coordinate in the server contract: the decision service uses it

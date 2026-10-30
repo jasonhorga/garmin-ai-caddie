@@ -885,6 +885,35 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertFalse(model.package?.clubProfiles.isEmpty ?? true)
     }
 
+    /// J4.2: the deferred personal package follows the playing hole even when starting on 10.
+    func testPersonalEnrichmentRequestCarriesCurrentTenthHole() async throws {
+        let host = "j4-personal-tenth.example.test"
+        let roundId = "j4-personal-tenth"
+        let template = try package(roundId: roundId, mapOnly: true)
+        let map = try XCTUnwrap(LiveRoundPackage.projecting(
+            [.init(globalId: c85CourseId, half: "front"), .init(globalId: c85CourseId, half: "front")],
+            templates: [c85CourseId: template], roundId: roundId
+        ))
+        let fullSent = expectation(description: "personal package for playing hole 10")
+        let once = C33FirstMatch()
+        let log = C85RequestLog()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host,
+                  proto.request.url?.path == "/api/v2/mobile/courses/\(c85CourseId)/package",
+                  c33Query(proto.request, "map_only") != "true" else { proto.reply(404); return }
+            log.append(proto.request)
+            if once.claim() { fullSent.fulfill() }
+            proto.reply(503)
+        })
+        let fixture = makeModel(host: host)
+        fixture.model.enterPrepMode(with: map, hole: 10)
+        XCTAssertTrue(fixture.model.startRoundFromFirstStroke(startHole: 10))
+        await fulfillment(of: [fullSent], timeout: eventWait)
+        XCTAssertEqual(fixture.model.liveRoundState?.activeHole, 10)
+        XCTAssertEqual(log.all.first.flatMap { c33Query($0, "priority_hole") }, "10",
+                       "J4.2 enrichment must warm the playing hole, not default hole 1")
+    }
+
     /// The fallback behind the hook: once a test has invalidated the client, a request fails with
     /// `CancellationError` instead of creating a task in the invalidated session (NSGenericException).
     func testAnInvalidatedClientRefusesRequestsBeforeTheSession() async throws {

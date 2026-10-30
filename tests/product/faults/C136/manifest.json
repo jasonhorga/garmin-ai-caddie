@@ -28,6 +28,48 @@
       "kind": "python",
       "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_selected_vector_uses_selected_course_priority",
       "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-22",
+      "patch": "tests/product/faults/C136/22-vector-provider-unregistered.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_mobile_course_package_keeps_selected_vector_pending_after_background_enqueue",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-23",
+      "patch": "tests/product/faults/C136/23-vector-future-not-recorded.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_mobile_course_package_keeps_selected_vector_pending_after_background_enqueue",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C136-24",
+      "patch": "tests/product/faults/C136/24-map-probes-every-tee.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_2_map_only_cache_queries_are_bounded_per_physical_hole",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C136-25",
+      "patch": "tests/product/faults/C136/25-map-only-builds-current-hole.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_mobile_course_package_keeps_selected_vector_pending_after_background_enqueue",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C136-26",
+      "patch": "tests/product/faults/C136/26-enrichment-omits-priority-hole.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testPersonalEnrichmentRequestCarriesCurrentTenthHole",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C136-27",
+      "patch": "tests/product/faults/C136/27-full-ignores-priority-ten.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_full_package_synchronously_builds_requested_tenth_hole",
+      "promise": "J4.2"
     }
   ]
 }

@@ -3793,7 +3793,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("lie: selectedLie", current_hole)
         # The caddie plans from the live position, except before the tee shot while the player is off
         # the hole (2026-10-10: a tee shot was planned from the clubhouse).
-        self.assertIn("distanceToPinM: caddiePlanningDistanceMetres", current_hole)
         self.assertIn("static let offHoleMetres = 75.0", current_hole)
         self.assertIn("requestedOptionId: caddieOptionId(forStrategyMode: requestStrategyMode)", current_hole)
         # B1c: the main map publishes the Touch Target through the same coordinate / pixel handlers.

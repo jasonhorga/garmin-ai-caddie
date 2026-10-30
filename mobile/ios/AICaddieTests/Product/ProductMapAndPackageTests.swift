@@ -826,32 +826,36 @@ final class ProductMapAndPackageTests: XCTestCase {
         let firstFrame = LiveCaddieInput.firstFrameTee(greenDistances: prep.greenDistances, holeYards: hole.yards)
         XCTAssertEqual(firstFrame.distanceToPinM, prep.greenDistances?.middleM)
         XCTAssertEqual(
-            CurrentHoleView.planningDistanceForCaddie(
-                recordedShotCount: 0, hasLeftSelectedTee: true, manualM: nil,
+            CurrentHoleView.caddiePlanningDistanceMetres(
+                recordedShotCount: 0, hasLeftSelectedTee: false, manualM: nil,
+                isTeeShotOffTheHole: false, routeRemainingM: nil,
                 liveMiddleM: 999, staticMiddleM: prep.greenDistances?.middleM, holeYards: hole.yards
             ),
             prep.greenDistances?.middleM,
             "J5.4 opening planning uses the selected-Tee static middle"
         )
         XCTAssertEqual(
-            CurrentHoleView.planningDistanceForCaddie(
+            CurrentHoleView.caddiePlanningDistanceMetres(
                 recordedShotCount: 1, hasLeftSelectedTee: false, manualM: 214,
+                isTeeShotOffTheHole: false, routeRemainingM: nil,
                 liveMiddleM: 999, staticMiddleM: prep.greenDistances?.middleM, holeYards: hole.yards
             ),
             214,
             "J5.4 Touch Target distance wins after the first stroke"
         )
         XCTAssertEqual(
-            CurrentHoleView.planningDistanceForCaddie(
+            CurrentHoleView.caddiePlanningDistanceMetres(
                 recordedShotCount: 1, hasLeftSelectedTee: false, manualM: 188,
+                isTeeShotOffTheHole: false, routeRemainingM: nil,
                 liveMiddleM: 999, staticMiddleM: prep.greenDistances?.middleM, holeYards: hole.yards
             ),
             188,
             "J5.4 a dragged flag updates planning distance"
         )
         XCTAssertEqual(
-            CurrentHoleView.planningDistanceForCaddie(
+            CurrentHoleView.caddiePlanningDistanceMetres(
                 recordedShotCount: 0, hasLeftSelectedTee: true, manualM: nil,
+                isTeeShotOffTheHole: false, routeRemainingM: nil,
                 liveMiddleM: 205, staticMiddleM: prep.greenDistances?.middleM, holeYards: hole.yards
             ),
             205,
@@ -966,8 +970,8 @@ final class ProductMapAndPackageTests: XCTestCase {
         ))
         defer { targetHost.window.isHidden = true; targetHost.window.rootViewController = nil }
         XCTAssertEqual(try XCTUnwrap(targetHost.controller.rootView.caddiePlanningDistanceForTesting()),
-                       GeoDistance.haversineMetres(tee.latitude, tee.longitude, target.latitude, target.longitude), accuracy: 0.01,
-                       "J5.4 Touch Target remains the post-shot planning source")
+                       liveMiddle, accuracy: 0.01,
+                       "J5.4/C164b opening Touch Target is display-only; request keeps selected-Tee middle")
         XCTAssertEqual(targetHost.controller.rootView.displayedTargetYardsForTesting(),
                        CoursePrepRoute.yards(fromMetres: GeoDistance.haversineMetres(
                            tee.latitude, tee.longitude, target.latitude, target.longitude)),
@@ -988,8 +992,8 @@ final class ProductMapAndPackageTests: XCTestCase {
         ))
         defer { pinHost.window.isHidden = true; pinHost.window.rootViewController = nil }
         XCTAssertEqual(try XCTUnwrap(pinHost.controller.rootView.caddiePlanningDistanceForTesting()),
-                       GeoDistance.haversineMetres(tee.latitude, tee.longitude, pin.latitude, pin.longitude), accuracy: 0.01,
-                       "J5.4 dragging the flag updates the post-shot planning source")
+                       liveMiddle, accuracy: 0.01,
+                       "J5.4/C164b before tee shot, the moved flag does not replace static middle")
 
         XCTAssertEqual(
             LiveGreenRangePresentation.resolve(

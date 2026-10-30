@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/courses/vector_prep.py b/ai_caddie/courses/vector_prep.py
+--- a/ai_caddie/courses/vector_prep.py
++++ b/ai_caddie/courses/vector_prep.py
+@@ -86,7 +86,7 @@
+         ("selected-tee-vector",) + key, build, priority=SELECTED_COURSE,
+     )
+     with _VECTOR_FUTURES_LOCK:
+-        _VECTOR_FUTURES[key] = future
++        pass
+     future.add_done_callback(lambda completed, key=key: _forget_vector_future(key, completed))
+
+ 

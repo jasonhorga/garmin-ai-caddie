@@ -1,0 +1,41 @@
+diff --git a/ai_caddie/caddie/mobile_live.py b/ai_caddie/caddie/mobile_live.py
+--- a/ai_caddie/caddie/mobile_live.py
++++ b/ai_caddie/caddie/mobile_live.py
+@@ -1444,11 +1444,35 @@
+     never masquerade as the selected Tee's facts.
+     """
+     from ai_caddie.caddie.analysis import resolve_selected_tee_set, tee_set_for_box
++    from ai_caddie.courses.vector_prep import cached_vector_hole
++    candidates: list[int] = []
+     blue_set = resolve_selected_tee_set(hazards, "blue", global_id=global_id)
+     if blue_set is None:
++        # Older/fixture hazard exports may omit Tee rows even though a durable
++        # Blue vector is present. This lookup only chooses which cache entry to
++        # inspect; all displayed Tee facts still come from the selected resolver.
+         blue_set = tee_set_for_box(global_id, "blue", colour_fallback=True)
+-    from ai_caddie.courses.vector_prep import cached_map_vector_hole
+-    return cached_map_vector_hole(global_id, local_hole, coverage=coverage, preferred_tee=blue_set)
++    for value in (selected_set, blue_set):
++        if value is not None and value not in candidates:
++            candidates.append(value)
++    for row in (hazards or {}).get("tees") or []:
++        for raw in row.get("sets") or [] if isinstance(row, dict) else ():
++            try:
++                value = int(raw)
++            except (TypeError, ValueError):
++                continue
++            if value not in candidates:
++                candidates.append(value)
++    for tee_set in candidates:
++        try:
++            vector = cached_vector_hole(
++                int(global_id), int(local_hole), tee_set=tee_set, build_if_missing=False
++            )
++        except Exception:
++            vector = None
++        if isinstance(vector, dict):
++            return vector
++    return None
+
+ 
+ def first_hole_lightweight_course_prep(

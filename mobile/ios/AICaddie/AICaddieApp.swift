@@ -2359,7 +2359,7 @@ public final class LiveRoundAppModel: ObservableObject {
                       let self,
                       self.isAwaitingRoundEnrichment(roundId) else { break }
                 do {
-                    // The same request the start used to wait for, now behind hole 1.
+                    // The same request the start used to wait for, now behind the playing hole.
                     let full = try await syncClient.fetchCoursePackage(
                         globalId: globalId,
                         roundId: roundId,
@@ -2369,7 +2369,8 @@ public final class LiveRoundAppModel: ObservableObject {
                         ensureGeometry: false,
                         backgroundGeometry: true,
                         includeEventCursor: false,
-                        requestKind: .background
+                        requestKind: .background,
+                        priorityHole: self.liveRoundState?.activeHole ?? snapshot.holes.first?.number
                     )
                     guard !Task.isCancelled else { break }
                     if self.mergeRoundEnrichment(full) { break }

@@ -1,10 +1,12 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 --- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 +++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -3830,7 +3830,6 @@
-     /// keep both the static planning distance and the no-coordinate request behavior.
-     private var hasLeftSelectedTee: Bool {
-         guard recordedNonPuttShotCount == 0,
--              !isTeeShotOffTheHole,
-               let fix = currentCoordinateForLogic,
-               let tee = teeAnchorCoordinate else { return false }
-         let distance = GeoDistance.haversineMetres(
+@@ -4028,7 +4028,7 @@
+             guard point.count >= 2 else { return nil }
+             return liveCoordinate(forOverlayPixel: CGPoint(x: point[0], y: point[1]))
+         }
+-        return Self.isTeeShotOffTheHole(
++        return false && Self.isTeeShotOffTheHole(
+             shotsRecorded: recordedNonPuttShotCount,
+             shotType: selectedShotType,
+             fix: currentCoordinateForLogic,
