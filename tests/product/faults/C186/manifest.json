@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C186-01-teardown-before-worker",
+      "patch": "tests/product/faults/C186/01-teardown-before-worker.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkPreemptionTests.test_J42_preemption_fixture_keeps_files_and_patches_until_workers_finish",
+      "promise": "4.2"
+    },
+    {
+      "id": "C186-02-late-reconcile-wins",
+      "patch": "tests/product/faults/C186/02-late-reconcile-wins.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.InstallSupplementTests.test_J42_late_running_observation_cannot_undo_completed_install",
+      "promise": "4.2"
+    },
+    {
+      "id": "C186-03-running-ignores-identity",
+      "patch": "tests/product/faults/C186/03-running-ignores-identity.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.InstallSupplementTests.test_J42_changed_mesh_or_release_ignores_old_running_and_failure",
+      "promise": "4.2"
+    },
+    {
+      "id": "C186-04-failure-ignores-identity",
+      "patch": "tests/product/faults/C186/04-failure-ignores-identity.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.InstallSupplementTests.test_J42_changed_mesh_or_release_ignores_old_running_and_failure",
+      "promise": "4.2"
+    },
+    {
+      "id": "C186-05-distance-gap-hidden",
+      "patch": "tests/product/faults/C186/05-distance-gap-hidden.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.InstallSupplementTests.test_J42_distance_only_gap_is_reported_and_reopens_completed_install",
+      "promise": "4.2"
+    },
+    {
+      "id": "C186-06-distance-gap-not-repaired",
+      "patch": "tests/product/faults/C186/06-distance-gap-not-repaired.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.InstallSupplementTests.test_J42_distance_only_gap_is_reported_and_reopens_completed_install",
+      "promise": "4.2"
+    },
+    {
+      "id": "C186-07-reconcile-ignores-rebind",
+      "patch": "tests/product/faults/C186/07-reconcile-ignores-rebind.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.InstallSupplementTests.test_J42_old_observation_cannot_attach_to_rebound_map",
+      "promise": "4.2"
+    }
+  ]
+}
