@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C159-r2-06-redaction-after-preview",
+      "patch": "tests/product/faults/C159/06-redaction-after-preview.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_mobile_event_redaction_precedes_decision_string_truncation",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C159-r2-07-far-credential-unbounded",
+      "patch": "tests/product/faults/C159/07-far-credential-unbounded.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_mobile_event_redaction_keeps_far_credentials_bounded_and_appendable",
+      "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C159-r2-08-rollback-keeps-transient-backup",
+      "patch": "tests/product/faults/C159/08-rollback-keeps-transient-backup.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_failure_removes_transient_backup_and_success_backup_is_private",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C159-r2-09-migration-temp-not-cleaned",
+      "patch": "tests/product/faults/C159/09-migration-temp-not-cleaned.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_intent_recovers_after_log_replace",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C159-r2-10-rollback-log-mode",
+      "patch": "tests/product/faults/C159/10-rollback-log-mode.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_intent_recovery_restores_original_log_mode",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C159-r2-11-intent-generic-error",
+      "patch": "tests/product/faults/C159/11-intent-generic-error.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_bad_migration_intent_logs_partition_only",
+      "promise": "7.3"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
+index 42325a8c..b1486afd 100644
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -1046,7 +1046,7 @@ class FileEventStore:
+                         self._restore_file_snapshot(path, snapshots[path])
+                     with _PREFIX_CACHE_LOCK:
+                         _PREFIX_CACHE.pop(str(self.log.resolve()), None)
+-                    if backup_created and backup is not None:
++                    if False and backup_created and backup is not None:
+                         try:
+                             backup.unlink()
+                         except FileNotFoundError:

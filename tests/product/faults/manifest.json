@@ -2121,13 +2121,6 @@
       "kind": "python",
       "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_event_payload_migration_dry_run_and_apply_preserve_identity",
       "promise": "5.9"
-    },
-    {
-      "id": "tests-product-faults-C159-06",
-      "patch": "tests/product/faults/C159/06-redaction-after-preview.patch",
-      "kind": "python",
-      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_mobile_event_redaction_precedes_decision_string_truncation",
-      "promise": "5.9"
     }
   ]
 }

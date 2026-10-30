@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
+index 42325a8c..f0e205b2 100644
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -2144,7 +2144,6 @@ class FileEventStore:
+         raise ValueError("event_commit_store_corrupt") from cause
+ 
+     def _recover_migration_intent_unlocked(self) -> None:
+-        self._clear_migration_temps()
+         try:
+             payload = json.loads(self.migration_intent.read_text(encoding="utf-8"))
+         except (FileNotFoundError, OSError, UnicodeDecodeError, ValueError) as exc:
