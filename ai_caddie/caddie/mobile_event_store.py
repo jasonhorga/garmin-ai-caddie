@@ -1012,10 +1012,6 @@ class FileEventStore:
                     old_marker=old_marker,
                     old_length=len(raw),
                     old_sha256=hashlib.sha256(raw).hexdigest(),
-                    old_log_mode=(
-                        stat.S_IMODE(snapshots[self.log][1].st_mode)
-                        if snapshots[self.log][1] is not None else 0o600
-                    ),
                     backup=backup,
                     new_marker=new_marker,
                 )
@@ -2087,7 +2083,7 @@ class FileEventStore:
         old_marker: _CommitMarker,
         old_length: int,
         old_sha256: str,
-        old_log_mode: int,
+        old_log_mode: int | None = None,
         backup: Path,
         new_marker: _CommitMarker,
     ) -> None:
@@ -2100,7 +2096,11 @@ class FileEventStore:
                 "oldLegacyBaselineByteLength": old_marker.legacy_baseline_byte_length,
                 "oldLogByteLength": old_length,
                 "oldLogSha256": old_sha256,
-                "oldLogMode": old_log_mode,
+                "oldLogMode": (
+                    old_log_mode
+                    if old_log_mode is not None
+                    else stat.S_IMODE(self.log.stat().st_mode)
+                ),
                 "backupPath": backup.name,
                 "newCommittedByteLength": new_marker.committed_byte_length,
                 "newCommittedPrefixSha256": new_marker.committed_prefix_sha256,
