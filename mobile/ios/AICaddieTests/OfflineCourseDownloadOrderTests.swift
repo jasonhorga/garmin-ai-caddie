@@ -59,6 +59,6 @@ final class OfflineCourseDownloadOrderTests: XCTestCase {
             from: JSONSerialization.data(withJSONObject: legacy)
         )
         XCTAssertFalse(decoded.isIntentPrefetch)
-        XCTAssertEqual(decoded.id, row.id)
+        XCTAssertEqual(decoded.id, PrepCourseDownloadRecord.key(globalId: 7, teeBox: "blue"))
     }
 }

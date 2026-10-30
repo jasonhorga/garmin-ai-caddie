@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C134-r14-live-topo-status",
+      "patch": "tests/product/faults/C134/r14-live-topo-status.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testLiveTopoRetryDoesNotRepeatInstallStatus",
+      "promise": "J4.2 C134-r14"
+    },
+    {
+      "id": "tests-product-faults-C134-r14-replacement-entry-status",
+      "patch": "tests/product/faults/C134/r14-replacement-entry-status.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testPrepStatusProbeFailsThreeTimesThenCanRetryAndClearFailure",
+      "promise": "J4.2 C134-r14"
+    },
+    {
+      "id": "tests-product-faults-C134-r14-replacement-geometry-status",
+      "patch": "tests/product/faults/C134/r14-replacement-geometry-status.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testPrepStatusProbeFailsThreeTimesThenCanRetryAndClearFailure",
+      "promise": "J4.2 C134-r14"
+    },
+    {
+      "id": "tests-product-faults-C134-r14-replacement-topo-status",
+      "patch": "tests/product/faults/C134/r14-replacement-topo-status.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testReplacementDownloadWaitsForServerTopoReadyBeforeFetchingTopoBytes",
+      "promise": "J4.2 C134-r14"
+    },
+    {
+      "id": "tests-product-faults-C134-r14-oncancel-noop",
+      "patch": "tests/product/faults/C134/r14-oncancel-noop.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testClosingPrepCancelsTheIntentWaitBeforeTheProducerReturns",
+      "promise": "J4.2 C134-r14"
+    },
+    {
+      "id": "tests-product-faults-C134-r14-failed-journal-keeps-polling",
+      "patch": "tests/product/faults/C134/r14-failed-journal-keeps-polling.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testPrepDownloadStopsPollingWhenServerTopoJournalFails",
+      "promise": "J4.2 C134-r14"
+    }
+  ]
+}

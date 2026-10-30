@@ -90,6 +90,7 @@ public struct StartRoundView: View {
     @State private var nearbyStatusText: String?
     @State private var nearbyDiscoveryFailed = false
     @State private var nearbyRetryToken = 0
+    @State private var announcedIntentKeys = Set<String>()
     @State private var teeRequestToken: UUID?
     @State private var nearbyRequestToken: UUID?
     @State private var page: Page
@@ -203,13 +204,14 @@ public struct StartRoundView: View {
         self._roundId = State(initialValue: selected.map {
             Self.freshLiveRoundId(globalId: $0.globalId)
         } ?? defaultRoundId)
-        self._teeBox = State(initialValue: Self.initialTee(
+        let initialTee = Self.initialTee(
             callerTee: selected.flatMap {
                 Self.lastUsedTeeForCourse(for: $0, recent: recentCourseOption, caller: selected, callerTee: defaultTeeBox)
             } ?? "",
             offered: selected?.tees ?? [],
             courseTee: selected?.teeBox
-        ))
+        )
+        self._teeBox = State(initialValue: initialTee.isEmpty ? "unknown" : initialTee)
         // A fixture's tee rows for the preselected course (the same rows onLoadCourseTees returns),
         // so the first render already shows each tee's yards; the tee task then refreshes them.
         self._fetchedTees = State(initialValue: initialCourseTees)
@@ -231,13 +233,9 @@ public struct StartRoundView: View {
     private var canStart: Bool {
         Self.isStartAllowed(
             isPreparing: isPreparing,
-            isLoadingTees: isLoadingTees,
             roundId: roundId,
             courseGlobalId: courseGlobalId,
-            teeBox: teeBox,
-            selectedCourseRequiresRemoteTees: selectedCourseRequiresRemoteTees,
-            teeOptions: teeOptions,
-            selectedCourseWasManualSearch: selectedCourseWasManualSearch
+            teeBox: teeBox
         )
     }
 
@@ -267,29 +265,20 @@ public struct StartRoundView: View {
         return .retry
     }
 
-    /// The primary action is independent of GPS. A manually searched course has explicit player
-    /// intent and may enter the map with any chosen Tee while Tee authority continues in the
-    /// background. Any course may start on the server's course default (`unknown`) while `/tees`
-    /// loads (C87); a concrete colour still waits for the Tee list that names it.
+    /// The primary action is independent of GPS and `/tees` latency. A concrete Tee carried by a
+    /// nearby/search/cache row is already a usable request value; a missing authority uses the
+    /// server's course default (`unknown`) while the Tee list continues in the background.
     static func isStartAllowed(
         isPreparing: Bool,
-        isLoadingTees: Bool,
         roundId: String,
         courseGlobalId: Int?,
-        teeBox: String,
-        selectedCourseRequiresRemoteTees: Bool,
-        teeOptions: [String],
-        selectedCourseWasManualSearch: Bool
+        teeBox: String
     ) -> Bool {
         let tee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
-        let startsWithoutTeeList = (selectedCourseWasManualSearch && !tee.isEmpty)
-            || tee.caseInsensitiveCompare("unknown") == .orderedSame
         return !isPreparing
-            && (startsWithoutTeeList || !isLoadingTees)
             && !roundId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && courseGlobalId != nil
             && !tee.isEmpty
-            && (!selectedCourseRequiresRemoteTees || !teeOptions.isEmpty || startsWithoutTeeList)
     }
 
     private static let surface = Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255)
@@ -389,7 +378,7 @@ public struct StartRoundView: View {
     }
 
     @ViewBuilder private var downloadSection: some View {
-        let rows = prepCourseDownloads.filter { !$0.isSpeculative }
+        let rows = StartRoundPresentation.offlineRows(prepCourseDownloads)
         if !rows.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 Text("离线球场").font(.footnote.weight(.bold)).foregroundStyle(.secondary)
@@ -404,13 +393,19 @@ public struct StartRoundView: View {
                         }
                         Spacer()
                         if row.phase == .failed {
-                            Button("重试") { onRetryPrepCourseDownload(row.id) }
-                                .buttonStyle(.bordered)
+                            Button("重试") {
+                                for failed in Self.offlineActionRecords(for: row, in: prepCourseDownloads, retrying: true) {
+                                    onRetryPrepCourseDownload(failed.id)
+                                }
+                            }
+                            .buttonStyle(.bordered)
                         } else if row.phase != .ready {
                             Button(row.phase == .queued ? "下载" : "继续下载") {
-                                onDownloadPrepCourse(row.course.replacingTeeBox(row.teeBox))
+                                for pending in Self.offlineActionRecords(for: row, in: prepCourseDownloads, retrying: false) {
+                                    onDownloadPrepCourse(pending.course.replacingTeeBox(pending.teeBox))
+                                }
                             }
-                                .buttonStyle(.bordered)
+                            .buttonStyle(.bordered)
                         }
                     }
                     .padding(.vertical, 4)
@@ -426,7 +421,30 @@ public struct StartRoundView: View {
         }
     }
 
+    static func offlineActionRecords(
+        for row: PrepCourseDownloadRecord,
+        in downloads: [PrepCourseDownloadRecord],
+        retrying: Bool
+    ) -> [PrepCourseDownloadRecord] {
+        downloads
+            .filter { candidate in
+                !candidate.isSpeculative
+                    && !candidate.isIntentPrefetch
+                    && !(candidate.isRoundPrefetch && candidate.phase != .ready)
+                    && candidate.teeBox.caseInsensitiveCompare(row.teeBox) == .orderedSame
+                    && samePhysicalVenue(candidate.course, row.course)
+                    && (retrying ? candidate.phase == .failed : candidate.phase != .ready)
+            }
+            .sorted { lhs, rhs in
+                lhs.course.globalId < rhs.course.globalId
+            }
+    }
+
     private func downloadStatus(_ row: PrepCourseDownloadRecord) -> String {
+        if let message = row.errorText,
+           row.phase == .preparing || row.phase == .downloading || row.phase == .queued {
+            return message
+        }
         switch row.phase {
         case .queued: return "等待下载"
         case .preparing: return "正在准备"
@@ -441,20 +459,23 @@ public struct StartRoundView: View {
     }
 
     /// The course and Tee Start would use, once the Tee request has settled; empty while there is
-    /// none or a round is being prepared.
+    /// none or a round is being prepared. A concrete/default Tee is enough to announce intent;
+    /// `/tees` may continue in the background and replace the default when it arrives.
     private var courseIntentKey: String {
-        guard !isLoadingTees, !isPreparing, let globalId = courseGlobalId, globalId > 0 else { return "" }
+        guard !isPreparing, let globalId = courseGlobalId, globalId > 0 else { return "" }
         let tee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !tee.isEmpty else { return "" }
         return "\(globalId):\(tee.lowercased())"
     }
 
-    /// Hand the settled selection to the app's whole-course prefetch. A short pause lets a player
-    /// tapping through the list settle first; changing course or Tee cancels it (`.task(id:)`).
+    /// Hand the selected venue to the app's map-only prefetch immediately. Changing course or Tee
+    /// cancels the old task (`.task(id:)`), so a tap never waits for Tee authority or a debounce.
     private func announceCourseIntent() async {
         guard !courseIntentKey.isEmpty else { return }
-        try? await Task.sleep(nanoseconds: 1_500_000_000)
         guard !Task.isCancelled, !courseIntentKey.isEmpty else { return }
+        guard let globalId = courseGlobalId else { return }
+        let intentKey = "\(globalId):\(teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+        guard announcedIntentKeys.insert(intentKey).inserted else { return }
         onCourseIntent(selectedVenueLoops, teeBox)
     }
 
@@ -553,11 +574,33 @@ public struct StartRoundView: View {
     }
 
     /// The venue of the currently selected segment — the single source of truth (no separate state
-    /// that can desync from courseGlobalIdText). Falls back to the top venue when nothing is selected.
+    /// that can desync from courseGlobalIdText). An unavailable id stays blank rather than showing
+    /// the first row's venue, which used to display one course while starting another.
     private var selectedVenueName: String {
-        selectedSegment.map(\.venueDisplayName)
-            ?? courseRows.first?.venue
-            ?? ""
+        Self.selectedVenueName(
+            globalId: courseGlobalId,
+            selectedSegment: selectedSegment,
+            candidates: courseRows.flatMap(\.segments)
+        )
+    }
+
+    /// The setup title follows the persisted selection even during a catalogue refresh that has
+    /// temporarily removed the selected loop from `selectedSegment`.
+    static func selectedVenueName(
+        globalId: Int?,
+        selectedSegment: MobileCourseOption?,
+        candidates: [MobileCourseOption]
+    ) -> String {
+        if let selectedSegment {
+            return courseVenueName(selectedSegment)
+        }
+        // A catalogue refresh can briefly remove the selected loop while its id remains in the
+        // selection state (沙河 31832). Keep the title and the start request tied to that id rather
+        // than falling back to the first nearby venue.
+        guard let globalId else { return "球场" }
+        return candidates
+            .first(where: { $0.globalId == globalId })
+            .map(Self.courseVenueName) ?? "球场"
     }
 
     static func roundDisplayName(
@@ -1514,14 +1557,18 @@ public struct StartRoundView: View {
 
     private var startCard: some View {
         VStack(spacing: 8) {
+            let startBusy = isPreparing || isOpeningPrepCourse || isValidatingPrepCourse
             let failurePresentation = Self.startFailurePresentation(
                 failure: roundStartFailure,
                 selectionMatches: currentRoundStartSelection == roundStartSelection,
                 isPreparing: isPreparing,
                 isOpeningPrep: isOpeningPrepCourse
             )
-            if let roundStartProgressMessage, isPreparing || isOpeningPrepCourse {
-                Text(roundStartProgressMessage)
+            if let progressText = StartRoundPresentation.roundStartProgressText(
+                isBusy: startBusy,
+                message: roundStartProgressMessage
+            ) {
+                Text(progressText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1580,7 +1627,7 @@ public struct StartRoundView: View {
                 Task { await startSelectedCourse() }
             } label: {
                 HStack(spacing: 8) {
-                    if isPreparing || isOpeningPrepCourse || isValidatingPrepCourse {
+                    if startBusy {
                         ProgressView()
                             .tint(.white)
                     }
@@ -1596,7 +1643,7 @@ public struct StartRoundView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)
-            .disabled(!canStart || isOpeningPrepCourse || isValidatingPrepCourse)
+            .disabled(!canStart || startBusy)
             .accessibilityIdentifier("start-round-primary-action")
         }
     }
@@ -1604,8 +1651,16 @@ public struct StartRoundView: View {
     @MainActor
     private func startSelectedCourse() async {
         guard let courseGlobalId else { return }
-        let course = (selectedSegment
-            ?? MobileCourseOption(globalId: courseGlobalId, name: "", holes: 18))
+        let fallback = courseRows
+            .flatMap(\.segments)
+            .first(where: { $0.globalId == courseGlobalId })
+            ?? MobileCourseOption(
+                globalId: courseGlobalId,
+                name: selectedVenueName,
+                holes: 18,
+                venueName: selectedVenueName
+            )
+        let course = (selectedSegment ?? fallback)
             .replacingTeeBox(teeBox)
         prepValidationFailed = false
         if let record = prepCourseDownloads.first(where: {
@@ -2143,12 +2198,7 @@ public struct StartRoundView: View {
 
     /// A retry changes the task identity even when the GPS bucket is unchanged.
     private var nearbyDiscoveryTaskKey: String {
-        let downloadedIDs = downloadedCourseOptions
-            .map(\.globalId)
-            .sorted()
-            .map(String.init)
-            .joined(separator: ",")
-        return "\(locationDiscoveryKey)#downloads-\(downloadedIDs)#retry-\(nearbyRetryToken)"
+        "\(locationDiscoveryKey)#retry-\(nearbyRetryToken)"
     }
 
     /// Nearby is a 50 km catalogue query, so restarting it for every 3–11 m Core Location update
@@ -2157,6 +2207,80 @@ public struct StartRoundView: View {
     /// the start screen in an endless loading loop.
     static func nearbyDiscoveryBucket(latitude: Double, longitude: Double) -> String {
         "\(Int(floor(latitude * 100))):\(Int(floor(longitude * 100)))"
+    }
+
+    /// Nearby discovery starts with a small, fast query. An empty or transiently failed first
+    /// pass expands to the catalogue radius; the two-pass flow keeps a first timeout from painting
+    /// the terminal failure state while avoiding duplicate view-layer transport retries.
+    static let nearbyInitialRadiusKm = 5
+    static let nearbyExpandedRadiusKm = 50
+    /// SyncClient owns transport retries. The view makes one request per configured radius and
+    /// expands from the fast local pass to the wider catalogue pass when needed.
+    static let nearbyAutomaticRetryCount = 0
+
+    static var nearbyDiscoveryRadii: [Int] {
+        [nearbyInitialRadiusKm, nearbyExpandedRadiusKm]
+    }
+
+    static func nearbyDiscoveryShouldFail(
+        publishedProviderResult: Bool,
+        lastError: Error?,
+        hasNearbyRows: Bool
+    ) -> Bool {
+        !publishedProviderResult && lastError != nil && !hasNearbyRows
+    }
+
+    struct NearbyDiscoveryLoopResult {
+        let providerOptions: [MobileCourseOption]
+        let carriedTees: [Int: [CourseTee]]
+        let publishedProviderResult: Bool
+        let lastError: Error?
+    }
+
+    /// The actual bounded nearby request loop. Keeping the transport loop here lets acceptance tests
+    /// drive the same timeout/empty/expanded-radius path as the view.
+    static func performNearbyDiscovery(
+        latitude: Double,
+        longitude: Double,
+        radii: [Int] = nearbyDiscoveryRadii,
+        automaticRetryCount: Int = nearbyAutomaticRetryCount,
+        request: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch],
+        resolve: @escaping (MobileCourseSearchMatch) -> MobileCourseOption?
+    ) async -> NearbyDiscoveryLoopResult {
+        var publishedProviderResult = false
+        var lastError: Error?
+        var carriedTees: [Int: [CourseTee]] = [:]
+        var providerOptions: [MobileCourseOption] = []
+        for (index, radius) in radii.enumerated() {
+            var attempts = 0
+            while attempts <= automaticRetryCount {
+                do {
+                    let matches = try await request(latitude, longitude, radius)
+                    carriedTees.merge(StartRoundPresentation.carriedTees(in: matches)) { _, latest in latest }
+                    var seen = Set<Int>()
+                    providerOptions = matches.compactMap(resolve).filter { seen.insert($0.globalId).inserted }
+                    publishedProviderResult = !providerOptions.isEmpty || publishedProviderResult
+                    if !providerOptions.isEmpty || index == radii.count - 1 {
+                        return NearbyDiscoveryLoopResult(
+                            providerOptions: providerOptions,
+                            carriedTees: carriedTees,
+                            publishedProviderResult: publishedProviderResult,
+                            lastError: lastError
+                        )
+                    }
+                    break
+                } catch {
+                    lastError = error
+                    attempts += 1
+                }
+            }
+        }
+        return NearbyDiscoveryLoopResult(
+            providerOptions: providerOptions,
+            carriedTees: carriedTees,
+            publishedProviderResult: publishedProviderResult,
+            lastError: lastError
+        )
     }
 
     static func shouldApplyNearbyDiscoveryResult(
@@ -2238,67 +2362,48 @@ public struct StartRoundView: View {
                 isLoadingNearby = false
             }
         }
-        do {
-            let matches = try await onNearbyCourses(
-                fix.coordinate.latitude,
-                fix.coordinate.longitude,
-                50
-            )
-            guard Self.shouldApplyNearbyDiscoveryResult(
-                isCancelled: Task.isCancelled,
-                requestToken: requestToken,
-                activeRequestToken: nearbyRequestToken,
-                requestKey: requestKey,
-                currentRequestKey: locationDiscoveryKey
-            ) else { return }
-            carriedCourseTees.merge(StartRoundPresentation.carriedTees(in: matches)) { _, latest in latest }
-            var seen = Set<Int>()
-            let providerNearby = matches.compactMap { resolvedOption(for: $0) }
-            nearbyCourseOptions = providerNearby.filter {
-                seen.insert($0.globalId).inserted
-            }
-            let providerIDs = Set(nearbyCourseOptions.map(\.globalId))
-            offlineCourseOptions = resolvedOfflineOptions(localNearby).filter {
-                !providerIDs.contains($0.globalId)
-            }
-            nearbyDiscoveryFailed = false
-            nearbyStatusText = nearbyCourseOptions.isEmpty
-                ? "当前位置 50 km 内没有找到球场；可以扩大范围或按名称搜索。"
-                : nil
-            if !userPickedVenue {
-                if nearbyVenues.count == 1 {
-                    ensureDefaultSelection()
-                } else if selectedSegment == nil || !nearbyCourseOptions.contains(where: {
-                    String($0.globalId) == courseGlobalIdText
-                }) {
-                    clearAutomaticSelection()
-                }
-            }
-        } catch {
-            guard Self.shouldApplyNearbyDiscoveryResult(
-                isCancelled: Task.isCancelled,
-                requestToken: requestToken,
-                activeRequestToken: nearbyRequestToken,
-                requestKey: requestKey,
-                currentRequestKey: locationDiscoveryKey
-            ) else { return }
-            nearbyCourseOptions = []
-            // Keep a verified local package usable even when its older package format has no
-            // per-hole Tee anchor. Rows with factual coordinates still need to be within 50 km;
-            // coordinate-less rows are shown only in the explicitly labelled offline section.
-            let offlineFallback = Self.locallyAvailableNearbyCourses(
-                downloadedCourseOptions,
-                latitude: fix.coordinate.latitude,
-                longitude: fix.coordinate.longitude,
-                radiusKm: 50,
-                includeUnknownCoordinates: true
-            )
-            offlineCourseOptions = resolvedOfflineOptions(offlineFallback)
-            nearbyDiscoveryFailed = true
-            nearbyStatusText = Self.nearbyDiscoveryErrorMessage(error)
-            // A failed provider request must not preserve an implicit historical/default course.
-            // A player who tapped a row (including an offline row while loading) keeps that choice.
+        let outcome = await Self.performNearbyDiscovery(
+            latitude: fix.coordinate.latitude,
+            longitude: fix.coordinate.longitude,
+            request: onNearbyCourses,
+            resolve: { self.resolvedOption(for: $0) }
+        )
+        guard Self.shouldApplyNearbyDiscoveryResult(
+            isCancelled: Task.isCancelled,
+            requestToken: requestToken,
+            activeRequestToken: nearbyRequestToken,
+            requestKey: requestKey,
+            currentRequestKey: locationDiscoveryKey
+        ) else { return }
+        carriedCourseTees.merge(outcome.carriedTees) { _, latest in latest }
+        nearbyCourseOptions = outcome.providerOptions
+        let providerIDs = Set(outcome.providerOptions.map(\.globalId))
+        offlineCourseOptions = resolvedOfflineOptions(localNearby).filter {
+            !providerIDs.contains($0.globalId)
+        }
+        nearbyDiscoveryFailed = Self.nearbyDiscoveryShouldFail(
+            publishedProviderResult: outcome.publishedProviderResult,
+            lastError: outcome.lastError,
+            hasNearbyRows: !nearbyCourseOptions.isEmpty
+        )
+        if !nearbyCourseOptions.isEmpty {
+            nearbyStatusText = nil
+        } else if nearbyDiscoveryFailed {
+            nearbyStatusText = Self.nearbyDiscoveryErrorMessage(outcome.lastError ?? URLError(.timedOut))
             clearAutomaticSelection()
+        } else if let lastError = outcome.lastError {
+            nearbyStatusText = Self.nearbyDiscoveryErrorMessage(lastError)
+        } else {
+            nearbyStatusText = "当前位置 50 km 内没有找到球场；可以按名称搜索。"
+        }
+        if !userPickedVenue {
+            if nearbyVenues.count == 1 {
+                ensureDefaultSelection()
+            } else if selectedSegment == nil || !nearbyCourseOptions.contains(where: {
+                String($0.globalId) == courseGlobalIdText
+            }) {
+                clearAutomaticSelection()
+            }
         }
     }
 

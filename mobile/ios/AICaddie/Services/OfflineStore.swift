@@ -625,6 +625,8 @@ private let REDACTED_MOBILE_PATH = "[REDACTED_PATH]"
 
 public final class OfflineStore {
 #if DEBUG
+    /// Test seam for exercising the legacy prep-journal migration save failure.
+    static var failPrepCourseDownloadsSaveForTesting = false
     /// Test seam for the account-switch window; production builds do not retain a callback.
     static var accountSwitchEventLogHook: (() -> Void)?
     /// Runs after matching the progress round, before deletion. Tests schedule a competing save
@@ -1340,6 +1342,11 @@ public final class OfflineStore {
     /// Account-scoped prep library / resumable job list. The selected course metadata is tiny; the
     /// actual immutable topo assets remain in the existing revision-keyed shared cache.
     public func savePrepCourseDownloads(_ records: [PrepCourseDownloadRecord]) throws {
+        #if DEBUG
+        if Self.failPrepCourseDownloadsSaveForTesting {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        #endif
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         let newestByID = Dictionary(grouping: records, by: \.id)
             .compactMap { $0.value.max(by: { $0.updatedAt < $1.updatedAt }) }
@@ -1351,6 +1358,41 @@ public final class OfflineStore {
         let recentReady = Array(newestByID.filter { $0.phase == .ready }.prefix(12))
         let retained = (unfinished + recentReady).sorted { $0.updatedAt > $1.updatedAt }
         try encoder.encode(retained).write(to: prepCourseDownloadsURL, options: [.atomic])
+    }
+
+    /// One-time migration for the pre-C134 prep journal. Those rows had no ownership marker, so
+    /// an unfinished row cannot be distinguished from an automatic round/template job. Keep ready
+    /// assets (the immutable template is still useful) and let every unfinished row be requested
+    /// again explicitly. The version file makes a second launch a no-op.
+    @discardableResult
+    public func migrateLegacyPrepCourseDownloadsIfNeeded() throws -> Bool {
+        let markerURL = prepCourseDownloadsURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("prep_course_downloads_migration.json")
+        if let data = try? Data(contentsOf: markerURL),
+           let version = try? decoder.decode(Int.self, from: data),
+           version >= 1 {
+            return false
+        }
+        // Rows written by C134 already carry the ownership marker. A fresh install can have a
+        // queued row before this store is first reopened, so only a payload that actually lacks
+        // the field is eligible for the destructive legacy cleanup.
+        let data = try? Data(contentsOf: prepCourseDownloadsURL)
+        let rawRows: [[String: Any]]?
+        if let data {
+            rawRows = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]]
+        } else {
+            rawRows = nil
+        }
+        let hasLegacyRows = rawRows?.contains { $0["isRoundPrefetch"] == nil } == true
+        let existing = (try? loadPrepCourseDownloads()) ?? []
+        let ready = hasLegacyRows ? existing.filter { $0.phase == .ready } : existing
+        if hasLegacyRows, !existing.isEmpty {
+            try savePrepCourseDownloads(ready)
+        }
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try encoder.encode(1).write(to: markerURL, options: [.atomic])
+        return true
     }
 
     #if DEBUG

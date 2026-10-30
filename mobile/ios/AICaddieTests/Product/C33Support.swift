@@ -122,11 +122,17 @@ func c33RequestBody(_ request: URLRequest) throws -> Data {
 }
 
 @MainActor
-func c33Model(_ store: OfflineStore, _ client: SyncClient) -> LiveRoundAppModel {
+func c33Model(
+    _ store: OfflineStore,
+    _ client: SyncClient,
+    roundStartIntentWaitNanoseconds: UInt64 = LiveRoundAppModel.defaultRoundStartIntentWaitNanoseconds
+) -> LiveRoundAppModel {
     LiveRoundAppModel(
         offlineStore: store, apiBaseURL: client.baseURL, watchBridge: nil,
         garminSessionStore: nil, syncClient: client,
-        offlineGeometryRetryDelaysNanoseconds: [], networkPathObserver: nil
+        offlineGeometryRetryDelaysNanoseconds: [],
+        roundStartIntentWaitNanoseconds: roundStartIntentWaitNanoseconds,
+        networkPathObserver: nil
     )
 }
 

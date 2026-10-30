@@ -1,0 +1,13 @@
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -2218,9 +2218,9 @@
+     /// expands from the fast local pass to the wider catalogue pass when needed.
+     static let nearbyAutomaticRetryCount = 0
+ 
+     static var nearbyDiscoveryRadii: [Int] {
+-        [nearbyInitialRadiusKm, nearbyExpandedRadiusKm]
++        [nearbyInitialRadiusKm]
+     }
+ 
+     static func nearbyDiscoveryShouldFail(
+         publishedProviderResult: Bool,

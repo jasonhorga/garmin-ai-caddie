@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/Models/MobileCourseOptions.swift
++++ b/mobile/ios/AICaddie/Models/MobileCourseOptions.swift
+@@ -653,7 +653,7 @@
+ 
+     /// Map-only intent rows are a separate durable job from the player's whole-course download.
+     public static func intentKey(globalId: Int, teeBox: String) -> String {
+-        "\(key(globalId: globalId, teeBox: teeBox)):intent"
++        key(globalId: globalId, teeBox: teeBox)
+     }
+ 
+     /// The canonical whole-course request this row installs.

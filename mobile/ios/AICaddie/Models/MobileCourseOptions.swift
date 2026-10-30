@@ -591,6 +591,10 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
     /// played before, ranked by rounds), not for a round now. Wi-Fi only by default, lowest priority,
     /// hidden from 备战, and dropped once it ends. False for persisted rows from older builds.
     public var isSpeculative: Bool
+    /// Created by a round's automatic whole-course/template acquisition. These rows are useful
+    /// cache work but are not a player-owned download until the player explicitly opens the course.
+    /// Persisted rows from older builds decode this as false.
+    public var isRoundPrefetch: Bool
     /// Rows discovered together while expanding one round's catalogue keep their factual loop
     /// order in the library and worker. Nil for rows created by older builds or an explicit
     /// single-course download, which continue to use `updatedAt` ordering.
@@ -609,13 +613,16 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         requiredGeometryRevisions: [String: String]? = nil,
         isIntentPrefetch: Bool = false,
         isSpeculative: Bool = false,
+        isRoundPrefetch: Bool = false,
         queueGroupID: String? = nil,
         queuePosition: Int? = nil
     ) {
         let rawTee = (teeBox ?? course.teeBox ?? "blue")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTee = rawTee.isEmpty ? "blue" : rawTee
-        self.id = Self.key(globalId: course.globalId, teeBox: resolvedTee)
+        self.id = isIntentPrefetch
+            ? Self.intentKey(globalId: course.globalId, teeBox: resolvedTee)
+            : Self.key(globalId: course.globalId, teeBox: resolvedTee)
         self.course = course
         self.teeBox = resolvedTee
         self.phase = phase
@@ -629,6 +636,7 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
             : nil
         self.isIntentPrefetch = isIntentPrefetch
         self.isSpeculative = isSpeculative
+        self.isRoundPrefetch = isRoundPrefetch
         self.queueGroupID = queueGroupID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             ? queueGroupID
             : nil
@@ -643,6 +651,11 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         return "\(globalId):\(tee.isEmpty ? "blue" : tee):whole"
     }
 
+    /// Map-only intent rows are a separate durable job from the player's whole-course download.
+    public static func intentKey(globalId: Int, teeBox: String) -> String {
+        "\(key(globalId: globalId, teeBox: teeBox)):intent"
+    }
+
     /// The canonical whole-course request this row installs.
     public var loops: [RoundLoopEntry] {
         RoundLoopEntry.wholeCourse(globalId: course.globalId, holes: course.resolvedHoles)
@@ -650,7 +663,7 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, course, teeBox, phase, preparedHoles, downloadedHoles, totalHoles, updatedAt
-        case errorText, requiredGeometryRevisions, isIntentPrefetch, isSpeculative
+        case errorText, requiredGeometryRevisions, isIntentPrefetch, isSpeculative, isRoundPrefetch
         case queueGroupID, queuePosition
     }
 
@@ -660,7 +673,6 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         course = try container.decode(MobileCourseOption.self, forKey: .course)
         teeBox = try container.decode(String.self, forKey: .teeBox)
-        id = Self.key(globalId: course.globalId, teeBox: teeBox)
         phase = try container.decode(PrepCourseDownloadPhase.self, forKey: .phase)
         preparedHoles = try container.decode(Int.self, forKey: .preparedHoles)
         downloadedHoles = try container.decode(Int.self, forKey: .downloadedHoles)
@@ -672,7 +684,11 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
             forKey: .requiredGeometryRevisions
         )
         isIntentPrefetch = try container.decodeIfPresent(Bool.self, forKey: .isIntentPrefetch) ?? false
+        id = isIntentPrefetch
+            ? Self.intentKey(globalId: course.globalId, teeBox: teeBox)
+            : Self.key(globalId: course.globalId, teeBox: teeBox)
         isSpeculative = try container.decodeIfPresent(Bool.self, forKey: .isSpeculative) ?? false
+        isRoundPrefetch = try container.decodeIfPresent(Bool.self, forKey: .isRoundPrefetch) ?? false
         queueGroupID = try container.decodeIfPresent(String.self, forKey: .queueGroupID)
         queuePosition = try container.decodeIfPresent(Int.self, forKey: .queuePosition)
     }

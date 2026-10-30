@@ -66,25 +66,79 @@ final class AICaddieAppTests: XCTestCase {
 
     /// Device feedback: the same 黑骑士 A 场 prepared with two tees showed as two identical rows.
     func testRecentPrepListsEachCourseOnceWithItsTee() {
-        let a = MobileCourseOption(globalId: 31794, name: "黑骑士 ~ A", holes: 9, venueName: "黑骑士", segmentLabel: "A", segmentHoles: 9)
-        let b = MobileCourseOption(globalId: 31795, name: "黑骑士 ~ B", holes: 9, venueName: "黑骑士", segmentLabel: "B", segmentHoles: 9)
+        let a = MobileCourseOption(globalId: 31794, courseKey: "gid-a", name: "黑骑士 ~ A", holes: 9, venueName: "黑骑士", segmentLabel: "A", segmentHoles: 9, latitude: 40.0000, longitude: 116.0000)
+        let b = MobileCourseOption(globalId: 31795, courseKey: "gid-b", name: "黑骑士 ~ B", holes: 9, venueName: "黑骑士", segmentLabel: "B", segmentHoles: 9, latitude: 40.0002, longitude: 116.0002)
         let sameDisplayDifferentCourse = MobileCourseOption(
             globalId: 31796,
+            courseKey: "other-black-knight",
             name: "黑骑士 ~ A",
             holes: 9,
             venueName: "黑骑士",
             segmentLabel: "A",
-            segmentHoles: 9
+            segmentHoles: 9,
+            latitude: 40.1,
+            longitude: 116.1
         )
         let newestFirst = [
-            PrepCourseDownloadRecord(course: a, teeBox: "white"),
-            PrepCourseDownloadRecord(course: b, teeBox: "blue"),
-            PrepCourseDownloadRecord(course: a, teeBox: "blue"),
-            PrepCourseDownloadRecord(course: sameDisplayDifferentCourse, teeBox: "red"),
+            PrepCourseDownloadRecord(course: a, teeBox: "white", updatedAt: Date(timeIntervalSince1970: 40)),
+            PrepCourseDownloadRecord(course: b, teeBox: "blue", updatedAt: Date(timeIntervalSince1970: 30)),
+            PrepCourseDownloadRecord(course: a, teeBox: "blue", updatedAt: Date(timeIntervalSince1970: 20)),
+            PrepCourseDownloadRecord(course: sameDisplayDifferentCourse, teeBox: "red", updatedAt: Date(timeIntervalSince1970: 10)),
         ]
         let rows = StartRoundPresentation.recentRows(newestFirst)
-        XCTAssertEqual(rows.map(\.id), [newestFirst[0].id, newestFirst[1].id, newestFirst[3].id])
+        XCTAssertEqual(rows.map(\.id), [newestFirst[0].id, newestFirst[3].id], "J4.1 groups loops by coarse physical location")
         XCTAssertEqual(StartRoundPresentation.recentRowSubtitle(rows[0]), "A 场 · 白 T")
+    }
+
+    func testRecentRowsDeduplicateGlobalIDsBeforeAggregatingRegardlessOfOrder() {
+        let older = MobileCourseOption(globalId: 701, name: "同名球场 ~ A", holes: 9, venueName: "同名球场", segmentLabel: "A", segmentHoles: 9, latitude: 40.0004, longitude: 116.0004)
+        let newer = older.replacingTeeBox("white")
+        let back = MobileCourseOption(globalId: 702, name: "同名球场 ~ B", holes: 9, venueName: "同名球场", segmentLabel: "B", segmentHoles: 9, latitude: 40.0006, longitude: 116.0006)
+        let oldRow = PrepCourseDownloadRecord(course: older, teeBox: "blue", phase: .downloading, downloadedHoles: 2, totalHoles: 9, updatedAt: Date(timeIntervalSince1970: 10))
+        let newRow = PrepCourseDownloadRecord(course: newer, teeBox: "white", phase: .ready, downloadedHoles: 9, totalHoles: 9, updatedAt: Date(timeIntervalSince1970: 20))
+        let backRow = PrepCourseDownloadRecord(course: back, teeBox: "blue", phase: .ready, downloadedHoles: 9, totalHoles: 9, updatedAt: Date(timeIntervalSince1970: 15))
+
+        let forward = StartRoundPresentation.recentRows([oldRow, backRow, newRow])
+        let shuffled = StartRoundPresentation.recentRows([newRow, oldRow, backRow])
+        XCTAssertEqual(forward, shuffled)
+        XCTAssertEqual(forward.count, 1)
+        XCTAssertEqual(forward[0].totalHoles, 18)
+        XCTAssertEqual(forward[0].downloadedHoles, 18)
+        XCTAssertEqual(forward[0].teeBox, "white", "the newest Tee row wins within one global id")
+    }
+
+    /// J4.1/C134: loop rows a few dozen metres apart collapse into one status row, and one failed
+    /// loop keeps the retry action visible while progress is aggregated across the loops.
+    func testRecentRowsAggregateNearbyLoopProgressAndExposeFailure() throws {
+        let first = PrepCourseDownloadRecord(
+            course: MobileCourseOption(
+                globalId: 31801, courseKey: "gid-front", name: "同名球场 ~ A", holes: 9,
+                venueName: "同名球场", segmentLabel: "A", segmentHoles: 9,
+                latitude: 40.0000, longitude: 116.0000
+            ),
+            phase: .downloading, downloadedHoles: 3, totalHoles: 9
+        )
+        let second = PrepCourseDownloadRecord(
+            course: MobileCourseOption(
+                globalId: 31802, courseKey: "gid-back", name: "同名球场 ~ B", holes: 9,
+                venueName: "同名球场", segmentLabel: "B", segmentHoles: 9,
+                latitude: 40.0002, longitude: 116.0002
+            ),
+            phase: .failed, totalHoles: 9, errorText: "下载未完成，点下载继续"
+        )
+        let row = try XCTUnwrap(StartRoundPresentation.recentRows([first, second]).first)
+        XCTAssertEqual(row.phase, .failed)
+        XCTAssertEqual(row.totalHoles, 18)
+        XCTAssertEqual(row.downloadedHoles, 3)
+    }
+
+    func testMapOnlyIntentAndWholeCourseDownloadUseIndependentRows() {
+        let course = MobileCourseOption(globalId: 991, name: "独立任务", holes: 18, teeBox: "white")
+        let intent = PrepCourseDownloadRecord(course: course, teeBox: "white", isIntentPrefetch: true)
+        let full = PrepCourseDownloadRecord(course: course, teeBox: "white")
+        XCTAssertNotEqual(intent.id, full.id)
+        XCTAssertTrue(intent.id.hasSuffix(":intent"))
+        XCTAssertEqual(full.id, PrepCourseDownloadRecord.key(globalId: 991, teeBox: "white"))
     }
 
     func testCourseSearchDoesNotShowEmptyStateWhileRequestIsStillRunning() {

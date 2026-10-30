@@ -307,16 +307,23 @@ final class TeeSelectionUITests: XCTestCase {
             palace.label.contains("公里"),
             "real Core Location must reach the provider result (nearby rows carry their distance)"
         )
-        XCTAssertGreaterThan(
-            nearbyDistanceRows().count,
-            1,
-            "the live Beijing coordinate is known to return several physical venues"
-        )
-        XCTAssertEqual(
-            palace.value as? String,
-            "未选择",
-            "real GPS with several nearby venues must not silently select a historical course"
-        )
+        // C134: nearby starts with a 5 km pass and only widens to 50 km when that pass is empty or
+        // fails, so the live Beijing fix may list just the Palace. The live catalogue decides the
+        // count; the selection rule follows it (one nearby venue is the default, several are not).
+        let nearbyCount = nearbyDistanceRows().count
+        XCTAssertGreaterThanOrEqual(nearbyCount, 1, "real Core Location must list the provider's nearby venues")
+        if nearbyCount == 1 {
+            XCTAssertTrue(
+                waitForValue("已选择", on: palace, timeout: 8),
+                "a single nearby venue is the default selection"
+            )
+        } else {
+            XCTAssertEqual(
+                palace.value as? String,
+                "未选择",
+                "real GPS with several nearby venues must not silently select a historical course"
+            )
+        }
         save("real-core-location-01-nearby")
         dump("real-core-location-01-nearby")
     }

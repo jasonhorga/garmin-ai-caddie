@@ -1,0 +1,13 @@
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -2258,9 +2258,9 @@
+                     let matches = try await request(latitude, longitude, radius)
+                     carriedTees.merge(StartRoundPresentation.carriedTees(in: matches)) { _, latest in latest }
+                     var seen = Set<Int>()
+                     providerOptions = matches.compactMap(resolve).filter { seen.insert($0.globalId).inserted }
+-                    publishedProviderResult = !providerOptions.isEmpty || publishedProviderResult
++                    publishedProviderResult = true
+                     if !providerOptions.isEmpty || index == radii.count - 1 {
+                         return NearbyDiscoveryLoopResult(
+                             providerOptions: providerOptions,
+                             carriedTees: carriedTees,

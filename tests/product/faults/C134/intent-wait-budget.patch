@@ -1,0 +1,38 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -2220,34 +2220,7 @@
+         guard let task = intentPrefetchTasks[key] else { return (nil, false) }
+         do {
+             let waitNanoseconds = roundStartIntentWaitNanoseconds
+-            let race = IntentPrefetchWaitRace<LiveRoundPackage>()
+-            let cached = try await withTaskCancellationHandler {
+-                try await withCheckedThrowingContinuation {
+-                    (continuation: CheckedContinuation<LiveRoundPackage, Error>) in
+-                    race.install(continuation)
+-                    Task {
+-                        do {
+-                            race.finish(.success(try await task.value))
+-                        } catch {
+-                            race.finish(.failure(error))
+-                        }
+-                    }
+-                    let timeout = Task {
+-                        do {
+-                            try await Task.sleep(nanoseconds: waitNanoseconds)
+-                            race.finish(.failure(IntentPrefetchWaitTimeout()))
+-                        } catch {
+-                            // The wait was completed by the producer or cancellation.
+-                        }
+-                    }
+-                    race.installTimeout(timeout)
+-                    #if DEBUG
+-                    roundStartIntentWaitDidBeginForTesting?()
+-                    #endif
+-                }
+-            } onCancel: {
+-                race.finish(.failure(CancellationError()))
+-            }
++            let cached = try await task.value
+             return (cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt), false)
+         } catch is IntentPrefetchWaitTimeout {
+             guard isCurrentRoundPreparation(preparationToken) else { return (nil, true) }

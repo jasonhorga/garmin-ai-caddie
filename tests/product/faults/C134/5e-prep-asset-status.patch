@@ -1,0 +1,17 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -3691,13 +3691,7 @@
+             serverGeometryReadyKeys = geometryKeys
+             serverTopoReadyKeys = topoKeys
+         }
+-        if prepDownloadID == nil {
+-            await refreshServerInstallStatus()
+-        } else {
+-            // Initial and replacement prep installs share the single-request polling endpoint.
+-            // The worker owns the retry ladder; transport must not multiply each status step.
+-            await refreshServerInstallStatus(useTransportRetries: false)
+-        }
++        await refreshServerInstallStatus()
+         // A lightweight package deliberately embeds the first hole as a fast partial seed even
+         // when that hole's Garmin geometry is already installed. The authoritative per-hole
+         // revision on `snapshot.holes` is the stronger readiness fact. Promote those keys before

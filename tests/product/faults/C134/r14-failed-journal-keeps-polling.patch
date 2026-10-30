@@ -1,0 +1,12 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -3936,9 +3936,6 @@
+                 guard serverInstallStatusAvailable else {
+                     return true
+                 }
+-                if serverInstallPhase == "failed" {
+-                    return false
+-                }
+                 let missing = missingTopoHoles()
+                 if missing.isEmpty || missing.allSatisfy({
+                     serverTopoReadyKeys.contains(

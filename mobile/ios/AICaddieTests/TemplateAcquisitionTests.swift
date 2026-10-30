@@ -1,30 +1,66 @@
+import Foundation
 @testable import AICaddie
 import XCTest
 
 /// Every package request (`loops=` and `tee_box=`), in order (filled from the URLProtocol thread).
 private final class LoopRequests: @unchecked Sendable {
     private let lock = NSLock()
-    private var entries: [(loops: String, tee: String)] = []
-    func append(loops: String, tee: String) {
-        lock.withLock { entries.append((loops, tee)) }
+    private var entries: [(
+        path: String, query: String, loops: String, tee: String, mapOnly: String?, status: Int?
+    )] = []
+    func append(loops: String, tee: String, mapOnly: String? = nil) {
+        lock.withLock {
+            entries.append(("/api/v2/mobile/courses/.../package", "", loops, tee, mapOnly, nil))
+        }
     }
-    var all: [String] { lock.withLock { entries.map(\.loops) } }
+    func append(request: URLRequest, status: Int) {
+        let url = request.url
+        let components = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        let query = components?.queryItems?.map {
+            "\($0.name)=\($0.value ?? "")"
+        }.joined(separator: "&") ?? ""
+        let loops = components?.queryItems?.first { $0.name == "loops" }?.value ?? ""
+        let tee = components?.queryItems?.first { $0.name == "tee_box" }?.value ?? ""
+        let mapOnly = components?.queryItems?.first { $0.name == "map_only" }?.value
+        lock.withLock {
+            entries.append((url?.path ?? "<nil>", query, loops, tee, mapOnly, status))
+        }
+    }
+    var mapOnlyValues: [String?] {
+        lock.withLock { entries.filter { $0.path.hasSuffix("/package") }.map(\.mapOnly) }
+    }
+    var all: [String] {
+        lock.withLock { entries.filter { $0.path.hasSuffix("/package") }.map(\.loops) }
+    }
     func contains(loops: String, tee: String) -> Bool {
-        lock.withLock { entries.contains { $0.loops == loops && $0.tee == tee } }
+        lock.withLock {
+            entries.contains { $0.path.hasSuffix("/package") && $0.loops == loops && $0.tee == tee }
+        }
     }
-    func contains(tee: String) -> Bool { lock.withLock { entries.contains { $0.tee == tee } } }
+    func contains(tee: String) -> Bool {
+        lock.withLock { entries.contains { $0.path.hasSuffix("/package") && $0.tee == tee } }
+    }
+    var diagnosticSummary: String {
+        lock.withLock {
+            entries.map {
+                "path=\($0.path) query=\($0.query) status=\($0.status.map { String($0) } ?? "?") map_only=\($0.mapOnly ?? "full")"
+            }.joined(separator: " | ")
+        }
+    }
 
-    func waitFor(loops: String? = nil, tee: String? = nil) async -> Bool {
+    func waitFor(loops: String? = nil, tee: String? = nil, fullPackage: Bool = false) async -> Bool {
         for _ in 0..<500 {
             if lock.withLock({ entries.contains {
-                (loops == nil || $0.loops == loops) && (tee == nil || $0.tee == tee)
+                $0.path.hasSuffix("/package") && (!fullPackage || $0.mapOnly == nil)
+                    && (loops == nil || $0.loops == loops) && (tee == nil || $0.tee == tee)
             }}) {
                 return true
             }
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
         return lock.withLock { entries.contains {
-            (loops == nil || $0.loops == loops) && (tee == nil || $0.tee == tee)
+            $0.path.hasSuffix("/package") && (!fullPackage || $0.mapOnly == nil)
+                && (loops == nil || $0.loops == loops) && (tee == nil || $0.tee == tee)
         }}
     }
 }
@@ -45,6 +81,7 @@ final class TemplateAcquisitionTests: XCTestCase {
     override func tearDown() {
         protocolScope = nil
         CapturingURLProtocol.requestHandler = nil
+        CapturingURLProtocol.stopLoadingHandler = nil
         super.tearDown()
     }
 
@@ -145,26 +182,31 @@ final class TemplateAcquisitionTests: XCTestCase {
     // MARK: - PR #389: the whole-course job is recorded at once and released within the session
 
     /// Online oracle server; the prep download asks for its own `prep-library-…` round id.
-    private func serveOracle(_ oracle: Oracle, into requests: LoopRequests) {
+    private func serveOracle(_ oracle: Oracle, into requests: LoopRequests, teeGate: TestRequestGate? = nil) {
         let gid = oracle.globalId
         protocolScope = CapturingURLProtocolScope { request in
             let url = try XCTUnwrap(request.url)
+            if url.path == "/api/v2/mobile/courses/\(gid)/tees" {
+                teeGate?.wait()
+            }
             guard url.path == "/api/v2/mobile/courses/\(gid)/package" else {
+                requests.append(request: request, status: 404)
                 return try Self.response(request, status: 404, body: Data(#"{"detail":"not found"}"#.utf8))
             }
             let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
             let loops = queryItems.first { $0.name == "loops" }?.value ?? ""
-            let tee = queryItems.first { $0.name == "tee_box" }?.value ?? ""
-            requests.append(loops: loops, tee: tee)
             guard let body = oracle.responses[loops] else {
+                requests.append(request: request, status: 422)
                 return try Self.response(request, status: 422, body: Data(#"{"detail":"loops"}"#.utf8))
             }
             guard let requestedRoundId = queryItems.first(where: { $0.name == "round_id" })?.value,
                   !requestedRoundId.isEmpty else {
+                requests.append(request: request, status: 200)
                 return try Self.response(request, status: 200, body: body)
             }
             var object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
             object["roundId"] = requestedRoundId
+            requests.append(request: request, status: 200)
             return try Self.response(request, status: 200, body: try JSONSerialization.data(withJSONObject: object))
         }
     }
@@ -172,7 +214,8 @@ final class TemplateAcquisitionTests: XCTestCase {
     private func acquisitionModel(
         directory: URL,
         preferredRoundId: String? = nil,
-        freshEntryReleaseFallbackNanoseconds: UInt64 = 60_000_000_000
+        freshEntryReleaseFallbackNanoseconds: UInt64 = 60_000_000_000,
+        prepStatusProbeRetryDelayNanoseconds: UInt64 = LiveRoundAppModel.defaultPrepStatusProbeRetryDelayNanoseconds
     ) -> LiveRoundAppModel {
         let configuration = protocolScope!.configuration()
         return LiveRoundAppModel(
@@ -189,6 +232,7 @@ final class TemplateAcquisitionTests: XCTestCase {
                 retrySleep: { _ in }
             ),
             offlineGeometryRetryDelaysNanoseconds: [],
+            prepStatusProbeRetryDelayNanoseconds: prepStatusProbeRetryDelayNanoseconds,
             freshEntryReleaseFallbackNanoseconds: freshEntryReleaseFallbackNanoseconds
         )
     }
@@ -427,11 +471,9 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertTrue(observedWholeCourse)
     }
 
-    /// A 备战 download the player starts during the entry hole runs at once; when that job finishes,
-    /// the worker takes no further automatic job — not the round's whole-course row — until the
-    /// fresh entry is released, and then continues. (The worker re-checks the gate before every
-    /// job, so a worker that was already running when the round started behaves the same.)
-    func testAPrepWorkerTakesOnlyThePlayersJobUntilTheFreshEntryIsReleased() async throws {
+    /// C134: a 备战 download the player starts during the entry hole is queued with every other
+    /// background job. The map package owns the connection until the fresh entry is released.
+    func testAPrepWorkerWaitsForFreshEntryBeforeTakingAnyBackgroundJob() async throws {
         let oracle = try oracle()
         let gid = oracle.globalId
         let requests = LoopRequests()
@@ -445,8 +487,7 @@ final class TemplateAcquisitionTests: XCTestCase {
 
         model.downloadPrepCourse(MobileCourseOption(globalId: gid, name: "Prep white", holes: 18, teeBox: "white"))
         await model.waitForPrepCourseDownloadForTesting()
-        let observedPlayerJob = await requests.waitFor(tee: "white")
-        XCTAssertTrue(observedPlayerJob, "the player's own 备战 job is never held behind the gate")
+        XCTAssertFalse(requests.contains(tee: "white"), "all background jobs yield during the entry window")
         XCTAssertEqual(model.freshEntryReleaseGenerationForTesting, pending)
         XCTAssertFalse(
             requests.contains(loops: "\(gid):front,\(gid):back", tee: "blue"),
@@ -457,17 +498,15 @@ final class TemplateAcquisitionTests: XCTestCase {
         model.consumePendingLiveHole()
         model.setActiveHole(2)
         await settleDownloads(model)
+        let observedWhite = await requests.waitFor(tee: "white")
+        XCTAssertTrue(observedWhite, "after the release the queue continues with the player's pending job")
         let observedWholeCourse = await requests.waitFor(loops: "\(gid):front,\(gid):back", tee: "blue")
-        XCTAssertTrue(
-            observedWholeCourse,
-            "after the release the queue continues with the whole-course job"
-        )
+        XCTAssertTrue(observedWholeCourse, "the round's automatic template follows the player's job")
     }
 
-    /// A requested 备战 job paused in the background during the entry hole resumes on the real
-    /// foreground hook — making another request — without releasing the gate; the round's own
-    /// row still waits.
-    func testARequestedJobPausedAndResumedDuringTheEntryHoleKeepsItsExemption() async throws {
+    /// C134: a requested 备战 job paused in the background during the entry hole stays paused on
+    /// the real foreground hook, then resumes after the entry hole is released.
+    func testARequestedJobPausedDuringEntryResumesAfterTheEntryHole() async throws {
         let oracle = try oracle()
         let gid = oracle.globalId
         let requests = LoopRequests()
@@ -490,13 +529,16 @@ final class TemplateAcquisitionTests: XCTestCase {
 
         model.syncOnForeground()
         await model.waitForPrepCourseDownloadForTesting()
-        let observedPlayerJob = await requests.waitFor(tee: "white")
-        XCTAssertTrue(observedPlayerJob, "the resumed requested job makes its request")
+        XCTAssertFalse(requests.contains(tee: "white"), "the entry gate pauses even requested jobs")
         XCTAssertEqual(model.freshEntryReleaseGenerationForTesting, pending, "without releasing the gate")
         XCTAssertFalse(
             requests.contains(loops: "\(gid):front,\(gid):back", tee: "blue"),
             "the round's automatic row still waits"
         )
+        model.consumePendingLiveHole()
+        model.setActiveHole(2)
+        let observedWhite = await requests.waitFor(tee: "white")
+        XCTAssertTrue(observedWhite, "the requested row resumes after leaving the entry hole")
     }
 
     /// Requested-job intent is account-scoped: a rebind drops it with the previous library.
@@ -523,6 +565,78 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertTrue(model.userRequestedPrepDownloadIDsForTesting.isEmpty)
         XCTAssertNil(model.freshEntryReleaseGenerationForTesting)
         await model.waitForPrepCourseDownloadForTesting()
+    }
+
+    /// C134/5d: an ordinary download already on the wire is cancelled when Start takes the
+    /// connection, then the same durable row resumes after the prep entry is visible.
+    func testAnInFlightOrdinaryDownloadIsCancelledByStartThenResumesAfterEntry() async throws {
+        let oracle = try oracle()
+        let gid = oracle.globalId
+        let gate = TestRequestGate()
+        let started = expectation(description: "ordinary prep request started")
+        let cancelled = expectation(description: "ordinary prep request cancelled")
+        let resumed = expectation(description: "ordinary prep request resumed")
+        let lock = NSLock()
+        var prepRequestCount = 0
+        var firstPrepRequest = true
+        var firstPrepCompleted = false
+        var cancellationReported = false
+        protocolScope = CapturingURLProtocolScope { request in
+            let url = try XCTUnwrap(request.url)
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let roundID = query.first { $0.name == "round_id" }?.value ?? ""
+            let loops = query.first { $0.name == "loops" }?.value ?? ""
+            if roundID.hasPrefix("prep-library-") {
+                lock.lock()
+                prepRequestCount += 1
+                let shouldSignal = firstPrepRequest
+                firstPrepRequest = false
+                let shouldSignalResume = prepRequestCount == 2
+                lock.unlock()
+                if shouldSignal { started.fulfill() }
+                if shouldSignalResume { resumed.fulfill() }
+                gate.wait()
+            }
+            guard let body = oracle.responses[loops] else {
+                return try Self.response(request, status: 404, body: Data())
+            }
+            var object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            if !roundID.isEmpty { object["roundId"] = roundID }
+            if roundID.hasPrefix("prep-library-") {
+                lock.withLock { firstPrepCompleted = true }
+            }
+            return try Self.response(request, status: 200, body: try JSONSerialization.data(withJSONObject: object))
+        }
+        CapturingURLProtocol.stopLoadingHandler = { request in
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let roundID = query.first { $0.name == "round_id" }?.value ?? ""
+            guard request.url?.path == "/api/v2/mobile/courses/\(gid)/package",
+                  roundID.hasPrefix("prep-library-") else { return }
+            lock.lock()
+            let shouldSignal = !cancellationReported && !firstPrepCompleted
+            cancellationReported = true
+            lock.unlock()
+            if shouldSignal { cancelled.fulfill() }
+        }
+        defer { CapturingURLProtocol.stopLoadingHandler = nil }
+        let model = acquisitionModel(
+            directory: freshDirectory(),
+            prepStatusProbeRetryDelayNanoseconds: 600_000_000_000
+        )
+        let course = MobileCourseOption(globalId: gid, name: "In flight", holes: 18, teeBox: "white")
+        model.downloadPrepCourse(course)
+        await fulfillment(of: [started], timeout: 5)
+        XCTAssertTrue(model.openPrepCourse(course))
+        await fulfillment(of: [cancelled], timeout: 5)
+        XCTAssertEqual(lock.withLock { prepRequestCount }, 1, "Start cancels the in-flight ordinary request")
+        gate.release()
+        for _ in 0..<500 {
+            if !model.isOpeningPrepCourse { break }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        model.liveHoleInitialLoadDidFinish()
+        await fulfillment(of: [resumed], timeout: 5)
+        XCTAssertGreaterThanOrEqual(lock.withLock { prepRequestCount }, 2, "the row resumes after entry")
     }
 
     /// A fallback armed for an earlier round can never release a later round's deferral.
@@ -558,9 +672,9 @@ final class TemplateAcquisitionTests: XCTestCase {
 
     // MARK: - Ready before the first tee: intent prefetch and resumable live downloads
 
-    /// Settling on a course (开始一场 / 在这个球场) installs its whole-course template with the Tee
-    /// Start will use, before any round exists.
-    func testCourseIntentInstallsTheWholeCourseBeforeStart() async throws {
+    /// Settling on a course sends a map-only intent with the Tee Start will use, before any round
+    /// exists; the player's explicit download owns the later whole-course install.
+    func testCourseIntentOnlyWarmsFirstHoleBeforeStart() async throws {
         let oracle = try oracle()
         let gid = oracle.globalId
         let requests = LoopRequests()
@@ -576,9 +690,132 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertTrue(row.isIntentPrefetch)
         XCTAssertEqual(row.teeBox, "white", "the template is keyed by the Tee Start will use")
         await model.waitForPrepCourseDownloadForTesting()
-        let observedWholeCourse = await requests.waitFor(loops: "\(gid):front,\(gid):back", tee: "white")
-        XCTAssertTrue(observedWholeCourse)
+        let observedIntent = await requests.waitFor(loops: "\(gid):front,\(gid):back", tee: "white")
+        XCTAssertTrue(observedIntent)
+        XCTAssertTrue(requests.mapOnlyValues.contains("true"))
+        XCTAssertNil(try model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white"))
         XCTAssertNil(model.package, "an intent never creates a round")
+    }
+
+    /// J4.2 / C134/N5: the Start tap's map-only intent is followed by an independent whole-course job.
+    /// The shared oracle (see `oracle` above) has no `/prep` or topo responses, so this test proves
+    /// the full package request and whole-course template enter the install flow rather than
+    /// asserting the unreachable `.ready` state.
+    func testStartPrepIntentContinuesAsWholeCourseOfflineDownload() async throws {
+        let oracle = try oracle()
+        let gid = oracle.globalId
+        let requests = LoopRequests()
+        // Tee completion also restarts the queue. Hold it so that only the preparation-token
+        // release can hand off the whole-course job, independently of background Tee authority.
+        let teeGate = TestRequestGate()
+        serveOracle(oracle, into: requests, teeGate: teeGate)
+        defer {
+            teeGate.release()
+            CapturingURLProtocol.requestHandler = nil
+        }
+
+        let model = acquisitionModel(
+            directory: freshDirectory(),
+            prepStatusProbeRetryDelayNanoseconds: 0
+        )
+        defer { model.closePrepMode() }
+        let course = MobileCourseOption(globalId: gid, name: "Start intent", holes: 18, teeBox: "white")
+        model.prefetchIntendedCourses([course], teeBox: "white")
+        let sawIntentRequest = await requests.waitFor(tee: "white")
+        XCTAssertTrue(sawIntentRequest)
+        await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertTrue(model.openPrepCourse(course))
+        model.liveHoleInitialLoadDidFinish()
+        // openPrepCourse schedules Start; neither download task need exist yet. Wait for the
+        // independent whole-course request before joining its worker to observe the saved template.
+        let sawFullPackage = await requests.waitFor(
+            loops: "\(gid):front,\(gid):back", tee: "white", fullPackage: true
+        )
+        await settleDownloads(model)
+        XCTAssertTrue(requests.mapOnlyValues.contains("true"), "the opening request is map-only")
+        if !sawFullPackage {
+            XCTFail(
+                "missing full package; requests=\(requests.diagnosticSummary) "
+                    + "queue=\(model.prepQueueDebugSummaryForTesting)"
+            )
+        }
+        XCTAssertTrue(requests.mapOnlyValues.contains(nil), "the same selection must later request the full package")
+        XCTAssertEqual(requests.mapOnlyValues.filter { $0 == "true" }.count, 1)
+        let row = try XCTUnwrap(model.prepCourseDownloads.first { !$0.isIntentPrefetch && $0.course.globalId == gid })
+        XCTAssertFalse(row.isIntentPrefetch)
+        XCTAssertNotEqual(row.phase, .ready, "this oracle has no per-hole prep/topo responses")
+        let template = try model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white")
+        if template == nil {
+            XCTFail(
+                "missing whole-course template; requests=\(requests.diagnosticSummary) "
+                    + "queue=\(model.prepQueueDebugSummaryForTesting)"
+            )
+        }
+        XCTAssertTrue(template?.isWholeCourseTemplate == true)
+        teeGate.release()
+        await model.stopRoundBackgroundWorkForTesting()
+    }
+
+    /// C134/挡3: a user download gets its own full-course row while the selected-course map intent
+    /// is still in flight; releasing the intent must never persist its lightweight package as ready.
+    /// The oracle has no per-hole prep/topo responses, so the reachable assertion is the independent
+    /// whole-course request/template, with retry delay injected to zero.
+    func testDownloadWhileMapOnlyIntentIsInFlightUsesAnIndependentFullPackage() async throws {
+        let oracle = try oracle()
+        let gid = oracle.globalId
+        let gate = TestRequestGate()
+        let intentStarted = expectation(description: "map-only intent started")
+        let fullStarted = expectation(description: "full download started")
+        let lock = NSLock()
+        var mapOnly = 0
+        var full = 0
+        let fullStartedOnce = C33FirstMatch()
+        let requests = LoopRequests()
+        protocolScope = CapturingURLProtocolScope { request in
+            let url = try XCTUnwrap(request.url)
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let loops = query.first { $0.name == "loops" }?.value ?? ""
+            let isMapOnly = query.first { $0.name == "map_only" }?.value == "true"
+            if isMapOnly {
+                lock.withLock { mapOnly += 1 }
+                intentStarted.fulfill()
+                gate.wait()
+            } else {
+                lock.withLock { full += 1 }
+                if fullStartedOnce.claim() { fullStarted.fulfill() }
+            }
+            guard let body = oracle.responses[loops] else {
+                requests.append(request: request, status: 404)
+                return try Self.response(request, status: 404, body: Data())
+            }
+            requests.append(request: request, status: 200)
+            return try Self.response(request, status: 200, body: body)
+        }
+        let model = acquisitionModel(
+            directory: freshDirectory(),
+            prepStatusProbeRetryDelayNanoseconds: 0
+        )
+        let course = MobileCourseOption(globalId: gid, name: "Independent full", holes: 18, teeBox: "white")
+        model.prefetchIntendedCourses([course], teeBox: "white")
+        await fulfillment(of: [intentStarted], timeout: 5)
+        XCTAssertNil(try model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white"))
+        model.downloadPrepCourse(course)
+        XCTAssertTrue(model.prepCourseDownloads.contains { !$0.isIntentPrefetch && $0.course.globalId == gid })
+        gate.release()
+        await fulfillment(of: [fullStarted], timeout: 5)
+        await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertEqual(lock.withLock { mapOnly }, 1)
+        XCTAssertGreaterThanOrEqual(lock.withLock { full }, 1)
+        let row = try XCTUnwrap(model.prepCourseDownloads.first { !$0.isIntentPrefetch && $0.course.globalId == gid })
+        XCTAssertNotEqual(row.phase, .ready, "this oracle has no per-hole prep/topo responses")
+        let template = try model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white")
+        if template == nil {
+            XCTFail(
+                "missing whole-course template; requests=\(requests.diagnosticSummary) "
+                    + "queue=\(model.prepQueueDebugSummaryForTesting)"
+            )
+        }
+        XCTAssertTrue(template?.isWholeCourseTemplate == true)
     }
 
     /// Tapping through the list: a newer intent drops the older one's unfinished row, so only the

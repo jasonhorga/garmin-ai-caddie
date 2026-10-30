@@ -137,6 +137,73 @@ final class SpeculativePrefetchTests: XCTestCase {
         XCTAssertFalse(decoded.yieldsToForeground)
     }
 
+    /// J4.1/C134: only a legacy payload is cleaned. A current interrupted speculative row survives
+    /// a later launch so its queue can resume when Wi-Fi returns.
+    func testInterruptedSpeculativeRowsAreRemovedOnlyDuringLegacyMigration() throws {
+        let guess = PrepCourseDownloadRecord(
+            course: course(99, rounds: 3), teeBox: "blue", phase: .downloading,
+            downloadedHoles: 2, totalHoles: 18, isSpeculative: true
+        )
+        let legacy = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode([guess])) as? [[String: Any]]
+        )
+        let prepURL = directory.appendingPathComponent("prep_course_downloads.json")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var payload = legacy
+        payload[0].removeValue(forKey: "isRoundPrefetch")
+        try JSONSerialization.data(withJSONObject: payload).write(to: prepURL)
+        let first = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: nil, watchBridge: nil,
+            garminSessionStore: nil, syncClient: nil, offlineGeometryRetryDelaysNanoseconds: []
+        )
+        XCTAssertTrue(first.prepCourseDownloads.isEmpty)
+
+        try first.offlineStore.savePrepCourseDownloads([guess])
+        let second = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: nil, watchBridge: nil,
+            garminSessionStore: nil, syncClient: nil, offlineGeometryRetryDelaysNanoseconds: []
+        )
+        XCTAssertEqual(second.prepCourseDownloads.map(\.id), [guess.id])
+    }
+
+    func testLegacyMigrationSaveFailureFiltersMemoryWithoutWritingMarker() throws {
+        let pending = PrepCourseDownloadRecord(
+            course: course(100, rounds: 2), teeBox: "blue", phase: .downloading,
+            downloadedHoles: 1, totalHoles: 18, isSpeculative: true
+        )
+        let directory = self.directory!
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode([pending])) as? [[String: Any]]
+        )
+        payload[0].removeValue(forKey: "isRoundPrefetch")
+        let journal = directory.appendingPathComponent("prep_course_downloads.json")
+        try JSONSerialization.data(withJSONObject: payload).write(to: journal)
+
+        OfflineStore.failPrepCourseDownloadsSaveForTesting = true
+        defer { OfflineStore.failPrepCourseDownloadsSaveForTesting = false }
+        let failed = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: nil, watchBridge: nil,
+            garminSessionStore: nil, syncClient: nil, offlineGeometryRetryDelaysNanoseconds: []
+        )
+        XCTAssertTrue(failed.prepCourseDownloads.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("prep_course_downloads_migration.json").path
+        ))
+        let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: journal)) as? [[String: Any]]
+        XCTAssertNil(raw?.first?["isRoundPrefetch"])
+
+        OfflineStore.failPrepCourseDownloadsSaveForTesting = false
+        let relaunched = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: nil, watchBridge: nil,
+            garminSessionStore: nil, syncClient: nil, offlineGeometryRetryDelaysNanoseconds: []
+        )
+        XCTAssertTrue(relaunched.prepCourseDownloads.isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("prep_course_downloads_migration.json").path
+        ))
+    }
+
     // MARK: Queue
 
     private func model(rows: [PrepCourseDownloadRecord]) throws -> LiveRoundAppModel {
@@ -281,10 +348,10 @@ final class SpeculativePrefetchTests: XCTestCase {
         model.finishRoundPreparationForTesting(token)
         XCTAssertEqual(model.nextPrepCourseDownloadJobIDForTesting, guess.id)
 
-        // A 备战 download the player asked for keeps its existing rules during preparation.
+        // C134: a 备战 tap records intent but every background download waits for the map entry.
         let playerModel = try self.model(rows: [asked])
         let playerToken = playerModel.beginRoundPreparationForTesting()
-        XCTAssertEqual(playerModel.nextPrepCourseDownloadJobIDForTesting, asked.id)
+        XCTAssertNil(playerModel.nextPrepCourseDownloadJobIDForTesting)
         playerModel.finishRoundPreparationForTesting(playerToken)
     }
 
