@@ -64,8 +64,9 @@ class MobileReconciliationTests(unittest.TestCase):
                 [f"score-{n}:score-correction" for n in range(10, 19)],
             )
 
-    def test_j1_3_back_start_nonmerged_unnumbered_card_uses_physical_holes(self) -> None:
-        # J1.3: a standalone back-nine Garmin card with no hole numbers is physical 10..18.
+    def test_j1_3_back_start_nonmerged_unnumbered_card_falls_back_to_display_axis(self) -> None:
+        # J1.3: without source hole numbers, a standalone back-nine card falls back to its own
+        # display axis 1..9 rather than inventing a physical 10..18 binding.
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             _save_identity(root, "unnumbered-back", [(55555, "back")])
@@ -79,10 +80,9 @@ class MobileReconciliationTests(unittest.TestCase):
             }], shots=[])
             result = reconcile_mobile_round_events("unnumbered-back", data, root=root)
 
-        self.assertEqual(
-            [(row["hole"], row["ref"]) for row in result["matched"]],
-            [(n, f"unnumbered-back:{n + 9}") for n in range(1, 10)],
-        )
+        self.assertEqual([row["hole"] for row in result["matched"]], list(range(1, 10)))
+        self.assertEqual([row["ref"] for row in result["matched"]],
+                         [f"unnumbered-back:{n}" for n in range(1, 10)])
         self.assertEqual(result["localOnly"], [])
         self.assertEqual(result["annotationSuggestions"], [])
 
@@ -145,7 +145,8 @@ class MobileReconciliationTests(unittest.TestCase):
 
         self.assertEqual([row["hole"] for row in result["matched"]], list(range(10, 19)))
         self.assertEqual([row["hole"] for row in result["localOnly"]], list(range(10, 19)))
-        self.assertEqual(result["annotationSuggestions"], [])
+        self.assertEqual([row["id"] for row in result["annotationSuggestions"]],
+                         [f"score-{n}:score-correction" for n in range(10, 19)])
 
     def test_saved_identity_matches_merged_front_then_back_of_eighteen_hole_course(self) -> None:
         self._assert_merged_eighteen_hole_halves_match("front")
