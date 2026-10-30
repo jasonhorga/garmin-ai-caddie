@@ -1772,6 +1772,44 @@ def _strategy_tee_row(usable_ladder, hazards: dict):
     )
 
 
+def _shared_sequence_tail(remaining_m: float, approach_ladder, *, start_m: float = 0.0, hazards=None):
+    """Return the continuation selected by the online decision tail scorer.
+
+    CoursePrep owns the map/route offsets, while ``decision._sequence_tail`` owns the measured
+    carry ordering and leave score.  Keeping this adapter tuple-shaped lets the prep planner reuse
+    that rule without exposing decision-layer DTOs in its wire contract.
+    """
+    from ai_caddie.caddie.decision import _sequence_tail
+
+    rows = [
+        {
+            "clubName": name,
+            "median_m": float(distance),
+            "p10_m": float(distance),
+            "p90_m": float(distance),
+            "sampleSize": 1,
+        }
+        for name, distance in approach_ladder
+    ]
+    avoid_zones = [
+        {
+            "kind": "water",
+            "carryToFront_m": float(interval[0]),
+            "carryToClear_m": float(interval[1]),
+        }
+        for interval in (hazards or {}).get("water_carry") or []
+        if isinstance(interval, (list, tuple)) and len(interval) >= 2
+    ]
+    tail = _sequence_tail(
+        rows,
+        float(remaining_m),
+        avoid_zones=avoid_zones,
+        travelled_m=float(start_m),
+        forbid_driver=True,
+    )
+    return [(str(row.get("clubName") or ""), float(row.get("median_m") or 0.0)) for row in tail]
+
+
 # Below this landing-to-green height change the mesh elevation is noise: the flat plan stands.
 PLAYS_LIKE_MIN_SLOPE_M = 3.0
 
@@ -1901,18 +1939,38 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_
 
         # Plan a complete Par 4/5 chain. A long Par 5 remainder is not one imaginary approach; use
         # the longest playable non-driver until a normal scoring club can cover what remains.
-        while remaining > 5 and approach_ladder and len(steps) < 4:
+        while remaining > 20 and approach_ladder and len(steps) < 4:
             longest_approach = approach_ladder[0][1]
             effective = plays_like(remaining)
+            shared_tail = None
             if effective > longest_approach + 15:
                 approach_club, approach_distance = approach_ladder[0]
                 if remaining - longest_approach < LAYUP_LEAVE_MIN_M:
-                    approach_club, approach_distance = (
-                        _layup_position_club(
+                    layup = _layup_position_club(
+                        remaining, approach_ladder, start_m=route_offset_m, hazards=hazards,
+                    )
+                    if layup is not None:
+                        shared_tail = _shared_sequence_tail(
                             remaining, approach_ladder, start_m=route_offset_m, hazards=hazards,
                         )
-                        or approach_ladder[0]
-                    )
+                        if shared_tail:
+                            for tail_index, (tail_club, tail_distance) in enumerate(shared_tail):
+                                before = remaining
+                                remaining = max(0.0, remaining - tail_distance)
+                                scoring = tail_index == len(shared_tail) - 1
+                                note = (
+                                    f"剩约 {yd(before)}y 上果岭"
+                                    if scoring
+                                    else f"推进约 {yd(tail_distance)}y，剩约 {yd(remaining)}y"
+                                )
+                                append_step(
+                                    tail_club,
+                                    note,
+                                    tail_distance,
+                                    role="scoring" if scoring else "position",
+                                )
+                            break
+                    approach_club, approach_distance = layup or approach_ladder[0]
             else:
                 approach_club, approach_distance = club_for(
                     effective,

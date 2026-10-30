@@ -249,18 +249,23 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
         trigger_ladder = [("Driver", 197), ("3W", 160), ("8I", 121), ("Aw", 102), ("58", 68)]
         from ai_caddie.caddie.decision import _sequence_tail
 
-        for label, ladder in (("owner", owner_ladder), ("trigger", trigger_ladder)):
+        cases = [
+            ("owner", owner_ladder, 377.0, 180.0, ["3W"]),
+            ("owner_layup", owner_ladder, 396.0, 199.0, ["3W", "58"]),
+            ("trigger", trigger_ladder, 377.0, 180.0, ["3W"]),
+        ]
+        for label, ladder, route_len, remaining_m, expected_tail in cases:
             with self.subTest(row=label):
                 steps, *_ = course_prep._strategy(
-                    4, 377.0, {"water_carry": [], "bunkers": [], "details": []}, ladder,
+                    4, route_len, {"water_carry": [], "bunkers": [], "details": []}, ladder,
                 )
                 rows = [
                     {"clubName": name, "median_m": carry, "p10_m": carry, "p90_m": carry, "sampleSize": 20}
                     for name, carry in ladder[1:]
                 ]
-                online_tail = _sequence_tail(rows, 180.0, forbid_driver=True)
-                self.assertEqual([row["clubName"] for row in online_tail], ["3W"])
-                self.assertEqual([step["club"] for step in steps], ["Driver", "3W"])
+                online_tail = _sequence_tail(rows, remaining_m, forbid_driver=True)
+                self.assertEqual([row["clubName"] for row in online_tail], expected_tail)
+                self.assertEqual([step["club"] for step in steps], ["Driver", *expected_tail])
                 carries = [step["targetCarry_m"] for step in steps]
                 self.assertEqual(carries, sorted(carries, reverse=True))
 
