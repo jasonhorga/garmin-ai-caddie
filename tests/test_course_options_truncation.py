@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+import time
 from unittest.mock import patch
 
 from ai_caddie.caddie import mobile_live
@@ -54,12 +55,14 @@ class CourseOptionTruncationTests(unittest.TestCase):
             for index in range(106)
         ]
         data = HistoryData(raw_rounds=[], rounds=rows, shots=[])
+        started = time.perf_counter()
         with patch.object(course_reference, "courseview_venue_loops", return_value=[]) as index_read:
             mobile_live.build_mobile_course_options(
                 data,
                 segment_resolver=lambda gid: ("同一场地 ~ A", 9),
                 tee_resolver=lambda gid: [],
             )
+        self.assertLess(time.perf_counter() - started, 5.0)
         self.assertLessEqual(index_read.call_count, 1)
 
 
