@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C241-01-line-fallback",
+      "patch": "tests/product/faults/C241/01-line-fallback.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testJ45NoBitmapIsNeutralWaitingEvenWhenRouteExists",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C241-02-precise-regresses",
+      "patch": "tests/product/faults/C241/02-precise-regresses.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testJ45PreciseMapNeverRegressesToGarmin",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C241-03-route-without-coordinate",
+      "patch": "tests/product/faults/C241/03-route-without-coordinate.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testJ45GarminWithoutProjectionDoesNotDrawRoute",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C241-04-line-when-both-missing",
+      "patch": "tests/product/faults/C241/04-line-when-both-missing.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testJ45NoBitmapNeverDrawsLightweightFacts",
+      "promise": "J4.5"
+    }
+  ]
+}

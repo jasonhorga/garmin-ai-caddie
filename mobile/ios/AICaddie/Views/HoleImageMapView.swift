@@ -233,6 +233,15 @@ public struct HoleImageMapView: View {
                 Canvas { context, size in
                     draw(&context, size: size, overlay: overlay)
                 }
+                if garminRasterURL != nil, garminRasterProjection?.isUsable != true {
+                    Text("路线等精细地图出来后显示")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(.black.opacity(0.68), in: Capsule())
+                        .accessibilityIdentifier("garmin-route-waiting-for-precise-map")
+                }
                 if showsPrepFactOverlays {
                     prepFactOverlays(overlay: overlay)
                 }
@@ -285,9 +294,7 @@ public struct HoleImageMapView: View {
     /// 地图降级契约: the factual route shows until the precise map arrives); a real map is never
     /// overdrawn with them.
     var drawsLightweightFacts: Bool {
-        hole.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
-            && topoURL == nil
-            && garminRasterURL == nil
+        false
     }
 
     /// Whether this row's pixels belong to the precise topo bitmap passed in `topoURL`.

@@ -2045,27 +2045,6 @@ struct LiveMapPreparingPill: View {
     }
 }
 
-/// Pure policies shared by the live-hole view and native tests. Keeping these decisions outside
-/// SwiftUI state makes the optional Garmin layer and the F/M/B readout easy to verify offline.
-enum LiveGarminRasterPolicy {
-    static let preferenceKey = "liveGarminRasterEnabled"
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: preferenceKey)
-    }
-
-    static func shouldFetch(enabled: Bool, requestStarted: Bool) -> Bool {
-        enabled && !requestStarted
-    }
-
-    static func displayedRaster(
-        enabled: Bool,
-        raster: GarminRasterResponse?
-    ) -> GarminRasterResponse? {
-        enabled ? raster : nil
-    }
-}
-
 struct LiveGreenRangeYards: Equatable {
     let front: Int?
     let middle: Int?
@@ -2408,7 +2387,7 @@ enum LiveMapDisplayState: Equatable {
     static func resolve(prep: CoursePrepHole?, pending: Bool) -> LiveMapDisplayState {
         guard let prep, prep.resolvedMapOverlay != nil else { return .waiting }
         if prep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame {
-            return pending ? .factualPending : .factual
+            return .waiting
         }
         return .precise
     }
@@ -2490,24 +2469,25 @@ enum LiveMapDisplayState: Equatable {
     /// Phone live-play display priority: precise CourseView raster > Garmin raster image > factual
     /// route > one waiting surface. A Garmin descriptor with `available=false` can still provide
     /// a visual image, but its projection is intentionally absent and the caller draws no geo overlays.
-    static func resolveLive(_ inputs: LiveInputs) -> LiveMapDisplayState {
+    static func resolveLive(
+        _ inputs: LiveInputs,
+        previous: LiveMapDisplayState? = nil
+    ) -> LiveMapDisplayState {
+        let resolved: LiveMapDisplayState
         if inputs.preciseTopoImageReady && inputs.preciseGeometryReady { return .precise }
-        if inputs.preciseTopoAvailable || inputs.hasCachedPreciseTopo {
-            // Keep the screen on its neutral ground until the exact bitmap is decoded. The
-            // Garmin descriptor can be ready at this point, but it is not the authority for a
-            // hole whose exact local image is already known.
-            // A known precise bitmap with no prep route is still in the neutral decode-pending
-            // frame. Waiting is reserved for the case where neither bitmap nor route is known.
-            return .factualPending
-        }
         if !inputs.garminImageFailed,
            inputs.garminImageReady,
            inputs.garminRaster?.hasDisplayableImage == true {
-            return .garminRaster
+            resolved = .garminRaster
+        } else {
+            // No precise or Garmin bitmap exists yet. Keep a neutral preparation surface; the
+            // former CourseView route/green sketch is deliberately never a live fallback.
+            resolved = .waiting
         }
-        if inputs.hasRoute == true { return .factual }
-        if inputs.hasRoute == false { return .waiting }
-        return .numericPlaceholder
+        // A precise bitmap is a one-way upgrade. A transient decode/error update must not replace
+        // it with Garmin or the neutral surface after it has become visible.
+        if previous == .precise { return .precise }
+        return resolved
     }
 
     /// 备战 applies the same contract to the installed course. Precise means precise facts AND the
@@ -2526,11 +2506,13 @@ enum LiveMapDisplayState: Equatable {
            !isStale {
             return .precise
         }
-        return downloadActive ? .factualPending : .factual
+        // Prep follows the same no-line contract. The caller may independently supply a Garmin
+        // raster; until either bitmap is ready this row remains the neutral waiting surface.
+        return .waiting
     }
 
     /// 洞条: a hole whose precise map is not ready is only faded; tapping it still opens it.
-    var fadesInHoleStrip: Bool { self == .numericPlaceholder || self == .waiting || self == .factualPending || self == .factual }
+    var fadesInHoleStrip: Bool { self != .precise }
 }
 
 enum LiveMapPixelSpace: Equatable {

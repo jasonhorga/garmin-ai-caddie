@@ -122,9 +122,8 @@ final class ProductMapAndPackageTests: XCTestCase {
         return (controller, window)
     }
 
-    /// C136/J4: disabling Garmin is an end-to-end gate. The model receives a package carrying
-    /// raster URLs, but its real preload pass must issue zero raster URL requests.
-    func test_j4_5_garmin_disabled_model_sends_no_raster_request() async throws {
+    /// J4.5-2: Garmin is prefetched by default so a later hole can show its raster immediately.
+    func test_j4_5_garmin_default_model_prefetches_raster() async throws {
         let package = try c136Package(garmin: true)
         let host = "c136-garmin-off.example.test"
         let fixture = c136Model(host: host, package: package)
@@ -140,7 +139,6 @@ final class ProductMapAndPackageTests: XCTestCase {
                 proto.reply(200)
             }
         })
-        fixture.model.garminRasterPreloadingEnabled = { false }
         fixture.model.garminRasterDownloader = { url in
             let request = URLRequest(url: url)
             _ = try? await fixture.session.data(for: request)
@@ -156,14 +154,13 @@ final class ProductMapAndPackageTests: XCTestCase {
             roundId: package.roundId, teeBox: package.course.teeBox, loops: package.loopEntries
         )
         await fixture.model.waitForGarminRasterDownloadForTesting()
-        XCTAssertEqual(rasterRequests.value, 0, "disabled Garmin must not reach /garmin-raster")
+        XCTAssertGreaterThan(rasterRequests.value, 0, "default Garmin fallback is prefetched")
         XCTAssertEqual(fixture.model.pendingLiveHole, package.holes.first?.number)
         await fixture.model.stopRoundBackgroundWorkForTesting()
     }
 
-    /// C136/J4.5: the selected hole's Garmin guards cover both the direct descriptor request and
-    /// its recovery loop. With the persisted switch off neither path may issue a request.
-    func test_j4_5_garmin_disabled_hole_view_sends_no_raster_request() async throws {
+    /// J4.5-2: a selected hole requests its Garmin descriptor without a preference gate.
+    func test_j4_5_garmin_default_hole_view_fetches_raster() async throws {
         let package = try c136Package(garmin: true)
         let hole = try XCTUnwrap(package.holes.first)
         let host = "c136-garmin-hole-off.example.test"
@@ -173,12 +170,7 @@ final class ProductMapAndPackageTests: XCTestCase {
             if proto.request.url?.path.contains("garmin-raster") == true { requests.increment() }
             proto.reply(200)
         })
-        let defaults = UserDefaults.standard
-        let previous = defaults.object(forKey: LiveGarminRasterPolicy.preferenceKey)
-        defaults.set(false, forKey: LiveGarminRasterPolicy.preferenceKey)
         defer {
-            if let previous { defaults.set(previous, forKey: LiveGarminRasterPolicy.preferenceKey) }
-            else { defaults.removeObject(forKey: LiveGarminRasterPolicy.preferenceKey) }
             session.invalidateAndCancel()
         }
         let view = CurrentHoleView(
@@ -187,8 +179,7 @@ final class ProductMapAndPackageTests: XCTestCase {
             networkSession: session
         )
         await view.loadGarminRasterForTesting()
-        await view.recoverGarminDescriptorForTesting()
-        XCTAssertEqual(requests.value, 0, "disabled Garmin must gate both hole raster paths")
+        XCTAssertGreaterThan(requests.value, 0, "the hole uses Garmin as the default fallback")
     }
 
     /// C136/J4: a slow/failed raster pass is independent of the playable first hole. The test holds
@@ -202,7 +193,6 @@ final class ProductMapAndPackageTests: XCTestCase {
         let gate = C136Gate()
         let startLock = NSLock()
         var didSignalStart = false
-        fixture.model.garminRasterPreloadingEnabled = { true }
         fixture.model.garminRasterDownloader = { _ in
             startLock.lock()
             let shouldSignal = !didSignalStart
@@ -447,13 +437,6 @@ final class ProductMapAndPackageTests: XCTestCase {
     /// C136/J4.5: the real hole loader keeps the partial route and F/M/B facts visible while
     /// `/prep` is in flight. The task is intentionally held after the view has started it.
     func test_j4_5_real_hole_loader_keeps_surface_visible_during_prep() async throws {
-        let defaults = UserDefaults.standard
-        let previousGarmin = defaults.object(forKey: LiveGarminRasterPolicy.preferenceKey)
-        defaults.set(true, forKey: LiveGarminRasterPolicy.preferenceKey)
-        defer {
-            if let previousGarmin { defaults.set(previousGarmin, forKey: LiveGarminRasterPolicy.preferenceKey) }
-            else { defaults.removeObject(forKey: LiveGarminRasterPolicy.preferenceKey) }
-        }
         for includePrep in [true, false] {
             let package = try c136Package(pendingHole: 1, includePrep: includePrep)
             let hole = try XCTUnwrap(package.holes.first)
@@ -523,7 +506,8 @@ final class ProductMapAndPackageTests: XCTestCase {
             XCTAssertEqual(visible.hasPrep, includePrep)
             XCTAssertFalse(visible.surfaceFailed,
                            "a retry joining in-flight prep must not fail the mounted numeric/map surface")
-            XCTAssertEqual(visible.displayState, includePrep ? .factual : .waiting)
+            XCTAssertEqual(visible.displayState, .waiting,
+                           "without a ready precise/Garmin bitmap the map stays neutral")
             if includePrep { XCTAssertNotNil(visible.greenRange.middle) }
             XCTAssertEqual(prepRequests.value, 1, "one physical hole starts one prep request")
             loading.cancel()
@@ -558,7 +542,7 @@ final class ProductMapAndPackageTests: XCTestCase {
             garminImageReady: false, garminImageFailed: true, hasCachedPreciseTopo: false,
             hasRoute: true
         ))
-        XCTAssertEqual(state, .factual, "route facts draw while /prep is held")
+        XCTAssertEqual(state, .waiting, "J4.5 no bitmap uses the neutral waiting surface")
         XCTAssertEqual(
             HoleMapWaitingPage(holeNumber: 2, par: 4, yards: 241).subtitle,
             "241 码 · 图到了自动出来"
@@ -575,7 +559,7 @@ final class ProductMapAndPackageTests: XCTestCase {
         let success = await LiveHolePrepProbe.run(
             fetch: { ready }, publishInterim: { _ in }, wait: { _ in }
         )
-        XCTAssertEqual(LiveMapDisplayState.resolve(prep: partial, pending: true), .factualPending)
+        XCTAssertEqual(LiveMapDisplayState.resolve(prep: partial, pending: true), .waiting)
         XCTAssertEqual(
             LiveMapDisplayState.resolve(prep: success, pending: false), .precise,
             "successful prep ends the spinner and promotes the map"
@@ -591,8 +575,8 @@ final class ProductMapAndPackageTests: XCTestCase {
         )
         XCTAssertNil(terminal)
         XCTAssertEqual(
-            LiveMapDisplayState.resolve(prep: failed, pending: false), .factual,
-            "terminal failure ends the spinner while retaining route facts"
+            LiveMapDisplayState.resolve(prep: failed, pending: false), .waiting,
+            "terminal failure keeps the neutral surface without line facts"
         )
         XCTAssertFalse(
             CurrentHoleView.mapPreparingSurfaceFailed(
@@ -608,14 +592,6 @@ final class ProductMapAndPackageTests: XCTestCase {
         )
     }
 #endif
-
-    func test_j4_5_garmin_disabled_gate_has_no_raster_request_or_surface() {
-        XCTAssertFalse(LiveGarminRasterPolicy.shouldFetch(enabled: false, requestStarted: false))
-        XCTAssertNil(LiveGarminRasterPolicy.displayedRaster(
-            enabled: false,
-            raster: GarminRasterResponse(available: true, imageUrl: "/raster.jpg", mode: "H")
-        ))
-    }
 
     func test_j4_2_cached_package_lifecycle_and_revision_adoption() throws {
         // Prepared at midnight; stale at +24 h; expires at +48 h. Boundary instants are inclusive.
@@ -688,16 +664,16 @@ final class ProductMapAndPackageTests: XCTestCase {
         let partial = try ProductInputs.prep(coverage: "partial")
         let empty = try ProductInputs.prep(coverage: "missing", route: false)
         let rows: [(String, CoursePrepHole?, Bool, LiveMapDisplayState)] = [
-            ("precise", ready, false, .precise), ("route-downloading", partial, true, .factualPending),
-            ("offline-route", partial, false, .factual), ("no-route", empty, true, .waiting),
+            ("precise", ready, false, .precise), ("route-downloading", partial, true, .waiting),
+            ("offline-route", partial, false, .waiting), ("no-route", empty, true, .waiting),
             ("no-hole", nil, false, .waiting),
         ]
         for (id, prep, pending, expected) in rows {
             XCTAssertEqual(LiveMapDisplayState.resolve(prep: prep, pending: pending), expected, id)
         }
         XCTAssertEqual(LiveMapDisplayState.resolvePrep(prep: ready, hasLocalTopo: true, isStale: false, downloadActive: false), .precise)
-        XCTAssertEqual(LiveMapDisplayState.resolvePrep(prep: ready, hasLocalTopo: true, isStale: true, downloadActive: true), .factualPending)
-        XCTAssertEqual(LiveMapDisplayState.resolvePrep(prep: partial, hasLocalTopo: false, isStale: false, downloadActive: false), .factual)
+        XCTAssertEqual(LiveMapDisplayState.resolvePrep(prep: ready, hasLocalTopo: true, isStale: true, downloadActive: true), .waiting)
+        XCTAssertEqual(LiveMapDisplayState.resolvePrep(prep: partial, hasLocalTopo: false, isStale: false, downloadActive: false), .waiting)
         XCTAssertEqual(LiveMapDisplayState.resolvePrep(prep: empty, hasLocalTopo: false, isStale: false, downloadActive: true), .waiting)
         let old = try XCTUnwrap(ready.map?.overlay)
         let new = try XCTUnwrap(ProductInputs.prep(scale: 2).map?.overlay)

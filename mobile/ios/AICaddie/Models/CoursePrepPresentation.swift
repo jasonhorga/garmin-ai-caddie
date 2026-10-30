@@ -70,7 +70,7 @@ enum PrepHoleRows {
                 prep: prep,
                 topoURL: topo,
                 state: state,
-                plans: state == .waiting ? [] : PrepPlanOption.options(template: template, hole: hole, prep: prep)
+                plans: prep == nil ? [] : PrepPlanOption.options(template: template, hole: hole, prep: prep)
             )
         }
     }

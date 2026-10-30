@@ -101,10 +101,10 @@ final class C89HoleMapFrameTests: XCTestCase {
         XCTAssertTrue(overTopo.plannedLegs().isEmpty, "the viewport route layer gets no CourseView legs")
         XCTAssertNil(overTopo.teeDistanceArcPixels())
 
-        // Without a bitmap the same row is the factual map, drawn at once.
+        // J4.5: without a bitmap the temporary line map is removed entirely.
         let factual = HoleImageMapView(hole: lightweight, showsCardChrome: false, plannedShots: shots,
                                        drawsPlannedRouteInMap: false)
-        XCTAssertTrue(factual.drawsLightweightFacts)
+        XCTAssertFalse(factual.drawsLightweightFacts)
         XCTAssertTrue(factual.drawsFactLayer)
         XCTAssertEqual(factual.plannedLegs().count, 2)
     }

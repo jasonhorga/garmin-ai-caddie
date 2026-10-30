@@ -6,7 +6,7 @@ import XCTest
 
 @MainActor
 final class LiveMapFirstFrameTests: XCTestCase {
-    func testKnownPreciseTopoNeverFallsBackToGarminBeforeDecode() {
+    func testKnownPreciseTopoUsesGarminUntilDecodeCompletes() {
         let descriptor = GarminRasterResponse(available: true, imageUrl: "/garmin.png")
         let state = LiveMapDisplayState.resolveLive(.init(
             coverage: "ready",
@@ -37,8 +37,8 @@ final class LiveMapFirstFrameTests: XCTestCase {
             garminImageFailed: false,
             hasRoute: false
         )
-        XCTAssertEqual(LiveMapDisplayState.resolveLive(inputs), .factualPending,
-                       "holePrep nil must not flash the waiting page before the known topo decodes")
+        XCTAssertEqual(LiveMapDisplayState.resolveLive(inputs), .garminRaster,
+                       "J4.5 Garmin is the visible fallback until precise decode completes")
     }
 
     func testFailedPreciseDecodeAllowsReadyGarminFallback() {
