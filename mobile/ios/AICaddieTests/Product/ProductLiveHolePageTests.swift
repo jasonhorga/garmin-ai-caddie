@@ -101,7 +101,7 @@ final class ProductLiveHolePageTests: XCTestCase {
             window.rootViewController = nil
             probe.refresh = nil; probe.request = nil; probe.routes = nil; probe.source = nil
             probe.planningDistance = nil; probe.offlineDecision = nil; probe.offlineRequest = nil
-            probe.mapTargetDistance = nil; probe.setTarget = nil; probe.setCoordinate = nil
+            probe.mapTargetDistance = nil; probe.setTarget = nil; probe.setFix = nil
             session.invalidateAndCancel()
             C33URLProtocol.setHandlers(onStart: nil)
         }
@@ -139,8 +139,11 @@ final class ProductLiveHolePageTests: XCTestCase {
                            "J5.4 before leaving the selected Tee, planning keeps static middle")
             // At the dogleg's first bend: hand-specified route station 135.5 leaves 185.4 m;
             // straight range to (304.3,350) is hypot(174.3,100) = 200.9221 m.
-            let setCoordinate = try XCTUnwrap(probe.setCoordinate)
-            setCoordinate(CLLocationCoordinate2D(latitude: 0.000899321606, longitude: 0.000989253767))
+            let setFix = try XCTUnwrap(probe.setFix)
+            setFix(LocationFix(
+                coordinate: CLLocationCoordinate2D(latitude: 0.000899321606, longitude: 0.000989253767),
+                horizontalAccuracyM: 5, altitudeM: nil, capturedAt: "2026-10-01T00:01:00Z"
+            ))
             let movedRequest = try XCTUnwrap(request())
             guard case .number(let movedDistance)? = movedRequest.context["distanceToPin_m"] else {
                 return XCTFail("moved wire distance missing")

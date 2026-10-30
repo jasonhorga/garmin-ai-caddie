@@ -595,7 +595,7 @@ final class LiveHoleDecisionProbe {
     var offlineRequest: (() -> CaddieDecisionRequest?)?
     var mapTargetDistance: (() -> Double?)?
     var setTarget: ((CGPoint?) -> Void)?
-    var setCoordinate: ((CLLocationCoordinate2D?) -> Void)?
+    var setFix: ((LocationFix?) -> Void)?
     var clientUnavailable = false
 }
 #endif
@@ -636,7 +636,10 @@ public struct CurrentHoleView: View {
         decisionProbe.offlineRequest = { makeOfflineCaddieDecisionRequest() }
         decisionProbe.mapTargetDistance = { mapTargetDistanceMetres }
         decisionProbe.setTarget = { targetPixel = $0 }
-        decisionProbe.setCoordinate = { currentCoordinate = $0 }
+        decisionProbe.setFix = { fix in
+            activeLocationProvider.setFixForTesting(fix)
+            currentCoordinate = fix?.coordinate
+        }
         currentCoordinate = locationProvider.latestFix?.coordinate
     }
 
