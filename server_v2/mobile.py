@@ -514,6 +514,8 @@ def build_mobile_round_package_response(
     captured_at: str | None = None,
     client_id: str | None = None,
     ensure_geometry: bool = False,
+    allow_weather_fetch: bool = True,
+    stats_data: dict[str, Any] | None = None,
     player_id: str = OWNER_ID,
 ) -> LiveRoundPackageResponse:
     data, mode = load_history_data_for_mode(player_id=player_id)
@@ -549,6 +551,8 @@ def build_mobile_round_package_response(
             client_id=None,
             ensure_geometry=ensure_geometry and not cache_only,
             include_event_cursor=False,
+            allow_weather_fetch=allow_weather_fetch,
+            stats_projection=stats_data,
             # The first-screen contract needs recent player carry evidence, not the complete
             # history/geometry quality report. The all-history projection is warmed by the
             # background stats path and remains available to history/review routes.

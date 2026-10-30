@@ -1,0 +1,13 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+index 0a11e4f4..c8c2a87b 100644
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -64,7 +64,7 @@ for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
+             if any(Path(location).resolve().is_relative_to(directory)
+                    for location in locations for directory in added_paths):
+                 del sys.modules[name]
+-    sys.path[:] = baseline_path
++    pass
+     previous_modules = set(sys.modules)
+     try:
+         loader = unittest.TestLoader()

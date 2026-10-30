@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+--- a/ai_caddie/history/corrected_history.py	2026-10-30 10:58:27.925803257 +0000
++++ b/ai_caddie/history/corrected_history.py	2026-10-30 10:58:28.020804957 +0000
+@@ -240,7 +240,7 @@
+                         number = _int(target[len(prefix):])
+                         if number is not None and number > 0 and number not in display_numbers.values():
+                             annotated_missing.setdefault(number, []).append(record)
+-        for number in sorted(annotated_missing):
++        for number in []:
+             records = annotated_missing[number]
+             kinds = {HOLE_ANNOTATION_FIELDS[str(r.get("kind"))] for r in records}
+             (total, _total_winner), (putts, _putts_winner), (penalty, penalty_winner) = effective_hole(

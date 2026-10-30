@@ -19,6 +19,19 @@ class ReadinessRuntimePathsTests(unittest.TestCase):
         self.addCleanup(holder.cleanup)
         self.root = Path(holder.name)
 
+    def test_G7_collector_includes_readiness_and_warm_runtime_resources(self) -> None:
+        """G7: C432 retains the four baseline runtime resources after cold-start warming."""
+        if not (Path.cwd() / "server_v2" / "history_stats.py").exists():
+            self.skipTest("nested script test has no full server checkout")
+        manifest = paths._collect(Path.cwd())
+        runtime = {entry["path"] for entry in manifest["runtime"]}
+        self.assertTrue({
+            "ai_caddie",
+            "ai_caddie/geometry",
+            "ai_caddie/geometry/batch_prodgeometry_course.py",
+            "mobile/contracts/live_round_event.schema.json",
+        } <= runtime)
+
     def _verify(self, runtime: list[dict]) -> tuple[int, str]:
         payload = json.dumps({"schema": paths.SCHEMA, "runtime": runtime})
         stderr = io.StringIO()

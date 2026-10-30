@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index 9c01ec3f..a18a9329 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -325,7 +325,7 @@ def corrected_rounds(
+             corrected_refs.append(f"{row.get('id')}:{number}")
+             added_total += total
+             added_par += par
+-            hole_entries.append((number, len(hole_entries), synthetic))
++            hole_entries.append((999, len(hole_entries), synthetic))
+             changed = True
+         if not changed:
+             out.append(row)

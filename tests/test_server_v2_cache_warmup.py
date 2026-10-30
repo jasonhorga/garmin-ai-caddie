@@ -17,6 +17,7 @@ underlying build with ``unittest.mock`` so we can assert a subsequent request is
 from __future__ import annotations
 
 import os
+import tempfile
 import threading
 import unittest
 from unittest.mock import Mock, call, patch
@@ -143,6 +144,60 @@ class CacheWarmupTests(ServiceLoggingIsolationMixin, unittest.TestCase):
             first.join(timeout=2)
 
         self.assertFalse(first.is_alive())
+
+    def test_G7_stale_disk_snapshot_is_readable_without_rebuilding_stats(self) -> None:
+        """G7: a completed warm remains a bounded readiness snapshot after source revision moves."""
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"AI_CADDIE_STATS_CACHE_DIR": tmp, "AI_CADDIE_DATA_MODE": "fixture"}):
+                warm_stats_cache()
+                self.assertTrue(stats_cache.flush_persistent_writes(timeout=10))
+                stats_cache.clear()
+                with patch.object(stats_cache, "history_source_revision", return_value="new-source-revision"):
+                    snapshot = stats_cache.cached_history_stats_snapshot()
+                self.assertIsNotNone(snapshot)
+                self.assertEqual(snapshot["source"], "disk")
+                self.assertTrue(snapshot["stale"])
+                self.assertIn("summary", snapshot["value"])
+
+    def test_G7_mobile_readiness_does_not_invalidate_warmed_all_stats_with_weather(self) -> None:
+        """G7: readiness package probes do not write weather and evict the all-history snapshot."""
+        from server_v2.readiness import build_readiness_response
+
+        with patch.object(
+            stats_cache, "_build_history_stats", wraps=stats_cache._build_history_stats
+        ) as build_spy:
+            warm_stats_cache()
+            warmed_calls = build_spy.call_count
+            payload = build_readiness_response()
+            self.assertIn(payload["status"], {"ready", "degraded", "warming"})
+            load_history_stats_response()
+            self.assertEqual(
+                build_spy.call_count,
+                warmed_calls,
+                "mobile readiness probe must not rewrite weather and invalidate all-history stats",
+            )
+
+    def test_G7_history_source_revision_is_captured_before_stats_build(self) -> None:
+        """G7: a source mutation during a build leaves the persisted snapshot stale."""
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ["before-build"]
+            original = stats_cache._build_history_stats
+
+            def mutating_build(*args, **kwargs):
+                result = original(*args, **kwargs)
+                state[0] = "after-build"
+                return result
+
+            with patch.dict(os.environ, {"AI_CADDIE_STATS_CACHE_DIR": tmp, "AI_CADDIE_DATA_MODE": "fixture"}), \
+                 patch.object(stats_cache, "history_source_revision", side_effect=lambda _player="me": state[0]), \
+                 patch.object(stats_cache, "_build_history_stats", side_effect=mutating_build):
+                load_history_stats_response()
+                self.assertTrue(stats_cache.flush_persistent_writes(timeout=10))
+                stats_cache.clear()
+                snapshot = stats_cache.cached_history_stats_snapshot()
+            self.assertIsNotNone(snapshot)
+            self.assertEqual(snapshot["revision"], "before-build")
+            self.assertTrue(snapshot["stale"])
 
 
 class AppStartupTests(ServiceLoggingIsolationMixin, unittest.TestCase):

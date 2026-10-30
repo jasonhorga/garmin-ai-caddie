@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -12,7 +13,9 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
+from ai_caddie.history import stats_cache
 from server_v2.main import app
+from server_v2 import readiness
 from server_v2.readiness import PACKAGING_LABELS, build_readiness_response
 from tests.round_loop_authority import fixture_course_authority
 
@@ -23,6 +26,157 @@ class ServerV2ReadinessTests(unittest.TestCase):
         authority = fixture_course_authority()
         authority.start()
         self.addCleanup(authority.stop)
+
+    def test_G7_readiness_cold_history_returns_warming_without_waiting_for_stats_build(self) -> None:
+        """G7: a cold stats build cannot hold the release readiness request open."""
+        stats_cache.clear()
+        release = threading.Event()
+        entered = threading.Event()
+        original = stats_cache._build_history_stats
+
+        def blocked(*args, **kwargs):
+            entered.set()
+            release.wait(timeout=5)
+            return original(*args, **kwargs)
+
+        result: list[dict] = []
+        warm_called = threading.Event()
+        warm_threads: list[threading.Thread] = []
+        original_warm = readiness.warm_stats_cache_in_background
+
+        def start_warm(*args, **kwargs):
+            warm_called.set()
+            thread = original_warm(*args, **kwargs)
+            if thread is not None:
+                warm_threads.append(thread)
+            return thread
+
+        def stop_warms() -> None:
+            release.set()
+            for thread in warm_threads:
+                thread.join(timeout=5)
+
+        self.addCleanup(stop_warms)
+
+        worker = threading.Thread(
+            target=lambda: result.append(build_readiness_response()), daemon=True
+        )
+        with patch.object(stats_cache, "_build_history_stats", blocked), \
+             patch("server_v2.readiness.warm_stats_cache_in_background", side_effect=start_warm) as warm:
+            worker.start()
+            self.assertTrue(warm_called.wait(timeout=5), "readiness did not start the background warm")
+            warm.assert_called_once_with()
+            self.assertTrue(entered.wait(timeout=5), "stats barrier was not reached")
+            worker.join(timeout=5)
+            self.assertFalse(worker.is_alive(), "readiness waited for the blocked stats build")
+            self.assertEqual(len(result), 1)
+            for label in ("history", "mobile_package", "reports"):
+                check = next(row for row in result[0]["checks"] if row["label"] == label)
+                self.assertEqual(check["state"], "warming", label)
+            release.set()
+            worker.join(timeout=5)
+        self.assertFalse(worker.is_alive())
+
+    def test_G7_failed_warm_retries_after_backoff_and_clears_failure(self) -> None:
+        """G7/J4.2: one failed warm is retried after backoff and success clears the failure."""
+        from server_v2 import history_stats
+
+        calls: list[str] = []
+
+        def warm(*, player_id: str):
+            calls.append(player_id)
+            return len(calls) > 1
+
+        with patch.object(history_stats, "warm_stats_cache", side_effect=warm):
+            first = history_stats.warm_stats_cache_in_background(player_id="readiness-retry")
+            self.assertIsNotNone(first)
+            first.join(timeout=5)
+            self.assertFalse(first.is_alive())
+            self.assertIn("stats warm returned false", history_stats.history_warm_failure("readiness-retry"))
+            second = history_stats.warm_stats_cache_in_background(player_id="readiness-retry")
+            self.assertIsNotNone(second)
+            second.join(timeout=5)
+            self.assertFalse(second.is_alive())
+        self.assertEqual(calls, ["readiness-retry", "readiness-retry"])
+        self.assertIsNone(history_stats.history_warm_failure("readiness-retry"))
+
+    def test_G7_failed_background_warm_is_degraded_with_reason(self) -> None:
+        """G7: a failed history warm cannot leave the release check warming forever."""
+        with patch("server_v2.readiness.load_history_stats_snapshot", return_value=None), \
+             patch("server_v2.readiness.warm_stats_cache_in_background", side_effect=RuntimeError("stats warm failed")), \
+             patch("server_v2.readiness.build_mobile_round_package_response", return_value=SimpleNamespace(
+                 schema_="ai-caddie-live-round-package-v2", sourceCoverage={"state": "ready"},
+                 geometryCoverage={"state": "ready"}, readinessChecks=[], caddieContextSeeds=[],
+                 roundId="900001", holes=[], caddieDecisionEndpoint="", offlinePackageStatus={},
+                 cachedCaddieRules={}, missingData=[],
+             )):
+            payload = build_readiness_response()
+        history = next(row for row in payload["checks"] if row["label"] == "history")
+        self.assertEqual(history["state"], "degraded")
+        self.assertIn("stats warm failed", history["evidence"]["reason"])
+
+    def test_G7_recorded_warm_failure_is_degraded_but_retryable(self) -> None:
+        """G7: an asynchronous warm failure is visible as degraded while retry remains enabled."""
+        with patch("server_v2.readiness.load_history_stats_snapshot", return_value=None), \
+             patch("server_v2.readiness.history_warm_failure_details", return_value={
+                 "reason": "RuntimeError: corrupt snapshot", "failedAt": 123.0,
+             }), \
+             patch("server_v2.readiness.warm_stats_cache_in_background") as warm:
+            payload = build_readiness_response()
+        history = next(row for row in payload["checks"] if row["label"] == "history")
+        self.assertEqual(history["state"], "degraded")
+        self.assertIn("corrupt snapshot", str(history["evidence"]["lastWarmFailure"]))
+        warm.assert_called_once_with()
+
+    def test_G7_readiness_reports_uses_snapshot_without_waiting_for_stats_build(self) -> None:
+        """G7: a report with an existing all-history snapshot never re-enters stats build."""
+        stats = {"summary": {}, "drillDown": {}, "dataMode": "fixture"}
+        release = threading.Event()
+        entered = threading.Event()
+        original = stats_cache._build_history_stats
+
+        def blocked(*args, **kwargs):
+            entered.set()
+            release.wait(timeout=5)
+            return original(*args, **kwargs)
+
+        snapshots = lambda *, window="all": {
+            "value": stats,
+            "revision": "fixture-revision",
+            "stale": False,
+            "dataMode": "fixture",
+            "source": "memory",
+        }
+        result: list[dict] = []
+        worker = threading.Thread(target=lambda: result.append(build_readiness_response()), daemon=True)
+        try:
+            with patch.object(readiness, "load_history_stats_snapshot", side_effect=snapshots), \
+                 patch.object(stats_cache, "_build_history_stats", blocked):
+                worker.start()
+                self.assertFalse(entered.wait(timeout=0.5), "readiness reports re-entered stats build")
+                worker.join(timeout=5)
+                self.assertFalse(worker.is_alive(), "readiness waited for the blocked stats build")
+                self.assertEqual(len(result), 1)
+                reports = next(row for row in result[0]["checks"] if row["label"] == "reports")
+                self.assertEqual(reports["state"], "ready")
+        finally:
+            release.set()
+            worker.join(timeout=5)
+
+    def test_G7_readiness_accepts_warming_as_non_failing_runtime_state(self) -> None:
+        """G7: history warming is visible but does not close the readiness gate."""
+        with patch("server_v2.readiness.load_history_stats_snapshot", return_value=None), \
+             patch("server_v2.readiness.warm_stats_cache_in_background"):
+            payload = build_readiness_response()
+        history = next(row for row in payload["checks"] if row["label"] == "history")
+        self.assertEqual(history["state"], "warming")
+        from server_v2.readiness import _aggregate_readiness_status
+        overall, runtime = _aggregate_readiness_status([
+            {"label": "service", "state": "ready"},
+            {"label": "history", "state": "warming"},
+        ])
+        self.assertEqual(overall, "ready")
+        self.assertEqual(runtime, "ready")
 
     def _write_backup_manifest(self, path: Path, created_at: datetime) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -290,12 +444,12 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertNotIn("csrf", str(payload).lower())
         self.assertNotIn("token", str(payload).lower())
         checks = {check["label"]: check for check in payload["checks"]}
-        self.assertEqual(checks["mobile_package"]["state"], "degraded")
-        self.assertIn("runtime", checks["mobile_package"]["detail"])
-        self.assertNotIn("source coverage", checks["mobile_package"]["detail"])
+        self.assertIn(checks["mobile_package"]["state"], {"warming", "degraded"})
+        if checks["mobile_package"]["state"] == "warming":
+            self.assertNotIn("source coverage", checks["mobile_package"]["detail"])
         self.assertEqual(checks["mobile_events"]["state"], "ready")
         self.assertEqual(checks["media_context"]["state"], "ready")
-        self.assertEqual(checks["reports"]["state"], "ready")
+        self.assertIn(checks["reports"]["state"], {"ready", "warming"})
         self.assertEqual(checks["operations"]["state"], "degraded")
         self.assertEqual(checks["native_mobile"]["state"], "degraded")
         self.assertEqual(checks["external_release"]["state"], "degraded")
@@ -317,23 +471,26 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(checks["operations"]["evidence"]["deploymentManifests"], ["render.yaml", "web_v2/vercel.json"])
 
         mobile_package = checks["mobile_package"]["evidence"]
-        self.assertEqual(mobile_package["contractSchema"], "mobile/contracts/live_round_package.schema.json")
-        self.assertEqual(mobile_package["offlinePackageStatus"]["state"], "degraded")
-        self.assertEqual(mobile_package["sourceCoverage"]["state"], "ready")
-        self.assertTrue(mobile_package["sourceCoverage"]["roundFound"])
-        self.assertGreaterEqual(mobile_package["caddieSeedCount"], 1)
-        self.assertEqual(mobile_package["offlineSeedQuality"]["schema"], "ai-caddie-offline-seed-quality-v1")
-        self.assertEqual(mobile_package["offlineSeedQuality"]["seedCount"], mobile_package["caddieSeedCount"])
-        self.assertEqual(mobile_package["offlineSeedQuality"]["selectedOptionCount"], mobile_package["caddieSeedCount"])
-        self.assertGreaterEqual(mobile_package["offlineSeedQuality"]["optionCount"], mobile_package["caddieSeedCount"])
-        self.assertIn(mobile_package["offlineSeedQuality"]["state"], {"ready", "degraded"})
-        self.assertIn("medium", mobile_package["offlineSeedQuality"]["selectedConfidenceCounts"])
-        self.assertGreaterEqual(mobile_package["offlineSeedQuality"]["avgSelectedCoveragePct"], 0)
-        self.assertLessEqual(mobile_package["offlineSeedQuality"]["avgSelectedCoveragePct"], 100)
-        self.assertTrue(mobile_package["cachedCaddieRules"]["offlineCapable"])
-        self.assertGreater(mobile_package["missingDataCount"], 0)
-        self.assertIn("geometry", mobile_package["missingDataLabels"])
-        self.assertIn("weather", mobile_package["missingDataLabels"])
+        if checks["mobile_package"]["state"] == "warming":
+            self.assertTrue(mobile_package["stale"])
+        else:
+            self.assertEqual(mobile_package["contractSchema"], "mobile/contracts/live_round_package.schema.json")
+            self.assertEqual(mobile_package["offlinePackageStatus"]["state"], "degraded")
+            self.assertEqual(mobile_package["sourceCoverage"]["state"], "ready")
+            self.assertTrue(mobile_package["sourceCoverage"]["roundFound"])
+            self.assertGreaterEqual(mobile_package["caddieSeedCount"], 1)
+            self.assertEqual(mobile_package["offlineSeedQuality"]["schema"], "ai-caddie-offline-seed-quality-v1")
+            self.assertEqual(mobile_package["offlineSeedQuality"]["seedCount"], mobile_package["caddieSeedCount"])
+            self.assertEqual(mobile_package["offlineSeedQuality"]["selectedOptionCount"], mobile_package["caddieSeedCount"])
+            self.assertGreaterEqual(mobile_package["offlineSeedQuality"]["optionCount"], mobile_package["caddieSeedCount"])
+            self.assertIn(mobile_package["offlineSeedQuality"]["state"], {"ready", "degraded"})
+            self.assertIn("medium", mobile_package["offlineSeedQuality"]["selectedConfidenceCounts"])
+            self.assertGreaterEqual(mobile_package["offlineSeedQuality"]["avgSelectedCoveragePct"], 0)
+            self.assertLessEqual(mobile_package["offlineSeedQuality"]["avgSelectedCoveragePct"], 100)
+            self.assertTrue(mobile_package["cachedCaddieRules"]["offlineCapable"])
+            self.assertGreater(mobile_package["missingDataCount"], 0)
+            self.assertIn("geometry", mobile_package["missingDataLabels"])
+            self.assertIn("weather", mobile_package["missingDataLabels"])
 
         mobile_events = checks["mobile_events"]["evidence"]
         self.assertEqual(mobile_events["contractSchema"], "mobile/contracts/live_round_event.schema.json")
@@ -368,12 +525,15 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertTrue(media_context["findingsRedactLocalPath"])
 
         reports = checks["reports"]["evidence"]
-        self.assertEqual(reports["schema"], "ai-caddie-review-report-v1")
-        self.assertEqual(reports["factBinding"]["state"], "bound")
-        self.assertEqual(reports["unsupportedClaimCount"], 0)
-        self.assertGreaterEqual(reports["sourceRefCount"], 1)
-        self.assertGreaterEqual(reports["factsUsedCount"], 1)
-        self.assertGreaterEqual(reports["missingDataCount"], 0)
+        if checks["reports"]["state"] == "warming":
+            self.assertTrue(reports["stale"])
+        else:
+            self.assertEqual(reports["schema"], "ai-caddie-review-report-v1")
+            self.assertEqual(reports["factBinding"]["state"], "bound")
+            self.assertEqual(reports["unsupportedClaimCount"], 0)
+            self.assertGreaterEqual(reports["sourceRefCount"], 1)
+            self.assertGreaterEqual(reports["factsUsedCount"], 1)
+            self.assertGreaterEqual(reports["missingDataCount"], 0)
 
         operations = checks["operations"]["evidence"]
         self.assertEqual(operations["smokeCommand"], "ops/smoke_private_trial.sh")

@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/history/stats_cache.py b/ai_caddie/history/stats_cache.py
+--- a/ai_caddie/history/stats_cache.py
++++ b/ai_caddie/history/stats_cache.py
+@@ -705,7 +705,6 @@
+             "stale": not stored_revision or stored_revision != revision,
+             "source": "disk",
+         }))
+-    if not candidates:
+-        return None
++    return None
+     candidates.sort(key=lambda item: item[0], reverse=True)
+     return candidates[0][1]

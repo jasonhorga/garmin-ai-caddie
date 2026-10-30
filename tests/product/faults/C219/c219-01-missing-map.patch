@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+--- a/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:58:27.921803185 +0000
++++ b/ai_caddie/caddie/mobile_reconciliation.py	2026-10-30 10:58:28.014804850 +0000
+@@ -168,7 +168,7 @@
+         candidates = garmin_visits.get(key, [])
+         if visit < len(candidates):
+             mapping[hole["number"]] = candidates[visit]
+-    if not mapping:
++    if mapping:
+         return mapping
+ 
+     # A partial card still tells us the display axis for its missing sibling card. Complete the

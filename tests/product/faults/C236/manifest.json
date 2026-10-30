@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C236-01-route-broad-match",
+      "patch": "tests/product/faults/C236/01-route-broad-match.patch",
+      "kind": "python",
+      "target": "tests.test_native_fixture_dns_gate.NativeFixtureDNSGateTests.test_route_like_query_text_does_not_allow_single_line_leak",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C236-02-task-global-match",
+      "patch": "tests/product/faults/C236/02-task-global-match.patch",
+      "kind": "python",
+      "target": "tests.test_native_fixture_dns_gate.NativeFixtureDNSGateTests.test_task_id_spliced_into_route_line_does_not_allow_single_line_leak",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C236-03-missing-log-exit-zero",
+      "patch": "tests/product/faults/C236/03-missing-log-exit-zero.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_fixture_dns_gates_fail_closed_when_logs_are_missing",
+      "promise": "J4.2"
+    }
+  ]
+}

@@ -26,6 +26,11 @@ SCHEME = "AICaddie"
 OUTPUT_IPA = "AICaddie.ipa"
 KEYCHAIN = "aicaddie-ci-signing"
 TEAM_ID = ENV.fetch("BETA_DEVELOPMENT_TEAM", "6HB84897DJ")
+READINESS_TOTAL_TIMEOUT = 720.0
+READINESS_POLL_INTERVAL = 15.0
+READINESS_READ_TIMEOUT = 60.0
+READINESS_OPEN_TIMEOUT = 20.0
+BackendRetryableError = Class.new(StandardError)
 
 platform :ios do
   def load_asc_api_key!
@@ -148,35 +153,70 @@ platform :ios do
     token = ENV["AI_CADDIE_ADMIN_TOKEN"].to_s.strip
     UI.user_error!("AI_CADDIE_ADMIN_TOKEN is required for authenticated backend preflight") if token.empty?
 
-    fetch_json = lambda do |path|
+    fetch_json = lambda do |path, read_timeout: 20, open_timeout: 20|
       uri = URI.parse(origin + path)
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = true
-      http.open_timeout = 20
-      # /api/v2/readiness assembles its evidence on the first call after a quiet period (21.6 s
-      # measured 2026-10-09; ~0.1 s once warm). A 20 s read timeout failed a TestFlight upload
-      # after the IPA was already built, so allow a cold first answer.
-      http.read_timeout = 60
+      http.open_timeout = open_timeout
+      http.read_timeout = read_timeout
       req = Net::HTTP::Get.new(uri)
       req["Accept"] = "application/json"
       req["X-AI-Caddie-Admin-Token"] = token
       response = http.request(req)
+      if response.code.to_i >= 500
+        raise BackendRetryableError, "backend preflight HTTP #{response.code}"
+      end
       UI.user_error!("backend preflight HTTP #{response.code}") unless response.code.to_i == 200
       JSON.parse(response.body)
     end
 
     health = fetch_json.call("/api/v2/health")
     UI.user_error!("backend health schema mismatch") unless health["schema"] == "ai-caddie-health-v2"
-    readiness = fetch_json.call("/api/v2/readiness")
+    readiness_started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    readiness = nil
+    attempts = 0
+    while Process.clock_gettime(Process::CLOCK_MONOTONIC) - readiness_started < READINESS_TOTAL_TIMEOUT
+      attempts += 1
+      attempt_started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      remaining = [READINESS_TOTAL_TIMEOUT - (attempt_started - readiness_started), 0.1].max
+      begin
+        timeout = [READINESS_READ_TIMEOUT, remaining].min
+        open_timeout = [READINESS_OPEN_TIMEOUT, remaining].min
+        readiness = fetch_json.call("/api/v2/readiness", read_timeout: timeout, open_timeout: open_timeout)
+      rescue Net::ReadTimeout, Net::OpenTimeout, BackendRetryableError, Errno::ECONNRESET, SocketError => e
+        elapsed_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - attempt_started) * 1000).round(1)
+        UI.important("backend readiness attempt #{attempts} elapsed_ms=#{elapsed_ms} error=#{e.class}")
+        break if Process.clock_gettime(Process::CLOCK_MONOTONIC) - readiness_started >= READINESS_TOTAL_TIMEOUT
+        sleep([READINESS_POLL_INTERVAL, READINESS_TOTAL_TIMEOUT - (Process.clock_gettime(Process::CLOCK_MONOTONIC) - readiness_started)].min)
+        next
+      end
+      elapsed_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - attempt_started) * 1000).round(1)
+      UI.message("backend readiness attempt #{attempts} elapsed_ms=#{elapsed_ms}")
+      # G7: any runtime check (history, mobile_package, reports) still warming keeps waiting.
+      warming = readiness.dig("checks")&.any? { |row| row["state"] == "warming" }
+      break unless warming
+      waited = Process.clock_gettime(Process::CLOCK_MONOTONIC) - readiness_started
+      break if waited >= READINESS_TOTAL_TIMEOUT
+      UI.important("backend readiness warming; retrying in #{READINESS_POLL_INTERVAL}s")
+      sleep([READINESS_POLL_INTERVAL, READINESS_TOTAL_TIMEOUT - waited].min)
+    end
+    UI.user_error!("backend readiness unavailable after #{READINESS_TOTAL_TIMEOUT}s (attempts=#{attempts})") unless readiness
+    if readiness.dig("checks")&.any? { |row| row["state"] == "warming" }
+      waited = [Process.clock_gettime(Process::CLOCK_MONOTONIC) - readiness_started, READINESS_TOTAL_TIMEOUT].min.round
+      UI.user_error!("部署后预热未完成（已等 #{waited} s）；checks=#{readiness["checks"].inspect}")
+    end
+    if readiness["runtimeStatus"] == "degraded" && !allow_degraded_readiness
+      UI.user_error!("backend readiness runtime degraded; checks=#{readiness["checks"].inspect}")
+    end
     checks = readiness["checks"]
     readiness_shape_valid = readiness["schema"] == "ai-caddie-readiness-v1" &&
       readiness["authenticated"] == true &&
-      %w[ready degraded].include?(readiness["status"]) &&
-      %w[ready degraded].include?(readiness["runtimeStatus"]) &&
-      %w[ready degraded].include?(readiness["serviceStatus"]) &&
+      %w[ready degraded warming].include?(readiness["status"]) &&
+      %w[ready degraded warming].include?(readiness["runtimeStatus"]) &&
+      %w[ready degraded warming].include?(readiness["serviceStatus"]) &&
       checks.is_a?(Array) && !checks.empty? &&
-      checks.all? { |row| row.is_a?(Hash) && !row["label"].to_s.strip.empty? && %w[ready degraded error unknown].include?(row["state"]) }
-    runtime_readiness_complete = readiness["runtimeStatus"] == "ready" && readiness["serviceStatus"] == "ready"
+      checks.all? { |row| row.is_a?(Hash) && !row["label"].to_s.strip.empty? && %w[ready degraded warming error unknown].include?(row["state"]) }
+    runtime_readiness_complete = %w[ready warming].include?(readiness["runtimeStatus"]) && %w[ready warming].include?(readiness["serviceStatus"])
     unless readiness_shape_valid && (runtime_readiness_complete || allow_degraded_readiness)
       UI.user_error!("backend readiness evidence missing")
     end
@@ -193,6 +233,28 @@ platform :ios do
     health.merge("revision" => actual)
   rescue URI::InvalidURIError
     UI.user_error!("invalid AI_CADDIE_API_BASE_URL")
+  end
+
+  def backend_revision!(expected:)
+    origin = ENV.fetch("AI_CADDIE_API_BASE_URL").to_s.strip
+    token = ENV.fetch("AI_CADDIE_ADMIN_TOKEN").to_s.strip
+    uri = URI.parse(origin + "/api/v2/health")
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = true
+    http.open_timeout = 20
+    http.read_timeout = 20
+    request = Net::HTTP::Get.new(uri)
+    request["Accept"] = "application/json"
+    request["X-AI-Caddie-Admin-Token"] = token
+    response = http.request(request)
+    UI.user_error!("backend health HTTP #{response.code}") unless response.code.to_i == 200
+    payload = JSON.parse(response.body)
+    revision = payload["revision"].to_s.strip.downcase
+    UI.user_error!("backend health schema mismatch") unless payload["schema"] == "ai-caddie-health-v2"
+    UI.user_error!("backend revision changed during build") unless revision == expected
+    revision
+  rescue URI::InvalidURIError, JSON::ParserError
+    UI.user_error!("backend health response is invalid")
   end
 
   def validate_release_provenance!(path:, release_commit:, backend_revision:, api_origin:, upload_requested:)
@@ -280,6 +342,8 @@ platform :ios do
     repo_root = File.expand_path("..", __dir__)
     ios_build_dir = File.join(repo_root, "build", "ios")
     provenance_script = File.join(repo_root, "ops", "write_release_provenance.py")
+    backend = preflight_backend!(allow_degraded_readiness: allow_degraded_readiness) if upload_requested
+
     build_app(
       project: XCODE_PROJECT, scheme: SCHEME, configuration: "Release",
       output_directory: ios_build_dir, output_name: OUTPUT_IPA,
@@ -291,8 +355,7 @@ platform :ios do
       xcargs: build_xcargs
     )
 
-    backend = preflight_backend!(allow_degraded_readiness: allow_degraded_readiness) if upload_requested
-    backend_revision = upload_requested ? backend.fetch("revision") : ""
+    backend_revision = upload_requested ? backend_revision!(expected: backend.fetch("revision")) : ""
     api_origin = ENV["AI_CADDIE_API_BASE_URL"].to_s.strip
     provenance_args = [
       "python3 #{Shellwords.escape(provenance_script)}",

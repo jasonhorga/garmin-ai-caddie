@@ -1,0 +1,13 @@
+diff --git a/fastlane/Fastfile b/fastlane/Fastfile
+index 84fa09dd..64cb8805 100644
+--- a/fastlane/Fastfile
++++ b/fastlane/Fastfile
+@@ -193,7 +193,7 @@ platform :ios do
+       elapsed_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - attempt_started) * 1000).round(1)
+       UI.message("backend readiness attempt #{attempts} elapsed_ms=#{elapsed_ms}")
+       # G7: any runtime check (history, mobile_package, reports) still warming keeps waiting.
+-      warming = readiness.dig("checks")&.any? { |row| row["state"] == "warming" }
++      warming = readiness.dig("checks")&.any? { |row| row["label"] == "history" && row["state"] == "warming" }
+       break unless warming
+       waited = Process.clock_gettime(Process::CLOCK_MONOTONIC) - readiness_started
+       break if waited >= READINESS_TOTAL_TIMEOUT
