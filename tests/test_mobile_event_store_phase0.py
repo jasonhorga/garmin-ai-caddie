@@ -239,7 +239,15 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
             with store.log.open("r+b") as handle:
                 store._recover_event_log_unlocked(handle=handle)
         store.ensure_round_event_index()
-        store.append_batch(appended_round, [_event("appended", round_id=appended_round)], request_key="appended")
+
+        def inside_window() -> int:
+            # Keep the append inside the racy window however slow fsync is: only the
+            # writer exception may seed the cache.
+            current = store.log.stat()
+            return max(current.st_mtime_ns, current.st_ctime_ns)
+
+        with mock.patch.object(mobile_event_store, "_PREFIX_CACHE_CLOCK", inside_window):
+            store.append_batch(appended_round, [_event("appended", round_id=appended_round)], request_key="appended")
         signature = store._log_signature()
         self.assertIsNotNone(signature)
         assert signature is not None
