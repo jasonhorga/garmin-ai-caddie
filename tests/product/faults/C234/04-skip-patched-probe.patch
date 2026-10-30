@@ -1,8 +1,8 @@
 diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
-index fb97e763..de8a501f 100644
+index 5e2c2a6b..7219db1b 100644
 --- a/tests/product/faults/run_faults.py
 +++ b/tests/product/faults/run_faults.py
-@@ -220,7 +220,7 @@ def run_target(record: dict[str, Any], repo: Path) -> tuple[str, str, list[str]]
+@@ -251,7 +251,7 @@ def run_target(record: dict[str, Any], repo: Path) -> tuple[str, str, list[str]]
      elif kind == "python":
          # Recheck after patching: a mutant-induced import/collection error is
          # unavailable too, rather than evidence of an assertion killing it.

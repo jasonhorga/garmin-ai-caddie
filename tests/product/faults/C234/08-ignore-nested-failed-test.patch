@@ -1,13 +1,13 @@
 diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
-index fb97e763..f003e958 100644
+index 5e2c2a6b..309e53b6 100644
 --- a/tests/product/faults/run_faults.py
 +++ b/tests/product/faults/run_faults.py
-@@ -48,7 +48,7 @@ try:
-     loader = unittest.defaultTestLoader
-     suite = loader.loadTestsFromName(sys.argv[1])
-     count = suite.countTestCases()
--    if loader.errors or failed_tests(suite):
-+    if loader.errors:
-         report = {"ok": False, "reason": "\n".join(loader.errors) or "unittest _FailedTest"}
-     elif count == 0:
-         report = {"ok": False, "reason": "0 tests loaded"}
+@@ -51,7 +51,7 @@ for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
+         loader = unittest.TestLoader()
+         suite = loader.loadTestsFromName(target)
+         count = suite.countTestCases()
+-        if loader.errors or failed_tests(suite):
++        if loader.errors:
+             report = {"ok": False, "reason": "\n".join(loader.errors) or "unittest _FailedTest"}
+         elif count == 0:
+             report = {"ok": False, "reason": "0 tests loaded"}

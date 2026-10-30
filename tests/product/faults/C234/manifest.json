@@ -56,6 +56,13 @@
       "kind": "python",
       "target": "tests.test_fault_runner.ManifestFragmentTests.test_check_requires_loadable_nonempty_python_targets_without_running_them",
       "promise": "fault-runner infrastructure: product spec 验收方式"
+    },
+    {
+      "id": "tests-product-faults-C234-09-one-failure-poisons-batch",
+      "patch": "tests/product/faults/C234/09-one-failure-poisons-batch.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_check_batches_python_targets_without_spreading_import_failures",
+      "promise": "fault-runner infrastructure: product spec 验收方式"
     }
   ]
 }

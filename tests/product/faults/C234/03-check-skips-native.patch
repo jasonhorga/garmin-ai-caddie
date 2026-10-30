@@ -1,9 +1,9 @@
 diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
-index fb97e763..84403e0e 100644
+index 5e2c2a6b..0d6137a1 100644
 --- a/tests/product/faults/run_faults.py
 +++ b/tests/product/faults/run_faults.py
-@@ -177,7 +177,7 @@ def check(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
-     try:
+@@ -208,7 +208,7 @@ def check(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
+                         for target, result in probe_python_targets(python_targets, worktree).items()})
          for record in records:
              status, detail = patch_check(record, worktree)
 -            if status != "disabled":

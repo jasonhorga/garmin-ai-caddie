@@ -1,13 +1,13 @@
 diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
-index fb97e763..1787569e 100644
+index 5e2c2a6b..e14d34d1 100644
 --- a/tests/product/faults/run_faults.py
 +++ b/tests/product/faults/run_faults.py
-@@ -50,7 +50,7 @@ try:
-     count = suite.countTestCases()
-     if loader.errors or failed_tests(suite):
-         report = {"ok": False, "reason": "\n".join(loader.errors) or "unittest _FailedTest"}
--    elif count == 0:
-+    elif count < 0:
-         report = {"ok": False, "reason": "0 tests loaded"}
-     else:
-         report = {"ok": True, "reason": ""}
+@@ -53,7 +53,7 @@ for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
+         count = suite.countTestCases()
+         if loader.errors or failed_tests(suite):
+             report = {"ok": False, "reason": "\n".join(loader.errors) or "unittest _FailedTest"}
+-        elif count == 0:
++        elif count < 0:
+             report = {"ok": False, "reason": "0 tests loaded"}
+         else:
+             report = {"ok": True, "reason": ""}

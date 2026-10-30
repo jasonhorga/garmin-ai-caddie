@@ -1,8 +1,8 @@
 diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
-index fb97e763..c961ab2f 100644
+index 5e2c2a6b..1a797459 100644
 --- a/tests/product/faults/run_faults.py
 +++ b/tests/product/faults/run_faults.py
-@@ -278,7 +278,7 @@ def run_mutants(records: list[dict[str, Any]]) -> dict[str, Any]:
+@@ -309,7 +309,7 @@ def run_mutants(records: list[dict[str, Any]]) -> dict[str, Any]:
              continue
          worktree, holder = make_worktree()
          try:

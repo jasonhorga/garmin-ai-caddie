@@ -1,13 +1,13 @@
 diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
-index fb97e763..98c7bf5c 100644
+index 5e2c2a6b..3e09560a 100644
 --- a/tests/product/faults/run_faults.py
 +++ b/tests/product/faults/run_faults.py
-@@ -81,7 +81,7 @@ def target_check(record: dict[str, Any], repo: Path) -> tuple[str, str]:
-                     reason = report["reason"]
-         except (OSError, ValueError, subprocess.TimeoutExpired) as error:
-             reason = str(error)
--        return "unavailable", f"target 无法加载：{reason[-5800:]}"
-+        return "killed", f"target 无法加载：{reason[-5800:]}"
-     if kind in {"native-unit", "native-ui"}:
-         parts = target.split("/")
-         if len(parts) != 3 or not all(re.fullmatch(r"\w+", part) for part in parts):
+@@ -82,7 +82,7 @@ def _run_python_load_probe(targets: list[str], repo: Path) -> dict[str, tuple[st
+                 reports = json.loads(output.read_text(encoding="utf-8"))
+                 return {
+                     target: ("ok", "") if reports[target]["ok"] else
+-                    ("unavailable", f"target 无法加载：{reports[target]['reason'][-5800:]}")
++                    ("killed", f"target 无法加载：{reports[target]['reason'][-5800:]}")
+                     for target in targets
+                 }
+     except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:

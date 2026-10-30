@@ -44,44 +44,70 @@ def failed_tests(test):
         return any(failed_tests(child) for child in test)
     return False
 
-try:
-    loader = unittest.defaultTestLoader
-    suite = loader.loadTestsFromName(sys.argv[1])
-    count = suite.countTestCases()
-    if loader.errors or failed_tests(suite):
-        report = {"ok": False, "reason": "\n".join(loader.errors) or "unittest _FailedTest"}
-    elif count == 0:
-        report = {"ok": False, "reason": "0 tests loaded"}
-    else:
-        report = {"ok": True, "reason": ""}
-except (Exception, SystemExit):
-    report = {"ok": False, "reason": traceback.format_exc()}
-Path(sys.argv[2]).write_text(json.dumps(report), encoding="utf-8")
+reports = {}
+for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
+    try:
+        # A fresh loader keeps one target's errors out of the next target.
+        loader = unittest.TestLoader()
+        suite = loader.loadTestsFromName(target)
+        count = suite.countTestCases()
+        if loader.errors or failed_tests(suite):
+            report = {"ok": False, "reason": "\n".join(loader.errors) or "unittest _FailedTest"}
+        elif count == 0:
+            report = {"ok": False, "reason": "0 tests loaded"}
+        else:
+            report = {"ok": True, "reason": ""}
+    except (Exception, SystemExit):
+        report = {"ok": False, "reason": traceback.format_exc()}
+    reports[target] = report
+Path(sys.argv[2]).write_text(json.dumps(reports), encoding="utf-8")
 '''
+
+
+def _run_python_load_probe(targets: list[str], repo: Path) -> dict[str, tuple[str, str]]:
+    """Load a batch in one interpreter, returning a separate result per target."""
+    env = {**os.environ, "AI_CADDIE_DATA_MODE": "fixture", "PYTHONDONTWRITEBYTECODE": "1"}
+    try:
+        with tempfile.TemporaryDirectory(prefix="fault-load-") as directory:
+            source = Path(directory) / "targets.json"
+            output = Path(directory) / "load.json"
+            source.write_text(json.dumps(targets), encoding="utf-8")
+            result = subprocess.run(
+                [str(SHARED_PYTHON), "-c", PYTHON_LOAD_PROBE, str(source), str(output)],
+                cwd=repo, env=env, text=True, capture_output=True, timeout=60,
+            )
+            if result.returncode or not output.is_file():
+                reason = f"load probe exited {result.returncode}: {result.stderr.strip()}"
+            else:
+                reports = json.loads(output.read_text(encoding="utf-8"))
+                return {
+                    target: ("ok", "") if reports[target]["ok"] else
+                    ("unavailable", f"target 无法加载：{reports[target]['reason'][-5800:]}")
+                    for target in targets
+                }
+    except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
+        reason = str(error)
+    return {target: ("unavailable", f"target 无法加载：{reason[-5800:]}") for target in targets}
+
+
+def probe_python_targets(targets: Iterable[str], repo: Path) -> dict[str, tuple[str, str]]:
+    """Use one batch, retrying only failures without other modules' side effects."""
+    targets = list(dict.fromkeys(targets))
+    if not targets:
+        return {}
+    results = _run_python_load_probe(targets, repo)
+    if len(targets) > 1:
+        for target in targets:
+            if results[target][0] != "ok":
+                results[target] = _run_python_load_probe([target], repo)[target]
+    return results
 
 
 def target_check(record: dict[str, Any], repo: Path) -> tuple[str, str]:
     """Validate a target without executing tests or applying its fault patch."""
     kind, target = record["kind"], record["target"]
     if kind == "python":
-        env = {**os.environ, "AI_CADDIE_DATA_MODE": "fixture", "PYTHONDONTWRITEBYTECODE": "1"}
-        try:
-            with tempfile.TemporaryDirectory(prefix="fault-load-") as directory:
-                output = Path(directory) / "load.json"
-                result = subprocess.run(
-                    [str(SHARED_PYTHON), "-c", PYTHON_LOAD_PROBE, target, str(output)],
-                    cwd=repo, env=env, text=True, capture_output=True, timeout=60,
-                )
-                if result.returncode or not output.is_file():
-                    reason = f"load probe exited {result.returncode}: {result.stderr.strip()}"
-                else:
-                    report = json.loads(output.read_text(encoding="utf-8"))
-                    if report["ok"]:
-                        return "ok", ""
-                    reason = report["reason"]
-        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
-            reason = str(error)
-        return "unavailable", f"target 无法加载：{reason[-5800:]}"
+        return probe_python_targets([target], repo)[target]
     if kind in {"native-unit", "native-ui"}:
         parts = target.split("/")
         if len(parts) != 3 or not all(re.fullmatch(r"\w+", part) for part in parts):
@@ -171,10 +197,15 @@ def patch_check(record: dict[str, Any], repo: Path) -> tuple[str, str]:
 
 
 def check(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    records = list(records)
     rows: list[dict[str, Any]] = []
     worktree, holder = make_worktree()
     targets: dict[tuple[str, str], tuple[str, str]] = {}
     try:
+        python_targets = [record["target"] for record in records
+                          if record["kind"] == "python" and not record.get("disabled")]
+        targets.update({("python", target): result
+                        for target, result in probe_python_targets(python_targets, worktree).items()})
         for record in records:
             status, detail = patch_check(record, worktree)
             if status != "disabled":

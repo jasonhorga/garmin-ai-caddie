@@ -1,8 +1,8 @@
 diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
-index fb97e763..26e833ae 100644
+index 5e2c2a6b..57b6655f 100644
 --- a/tests/product/faults/run_faults.py
 +++ b/tests/product/faults/run_faults.py
-@@ -363,8 +363,7 @@ def main() -> int:
+@@ -394,8 +394,7 @@ def main() -> int:
          result = dispatch_native(records)
      if args.out:
          args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
