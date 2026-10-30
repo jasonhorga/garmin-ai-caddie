@@ -835,7 +835,6 @@ class FileEventStore:
         try:
             os.fchmod(descriptor, 0o600)
             if metadata is not None:
-                os.fchmod(descriptor, stat.S_IMODE(metadata.st_mode))
                 if hasattr(os, "fchown"):
                     try:
                         os.fchown(descriptor, metadata.st_uid, metadata.st_gid)
@@ -848,6 +847,14 @@ class FileEventStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary_path, path)
+            if metadata is not None:
+                os.chmod(path, stat.S_IMODE(metadata.st_mode))
+                if hasattr(os, "chown"):
+                    try:
+                        os.chown(path, metadata.st_uid, metadata.st_gid)
+                    except PermissionError:
+                        if metadata.st_uid != os.getuid():
+                            raise
             self._fsync_directory(path.parent)
         except BaseException:
             if descriptor >= 0:
