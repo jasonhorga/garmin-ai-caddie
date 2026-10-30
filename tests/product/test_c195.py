@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 from pathlib import Path
 import threading
@@ -163,7 +164,7 @@ class ReleaseRecoveryTests(unittest.TestCase):
             should_yield=lambda: False, clock=lambda: now[0], wait_seconds=0,
         )
 
-    def _ticks(self, worker, now, times):
+    def _ticks(self, worker, now, times, *, initial_warm=None):
         from server_v2 import main, render_backfill as rb
 
         snapshots = []
@@ -194,6 +195,7 @@ class ReleaseRecoveryTests(unittest.TestCase):
         ):
             monitor = main._start_history_signature_monitor(
                 stop_event=stop, clock=lambda: now[0], wait=wait, player_id="fixture-recovery",
+                initial_warm=initial_warm,
             )
             monitor.join(10)
             stop.set()
@@ -259,7 +261,10 @@ class ReleaseRecoveryTests(unittest.TestCase):
                 worker.enqueue_all(downloaded=set())
                 worker.run_to_completion()
                 failing[0] = False
-                snapshots = self._ticks(worker, now, [1060.0, 1120.0])
+                class PendingWarm:
+                    is_alive = lambda self: True
+
+                snapshots = self._ticks(worker, now, [1060.0, 1120.0], initial_warm=PendingWarm())
                 self.assertEqual(calls, [
                     (1060.0, 1, 1), (1060.0, 1, 2), (1060.0, 2, 1), (1060.0, 2, 2),
                     (1120.0, 3, 1), (1120.0, 3, 2), (1120.0, 4, 1), (1120.0, 4, 2),
@@ -268,6 +273,68 @@ class ReleaseRecoveryTests(unittest.TestCase):
                 self.assertEqual(snapshots[-1]["pending"], 0)
             finally:
                 worker.close()
+
+    def test_J42_busy_background_slot_does_not_block_monitor_or_duplicate_recovery(self):
+        """J4.2: a warmer owns the slot; ticks return and share one waiting backfill worker."""
+        from ai_caddie.core.priority_work import ForegroundGate
+        from server_v2 import main, render_backfill as rb
+
+        now, failing, calls = [1000.0], [True], []
+        waiting = threading.Event()
+        gate = ForegroundGate(slot_timeout_s=60)
+
+        def render(gid, hole, release):
+            if failing[0]:
+                raise rb.GarminRasterForbidden(gid, hole, release)
+            calls.append((gid, hole))
+            return True
+
+        @contextmanager
+        def admitted(**kwargs):
+            with gate.background(while_waiting=waiting.set, **kwargs):
+                yield
+
+        with TemporaryDirectory() as directory:
+            worker = self._worker(Path(directory), now, (1,), render)
+            worker.enqueue_all(downloaded=set())
+            worker.run_to_completion()
+            failing[0], now[0] = False, 1060.0
+            monitor, background = None, None
+            stop = threading.Event()
+            ticks = iter([False, False, False, True])
+            with (
+                patch.object(rb, "_BACKGROUND", worker), patch.object(rb, "_BACKGROUND_THREAD", None),
+                patch.object(rb, "_RESCAN", False), patch.object(rb, "_FORCE", False),
+                patch.object(rb, "_automatic_enabled", return_value=True),
+                patch.object(rb, "background_work", side_effect=admitted),
+                patch.object(worker, "enqueue_all", wraps=worker.enqueue_all) as full_scan,
+                patch.object(main, "_history_input_signature", return_value=("unchanged",)),
+            ):
+                try:
+                    with gate.background(unit_type="stats"):
+                        monitor = main._start_history_signature_monitor(
+                            stop_event=stop, wait=lambda _: next(ticks), clock=lambda: now[0],
+                        )
+                        self.assertTrue(waiting.wait(5), "recovery did not queue for the warm slot")
+                        monitor.join(5)
+                        self.assertFalse(monitor.is_alive(), "tick waited for background admission")
+                        background = rb._BACKGROUND_THREAD
+                        self.assertIsNotNone(background)
+                        self.assertTrue(background.is_alive())
+                        self.assertEqual(calls, [])
+                    background.join(5)
+                    self.assertFalse(background.is_alive())
+                    self.assertIsNone(rb._BACKGROUND_THREAD)
+                    full_scan.assert_not_called()
+                    self.assertEqual(calls, [(1, 1), (1, 2)])
+                    self.assertEqual(worker.status()["pending"], 0)
+                finally:
+                    stop.set()
+                    if monitor is not None:
+                        monitor.join(5)
+                    if rb._BACKGROUND_THREAD is not None:
+                        rb._BACKGROUND_THREAD.join(5)
+                    worker.close()
 
     def test_J42_legacy_breakers_normalize_state_and_keep_first_failure_unknown(self):
         """J4.2: old blocked records use current 60..3600 s rules, without invented dates."""

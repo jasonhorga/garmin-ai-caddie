@@ -52,6 +52,16 @@
 | 4.5 | 地图三档降级（精确/只有路线/什么都没）在备战、手机、手表同一规则：没图先画路线、图到原地替换且不重置缩放/平移/选中/目标点/旗位；连路线都没有是等待页不进空白洞 | 进洞白屏；补图后缩放跳回 | S 每洞状态 + V 三档 × 三端 |
 | 4.6 | 备战逐洞三个方案三条真不同路线，选中方案决定路线与球杆顺序；可换发球台；同洞推荐与打球屏开球时一致且等于 golden；无球童种子只画事实链 | 三方案同一条线；备战说 5 木打球屏说 3 木 | S 有/无种子/无球包 + V 布局边界 |
 
+J4.2 Garmin 底图恢复细则：release 403 使用 60、120、240、480、960、1920、3600 秒封顶退避。
+已有 history monitor 每 60 秒检查 journal，`retryAfter <= 当前墙钟` 才允许自动非 force 重试，
+与历史签名变化、统计预热的退避独立。每 tick 最多取最早到期的 2 个 release（同到期按 key 排序），
+避免故障恢复后同时重放所有 release；只补所选 release 尚未完成的洞，不扫描其他底图或重做已完成洞。
+复用短命 backfill worker 与逐洞共享后台 slot，已有 writer 运行时 tick 不叠加扫描；不增加常驻循环或线程池，
+不在 monitor/readiness 请求中等待 worker，也不持后台 slot 等预热 singleflight。成功清除该 release 的熔断，补完剩余洞。
+admin force 只重置重试门槛和 attempts，保留 `firstFailureAt`、`lastFailureAt`；下一次 403 更新 last 并保持 first。
+旧 journal 的 `blocked` 加载后按 attempts 的当前退避档重算为 backoff/persistent，缺失的首次失败时间用
+`firstFailureAt: "unknown"` 表示，后续重试/重启仍保持未知，不伪造为最近失败时间。
+
 ## J5 在球场打
 | # | 承诺 | 坏了的样子 | 层/数据行 |
 |---|---|---|---|
