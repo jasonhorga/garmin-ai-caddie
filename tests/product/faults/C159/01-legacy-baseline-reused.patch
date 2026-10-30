@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
+index d6f08a8f..1e6d558f 100644
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -993,7 +993,7 @@ class FileEventStore:
+                 new_marker = _CommitMarker(
+                     committed_byte_length=len(new_raw),
+                     committed_prefix_sha256=hashlib.sha256(new_raw).hexdigest(),
+-                    legacy_baseline_byte_length=legacy_after,
++                    legacy_baseline_byte_length=old_marker.legacy_baseline_byte_length,
+                 )
+                 self._write_migration_intent(
+                     old_marker=old_marker,

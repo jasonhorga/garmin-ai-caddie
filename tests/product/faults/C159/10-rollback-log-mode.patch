@@ -1,0 +1,16 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
+index 42325a8c..49f38c8f 100644
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -2223,11 +2223,6 @@ class FileEventStore:
+         if not log_is_old:
+             assert backup_data is not None
+             self._replace_bytes_preserving_metadata(self.log, backup_data, None)
+-        try:
+-            os.chmod(self.log, payload["oldLogMode"])
+-        except OSError as exc:
+-            self._migration_recovery_failed("log_mode_restore_failed", exc)
+-        self._fsync_directory()
+         old_marker = _CommitMarker(
+             payload["oldCommittedByteLength"],
+             payload["oldCommittedPrefixSha256"],

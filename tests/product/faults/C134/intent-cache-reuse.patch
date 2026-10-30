@@ -1,0 +1,12 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -1887,9 +1887,6 @@
+         preparationToken: UUID
+     ) async -> (package: LiveRoundPackage?, timedOut: Bool) {
+         let key = PrepCourseDownloadRecord.intentKey(globalId: globalId, teeBox: teeBox)
+-        if let cached = intentPrefetchPackages[key] {
+-            return (cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt), false)
+-        }
+         guard let task = intentPrefetchTasks[key] else { return (nil, false) }
+         do {
+             let waitNanoseconds = roundStartIntentWaitNanoseconds

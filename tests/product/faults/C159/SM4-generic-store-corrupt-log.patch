@@ -1,0 +1,9 @@
+diff --git a/server_v2/mobile.py b/server_v2/mobile.py
+--- a/server_v2/mobile.py
++++ b/server_v2/mobile.py
+@@ -793,4 +793,4 @@ def append_mobile_events_response(
+         except ValueError as exc:
+             if str(exc) == "event_commit_store_corrupt":
+-                logger.warning("mobile_events store_corrupt")
++                logger.error("mobile_event_migration_intent_unrecoverable partition=mobile_events")
+             else:

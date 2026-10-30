@@ -68,10 +68,19 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(after.fetchedTees, rows)
         XCTAssertEqual(options, ["Blue", "White"])
         XCTAssertTrue(StartRoundView.isStartAllowed(
-            isPreparing: false, isLoadingTees: false,
-            roundId: after.selection.roundId, courseGlobalId: Int(after.selection.globalIdText),
-            teeBox: after.selection.teeBox, selectedCourseRequiresRemoteTees: true,
-            teeOptions: options, selectedCourseWasManualSearch: true
+            isPreparing: false,
+            roundId: after.selection.roundId,
+            courseGlobalId: Int(after.selection.globalIdText),
+            teeBox: after.selection.teeBox
+        ))
+    }
+
+    func testStartActionIsUnavailableWhilePreparationIsBusy() {
+        XCTAssertFalse(StartRoundView.isStartAllowed(
+            isPreparing: true,
+            roundId: "round-busy",
+            courseGlobalId: 31795,
+            teeBox: "blue"
         ))
     }
 
@@ -204,6 +213,22 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(RoundStartProgress.message(after: 20), "服务器还在准备，最多再等十几秒")
     }
 
+    /// J4.2/C134: the slow-start explanation and the primary button share one busy state.
+    func testRoundStartProgressAndButtonUseOneBusyState() {
+        XCTAssertEqual(
+            StartRoundPresentation.roundStartProgressText(isBusy: true, message: nil),
+            "正在准备球场…"
+        )
+        XCTAssertEqual(
+            StartRoundPresentation.roundStartProgressText(
+                isBusy: true,
+                message: "服务器还在准备，最多再等十几秒"
+            ),
+            "服务器还在准备，最多再等十几秒"
+        )
+        XCTAssertNil(StartRoundPresentation.roundStartProgressText(isBusy: false, message: "旧提示"))
+    }
+
     func testProductSpec42AutomaticTeeCorrectionLeavesTheStartActionUsable() {
         let corrected = StartRoundView.teeAfterRefresh(
             current: "white",
@@ -224,13 +249,9 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
         XCTAssertTrue(StartRoundView.isStartAllowed(
             isPreparing: false,
-            isLoadingTees: false,
             roundId: "round-42",
             courseGlobalId: 32850,
-            teeBox: corrected,
-            selectedCourseRequiresRemoteTees: false,
-            teeOptions: ["blue"],
-            selectedCourseWasManualSearch: false
+            teeBox: corrected
         ))
     }
 
@@ -643,13 +664,9 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let common: (String, Bool) -> Bool = { teeBox, manualSearch in
             StartRoundView.isStartAllowed(
                 isPreparing: false,
-                isLoadingTees: true,
                 roundId: "live-31670-test",
                 courseGlobalId: 31670,
-                teeBox: teeBox,
-                selectedCourseRequiresRemoteTees: true,
-                teeOptions: [],
-                selectedCourseWasManualSearch: manualSearch
+                teeBox: teeBox
             )
         }
 
@@ -657,8 +674,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertTrue(common("blue", true))
         // C87: the course default needs no Tee list, so a nearby course starts on it as well.
         XCTAssertTrue(common("unknown", false))
-        // A concrete colour on a nearby course still waits for the Tee list that names it.
-        XCTAssertFalse(common("blue", false))
+        // C134: a concrete cached/default colour must keep Start usable while /tees is slow.
+        XCTAssertTrue(common("blue", false))
     }
 
     func testNearbyRowCarryingTeesShowsThemAtOnceWithoutATeesRequest() throws {
@@ -683,9 +700,10 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
         XCTAssertEqual(options, ["black", "blue"])
         XCTAssertTrue(StartRoundView.isStartAllowed(
-            isPreparing: false, isLoadingTees: false,
-            roundId: selection.roundId, courseGlobalId: 31794, teeBox: selection.teeBox,
-            selectedCourseRequiresRemoteTees: true, teeOptions: options, selectedCourseWasManualSearch: false
+            isPreparing: false,
+            roundId: selection.roundId,
+            courseGlobalId: 31794,
+            teeBox: selection.teeBox
         ))
 
         let carried = StartRoundPresentation.carriedTees(in: response.matches)
@@ -762,19 +780,20 @@ final class StartRoundDiscoveryTests: XCTestCase {
     }
 
     @MainActor
-    func testRemoteTeeLookupKeepsConcreteColourStartGatedAcrossItsAwait() async {
+    func testRemoteTeeLookupKeepsConcreteColourStartableAcrossItsAwait() async {
         var loading = true
         let rows = await StartRoundView.courseTeeRows(
             globalId: 31795, carried: [:], setLoading: { loading = $0 },
             request: { _ in
                 XCTAssertTrue(loading, "no frame may release the gate before the remote request")
                 await Task.yield()
-                XCTAssertTrue(loading, "the gate remains raised while the request is suspended")
-                XCTAssertFalse(StartRoundView.isStartAllowed(
-                    isPreparing: false, isLoadingTees: loading, roundId: "fixture-round",
-                    courseGlobalId: 31795, teeBox: "blue", selectedCourseRequiresRemoteTees: false,
-                    teeOptions: ["blue"], selectedCourseWasManualSearch: false
-                ))
+                XCTAssertTrue(loading, "the Tee request remains in flight while Start stays usable")
+                XCTAssertTrue(StartRoundView.isStartAllowed(
+                    isPreparing: false,
+                    roundId: "fixture-round",
+                    courseGlobalId: 31795,
+                    teeBox: "blue"
+                ), "C134 keeps a concrete Tee startable while authority refreshes")
                 return [CourseTee(teeBox: "blue", name: "Blue")]
             }
         )
@@ -816,9 +835,10 @@ final class StartRoundDiscoveryTests: XCTestCase {
             requiresRemoteTees: true, teeLoadFailed: true, fetchedTees: [], courseTees: courseTees
         ))
         XCTAssertTrue(StartRoundView.isStartAllowed(
-            isPreparing: false, isLoadingTees: false,
-            roundId: selection.roundId, courseGlobalId: 31795, teeBox: selection.teeBox,
-            selectedCourseRequiresRemoteTees: true, teeOptions: options, selectedCourseWasManualSearch: false
+            isPreparing: false,
+            roundId: selection.roundId,
+            courseGlobalId: 31795,
+            teeBox: selection.teeBox
         ))
 
         // No retry before a failure, or once real Tee rows exist (fetched, or carried by the row).
@@ -851,9 +871,10 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
         XCTAssertEqual(options, ["unknown"])
         XCTAssertTrue(StartRoundView.isStartAllowed(
-            isPreparing: false, isLoadingTees: true,
-            roundId: selection.roundId, courseGlobalId: 31795, teeBox: selection.teeBox,
-            selectedCourseRequiresRemoteTees: true, teeOptions: options, selectedCourseWasManualSearch: false
+            isPreparing: false,
+            roundId: selection.roundId,
+            courseGlobalId: 31795,
+            teeBox: selection.teeBox
         ))
         let rows = [CourseTee(teeBox: "white", name: "White"), CourseTee(teeBox: "blue", name: "Blue", isDefault: true)]
         XCTAssertEqual(
@@ -1251,7 +1272,73 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
+    /// J4.2/C134: a first timeout expands to the 50 km pass before the setup page can fail.
+    func testNearbyFirstTimeoutUsesTheExpandedPassBeforeFailure() async {
+        var radii: [Int] = []
+        let match = MobileCourseSearchMatch(globalId: 7001, name: "扩大范围球场", holes: 18, city: nil, province: nil, ratio: 1)
+        let outcome = await StartRoundView.performNearbyDiscovery(
+            latitude: 31, longitude: 121,
+            request: { _, _, radius in
+                radii.append(radius)
+                if radius == 5 { throw URLError(.timedOut) }
+                return [match]
+            },
+            resolve: { match in
+                MobileCourseOption(globalId: match.globalId, name: match.name, holes: match.holes ?? 18)
+            }
+        )
+        XCTAssertEqual(radii, [5, 50])
+        XCTAssertEqual(outcome.providerOptions.map(\.globalId), [7001])
+        XCTAssertFalse(StartRoundView.nearbyDiscoveryShouldFail(
+            publishedProviderResult: outcome.publishedProviderResult,
+            lastError: outcome.lastError,
+            hasNearbyRows: !outcome.providerOptions.isEmpty
+        ))
+    }
+
+    /// J4.2/C134: an empty 5 km response followed by a failed 50 km response enters retry state.
+    func testNearbyEmptyFirstPassAndFailedExpansionEnterRetryState() async {
+        var radii: [Int] = []
+        let outcome = await StartRoundView.performNearbyDiscovery(
+            latitude: 31, longitude: 121,
+            request: { _, _, radius in
+                radii.append(radius)
+                if radius == 5 { return [] }
+                throw URLError(.timedOut)
+            },
+            resolve: { match in
+                MobileCourseOption(globalId: match.globalId, name: match.name, holes: match.holes ?? 18)
+            }
+        )
+        XCTAssertEqual(radii, [5, 50])
+        XCTAssertTrue(StartRoundView.nearbyDiscoveryShouldFail(
+            publishedProviderResult: outcome.publishedProviderResult,
+            lastError: outcome.lastError,
+            hasNearbyRows: !outcome.providerOptions.isEmpty
+        ))
+    }
+
     // MARK: - B4b: one course list, first-loop tiles, start title
+
+    func testSelectedTeePageTitleKeepsSelectedCourseWhenSelectedSegmentIsTemporarilyNil() {
+        let selected = loop(9451, venue: "沙河高尔夫俱乐部", label: "A")
+        XCTAssertEqual(
+            StartRoundView.selectedVenueName(
+                globalId: selected.globalId,
+                selectedSegment: nil,
+                candidates: [selected]
+            ),
+            "沙河高尔夫俱乐部"
+        )
+        XCTAssertEqual(
+            StartRoundView.selectedVenueName(
+                globalId: 99_999,
+                selectedSegment: nil,
+                candidates: [selected]
+            ),
+            "球场"
+        )
+    }
 
     func testCourseListMergesSourcesNearbyFirstWithoutDuplicateVenues() {
         let bkA = loop(9101, venue: "黑骑士", label: "A")
@@ -1275,6 +1362,56 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(rows[0].holes, 27)
         XCTAssertEqual(rows[1].holes, 18)
         XCTAssertEqual(rows[0].id, 9101)
+    }
+
+    /// J4.1/C134: the offline section is one physical venue even when old rows used one global id
+    /// per loop; unfinished automatic rows disappear while an explicitly requested row remains.
+    func testOfflineRowsCollapseLoopsByPhysicalVenue() {
+        let first = PrepCourseDownloadRecord(
+            course: loop(9101, venue: "愉景灣高爾夫球會", label: "A"),
+            teeBox: "blue", phase: .ready, preparedHoles: 9, downloadedHoles: 9, totalHoles: 9,
+            updatedAt: Date(timeIntervalSince1970: 200)
+        )
+        let second = PrepCourseDownloadRecord(
+            course: loop(9102, venue: "愉景灣高爾夫球會", label: "B"),
+            teeBox: "blue", phase: .ready, preparedHoles: 9, downloadedHoles: 9, totalHoles: 9,
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+        let orphan = PrepCourseDownloadRecord(
+            course: loop(9103, venue: "奥地利球场", label: "A"),
+            teeBox: "blue", phase: .queued,
+            updatedAt: Date(timeIntervalSince1970: 300), isSpeculative: true
+        )
+        let roundOwned = PrepCourseDownloadRecord(
+            course: loop(9104, venue: "沙河", label: "A"),
+            teeBox: "blue", phase: .queued, isRoundPrefetch: true
+        )
+        let explicitlyRequested = PrepCourseDownloadRecord(
+            course: loop(9105, venue: "北湖", label: "A"),
+            teeBox: "blue", phase: .queued,
+            updatedAt: Date(timeIntervalSince1970: 50)
+        )
+        let rows = StartRoundPresentation.offlineRows([first, second, orphan, roundOwned, explicitlyRequested])
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows.first?.course.venueDisplayName, "愉景灣高爾夫球會")
+        XCTAssertEqual(rows.first?.phase, .ready)
+        XCTAssertEqual(rows.last?.course.venueDisplayName, "北湖")
+    }
+
+    func testOfflineRetryTargetsOnlyFailedLoopsInAMergedVenue() {
+        let ready = PrepCourseDownloadRecord(
+            course: loop(9301, venue: "同名场", label: "A"), teeBox: "blue", phase: .ready,
+            downloadedHoles: 9, totalHoles: 9, updatedAt: Date(timeIntervalSince1970: 20)
+        )
+        let failed = PrepCourseDownloadRecord(
+            course: loop(9302, venue: "同名场", label: "B"), teeBox: "blue", phase: .failed,
+            totalHoles: 9, updatedAt: Date(timeIntervalSince1970: 30), errorText: "retry"
+        )
+        let merged = try! XCTUnwrap(StartRoundPresentation.offlineRows([ready, failed]).first)
+        XCTAssertEqual(
+            StartRoundView.offlineActionRecords(for: merged, in: [ready, failed], retrying: true).map(\.id),
+            [failed.id]
+        )
     }
 
     func testCourseListKeepsTheRecentCourseWhenNearbyOmitsIt() {

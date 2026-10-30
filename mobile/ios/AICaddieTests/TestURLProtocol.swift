@@ -87,6 +87,19 @@ final class CapturingURLProtocol: URLProtocol {
             handlerLock.unlock()
         }
     }
+    static var stopLoadingHandler: ((URLRequest) -> Void)? {
+        get {
+            handlerLock.lock()
+            defer { handlerLock.unlock() }
+            return storedStopLoadingHandler
+        }
+        set {
+            handlerLock.lock()
+            storedStopLoadingHandler = newValue
+            handlerLock.unlock()
+        }
+    }
+    private static var storedStopLoadingHandler: ((URLRequest) -> Void)?
 
     static func installScopedHandler(
         _ handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
@@ -174,7 +187,12 @@ final class CapturingURLProtocol: URLProtocol {
         }
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        Self.handlerLock.lock()
+        let handler = Self.storedStopLoadingHandler
+        Self.handlerLock.unlock()
+        handler?(request)
+    }
 }
 
 /// A handler token belongs to one test's URLSession. Requests carrying an old token fail closed

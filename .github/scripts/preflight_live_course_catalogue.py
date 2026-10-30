@@ -151,7 +151,7 @@ def validate_empty_nearby(payload: Any) -> None:
     """The open-ocean probe is the live proof for the honest zero-result branch."""
     _require(isinstance(payload, dict), "empty nearby response must be an object")
     _require(payload.get("schema") == "ai-caddie-course-nearby-v1", "empty nearby schema mismatch")
-    _require(payload.get("radiusKm") == 50, "empty nearby radius mismatch")
+    _require(payload.get("radiusKm") in {5, 50}, "empty nearby radius mismatch")
     _require(payload.get("complete") is True, "empty nearby response is partial")
     _require(payload.get("matches") == [], "open-ocean nearby probe must return no courses")
 
@@ -205,12 +205,20 @@ def main() -> int:
 
     health = _get_json(base_url, "/api/v2/health", None, {})
     validate_health(health, expected_revision=expected_revision)
+    # Match the client: prove the fast 5 km pass first, then expand only when that pass is empty.
     nearby = _get_json(
         base_url,
         "/api/v2/courses/nearby",
-        {"latitude": latitude, "longitude": longitude, "radius_km": "50"},
+        {"latitude": latitude, "longitude": longitude, "radius_km": "5"},
         headers,
     )
+    if not nearby.get("matches"):
+        nearby = _get_json(
+            base_url,
+            "/api/v2/courses/nearby",
+            {"latitude": latitude, "longitude": longitude, "radius_km": "50"},
+            headers,
+        )
     nearby_matches = validate_matches(
         nearby,
         schema="ai-caddie-course-nearby-v1",
@@ -231,7 +239,7 @@ def main() -> int:
     empty_nearby = _get_json(
         base_url,
         "/api/v2/courses/nearby",
-        {"latitude": "0", "longitude": "0", "radius_km": "50"},
+        {"latitude": "0", "longitude": "0", "radius_km": "5"},
         headers,
     )
     validate_empty_nearby(empty_nearby)

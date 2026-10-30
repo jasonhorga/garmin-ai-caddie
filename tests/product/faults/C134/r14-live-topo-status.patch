@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -3968,4 +3968,7 @@
+         for attempt in 0...topoRetryDelays.count {
+             guard !Task.isCancelled else { return false }
++            if prepDownloadID == nil {
++                await refreshServerInstallStatus()
++            }
+             var pendingTopoHoles = missingTopoHoles()
+             guard !pendingTopoHoles.isEmpty else { break }
