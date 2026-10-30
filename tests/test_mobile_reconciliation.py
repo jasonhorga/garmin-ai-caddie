@@ -145,8 +145,78 @@ class MobileReconciliationTests(unittest.TestCase):
 
         self.assertEqual([row["hole"] for row in result["matched"]], list(range(10, 19)))
         self.assertEqual([row["hole"] for row in result["localOnly"]], list(range(10, 19)))
-        self.assertEqual([row["id"] for row in result["annotationSuggestions"]],
-                         [f"score-{n}:score-correction" for n in range(10, 19)])
+        self.assertEqual(result["annotationSuggestions"], [])
+        applied = apply_mobile_reconciliation_suggestions(
+            "back-start-partial", data, root=root, annotations_root=root,
+            data_loader=lambda: data,
+        )
+        self.assertEqual(applied["appliedCount"], 0)
+        after = reconcile_mobile_round_events("back-start-partial", data, root=root)
+        self.assertEqual(after["conflicts"], [])
+        self.assertEqual(after["annotationSuggestions"], [])
+
+    def test_j1_3_mapped_local_only_keeps_phone_hole_and_audit_axis(self) -> None:
+        # J1.3/J7.2: phone hole 1 maps to Garmin display 10; localOnly and audit retain both axes.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "rotated-local", [(55555, "back")])
+            append_event_batch("rotated-local", [{
+                "eventId": "putt-1", "roundId": "rotated-local", "hole": 1,
+                "kind": "putt", "payload": {
+                    "putts": 2, "decisionId": "decision-1",
+                    "actualShot": {"club": "9I"},
+                },
+            }], idempotency_key="rotated-local", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "rotated-local", "globalId": 55555,
+                "holes": [{"number": n, "strokes": 5} for n in range(10, 19)],
+            }], shots=[])
+            result = reconcile_mobile_round_events("rotated-local", data, root=root)
+
+        self.assertEqual(result["localOnly"][0]["hole"], 10)
+        self.assertEqual(result["localOnly"][0]["phoneHole"], 1)
+        self.assertFalse(result["localOnly"][0]["unmapped"])
+        self.assertEqual(result["candidateDecisionAudits"][0]["hole"], 10)
+
+    def test_j1_3_unmapped_photo_and_video_rows_are_marked(self) -> None:
+        # J1.3: unmapped media evidence carries the same unmapped/phoneHole contract as scores.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "media-unmapped", [(55555, "front")])
+            append_event_batch("media-unmapped", [
+                {"eventId": "photo-10", "roundId": "media-unmapped", "hole": 10,
+                 "kind": "photo", "payload": {"mediaId": "m-photo"}},
+                {"eventId": "video-11", "roundId": "media-unmapped", "hole": 11,
+                 "kind": "video", "payload": {"mediaId": "m-video"}},
+            ], idempotency_key="media-unmapped", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "media-unmapped", "globalId": 55555,
+                "holes": [{"number": n, "strokes": 5} for n in range(1, 10)],
+            }], shots=[])
+            result = reconcile_mobile_round_events("media-unmapped", data, root=root)
+
+        self.assertEqual([(row["kind"], row["unmapped"], row["phoneHole"])
+                          for row in result["localOnly"]],
+                         [("photo", True, 10), ("video", True, 11)])
+
+    def test_j1_3_unmerged_eighteen_hole_no_number_card_does_not_use_nine_hole_fallback(self) -> None:
+        # J1.3: the 1..9 fallback is limited to a standalone <=9-hole card.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "unnumbered-eighteen", [(55555, "back"), (55555, "front")])
+            append_event_batch("unnumbered-eighteen", [{
+                "eventId": f"score-{n}", "roundId": "unnumbered-eighteen", "hole": n,
+                "kind": "score", "payload": {"strokes": 4 if n <= 9 else 7},
+            } for n in range(1, 19)], idempotency_key="unnumbered-eighteen", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "unnumbered-eighteen", "globalId": 55555,
+                "holes": [{"strokes": 4} for _ in range(18)],
+            }], shots=[])
+            result = reconcile_mobile_round_events("unnumbered-eighteen", data, root=root)
+
+        self.assertEqual([row["ref"] for row in result["matched"]],
+                         [f"unnumbered-eighteen:{n}" for n in range(10, 19)])
+        self.assertEqual([row["hole"] for row in result["conflicts"]], list(range(1, 10)))
 
     def test_saved_identity_matches_merged_front_then_back_of_eighteen_hole_course(self) -> None:
         self._assert_merged_eighteen_hole_halves_match("front")
