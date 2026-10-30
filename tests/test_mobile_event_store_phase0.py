@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+
 import ast
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
@@ -666,8 +668,8 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         error.assert_not_called()
 
     def test_recovery_cleans_only_event_owned_temporary_files(self) -> None:
-        """J5.9: cold reads clean event-owned migration/JSON temps, even without an intent
-        (原文承诺「reservation tmp 纳入事件锁清理」), while leaving ACK tmp and formal backups alone."""
+        """J5.9/J7.3: cold reads clean event-owned migration/JSON temps even when the intent is gone
+        (「冷读同时清理……JSON/回滚 tmp，即使 intent 已删」), leaving ACK tmp and formal backups alone."""
         for has_intent in (False, True):
             with self.subTest(has_intent=has_intent):
                 store = FileEventStore(self.root / str(has_intent))
@@ -756,31 +758,45 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertFalse(temp.exists())
 
     def test_cleanup_unlink_failure_warns_and_read_continues(self) -> None:
-        """J5.9: a failed tmp unlink follows the original promise「删不掉就告警继续」
-        without blocking reads."""
-        store = FileEventStore(self.root / "players/player-secret/mobile_events")
-        store.append_batch(ROUND_A, [_event("unlink-warning")], request_key="unlink-warning")
-        temp = store.root / ".events.jsonl.migrate-unlink-warning.tmp"
-        temp.mkdir()
+        """J5.9: 「匹配的 tmp 删不掉时必须记录告警并继续读写，不得阻断分区」 — for a denied unlink and
+        for a real undeletable entry alike; J7.3: the warning names only a hashed partition."""
+        for mode in ("permission-denied", "directory"):
+            with self.subTest(mode=mode):
+                store = FileEventStore(self.root / mode / "players/player-secret/mobile_events")
+                store.append_batch(ROUND_A, [_event("unlink-warning")], request_key="unlink-warning")
+                temp = store.root / ".events.jsonl.migrate-unlink-warning.tmp"
+                original_unlink = Path.unlink
 
-        with mock.patch.object(mobile_event_store.logger, "warning") as warning:
-            try:
-                rows = FileEventStore(store.root).read_rows(ROUND_A)
-            except OSError as exc:
-                self.fail(f"undeletable tmp must not block reads: {exc!r}")
+                def unlink(path: Path, *, missing_ok: bool = False) -> None:
+                    if path == temp:
+                        raise PermissionError("synthetic unlink denial")
+                    original_unlink(path, missing_ok=missing_ok)
 
-        self.assertEqual([row["event"]["eventId"] for row in rows], ["unlink-warning"])
-        warning.assert_called_once()
-        message = warning.call_args.args[0] % warning.call_args.args[1:]
-        self.assertIn("migration", message.lower())
-        partition = warning.call_args.args[1]
-        self.assertRegex(partition, r"^player:[0-9a-f]{12}$")
-        self.assertNotIn("player-secret", message)
-        self.assertNotIn(str(self.root), message)
+                if mode == "directory":
+                    temp.mkdir()
+                    denial = contextlib.nullcontext()
+                else:
+                    temp.write_bytes(b"undeletable")
+                    denial = mock.patch.object(Path, "unlink", autospec=True, side_effect=unlink)
+
+                with denial, mock.patch.object(mobile_event_store.logger, "warning") as warning:
+                    try:
+                        rows = FileEventStore(store.root).read_rows(ROUND_A)
+                    except OSError as exc:
+                        self.fail(f"undeletable tmp must not block reads: {exc!r}")
+
+                self.assertEqual([row["event"]["eventId"] for row in rows], ["unlink-warning"])
+                warning.assert_called_once()
+                message = warning.call_args.args[0] % warning.call_args.args[1:]
+                self.assertIn("migration", message.lower())
+                partition = warning.call_args.args[1]
+                self.assertRegex(partition, r"^player:[0-9a-f]{12}$")
+                self.assertNotIn("player-secret", message)
+                self.assertNotIn(str(self.root), message)
 
     def test_reservation_temporary_files_are_cleaned_without_touching_formal_store(self) -> None:
-        """J5.9: cold reads clean request reservation tmp artifacts under the event lock
-        (原文承诺「reservation tmp 纳入事件锁清理」), while formal reservation files remain untouched."""
+        """J5.9: cold reads clean request reservation tmp artifacts (「冷读同时清理……reservation tmp」),
+        while formal reservation files remain untouched."""
         store = FileEventStore(self.root)
         store.append_batch(ROUND_A, [_event("reservation-cleanup")], request_key="reservation-cleanup")
         temporary = store.root / ".request_reservations.json.123.tmp"

@@ -21,6 +21,20 @@
       "kind": "python",
       "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_cleanup_unlink_failure_warns_and_read_continues",
       "promise": "7.3"
+    },
+    {
+      "id": "tests-product-faults-C229-S7-catch-only-directory-error",
+      "patch": "tests/product/faults/C229/S7-catch-only-directory-error.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_cleanup_unlink_failure_warns_and_read_continues",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C229-S8-new-store-drops-prefix-cache",
+      "patch": "tests/product/faults/C229/S8-new-store-drops-prefix-cache.patch",
+      "kind": "python",
+      "target": "tests.product.test_j5_play.EventAppendTests.test_j59_append_reads_only_target_round_on_seven_mb_history",
+      "promise": "5.9"
     }
   ]
 }

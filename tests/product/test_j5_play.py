@@ -628,7 +628,8 @@ class EventAppendTests(unittest.TestCase):
         started = time.perf_counter()
         with patch.object(mobile_event_store, "_PREFIX_CACHE_CLOCK", inside_window):
             with count_log_reads(log) as reads, bind(timing):
-                result = store.append_batch(
+                # A fresh store per request, as in production; the prefix cache is module-level.
+                result = FileEventStore(self.root).append_batch(
                     ROUND_A, [{**self._event("next"), "hole": 2}], request_key="next",
                     validate_append=require_possible_appended_scores,
                 )
