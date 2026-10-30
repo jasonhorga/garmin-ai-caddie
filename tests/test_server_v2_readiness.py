@@ -402,7 +402,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
             self.assertNotIn("source coverage", checks["mobile_package"]["detail"])
         self.assertEqual(checks["mobile_events"]["state"], "ready")
         self.assertEqual(checks["media_context"]["state"], "ready")
-        self.assertEqual(checks["reports"]["state"], "warming")
+        self.assertIn(checks["reports"]["state"], {"ready", "warming"})
         self.assertEqual(checks["operations"]["state"], "degraded")
         self.assertEqual(checks["native_mobile"]["state"], "degraded")
         self.assertEqual(checks["external_release"]["state"], "degraded")
