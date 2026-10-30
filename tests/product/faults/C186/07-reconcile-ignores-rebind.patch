@@ -1,0 +1,11 @@
+--- a/server_v2/course_install.py
++++ b/server_v2/course_install.py
+@@ -448,7 +448,7 @@
+             original = state["holes"][key]
+             # Observation/scheduling runs outside _LOCK. A completion callback or release
+             # rebind may have written a newer row in the meantime; only that observer owns it.
+-            observation_fields = ("workRevision", "geometryRevision", *_DERIVATIVE_FIELDS)
++            observation_fields = _DERIVATIVE_FIELDS
+             if (isinstance(row, dict)
+                     and current.get("generation") == state.get("generation")
+                     and all(row.get(field) == original.get(field) for field in observation_fields)):

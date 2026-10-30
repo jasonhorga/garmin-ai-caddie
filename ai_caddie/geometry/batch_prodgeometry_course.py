@@ -368,10 +368,19 @@ def derivative_state(
         return {"state": "none", "retryAfterEpoch": None, "failureCount": 0, "lastErrorType": None}
     if distance_target.is_file() and hazard_target.is_file():
         return {"state": "ready", "retryAfterEpoch": None, "failureCount": 0, "lastErrorType": None}
-    target = (int(course_id), int(hole_number), str(mesh_file), str(distance_target), str(hazard_target))
+    try:
+        identity, _, _ = _derivative_snapshot(mesh_file)
+    except OSError:
+        # An unreadable snapshot is not proof that the installed mesh disappeared. Let the
+        # scheduling caller persist its bounded ScheduleUnavailable retry rather than settle it.
+        return {"state": "due", "retryAfterEpoch": None, "failureCount": 0, "lastErrorType": None}
+    target = _derivative_key(course_id, hole_number, mesh_file, distance_target, hazard_target, identity)
     with _DERIVATIVE_LOCK:
-        running = any(key[:5] == target and not job.done() for key, job in _DERIVATIVE_JOBS.items())
+        job = _DERIVATIVE_JOBS.get(target)
+        running = job is not None and not job.done()
     status = load_derivatives_status(mesh_file) or {}
+    if status.get("identity") != identity:
+        status = {}
     row = {
         "failureCount": int(status.get("failureCount") or 0),
         "lastErrorType": status.get("lastErrorType"),
