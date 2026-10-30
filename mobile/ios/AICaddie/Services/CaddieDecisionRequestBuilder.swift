@@ -473,7 +473,14 @@ public enum LiveCaddieSeedFactory {
               let primaryCarry,
               primaryCarry.isFinite,
               primaryCarry > 0 else {
-            return nil
+            // A cold package can legitimately contain course facts before the player's club bag
+            // or deferred caddie seed arrives. Keep the production request path alive with those
+            // facts; do not invent a club or a recommendation just to manufacture an offline
+            // option. The server can answer after the bag is synced, while the live screen still
+            // receives its authoritative distance/location input.
+            return authority.sanitizedSeed(
+                factualOnlySeed(package: package, hole: hole, prep: prep, sourceRef: sourceRef, profiles: profiles)
+            )
         }
 
         var context: [String: JSONValue] = [
@@ -546,6 +553,60 @@ public enum LiveCaddieSeedFactory {
                 "reason": .string("package omitted this hole's deferred seed; using factual local course and bag data"),
             ]]
         ))
+    }
+
+    private static func factualOnlySeed(
+        package: LiveRoundPackage,
+        hole: Hole,
+        prep: CoursePrepHole?,
+        sourceRef: String,
+        profiles: [ClubProfile]
+    ) -> CaddieContextSeed {
+        var context: [String: JSONValue] = [
+            "roundId": .string(package.roundId),
+            "sourceRef": .string(sourceRef),
+            "courseName": .string(package.course.venueDisplayName),
+            "globalId": .number(Double(hole.sourceGlobalId)),
+            "localHole": .number(Double(hole.sourceLocalHole)),
+            "hole": .number(Double(hole.number)),
+            "displayHole": .number(Double(hole.number)),
+            "par": .number(Double(hole.par)),
+            "teeBox": .string(package.course.teeBox),
+            "clubProfiles": .object(Self.profileObject(from: profiles)),
+            "candidateRoutes": .array([]),
+            "candidateRoutesState": .string("deferred"),
+            "geometry": .object([
+                "coverage": .string(prep?.geometryCoverage ?? hole.geometryCoverage.rawValue),
+                "geometryRevision": (prep?.geometryRevision ?? hole.geometryRevision).map(JSONValue.string) ?? .null,
+            ]),
+        ]
+        if let yards = hole.yards, yards > 0 { context["yards"] = .number(Double(yards)) }
+        if let routeLength = prep?.routeLenM, routeLength.isFinite, routeLength > 0 {
+            context["canonicalPlanRouteLength_m"] = .number(routeLength)
+            context["holeRemaining_m"] = .number(routeLength)
+        }
+        if let greenDistances = prep?.greenDistances, greenDistances.available {
+            context["greenDistances"] = .object(greenDistanceObject(greenDistances))
+        }
+        return CaddieContextSeed(
+            hole: hole.number,
+            sourceRef: sourceRef,
+            shotTypes: ["tee", "approach", "recovery"],
+            requiredLiveInputs: ["currentLocation", "lie"],
+            enrichmentState: "factual_only",
+            context: context,
+            selectedOfflineOptionId: nil,
+            offlineOptions: [],
+            evidence: [[
+                "label": .string("local_factual_seed"),
+                "value": .string("course_facts_without_club_bag"),
+                "sourceRef": .string(sourceRef),
+            ]],
+            missingData: [[
+                "label": .string("club_bag"),
+                "reason": .string("club profiles are not present in the cold package"),
+            ]]
+        )
     }
 
     private static func canonicalSteps(
