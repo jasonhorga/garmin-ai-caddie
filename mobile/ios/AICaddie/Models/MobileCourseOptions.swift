@@ -570,6 +570,17 @@ public enum PrepCourseDownloadPhase: String, Codable, Equatable {
 /// only a course the player opens/downloads is retained here and installed into OfflineStore.
 /// A row always installs the whole physical course — its canonical template (`G:front+G:back`
 /// for 18 holes, `G:all` for a 9-hole loop) — from which any round order is projected (B4b-2).
+struct PrepServerPreparationProgress: Codable, Equatable {
+    let jobId: String
+    let generation: Int?
+    let progress: Int?
+    let geometryReady: Int
+    let topoReady: Int
+    let totalHoles: Int
+    let heartbeatAt: String?
+    let lastProgressAt: Date
+}
+
 public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
     public let id: String
     public let course: MobileCourseOption
@@ -580,6 +591,7 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
     public var totalHoles: Int
     public var updatedAt: Date
     public var errorText: String?
+    var serverPreparation: PrepServerPreparationProgress? = nil
     /// Positive server release revisions that a replacement install must satisfy before this row
     /// can become ready again. Nil for ordinary downloads and backward-compatible persisted rows.
     public var requiredGeometryRevisions: [String: String]?
@@ -664,7 +676,7 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id, course, teeBox, phase, preparedHoles, downloadedHoles, totalHoles, updatedAt
         case errorText, requiredGeometryRevisions, isIntentPrefetch, isSpeculative, isRoundPrefetch
-        case queueGroupID, queuePosition
+        case queueGroupID, queuePosition, serverPreparation
     }
 
     /// The id is re-derived on decode, so a row persisted under the v1 `gid:tee:nine` key joins
@@ -691,6 +703,14 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         isRoundPrefetch = try container.decodeIfPresent(Bool.self, forKey: .isRoundPrefetch) ?? false
         queueGroupID = try container.decodeIfPresent(String.self, forKey: .queueGroupID)
         queuePosition = try container.decodeIfPresent(Int.self, forKey: .queuePosition)
+        serverPreparation = try container.decodeIfPresent(PrepServerPreparationProgress.self, forKey: .serverPreparation)
+    }
+
+    /// J4.2: receives the polling clock explicitly; ordinary record updates are not progress.
+    mutating func applyServerPreparation(_ status: CourseInstallStatus, at now: Date) {
+        // Old queued/running behaviour, retained for the assertion-red baseline.
+        phase = downloadedHoles > 0 ? .downloading : .preparing
+        errorText = nil
     }
 
     public var isActive: Bool {

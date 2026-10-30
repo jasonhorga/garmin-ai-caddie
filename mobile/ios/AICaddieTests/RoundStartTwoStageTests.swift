@@ -33,6 +33,48 @@ final class RoundStartTwoStageTests: XCTestCase {
         try await super.tearDown()
     }
 
+    /// J4.2: establish the foreground gate before enqueueing the durable whole-course download.
+    func testPrepStartDoesNotCreateAndImmediatelyCancelADownloadWorker() throws {
+        C33URLProtocol.setHandlers(onStart: { $0.reply(404) })
+        let fixture = makeModel(host: "prep-start-order.example.test")
+        let model = fixture.model
+        let course = MobileCourseOption(globalId: c85CourseId, name: "Fixture Links", holes: 9, teeBox: "blue")
+        XCTAssertTrue(model.openPrepCourse(course))
+        // Synchronous before any actor yield: a worker created then cancelled is still a bug,
+        // even if its URL request never reached the transport.
+        XCTAssertEqual(model.prepWorkerStartsForTesting, 0)
+        XCTAssertEqual(model.prepWorkerCancellationsForTesting, 0)
+        XCTAssertEqual(model.prepCourseDownloads.first { !$0.isIntentPrefetch }?.phase, .queued)
+        XCTAssertEqual(try fixture.store.loadPrepCourseDownloads().filter { !$0.isIntentPrefetch }.count, 1)
+    }
+
+    /// J4.2: an explicit repeated request attaches to the held task and immediately changes copy.
+    func testActiveOfflineDownloadRequestShowsFeedbackWithoutRestarting() async throws {
+        let host = "prep-active-feedback.example.test"
+        let held = C85HeldRequests()
+        let sent = expectation(description: "whole-course download is active")
+        let once = C33FirstMatch()
+        let requests = C85RequestLog()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            requests.append(proto.request)
+            held.hold(proto)
+            if once.claim() { sent.fulfill() }
+        }, onStop: { held.forget($0) })
+        let fixture = makeModel(host: host, held: held)
+        let model = fixture.model
+        let course = MobileCourseOption(globalId: c85CourseId, name: "Fixture Links", holes: 9, teeBox: "blue")
+        model.downloadPrepCourse(course)
+        await fulfillment(of: [sent], timeout: eventWait)
+        model.downloadPrepCourse(course)
+        let row = try XCTUnwrap(model.prepCourseDownloads.first)
+        XCTAssertEqual(StartRoundPresentation.offlineStatusText(row), "正在下载，已在进行")
+        XCTAssertNil(StartRoundPresentation.offlineActionTitle(row))
+        XCTAssertEqual(model.prepWorkerStartsForTesting, 1)
+        XCTAssertEqual(model.prepWorkerCancellationsForTesting, 0)
+        XCTAssertEqual(requests.all.count, 1)
+        XCTAssertEqual(row.downloadedHoles, 0)
+    }
+
     func testMapOnlyPackageRequestCarriesTheWatchContract() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)

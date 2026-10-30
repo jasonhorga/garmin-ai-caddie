@@ -26,6 +26,29 @@ struct StartCourseListRow: Equatable, Identifiable {
 /// Pure copy and list rules for 开始一场 and the home hero, kept out of the views so they are
 /// unit-testable without a SwiftUI host.
 enum StartRoundPresentation {
+    static func offlineStatusText(_ row: PrepCourseDownloadRecord) -> String {
+        if let message = row.errorText,
+           row.phase == .preparing || row.phase == .downloading || row.phase == .queued {
+            return message
+        }
+        switch row.phase {
+        case .queued: return "等待下载"
+        case .preparing: return "正在准备"
+        case .downloading: return "正在下载 · \(row.downloadedHoles)/\(row.totalHoles) 洞"
+        case .ready: return "已下载"
+        case .failed: return row.errorText ?? "下载失败"
+        }
+    }
+
+    static func offlineActionTitle(_ row: PrepCourseDownloadRecord) -> String? {
+        switch row.phase {
+        case .ready: return nil
+        case .failed: return "重试"
+        case .queued: return "下载"
+        case .preparing, .downloading: return "继续下载"
+        }
+    }
+
     static func roundStartProgressText(isBusy: Bool, message: String?) -> String? {
         guard isBusy else { return nil }
         return message ?? "正在准备球场…"

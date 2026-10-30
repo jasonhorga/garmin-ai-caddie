@@ -386,7 +386,7 @@ public struct StartRoundView: View {
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(row.course.venueDisplayName).font(.subheadline.weight(.semibold))
-                            Text(downloadStatus(row))
+                            Text(StartRoundPresentation.offlineStatusText(row))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .accessibilityIdentifier("start-round-offline-status-\(row.id)")
@@ -399,8 +399,8 @@ public struct StartRoundView: View {
                                 }
                             }
                             .buttonStyle(.bordered)
-                        } else if row.phase != .ready {
-                            Button(row.phase == .queued ? "下载" : "继续下载") {
+                        } else if let title = StartRoundPresentation.offlineActionTitle(row) {
+                            Button(title) {
                                 for pending in Self.offlineActionRecords(for: row, in: prepCourseDownloads, retrying: false) {
                                     onDownloadPrepCourse(pending.course.replacingTeeBox(pending.teeBox))
                                 }
@@ -438,20 +438,6 @@ public struct StartRoundView: View {
             .sorted { lhs, rhs in
                 lhs.course.globalId < rhs.course.globalId
             }
-    }
-
-    private func downloadStatus(_ row: PrepCourseDownloadRecord) -> String {
-        if let message = row.errorText,
-           row.phase == .preparing || row.phase == .downloading || row.phase == .queued {
-            return message
-        }
-        switch row.phase {
-        case .queued: return "等待下载"
-        case .preparing: return "正在准备"
-        case .downloading: return "正在下载 · \(row.downloadedHoles)/\(row.totalHoles) 洞"
-        case .ready: return "已下载"
-        case .failed: return row.errorText ?? "下载失败"
-        }
     }
 
     private func showSetupPage() {
