@@ -12,6 +12,16 @@ from fastapi import BackgroundTasks
 from ai_caddie.core.priority_work import ForegroundGate, PriorityExecutor
 
 
+def background_slot_logging_isolation_suite():
+    """J4.2: exercise slot logging after a real mobile application lifespan."""
+    from tests.test_server_v2_mobile import ServerV2MobileTests
+
+    return unittest.TestSuite([
+        ServerV2MobileTests("test_mobile_start_hole_422_names_actual_round_limit"),
+        ForegroundAdmissionTests("test_J42_background_slot_logs_hold_duration_by_unit_type"),
+    ])
+
+
 class ForegroundAdmissionTests(unittest.TestCase):
     def test_J42_abandoned_waiters_remove_fifo_tickets_for_followers(self):
         """J4.2: an abandoned head or middle waiter cannot leave a dead FIFO ticket."""
