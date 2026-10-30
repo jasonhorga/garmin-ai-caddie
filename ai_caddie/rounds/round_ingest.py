@@ -745,12 +745,15 @@ def _shot_putt_count(
     total_strokes: int | None = None,
     club_details: list[dict[str, Any]] | None = None,
 ) -> int | None:
-    """Count explicit green putts in a complete log, in memory or persisted Garmin shape.
+    """Count explicit green putts only in an exact-length log with a recognized putt tail.
 
-    In-memory rows keep ``club``; persisted rows keep ``startLoc.lie``, ``shotType`` and
-    a ``clubId`` referring to ``clubDetails``. Both representations require the same evidence.
+    In-memory ``club`` retains shotType="putt" and the club name/lie. Persisted rows keep
+    ``startLoc.lie`` and ``clubId`` -> ``clubDetails``, but their shotType is only
+    TEE/APPROACH/RECOVERY. A custom putter name may therefore lose its putt evidence on disk.
+    Any unrecognized stroke after the first putt makes the total unknown; callers then try
+    the observed regulation landing instead. Extra or missing positions also mean unknown.
     """
-    if total_strokes is not None and len(shots) < total_strokes:
+    if total_strokes is not None and len(shots) != total_strokes:
         return None
     clubs = {row.get("id"): row for row in (club_details or []) if isinstance(row, dict)}
     count = 0
@@ -769,6 +772,8 @@ def _shot_putt_count(
             lie = str((shot.get("startLoc") or {}).get("lie") or "").strip().lower()
         if lie == "green" and ("putt" in shot_type or "putt" in club_name or club_name in {"putter", "pt", "推杆"}):
             count += 1
+        elif count:
+            return None  # Do not mistake a partially recognized putt tail for the putt total.
     return count or None
 
 
