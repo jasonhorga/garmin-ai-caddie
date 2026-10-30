@@ -26,6 +26,18 @@ def checkpoint():
         raise PrepCancelled()
 
 
+def hole_boundary():
+    """Between two holes of a background prep, give a live package the CPU (and still cancel).
+
+    No per-hole single-flight is held here, so a package needing that hole is never stuck behind
+    the paused builder. Package and exempt playing preps are not admitted units: a no-op.
+    """
+    from ai_caddie.core.priority_work import yield_to_foreground
+
+    checkpoint()
+    yield_to_foreground(while_waiting=checkpoint)
+
+
 # Only transport prep calls install this policy. Package's synchronous helpers remain ungated.
 _COLD_ADMISSION: ContextVar[object] = ContextVar("prep_cold_admission", default=None)
 

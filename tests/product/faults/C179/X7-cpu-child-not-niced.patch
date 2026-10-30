@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/geometry/topo_render.py b/ai_caddie/geometry/topo_render.py
+index 37e7dc29..c5fc82ac 100644
+--- a/ai_caddie/geometry/topo_render.py
++++ b/ai_caddie/geometry/topo_render.py
+@@ -1144,7 +1144,7 @@ def _get_render_pool(processes: int) -> _IdleCpuPool:
+                 mp_context=context,
+                 max_tasks_per_child=_RENDER_TASKS_PER_PROCESS,
+                 initializer=_render_worker_initializer,
+-                initargs=(nice,),
++                initargs=(0,),
+             )
+         return _render_pool
+ 

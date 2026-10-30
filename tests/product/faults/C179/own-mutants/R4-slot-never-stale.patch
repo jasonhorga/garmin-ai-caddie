@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
+index f73a4fce..7e6783fa 100644
+--- a/ai_caddie/core/priority_work.py
++++ b/ai_caddie/core/priority_work.py
+@@ -109,7 +109,7 @@ class ForegroundGate:
+         live = []
+         for ticket, started in self._running.items():
+             age = now - started
+-            if age < self._slot_timeout_s:
++            if True:
+                 live.append(started + self._slot_timeout_s)
+             elif ticket not in self._slot_warned:
+                 self._slot_warned.add(ticket)

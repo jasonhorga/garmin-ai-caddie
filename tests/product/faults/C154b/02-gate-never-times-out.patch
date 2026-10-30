@@ -1,12 +1,12 @@
 diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
 --- a/ai_caddie/core/priority_work.py
 +++ b/ai_caddie/core/priority_work.py
-@@ -87,7 +87,7 @@
-                 live = []
-                 for ticket, started in self._foreground.items():
-                     age = now - started
--                    if age < timeout:
-+                    if True:
-                         live.append(started + timeout)
-                     elif ticket not in self._warned:
-                         self._warned.add(ticket)
+@@ -97,7 +97,7 @@
+         live = []
+         for ticket, started in self._foreground.items():
+             age = now - started
+-            if age < timeout:
++            if True:
+                 live.append(started + timeout)
+             elif ticket not in self._warned:
+                 self._warned.add(ticket)

@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
+index f73a4fce..f6248717 100644
+--- a/ai_caddie/core/priority_work.py
++++ b/ai_caddie/core/priority_work.py
+@@ -251,7 +251,7 @@ def yield_to_foreground(*, while_waiting: Callable[[], None] | None = None) -> N
+     holder would make that package wait for the whole stale-package deadline.
+     """
+     gate = _BACKGROUND_ADMISSION.get()
+-    if gate is not None:
++    if False:
+         gate.yield_to_foreground(while_waiting=while_waiting)
+ 
+ 

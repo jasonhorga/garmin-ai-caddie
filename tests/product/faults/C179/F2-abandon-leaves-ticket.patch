@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
+index 3daaac3b..9c8a61b7 100644
+--- a/ai_caddie/core/priority_work.py
++++ b/ai_caddie/core/priority_work.py
+@@ -165,8 +165,6 @@ class ForegroundGate:
+                                     if d is not None), default=now + _ABANDON_POLL_SECONDS)
+                     self._wait_locked(deadline, now, while_waiting)
+             except BaseException:
+-                self._background_waiters.remove(ticket)
+-                self._condition.notify_all()
+                 raise
+             self._background_waiters.pop(0)
+             if marked:
