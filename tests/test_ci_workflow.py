@@ -792,9 +792,16 @@ class CIWorkflowTests(unittest.TestCase):
     def test_native_fixture_dns_gates_fail_closed_when_logs_are_missing(self) -> None:
         """J4.2: a completed native test cannot pass its DNS gate without its log."""
         workflow = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8"))
-        steps = {step.get("name"): step for step in workflow["jobs"]["native-mobile"]["steps"]}
-
-        native_gate = steps["J4.2 fixture DNS gate (native tests)"]["run"]
+        # C252 split native-mobile: the iOS/Watch unit tests (and their gate) run in native-unit-watch
+        # for dispatch fixtures and in native-live for live runs; both must carry the same gate.
+        gates = {
+            job: {step.get("name"): step for step in workflow["jobs"][job]["steps"]}[
+                "J4.2 fixture DNS gate (native tests)"
+            ]["run"]
+            for job in ("native-unit-watch", "native-live")
+        }
+        self.assertEqual(gates["native-unit-watch"], gates["native-live"])
+        native_gate = gates["native-unit-watch"]
         product_steps = {
             step.get("name"): step
             for step in workflow["jobs"]["native-product-ui"]["steps"]
