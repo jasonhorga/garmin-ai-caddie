@@ -175,6 +175,13 @@
       "kind": "python",
       "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_unrecognized_green_stroke_before_putt_uses_landing",
       "promise": "2.5 a green stroke of unknown type before the first recognized putt makes the total unknown"
+    },
+    {
+      "id": "tests-product-faults-C223-26-default-fairway-putter-guard",
+      "patch": "tests/product/faults/C223/26-no-putt-like-guard.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_default_fairway_putter_uses_observed_landing",
+      "promise": "2.5 a putter-like stroke on the default fairway lie keeps first-putt evidence unknown"
     }
   ]
 }
