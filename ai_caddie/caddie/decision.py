@@ -1983,7 +1983,6 @@ def _sequence_tail(
                 # wedge is a reason to re-plan from the next lie, never a reason to add another
                 # arbitrary full swing.
                 key = (
-                    layup_window_rank,
                     excessive_overshoot,
                     unresolved_leave,
                     abs(leave_m),
@@ -1993,9 +1992,10 @@ def _sequence_tail(
                 )
             else:
                 key = (
-                    layup_window_rank,
                     excessive_overshoot,
                     unresolved_leave,
+                    float(step_count) if needs_layup else 0.0,
+                    layup_window_rank,
                     chain_cost + extra_step_cost,
                     overshoot_m,
                     -float(sample_strength),
