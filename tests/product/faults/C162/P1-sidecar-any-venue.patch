@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_live.py b/ai_caddie/caddie/mobile_live.py
+index 34088d19..6869d4fc 100644
+--- a/ai_caddie/caddie/mobile_live.py
++++ b/ai_caddie/caddie/mobile_live.py
+@@ -604,7 +604,7 @@ def build_mobile_course_options(
+                 sibling_facts[sibling_id] = (str(loop["name"]), _safe_int(loop.get("holeCount")) or 9)
+     # Catalogue sidecars include never-played loops, even when no nearby query ran this launch.
+     for gid, name in courseview_catalogue_names(root=ROOT).items():
+-        if name and venue_key(name, []) in known_venues:
++        if name:
+             label = _segment_label_from_courseview_name(name)
+             if label and not is_composite_segment(label):
+                 sibling_facts.setdefault(gid, (name, 9))

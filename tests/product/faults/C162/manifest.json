@@ -2,6 +2,20 @@
   "schema": 1,
   "records": [
     {
+      "id": "C162-sidecar-any-venue",
+      "patch": "tests/product/faults/C162/P1-sidecar-any-venue.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.CourseHTTPTests.test_j4_1_recent_catalogue_keeps_whole_venues_and_unplayed_loops",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-truncated-venue-leak",
+      "patch": "tests/product/faults/C162/P2-truncated-venue-leak.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.CourseHTTPTests.test_j4_1_unplayed_siblings_of_a_truncated_venue_stay_hidden",
+      "promise": "4.1"
+    },
+    {
       "id": "C162-gid-cutoff",
       "patch": "tests/product/faults/C162/gid-cutoff.patch",
       "kind": "python",
