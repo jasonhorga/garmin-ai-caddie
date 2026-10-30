@@ -750,6 +750,10 @@ class CourseSearchEndpointTests(unittest.TestCase):
             for gid in range(1, 12)
         ]
         with (
+            # This is the idle discovery case; playing leases left by another suite must not
+            # turn it into the separate "nearby yields to the active round" scenario.
+            patch.object(server_main, "_ACTIVE_ROUNDS", {}),
+            patch.object(server_main.course_install, "_ACTIVE", set()),
             patch.object(server_main.course_search, "courseview_nearby", return_value=canned),
             patch.object(server_main, "_reconcile_player_course_matches", return_value=canned),
             patch("server_v2.map_startup.enqueue_nearby") as prewarm,

@@ -445,7 +445,12 @@ class ServerV2MobileTests(unittest.TestCase):
     def test_package_and_prep_use_same_selected_release_tee_on_real_paths(self) -> None:
         """J4.4: real package/map-only/prep paths share release Tee authority and distances."""
         from ai_caddie.caddie import mobile_live
-        from ai_caddie.courses import course_prep
+        from ai_caddie.courses import course_prep, prep_cache
+
+        # This fixture replaces CourseView/geometry authority in memory. Cached factual rows
+        # from a prior fixture using the same gid cannot describe this synthetic release.
+        prep_cache.clear()
+        self.addCleanup(prep_cache.clear)
         from ai_caddie.courses import course_reference, courseview_core
         from ai_caddie.geometry import shot_projection
         from server_v2 import main as server_main
