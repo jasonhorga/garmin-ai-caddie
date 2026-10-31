@@ -1,0 +1,9 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 9bdf3bdc..6632d96d 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -232,3 +232,3 @@ public struct StartRoundView: View {
+     static func teeLookupKey(page: Page, globalIdText: String) -> String {
+-        page == .setup ? globalIdText : ""
++        globalIdText
+     }

@@ -1,0 +1,21 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 96970efe..b57480b9 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -1927,14 +1927,14 @@ public struct StartRoundView: View {
+                 selected: selectedSegment,
+                 catalogue: courseOptions,
+                 downloaded: downloadedCourseOptions,
+-                cachedNearby: lastNearbyCourseOptions
++                cachedNearby: []
+             )
+         }
+         if recentCourseOption?.globalId == selectedID,
+            let recent = recentResolvedCourseOption {
+             return Self.recentVenueOptions(
+                 recent: recent, catalogue: courseOptions,
+-                downloaded: downloadedCourseOptions, cachedNearby: lastNearbyCourseOptions
++                downloaded: downloadedCourseOptions, cachedNearby: []
+             )
+         }
+         return explicitCourseOptions.filter { Self.samePhysicalVenue($0, selectedSegment) }

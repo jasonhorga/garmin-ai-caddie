@@ -1,0 +1,14 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index fcdc48d7..84833af1 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -246,7 +246,8 @@ public struct StartRoundView: View {
+         for row: StartCourseListRow, downloaded: [MobileCourseOption],
+         catalogue: [MobileCourseOption], downloads: [PrepCourseDownloadRecord]
+     ) -> String? {
+-        guard let venue = row.segments.first else { return nil }
++        guard row.source == .recent || row.source == .downloaded,
++              let venue = row.segments.first else { return nil }
+         // The merged offline row may be hidden by venue deduplication. While any loop of a
+         // partially installed venue is pending or failed, its progress/failure outranks coverage.
+         let merged = StartRoundPresentation.offlineRows(downloads).first(where: {

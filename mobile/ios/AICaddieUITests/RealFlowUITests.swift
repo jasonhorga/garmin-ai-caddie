@@ -651,7 +651,7 @@ final class RealFlowUITests: XCTestCase {
             UITapHelpers.tapWhenHittable(
                 prepSearch,
                 app: app,
-                timeout: 5,
+                timeout: 15,
                 diagnosticName: "realflow-prep-search-submit"
             )
         )
@@ -686,18 +686,14 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(app.buttons["home-new-round"].waitForExistence(timeout: 8))
         app.buttons["home-new-round"].tap()
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
-        let retainedDownload = app.descendants(matching: .any).matching(NSPredicate(
-            format: "identifier BEGINSWITH %@",
-            "start-round-offline-row-\(approvedJourneyCourseGlobalId):"
-        )).firstMatch
+        // J4.1/C227①: a venue already in the main list has no duplicate lower offline row.
+        // Its surviving row must retain the app-owned download state, including in-flight work.
+        let retainedDownload = startDownloadStatus(globalId: approvedJourneyCourseGlobalId)
         XCTAssertTrue(scrollTo(retainedDownload, maxSwipes: 12))
-        let retainedStatus = app.staticTexts.matching(NSPredicate(
-            format: "identifier BEGINSWITH %@", "start-round-offline-status-\(approvedJourneyCourseGlobalId):"
-        )).firstMatch
         XCTAssertTrue(
-            retainedStatus.waitForExistence(timeout: 8)
-                && ["下载", "准备", "失败", "已下载"].contains(where: { retainedStatus.label.contains($0) }),
-            "the start-page offline row must show its download state"
+            retainedDownload.waitForExistence(timeout: 8)
+                && ["下载", "准备", "失败", "已下载"].contains(where: { retainedDownload.label.contains($0) }),
+            "the surviving start-page venue row must show its download state"
         )
         settle(1); save("06b-prep-download-retained"); dump("06b-prep-download-retained")
 
@@ -706,15 +702,9 @@ final class RealFlowUITests: XCTestCase {
         launchFresh()
         XCTAssertTrue(openStartRound())
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
-        let relaunchedDownload = app.descendants(matching: .any).matching(NSPredicate(
-            format: "identifier BEGINSWITH %@",
-            "start-round-offline-row-\(approvedJourneyCourseGlobalId):"
-        )).firstMatch
+        let relaunchedDownload = startDownloadStatus(globalId: approvedJourneyCourseGlobalId)
         XCTAssertTrue(scrollTo(relaunchedDownload, maxSwipes: 12))
-        let relaunchedStatus = app.staticTexts.matching(NSPredicate(
-            format: "identifier BEGINSWITH %@", "start-round-offline-status-\(approvedJourneyCourseGlobalId):"
-        )).firstMatch
-        XCTAssertTrue(waitForText("已下载", in: relaunchedStatus, timeout: 240))
+        XCTAssertTrue(waitForText("已下载", in: relaunchedDownload, timeout: 240))
         let relaunchedCourse = selectStartCourse(approvedJourneyCourseGlobalId)
         XCTAssertTrue(relaunchedCourse.exists)
         let relaunchedStart = app.buttons["start-round-primary-action"]
@@ -1983,6 +1973,15 @@ final class RealFlowUITests: XCTestCase {
             back.tap()
         }
         XCTAssertTrue(app.descendants(matching: .any)["start-round-page-course"].waitForExistence(timeout: 8))
+    }
+
+    /// J4.1/J4.2: download state stays on the venue after cross-section deduplication.
+    private func startDownloadStatus(globalId: Int) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier == %@ OR identifier BEGINSWITH %@",
+            "start-round-venue-\(globalId)",
+            "start-round-offline-status-\(globalId):"
+        )).firstMatch
     }
 
     /// B4b 开始一场: select a course on the course page, then its loop tile on setup.

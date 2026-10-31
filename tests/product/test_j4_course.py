@@ -36,6 +36,94 @@ def rectangle(x1,y1,x2,y2):
 
 
 class CourseHTTPTests(HTTPFixture, unittest.TestCase):
+    def test_j4_1_recent_catalogue_keeps_whole_venues_and_unplayed_loops(self):
+        """J4.1/J5.1: 24 venues, never 24 gids; every selectable nine survives."""
+        # Forty histories: the three nines rank 1/19/38, crossing the old gid cutoff.
+        gids = list(range(51000, 51040))
+        for rank, gid in [(0, 31832), (18, 31833), (37, 31834)]:
+            gids[rank] = gid
+        names = {gid: f"测试场地 {i}" for i, gid in enumerate(gids)}
+        names.update({31832: "沙河测试球会 ~ A", 31833: "沙河测试球会 ~ B",
+                      31834: "沙河测试球会 ~ C"})
+        rounds = [{"id": f"r{i}", "globalId": gid, "course": names[gid],
+                   "date": f"{2100-i}-01-01", "holesCompleted": 9 if gid < 40000 else 18}
+                  for i, gid in enumerate(gids)]
+        def options(rows):
+            return mobile_live.build_mobile_course_options(
+                HistoryData(raw_rounds=[], rounds=rows, shots=[]),
+                segment_resolver=lambda gid: (names[gid], 9 if gid < 40000 else 18),
+                tee_resolver=lambda gid: [])["courses"]
+        with TemporaryDirectory() as directory, patch.object(mobile_live, "ROOT", Path(directory)):
+            cache = Path(directory) / "data" / "courseview"
+            cache.mkdir(parents=True)
+            for gid in (31832, 31833, 31834):
+                (cache / f"{gid}_catalogue_name.json").write_text(json.dumps({
+                    "globalId": gid, "languageCode": "zh_CHS", "name": names[gid]}))
+            # A sidecar for an unrelated venue must never be imported into 沙河's sibling set.
+            (cache / "99999_catalogue_name.json").write_text(json.dumps({
+                "globalId": 99999, "languageCode": "zh_CHS", "name": "另一测试球会 ~ A"}))
+            result = options(rounds)
+            self.assertEqual({c["globalId"] for c in result if c["globalId"] < 40000},
+                             {31832, 31833, 31834})
+            self.assertNotIn(99999, {c["globalId"] for c in result})
+            # One 3-loop venue + 23 single-course venues = 26 rows (24 venue cap).
+            self.assertEqual(len(result), 26)
+            self.assertEqual(len({c["venueName"] for c in result}), 24)
+            unplayed = options([r for r in rounds if r["globalId"] != 31834])
+            c = next((c for c in unplayed if c["globalId"] == 31834), None)
+            self.assertIsNotNone(c, "a never-played sibling is still selectable")
+            self.assertEqual((c["segmentLabel"], c["segmentHoles"], c["roundCount"]), ("C", 9, 0))
+            self.assertEqual(c["sourceRefs"], [])
+            # The durable CourseView venue index also works without catalogue-name sidecars.
+            for path in cache.glob("*_catalogue_name.json"):
+                path.unlink()
+            (cache / "venue_loops.json").write_text(json.dumps({"venues": [{
+                "venueName": "沙河测试球会", "loops": [
+                    {"globalId": gid, "name": names[gid], "segmentLabel": label, "holeCount": 9}
+                    for gid, label in [(31832, "A"), (31833, "B"), (31834, "C")]]}]}))
+            indexed = options([r for r in rounds if r["globalId"] != 31834])
+            self.assertEqual({c["globalId"] for c in indexed if c["globalId"] < 40000},
+                             {31832, 31833, 31834})
+
+    def test_j4_1_unplayed_siblings_of_a_truncated_venue_stay_hidden(self):
+        """J4.1: a venue outside the 24-venue cap contributes no unplayed loop."""
+        rounds = [
+            {"id": f"r{i}", "globalId": 52000 + i, "course": f"场地 {i}",
+             "date": f"2026-{12 - (i % 9):02d}-01", "holesCompleted": 9}
+            for i in range(25)
+        ]
+        rounds[24]["course"] = "截断场地 ~ A"
+        with TemporaryDirectory() as directory, patch.object(mobile_live, "ROOT", Path(directory)):
+            cache = Path(directory) / "data" / "courseview"
+            cache.mkdir(parents=True)
+            (cache / "52024_catalogue_name.json").write_text(json.dumps({
+                "globalId": 52024, "languageCode": "zh_CHS", "name": "截断场地 ~ A"}))
+            (cache / "52025_catalogue_name.json").write_text(json.dumps({
+                "globalId": 52025, "languageCode": "zh_CHS", "name": "截断场地 ~ B"}))
+            result = mobile_live.build_mobile_course_options(
+                HistoryData(raw_rounds=[], rounds=rounds, shots=[]),
+                segment_resolver=lambda gid: ("截断场地 ~ A" if gid == 52024 else f"场地 {gid - 52000}", 9),
+                tee_resolver=lambda gid: [],
+            )["courses"]
+            self.assertNotIn(52025, {row["globalId"] for row in result})
+
+    def test_j4_1_sidecar_same_name_requires_matching_coordinates(self):
+        """J4.1: a same-name sidecar from another city cannot join the played venue."""
+        rows = [{"id": "r1", "globalId": 53001, "course": "同名球会 ~ A", "date": "2026-01-01",
+                 "holesCompleted": 9, "lat": 31.18, "lon": 121.37}]
+        with TemporaryDirectory() as directory, patch.object(mobile_live, "ROOT", Path(directory)):
+            cache = Path(directory) / "data" / "courseview"
+            cache.mkdir(parents=True)
+            (cache / "53002_catalogue_name.json").write_text(json.dumps({
+                "globalId": 53002, "languageCode": "zh_CHS", "name": "同名球会 ~ B",
+                "latitude": 40.04, "longitude": 116.55}))
+            result = mobile_live.build_mobile_course_options(
+                HistoryData(raw_rounds=[], rounds=rows, shots=[]),
+                segment_resolver=lambda gid: ("同名球会 ~ A", 9),
+                tee_resolver=lambda gid: [],
+            )["courses"]
+            self.assertEqual({row["globalId"] for row in result}, {53001})
+
     def catalogue(self):
         """Fake only cached provider facts, never a package or a hole mapping."""
         courses = {c["globalId"]: c for c in vectors("loop_map.json")["courses"]}

@@ -1,0 +1,7 @@
+--- a/mobile/ios/AICaddie/Services/SyncClient.swift
++++ b/mobile/ios/AICaddie/Services/SyncClient.swift
+@@ -1242,3 +1242,3 @@
+         applyAuth(to: &request)
+-        let data = try await fetchRetriableGetData(request, totalTimeoutInterval: 25)
++        let data = try await fetchRetriableGetData(request)
+         return try decoder.decode(CourseTeesResponse.self, from: data)

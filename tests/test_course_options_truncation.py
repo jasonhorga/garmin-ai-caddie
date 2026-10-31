@@ -1,10 +1,12 @@
-"""build_mobile_course_options resolves CourseView only for courses that can make the cut."""
+"""Catalogue venue selection bounds expensive Tee enrichment to retained venues."""
 from __future__ import annotations
 
 import unittest
+import time
 from unittest.mock import patch
 
 from ai_caddie.caddie import mobile_live
+from ai_caddie.courses import course_reference
 from ai_caddie.history.history import HistoryData
 
 
@@ -20,18 +22,22 @@ def _history() -> HistoryData:
 
 
 class CourseOptionTruncationTests(unittest.TestCase):
-    def test_matches_resolving_every_course_and_resolves_fewer(self) -> None:
+    def test_matches_unbounded_catalogue_and_enriches_only_retained_venues(self) -> None:
         data = _history()
         calls: list[int] = []
+        tee_calls: list[int] = []
 
         def segment(gid: int):
             calls.append(gid)
-            return (f"Venue {(gid * 7) % 13}", 18)
+            return (f"Venue {gid}", 18)
 
-        tees = lambda gid: []  # noqa: E731
+        def tees(gid):
+            tee_calls.append(gid)
+            return []
 
         optimized = mobile_live.build_mobile_course_options(data, segment_resolver=segment, tee_resolver=tees)
-        optimized_calls = len(calls)
+        self.assertEqual(len(calls), 40, "J4.1: venue membership is known before truncation")
+        self.assertEqual(len(tee_calls), 24)
         calls.clear()
         with patch.object(mobile_live, "COURSE_OPTION_LIMIT", 10_000):
             everything = mobile_live.build_mobile_course_options(data, segment_resolver=segment, tee_resolver=tees)
@@ -39,7 +45,25 @@ class CourseOptionTruncationTests(unittest.TestCase):
 
         self.assertEqual(optimized["courses"], expected)
         self.assertEqual(len(calls), 40)
-        self.assertLess(optimized_calls, 40)
+        self.assertEqual(len(tee_calls), 64)
+
+    def test_venue_index_is_loaded_once_for_a_large_history(self) -> None:
+        """J4.1: the 106 gid production shape does not reread venue_loops per gid."""
+        rows = [
+            {"id": f"r{index}", "date": "2026-01-01", "globalId": 60_000 + index,
+             "course": "同一场地 ~ A"}
+            for index in range(106)
+        ]
+        data = HistoryData(raw_rounds=[], rounds=rows, shots=[])
+        started = time.perf_counter()
+        with patch.object(course_reference, "courseview_venue_loops", return_value=[]) as index_read:
+            mobile_live.build_mobile_course_options(
+                data,
+                segment_resolver=lambda gid: ("同一场地 ~ A", 9),
+                tee_resolver=lambda gid: [],
+            )
+        self.assertLess(time.perf_counter() - started, 5.0)
+        self.assertLessEqual(index_read.call_count, 1)
 
 
 if __name__ == "__main__":

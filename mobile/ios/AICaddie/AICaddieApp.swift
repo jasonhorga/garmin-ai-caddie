@@ -7611,8 +7611,9 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         // A slow nearby answer (a cold GPS / slow network on the course): the start page must keep
         // the downloaded courses usable under its "正在找附近球场…" line until the answer lands.
+        // Expansion continues that same discovery; do not inject another cold-start delay.
         if let delay = ProcessInfo.processInfo.environment["UITEST_NEARBY_DELAY_MS"].flatMap(UInt64.init),
-           delay > 0 {
+           StartRoundView.nearbyDelayMilliseconds(delay, radiusKm: radiusKm) > 0 {
             try await Task.sleep(nanoseconds: delay * 1_000_000)
         }
         #endif
@@ -7659,13 +7660,17 @@ public final class LiveRoundAppModel: ObservableObject {
 
     /// Load the course's selectable tee boxes (GET /courses/{id}/tees) for the 开始一场 picker —
     /// colour + total yards + default. Returns [] offline / on error: known/downloaded courses can
-    /// retain their bundled Tee names, while a newly searched course stays gated and exposes an
-    /// explicit retry rather than starting with invented Tee authority.
+    /// retain their bundled names. The picker treats [] as a failed refresh and offers retry,
+    /// including recent courses whose teeBox only records the last-used selection.
     public func loadCourseTees(globalId: Int) async -> [CourseTee] {
         beginForegroundCourseRequest()
         defer { endForegroundCourseRequest() }
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            return []
+        }
+        // Exercise /tees failure with catalogue and nearby still online, as on a slow course release.
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_COURSE_TEES_FAILURE"] == "1" {
             return []
         }
         // Deterministic regression seam for the exact cold-release race: while Tee authority is in
@@ -7961,7 +7966,6 @@ public final class LiveRoundAppModel: ObservableObject {
         let anchor = package.holes.first {
             $0.teeLatitude != nil && $0.teeLongitude != nil
         }
-        let tee = package.course.teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
         let option = MobileCourseOption(
             globalId: package.course.globalId,
             courseKey: package.recentHistory.course.courseKey,
@@ -7978,7 +7982,7 @@ public final class LiveRoundAppModel: ObservableObject {
             segmentHoles: package.holes.count,
             latitude: anchor?.teeLatitude,
             longitude: anchor?.teeLongitude,
-            tees: tee.isEmpty || tee.caseInsensitiveCompare("unknown") == .orderedSame ? nil : [tee]
+            tees: nil // The last-used colour lives in teeBox; it is not a complete Tee list.
         )
         guard option.globalId > 0 else { return }
         recentCourseOption = option

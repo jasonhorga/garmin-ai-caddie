@@ -1,0 +1,9 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 9bdf3bdc..b687fa91 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -326,3 +326,3 @@ public struct StartRoundView: View {
+         // consume the loading/retry state before the player opens the Tee picker.
+-        .task(id: Self.teeLookupKey(page: page, globalIdText: courseGlobalIdText)) {
++        .task(id: courseGlobalIdText) {
+             guard page == .setup else { return }
