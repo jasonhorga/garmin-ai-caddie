@@ -247,13 +247,18 @@ public struct StartRoundView: View {
         catalogue: [MobileCourseOption], downloads: [PrepCourseDownloadRecord]
     ) -> String? {
         guard let venue = row.segments.first else { return nil }
+        // The merged offline row may be hidden by venue deduplication. While any loop of a
+        // partially installed venue is pending or failed, its progress/failure outranks coverage.
+        let merged = StartRoundPresentation.offlineRows(downloads).first(where: {
+            samePhysicalVenue($0.course, venue)
+        })
+        if let record = merged, record.phase != .ready {
+            return downloadStatus(for: record, downloaded: downloaded, catalogue: catalogue)
+        }
         if let installed = downloadedCoverageLabel(for: venue, downloaded: downloaded, catalogue: catalogue) {
             return installed
         }
-        guard let record = StartRoundPresentation.offlineRows(downloads).first(where: {
-            samePhysicalVenue($0.course, venue)
-        }) else { return nil }
-        return downloadStatus(for: record, downloaded: downloaded, catalogue: catalogue)
+        return merged.map { downloadStatus(for: $0, downloaded: downloaded, catalogue: catalogue) }
     }
 
     /// One action decision is shared by the upper venue row and the lower offline row. The lower
