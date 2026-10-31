@@ -99,3 +99,17 @@ class ShotCompareProductTests(unittest.TestCase):
             )
             self.assertNotIn("1793428809_oldsignature", line)
             self.assertNotIn("1793515200_newsignature", line)
+
+    def test_j1_1_numeric_type_change_still_writes(self):
+        """J1.1: Garmin shot comparison keeps core's type-sensitive JSON identity."""
+        after = {"holeShots": [{"pin": {"latitude": 30.1}, "value": 1.0}]}
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "shots.json"
+            path.write_text(
+                json.dumps({"holeShots": [{"pin": {"latitude": 30.1}, "value": 1}]}),
+                encoding="utf-8",
+            )
+            with self.assertLogs(F.logger.name, level="INFO") as captured:
+                self.assertTrue(F._write_shot_cache_if_changed(path, after))
+            self.assertEqual(len(captured.records), 1, captured.output)
+            self.assertIn("before=int:1 after=float:1.0", captured.records[0].getMessage())
