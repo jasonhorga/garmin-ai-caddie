@@ -289,6 +289,12 @@ public struct HoleImageMapView: View {
         displayOverlay != nil || topoURL != nil
     }
 
+    /// Whether this view would mount its Canvas layer. A factual overlay without a bitmap has no
+    /// valid pixel frame and must stay completely blank until a bitmap tier is available.
+    var drawsCanvas: Bool {
+        displayOverlay != nil
+    }
+
     /// Whether this row's route, tee, flag and plan are drawn over the base bitmap at all.
     var drawsFactLayer: Bool {
         displayOverlay != nil

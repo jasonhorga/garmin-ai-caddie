@@ -120,10 +120,29 @@ final class GarminRasterTests: XCTestCase {
         }
     }
 
-    /// J4.5-4: the retired dark-ground/green-band temporary map is disabled even for a partial row.
+    /// J4.5-4: the phone never mounts a Canvas when neither bitmap tier exists.
     func testJ45NoBitmapNeverDrawsLightweightFacts() throws {
         let map = HoleImageMapView(hole: try prep(coverage: "partial"), showsCardChrome: false)
-        XCTAssertFalse(map.drawsLightweightFacts)
+        XCTAssertFalse(map.drawsCanvas, "J4.5 no bitmap has no pixel frame for Canvas")
+    }
+
+    /// J4.5-2: a precise decode failure after the precise tier was visible keeps a neutral frame
+    /// and removes every geographic overlay while the previous tier is retained for retry.
+    func testJ45PreciseDecodeFailureUsesNeutralFrameWithoutOverlay() throws {
+        let precise = LiveMapDisplayState.resolveLive(.init(
+            coverage: "ready", preciseTopoImageReady: true, garminRaster: nil,
+            garminImageFailed: true, hasCachedPreciseTopo: false
+        ))
+        let after = LiveMapDisplayState.resolveLive(.init(
+            coverage: "ready", preciseTopoImageReady: false,
+            garminRaster: GarminRasterResponse(available: true, imageUrl: "/garmin.png"),
+            garminImageReady: true, garminImageFailed: false, hasCachedPreciseTopo: false
+        ), previous: precise)
+        XCTAssertEqual(after, .factualPending)
+        XCTAssertNil(LiveMapDisplaySelection.overlay(
+            for: after, precise: try prep(coverage: "ready").resolvedMapOverlay,
+            preciseProjection: nil, garminProjection: nil
+        ))
     }
 
     /// Product spec 4.5: a failed/timeout raster request immediately leaves a usable factual or

@@ -180,7 +180,7 @@ final class PrepMapDegradationTests: XCTestCase {
         let map = HoleImageMapView(hole: try XCTUnwrap(rows[0].prep), topoURL: rows[0].topoURL)
         XCTAssertTrue(map.hasMap, "the bitmap is the map")
         XCTAssertFalse(map.drawsFactLayer, "without the lightweight route, tee and flag drawn over it")
-        XCTAssertFalse(map.drawsLightweightFacts)
+        XCTAssertFalse(map.drawsCanvas, "a mismatched frame has no Canvas overlay")
     }
 
     /// Device review (build 77): a second start of an already-downloaded course re-waited on every

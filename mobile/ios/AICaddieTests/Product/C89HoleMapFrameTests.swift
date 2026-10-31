@@ -96,7 +96,7 @@ final class C89HoleMapFrameTests: XCTestCase {
             drawsPlannedRouteInMap: false
         )
         // README 地图降级契约: the factual route is shown only until the precise map arrives.
-        XCTAssertFalse(overTopo.drawsLightweightFacts, "no CourseView fairway band over the topo")
+        XCTAssertFalse(overTopo.drawsCanvas, "a mismatched frame has no Canvas overlay")
         XCTAssertFalse(overTopo.drawsFactLayer, "no tee dot, route or flag in the CourseView frame")
         XCTAssertTrue(overTopo.plannedLegs().isEmpty, "the viewport route layer gets no CourseView legs")
         XCTAssertNil(overTopo.teeDistanceArcPixels())
@@ -104,7 +104,7 @@ final class C89HoleMapFrameTests: XCTestCase {
         // J4.5: without a bitmap the temporary line map is removed entirely.
         let factual = HoleImageMapView(hole: lightweight, showsCardChrome: false, plannedShots: shots,
                                        drawsPlannedRouteInMap: false)
-        XCTAssertFalse(factual.drawsLightweightFacts)
+        XCTAssertFalse(factual.drawsCanvas, "no bitmap means no Canvas at all")
         XCTAssertTrue(factual.drawsFactLayer)
         XCTAssertEqual(factual.plannedLegs().count, 2)
     }
@@ -120,7 +120,7 @@ final class C89HoleMapFrameTests: XCTestCase {
             showsCardChrome: false
         )
         XCTAssertTrue(map.drawsFactLayer, "tee, plan and flag share the topo frame")
-        XCTAssertFalse(map.drawsLightweightFacts, "the bitmap itself shows the fairway and green")
+        XCTAssertTrue(map.drawsCanvas, "a registered bitmap owns the Canvas frame")
     }
 
     // MARK: - A cached topo does not stop the row upgrade
