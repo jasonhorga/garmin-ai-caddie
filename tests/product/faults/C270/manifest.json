@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C270-01-c154b-self-restore",
+      "patch": "tests/product/faults/C270/01-c154b-self-restore.patch",
+      "kind": "python",
+      "target": "tests.test_service_logging_isolation.ServiceLoggingIsolationTests.test_c154b_restores_logging",
+      "promise": "J4.2 logging-mutating test modules restore process logging"
+    },
+    {
+      "id": "C270-02-clear-inherited-handlers",
+      "patch": "tests/product/faults/C270/02-clear-inherited-handlers.patch",
+      "kind": "python",
+      "target": "tests.test_service_logging_isolation.ServiceLoggingIsolationTests.test_c154b_restores_logging",
+      "promise": "J4.2 slot duration capture remains isolated from inherited service handlers"
+    }
+  ]
+}
