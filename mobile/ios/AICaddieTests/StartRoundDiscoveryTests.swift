@@ -30,6 +30,29 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertTrue(StartRoundPresentation.offlineRows([ready], excludingVenues: [row.venue]).isEmpty)
     }
 
+    /// J4.2/J4.1: a partially installed venue keeps the hidden offline row's server progress and
+    /// failure reason on the surviving upper row while its remaining loop is being fetched.
+    func testPartiallyInstalledVenueShowsPendingLoopStatusOnUpperRow() {
+        let a = loop(8100, venue: "Fixture Links", label: "A")
+        let b = loop(8101, venue: "Fixture Links", label: "B")
+        let row = StartCourseListRow(venue: "Fixture Links", segments: [a, b], source: .downloaded)
+        let readyA = PrepCourseDownloadRecord(course: a, phase: .ready, downloadedHoles: 9, totalHoles: 9)
+        var preparingB = PrepCourseDownloadRecord(course: b)
+        let status = CourseInstallStatus(
+            schema: "course-install/v1", jobId: "loop-b", globalId: 8101, teeBox: "blue",
+            loopKey: "8101:all", phase: "running", stage: "geometry", totalHoles: 9, geometryReady: 6, topoReady: 0
+        )
+        preparingB.applyServerPreparation(status, at: Date(timeIntervalSince1970: 0))
+        let preparing = StartRoundView.courseDownloadStatus(
+            for: row, downloaded: [a], catalogue: [a, b], downloads: [readyA, preparingB])
+        XCTAssertEqual(preparing, "服务器准备中 15/18 洞")
+        XCTAssertNotEqual(preparing, "已下载 9/18 洞")
+
+        let failedB = PrepCourseDownloadRecord(course: b, phase: .failed, errorText: "下载中断")
+        XCTAssertEqual(StartRoundView.courseDownloadStatus(
+            for: row, downloaded: [a], catalogue: [a, b], downloads: [readyA, failedB]), "下载中断")
+    }
+
     /// J4.1/J4.2: a deduplicated upper venue row keeps the same retry/download action as its
     /// hidden offline records; complete venues have no action.
     func testVisibleVenueDownloadActionMatchesOfflineRecords() {
