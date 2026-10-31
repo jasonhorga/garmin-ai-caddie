@@ -1,14 +1,8 @@
-diff --git b/ai_caddie/rounds/round_ingest.py a/ai_caddie/rounds/round_ingest.py
-index fbfb2cd3..9f1c9443 100644
---- b/ai_caddie/rounds/round_ingest.py
-+++ a/ai_caddie/rounds/round_ingest.py
-@@ -795,4 +795,3 @@ def _geometry_inputs(
-     that classification does not run. ``gir_end`` is the regulation shot's end (none when the hole
--    was holed out in regulation); ``tee_point`` is the second recorded position on a par 4/5
--    only when penalties and extra taps have not made its stroke index unreliable.
-+    was holed out in regulation); ``tee_point`` is the second recorded position on a par 4/5.
-     Both :func:`_derive_gir_fairway` and the ingest's mesh-use count read them from here."""
-@@ -810,6 +809,3 @@ def _geometry_inputs(
+diff --git a/ai_caddie/rounds/round_ingest.py b/ai_caddie/rounds/round_ingest.py
+index fbfb2cd..eb55d14 100644
+--- a/ai_caddie/rounds/round_ingest.py
++++ b/ai_caddie/rounds/round_ingest.py
+@@ -810,6 +810,3 @@ def _geometry_inputs(
                  gir_end = (landing["lat"], landing["lon"])
 -    tee_point = (
 -        (shots[1]["lat"], shots[1]["lon"])
