@@ -1482,8 +1482,8 @@ public struct WatchHoleMapView: View {
         previous: MapDisplayState? = nil
     ) -> MapDisplayState {
         if preciseImageReady { return .precise }
-        if garminImageReady { return .garmin }
         if previous == .precise { return .precise }
+        if garminImageReady { return .garmin }
         return .waiting
     }
 
