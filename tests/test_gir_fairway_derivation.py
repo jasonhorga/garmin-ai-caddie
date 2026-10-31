@@ -165,8 +165,11 @@ class GirFairwayDerivationTests(unittest.TestCase):
 
     # ----- fairway-hit -----
     def test_fairway_hit_side_and_par3_none(self) -> None:
-        """(d) Second position in the fairway -> 'hit'; in the rough 40 m east of the northbound
-        route -> 'right' (never a blanket miss); par 3 or no second position -> None."""
+        """J5.8: second-stroke positions give sides; ambiguous stroke indices stay unknown.
+
+        Second position in the fairway -> 'hit'; in the rough 40 m east of the northbound
+        route -> 'right' (never a blanket miss); par 3 or no second position -> None.
+        """
         hit = [_shot(TEE_C), _shot(FAIRWAY_C, target_local=GREEN_C)]   # shots[1] = fairway
         right = [_shot(TEE_C), _shot(ROUGH_C, target_local=GREEN_C)]   # shots[1] = east rough
         par3 = [_shot(TEE_C), _shot(FAIRWAY_C)]
@@ -180,6 +183,25 @@ class GirFairwayDerivationTests(unittest.TestCase):
         self.assertEqual(fw_right, "right")
         self.assertIsNone(fw_par3)
         self.assertIsNone(fw_lone)
+
+        # J5.8: the fairway drop would look like a hit, but a penalty means its
+        # position index cannot identify stroke 2, even with an exact-length log.
+        for positions in (4, 5):
+            with self.subTest(penalty_positions=positions), _patch_geometry(self.geo_dir):
+                drop_log = [*hit, *[_shot(GREEN_C) for _ in range(positions - 2)]]
+                _, fairway = round_ingest._derive_gir_fairway(
+                    GID, 1, 4, drop_log, total_strokes=5, putts=2, penalties=1,
+                )
+                self.assertIsNone(fairway)
+        # Five positions for four strokes: an extra tap east of the northbound
+        # route must not invent 'right' before the genuine fairway approach.
+        with _patch_geometry(self.geo_dir):
+            _, fairway = round_ingest._derive_gir_fairway(
+                GID, 1, 4,
+                [_shot(TEE_C), _shot(ROUGH_C), _shot(FAIRWAY_C), _shot(GREEN_C), _shot(GREEN_C)],
+                total_strokes=4, putts=2, penalties=0,
+            )
+        self.assertIsNone(fairway)
 
     # ----- graceful degradation -----
     def test_no_geometry_yields_none(self) -> None:
