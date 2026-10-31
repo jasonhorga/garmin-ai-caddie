@@ -69,6 +69,29 @@ class ShotCompareProductTests(unittest.TestCase):
             self.assertNotIn("1793428809_oldsignature", line)
             self.assertNotIn("1793515200_newsignature", line)
 
+    def test_j1_1_changed_non_token_image_query_is_logged_and_saved(self):
+        """J1.1: a non-signature image query change remains observable."""
+        before = {
+            "holeShots": [{
+                "holeImageUrl": (
+                    "https://birdseye.garmin.cn/birdseye/golf/raster3d/3100/"
+                    "gd31500/gid031597/hole01/gid031597_hole01_0_280630.jpg"
+                    "?garmindlm=1793428809_oldsignature&image-size=730"
+                ),
+            }],
+        }
+        after = deepcopy(before)
+        after["holeShots"][0]["holeImageUrl"] = after["holeShots"][0]["holeImageUrl"].replace(
+            "1793428809_oldsignature", "1793515200_newsignature"
+        ).replace("image-size=730", "image-size=500")
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "shots.json"
+            path.write_text(json.dumps(before), encoding="utf-8")
+            with self.assertLogs(F.logger.name, level="INFO") as captured:
+                self.assertTrue(F._write_shot_cache_if_changed(path, after))
+            self.assertEqual(len(captured.records), 1, captured.output)
+            self.assertIn("path=root.holeShots[0].holeImageUrl", captured.records[0].getMessage())
+
     def test_j1_1_pin_change_with_rotating_token_is_logged_and_saved(self):
         """J1.1: a real shot field change is retained beside a rotated image signature."""
         before = {
