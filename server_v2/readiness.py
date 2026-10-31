@@ -1075,7 +1075,7 @@ def _mobile_readiness_status(stats_snapshot: dict[str, Any] | None) -> dict[str,
         status = dict(_MOBILE_READINESS.get("me") or {})
     if status.get("revision") == revision and status.get("state") in {"ready", "degraded"}:
         return status
-    if isinstance(stats_snapshot, dict):
+    if isinstance(stats_snapshot, dict) and os.getenv("AI_CADDIE_READINESS_TRACE") != "1":
         warm_mobile_readiness_in_background(stats_snapshot)
     return {
         "state": "warming",
