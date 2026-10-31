@@ -5,7 +5,7 @@
       "id": "tests-product-faults-C264-N1-canvas-without-bitmap",
       "patch": "tests/product/faults/C264/N1-canvas-without-bitmap.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/GarminRasterTests/testJ45NoBitmapIsNeutralWaitingEvenWhenRouteExists",
+      "target": "AICaddieTests/GarminRasterTests/testJ45NoBitmapNeverDrawsLightweightFacts",
       "promise": "J4.5"
     },
     {
