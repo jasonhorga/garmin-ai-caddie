@@ -166,9 +166,14 @@ class CacheWarmupTests(unittest.TestCase):
             stats_cache._cache[key] = (("fingerprint",), {"summary": {"totalRounds": 1}})
             stats_cache._cache_source_revisions[key] = "revision-memory"
         try:
-            with patch.dict("os.environ", {"AI_CADDIE_STATS_CACHE_DIR": "/tmp/c263-cache"}), \
-                 patch.object(stats_cache.Path, "read_text", side_effect=AssertionError("disk snapshot read")):
-                snapshot = stats_cache.cached_history_stats_snapshot(player_id=player_id)
+            with tempfile.TemporaryDirectory() as tmp, \
+                 patch.dict("os.environ", {"AI_CADDIE_STATS_CACHE_DIR": tmp}):
+                path = stats_cache._persistent_cache_path(key)
+                assert path is not None
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("{}", encoding="utf-8")
+                with patch.object(stats_cache.Path, "read_text", side_effect=AssertionError("disk snapshot read")):
+                    snapshot = stats_cache.cached_history_stats_snapshot(player_id=player_id)
         finally:
             stats_cache.clear(player_id)
         self.assertIsNotNone(snapshot)
