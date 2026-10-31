@@ -94,7 +94,7 @@ class CourseRefreshTests(unittest.TestCase):
         # Protobuf field 2 = release version; later values 129 and 130 win.
         reference_pb, geometry_pb = payload + b"\x10\x81\x01", payload + b"\x10\x82\x01"
         reference_fetching, finish_reference = threading.Event(), threading.Event()
-        geometry_waiting, geometry_fetched = threading.Event(), threading.Event()
+        geometry_waiting, geometry_fetched, geometry_decided = (threading.Event() for _ in range(3))
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             lock = threading.Lock()
@@ -102,6 +102,7 @@ class CourseRefreshTests(unittest.TestCase):
                 def __enter__(self):
                     if reference_fetching.is_set():
                         geometry_waiting.set()
+                        geometry_decided.set()
                     lock.acquire()
                 def __exit__(self, *args):
                     lock.release()
@@ -112,6 +113,7 @@ class CourseRefreshTests(unittest.TestCase):
                 return reference_pb
             def fetch_geometry(*args, **kwargs):
                 geometry_fetched.set()
+                geometry_decided.set()
                 return geometry_pb
             with patch.object(cr, "_release_lock", return_value=ObservedLock()), \
                  patch.object(cr, "load_release_pb", side_effect=fetch_reference), \
@@ -123,7 +125,8 @@ class CourseRefreshTests(unittest.TestCase):
                     self.assertTrue(reference_fetching.wait(5))
                     geometry = pool.submit(geometry_sync._release, 31936, live=True)
                     # Either it waits on the shared lock or incorrectly fetches immediately.
-                    self.assertFalse(geometry_fetched.wait(0.1))
+                    self.assertTrue(geometry_decided.wait(5))
+                    self.assertFalse(geometry_fetched.is_set())
                     self.assertTrue(geometry_waiting.is_set())
                 finally:
                     finish_reference.set()
