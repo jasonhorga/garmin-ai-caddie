@@ -50,21 +50,21 @@ final class PrepMapDegradationTests: XCTestCase {
             ),
             .waiting
         )
-        // A drawable factual route shows at once, whether or not the precise map is still coming.
+        // J4.5: without a precise or Garmin bitmap, the prep page stays neutral.
         let partial = try prep(coverage: "partial", withMap: true)
         XCTAssertEqual(
             LiveMapDisplayState.resolvePrep(prep: partial, hasLocalTopo: false, isStale: false, downloadActive: true),
-            .factualPending
+            .waiting
         )
         XCTAssertEqual(
             LiveMapDisplayState.resolvePrep(prep: partial, hasLocalTopo: false, isStale: false, downloadActive: false),
-            .factual
+            .waiting
         )
         // Precise facts are not the precise map until the revision-bound topo is installed.
         let ready = try prep(coverage: "ready", withMap: true)
         XCTAssertEqual(
             LiveMapDisplayState.resolvePrep(prep: ready, hasLocalTopo: false, isStale: false, downloadActive: true),
-            .factualPending
+            .waiting
         )
         XCTAssertEqual(
             LiveMapDisplayState.resolvePrep(prep: ready, hasLocalTopo: true, isStale: false, downloadActive: false),
@@ -73,13 +73,13 @@ final class PrepMapDegradationTests: XCTestCase {
         // A local topo the server has positively replaced is withheld until the new one lands.
         XCTAssertEqual(
             LiveMapDisplayState.resolvePrep(prep: ready, hasLocalTopo: true, isStale: true, downloadActive: true),
-            .factualPending
+            .waiting
         )
     }
 
     func testOnlyThePreciseMapIsUnfadedInTheHoleStrip() {
         XCTAssertFalse(LiveMapDisplayState.precise.fadesInHoleStrip)
-        for state in [LiveMapDisplayState.factual, .factualPending, .waiting] {
+        for state in [LiveMapDisplayState.factual, .factualPending, .waiting, .garminRaster] {
             XCTAssertTrue(state.fadesInHoleStrip, "\(state) is not ready and is faded")
         }
     }
@@ -141,7 +141,7 @@ final class PrepMapDegradationTests: XCTestCase {
         XCTAssertEqual(rows.map(\.number), holes.map(\.number))
         XCTAssertEqual(rows[0].state, .precise)
         XCTAssertEqual(rows[0].topoURL, topo)
-        XCTAssertEqual(rows[1].state, .factualPending)
+        XCTAssertEqual(rows[1].state, .waiting)
         XCTAssertNil(rows[1].topoURL)
         XCTAssertEqual(rows[2].state, .waiting)
         // A hole the download has not reached yet has no facts: the waiting page, no topo lookup.
@@ -175,7 +175,7 @@ final class PrepMapDegradationTests: XCTestCase {
             template: template, fallbackHoleCount: 9, downloadActive: false,
             requiredRevisions: nil, topoURL: { _, _ in topo }
         )
-        XCTAssertEqual(rows[0].state, .factual, "the row's precision is unchanged")
+        XCTAssertEqual(rows[0].state, .waiting, "without a precise bitmap the row is neutral")
         XCTAssertEqual(rows[0].topoURL, topo, "but the downloaded bitmap is shown")
         let map = HoleImageMapView(hole: try XCTUnwrap(rows[0].prep), topoURL: rows[0].topoURL)
         XCTAssertTrue(map.hasMap, "the bitmap is the map")
@@ -231,7 +231,7 @@ final class PrepMapDegradationTests: XCTestCase {
             template: template, fallbackHoleCount: 9, downloadActive: true,
             requiredRevisions: [key: " R2 "], topoURL: { _, _ in topo }
         )
-        XCTAssertEqual(stale[0].state, .factualPending)
+        XCTAssertEqual(stale[0].state, .waiting)
         XCTAssertNil(stale[0].topoURL, "the replaced topo is never presented as current")
         let current = PrepHoleRows.build(
             template: template, fallbackHoleCount: 9, downloadActive: false,
@@ -273,7 +273,7 @@ final class PrepMapDegradationTests: XCTestCase {
             template: try template("ready"), fallbackHoleCount: 9, downloadActive: false,
             requiredRevisions: nil, topoURL: { hole, _ in hole.number == second.number ? topo : nil }
         )
-        XCTAssertEqual(factualRows[1].state, .factualPending)
+        XCTAssertEqual(factualRows[1].state, .waiting)
         XCTAssertEqual(preciseRows[1].state, .precise)
         session.adopt(
             holeNumbers: preciseRows.map(\.number),

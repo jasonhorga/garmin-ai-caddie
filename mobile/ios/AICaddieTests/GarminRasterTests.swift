@@ -48,38 +48,82 @@ private final class GarminRasterStubURLProtocol: URLProtocol {
 /// Card 454: the phone can use Garmin's raster while CourseView geometry is pending and can
 /// transfer the player's viewport/points when the precise image arrives.
 final class GarminRasterTests: XCTestCase {
-    /// Product spec 4.5: Garmin is an optional live-hole layer; opting out must avoid both its
-    /// descriptor request and its display state while the factual/precise map remains usable.
-    func testProductSpec45GarminOptOutDoesNotFetchOrDisplay() {
-        XCTAssertFalse(
-            LiveGarminRasterPolicy.shouldFetch(enabled: false, requestStarted: false),
-            "Garmin disabled must not start a descriptor request"
-        )
-        XCTAssertNil(
-            LiveGarminRasterPolicy.displayedRaster(
-                enabled: false,
-                raster: GarminRasterResponse(available: true, imageUrl: "/garmin.png")
-            ),
-            "Garmin disabled must stay out of the map state"
-        )
+    /// J4.5-1: when the precise bitmap is absent, Garmin is the unconditional visual fallback.
+    func testJ45GarminFallbackIsDisplayedWithoutAnOptIn() {
+        let state = LiveMapDisplayState.resolveLive(.init(
+            coverage: "partial",
+            preciseTopoImageReady: false,
+            garminRaster: GarminRasterResponse(available: true, imageUrl: "/garmin.png"),
+            garminImageReady: true,
+            garminImageFailed: false,
+            hasCachedPreciseTopo: false,
+            hasRoute: true
+        ))
+        XCTAssertEqual(state, .garminRaster)
     }
 
-    /// Product spec 4.5: selecting the optional Garmin layer keeps the request independent from the
-    /// live map and allows one in-flight descriptor request.
-    func testProductSpec45GarminOptInStartsOneRequest() {
-        XCTAssertTrue(LiveGarminRasterPolicy.shouldFetch(enabled: true, requestStarted: false))
-        XCTAssertFalse(LiveGarminRasterPolicy.shouldFetch(enabled: true, requestStarted: true))
+    /// J4.5-3/4: with no usable bitmap, route facts never become a temporary line map.
+    func testJ45NoBitmapIsNeutralWaitingEvenWhenRouteExists() {
+        let state = LiveMapDisplayState.resolveLive(.init(
+            coverage: "partial",
+            preciseTopoImageReady: false,
+            garminRaster: nil,
+            garminImageReady: false,
+            garminImageFailed: false,
+            hasCachedPreciseTopo: false,
+            hasRoute: true
+        ))
+        XCTAssertEqual(state, .waiting)
     }
 
-    /// Product spec 4.5: the model-owned ahead-of-play pass follows the same persisted opt-in and
-    /// has no implicit request when the preference has never been written.
-    func testProductSpec45GarminPreloadPreferenceDefaultsOff() throws {
-        let suiteName = "c136-garmin-preference-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { UserDefaults().removePersistentDomain(forName: suiteName) }
-        XCTAssertFalse(LiveGarminRasterPolicy.isEnabled(defaults: defaults))
-        defaults.set(true, forKey: LiveGarminRasterPolicy.preferenceKey)
-        XCTAssertTrue(LiveGarminRasterPolicy.isEnabled(defaults: defaults))
+    /// J4.5-2: once precise imagery is visible, later Garmin/decode updates cannot downgrade it.
+    func testJ45PreciseMapNeverRegressesToGarmin() {
+        let precise = LiveMapDisplayState.resolveLive(.init(
+            coverage: "ready", preciseTopoImageReady: true, garminRaster: nil,
+            garminImageFailed: false, hasCachedPreciseTopo: false
+        ))
+        let after = LiveMapDisplayState.resolveLive(.init(
+            coverage: "ready", preciseTopoImageReady: false,
+            garminRaster: GarminRasterResponse(available: true, imageUrl: "/garmin.png"),
+            garminImageReady: true, garminImageFailed: false, hasCachedPreciseTopo: false
+        ), previous: precise)
+        XCTAssertEqual(precise, .precise)
+        XCTAssertEqual(after, .precise)
+    }
+
+    /// J4.5-5: a Garmin raster without projection is background-only; route overlays wait for the
+    /// precise map and are explained on the image.
+    func testJ45GarminWithoutProjectionDoesNotDrawRoute() {
+        let overlay = CoursePrepOverlay(w: 240, h: 360, ppm: 1, ln: 300, route: [[120, 330], [120, 30]])
+        XCTAssertNil(LiveMapDisplaySelection.overlay(
+            for: .garminRaster,
+            precise: overlay,
+            preciseProjection: nil,
+            garminProjection: nil
+        ))
+    }
+
+    /// J4.5-5: explain missing geographic advice only on a visible, unregistered Garmin image.
+    func testJ45GarminRouteWaitingNoticeMatchesVisibleMap() {
+        let cases: [(LiveMapDisplayState, Bool, Bool, Bool)] = [
+            (.garminRaster, true, false, true),
+            (.garminRaster, true, true, false),
+            (.garminRaster, false, false, false),
+            (.precise, true, false, false),
+            (.factualPending, true, false, false),
+            (.waiting, true, false, false),
+        ]
+        for (state, hasImage, projectionUsable, expected) in cases {
+            XCTAssertEqual(LiveMapDisplaySelection.showsGarminRouteWaitingNotice(
+                state: state, hasGarminImage: hasImage, projectionUsable: projectionUsable
+            ), expected, "J4.5 notice for \(state), image=\(hasImage), projection=\(projectionUsable)")
+        }
+    }
+
+    /// J4.5-4: the retired dark-ground/green-band temporary map is disabled even for a partial row.
+    func testJ45NoBitmapNeverDrawsLightweightFacts() throws {
+        let map = HoleImageMapView(hole: try prep(coverage: "partial"), showsCardChrome: false)
+        XCTAssertFalse(map.drawsLightweightFacts)
     }
 
     /// Product spec 4.5: a failed/timeout raster request immediately leaves a usable factual or
@@ -273,7 +317,8 @@ final class GarminRasterTests: XCTestCase {
                 hasCachedPreciseTopo: false
             )
         )
-        XCTAssertEqual(numericState, .numericPlaceholder)
+        XCTAssertEqual(numericState, .waiting,
+                       "J4.5 no decoded precise/Garmin bitmap uses the neutral waiting surface")
         XCTAssertNil(
             LiveMapDisplaySelection.projection(
                 for: numericState,
@@ -291,14 +336,13 @@ final class GarminRasterTests: XCTestCase {
         )
     }
 
-    /// Product spec 4.5: a measured tee-to-green route is the middle tier, while a hole
-    /// without even that route stays on the single waiting surface.
-    func testLiveMapThreeTiersUseRouteBeforeNumericWaiting() {
+    /// J4.5-3/4: a measured route never becomes a temporary line map.
+    func testLiveMapWithoutRasterUsesNeutralWaitingSurface() {
         let routeOnly = LiveMapDisplayState.resolveLive(.init(
             coverage: "partial", preciseTopoImageReady: false, garminRaster: nil,
             garminImageFailed: true, hasCachedPreciseTopo: false, hasRoute: true
         ))
-        XCTAssertEqual(routeOnly, .factual)
+        XCTAssertEqual(routeOnly, .waiting)
         let waiting = LiveMapDisplayState.resolveLive(.init(
             coverage: "partial", preciseTopoImageReady: false, garminRaster: nil,
             garminImageFailed: true, hasCachedPreciseTopo: false, hasRoute: false
@@ -309,14 +353,17 @@ final class GarminRasterTests: XCTestCase {
     /// Product spec 4.5: replacing a route tier with a precise map keeps the same gestures.
     func testPreciseMapReplacesRouteTierWithoutChangingInteractionPolicy() {
         let route = LiveMapDisplayState.resolveLive(.init(
-            coverage: "partial", preciseTopoImageReady: false, garminRaster: nil,
-            garminImageFailed: true, hasCachedPreciseTopo: false, hasRoute: true
+            coverage: "partial", preciseTopoImageReady: false,
+            garminRaster: GarminRasterResponse(available: true, imageUrl: "/raster.jpg"),
+            garminImageReady: true, garminImageFailed: false, hasCachedPreciseTopo: false,
+            hasRoute: true
         ))
         let precise = LiveMapDisplayState.resolveLive(.init(
             coverage: "ready", preciseTopoImageReady: true, garminRaster: nil,
             garminImageFailed: true, hasCachedPreciseTopo: false, hasRoute: true
         ))
-        XCTAssertEqual(route, .factual)
+        XCTAssertEqual(route, .garminRaster,
+                       "J4.5 Garmin is the visible fallback before precise decode")
         XCTAssertEqual(precise, .precise)
         XCTAssertEqual(LiveMapDisplaySelection.gestureScale(for: route, proposed: 2.4), 2.4)
         XCTAssertEqual(LiveMapDisplaySelection.gestureScale(for: precise, proposed: 2.4), 2.4)
@@ -992,7 +1039,7 @@ final class GarminRasterTests: XCTestCase {
                     hasCachedPreciseTopo: false
                 )
             ),
-            .numericPlaceholder
+            .waiting
         )
         XCTAssertEqual(
             LiveMapDisplayState.resolveLive(
@@ -1022,7 +1069,7 @@ final class GarminRasterTests: XCTestCase {
                     hasCachedPreciseTopo: false
                 )
             ),
-            .numericPlaceholder
+            .waiting
         )
     }
 

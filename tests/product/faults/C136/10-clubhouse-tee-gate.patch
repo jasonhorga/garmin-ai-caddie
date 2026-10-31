@@ -1,9 +1,10 @@
 diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+index 3a9beb41..5b34f720 100644
 --- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 +++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -4028,7 +4028,7 @@
+@@ -4017,7 +4017,7 @@ public struct CurrentHoleView: View {
              guard point.count >= 2 else { return nil }
-             return liveCoordinate(forOverlayPixel: CGPoint(x: point[0], y: point[1]))
+             return planningCoordinate(forOverlayPixel: CGPoint(x: point[0], y: point[1]))
          }
 -        return Self.isTeeShotOffTheHole(
 +        return false && Self.isTeeShotOffTheHole(

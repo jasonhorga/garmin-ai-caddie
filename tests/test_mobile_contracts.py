@@ -2235,7 +2235,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("showsHazards: false", current_hole)
         self.assertIn("public let showsFactualRoute: Bool", hole_map_view)
         self.assertIn("showsFactualRoute: Bool = true", hole_map_view)
-        self.assertIn("showsRoute: showsFactualRoute", hole_map_view)
+        # J4.5 removed the temporary CourseView line-map path from both live and prep screens.
+        self.assertNotIn("drawLightweightFacts(", hole_map_view)
         # Device review (build 77): no thin centreline over the map, only the caddie's white route.
         self.assertNotIn("drawFactualRoute", hole_map_view)
         self.assertNotIn("showsRoute: showsRecommendedRoute", hole_map_view)

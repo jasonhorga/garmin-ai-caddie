@@ -2045,27 +2045,6 @@ struct LiveMapPreparingPill: View {
     }
 }
 
-/// Pure policies shared by the live-hole view and native tests. Keeping these decisions outside
-/// SwiftUI state makes the optional Garmin layer and the F/M/B readout easy to verify offline.
-enum LiveGarminRasterPolicy {
-    static let preferenceKey = "liveGarminRasterEnabled"
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: preferenceKey)
-    }
-
-    static func shouldFetch(enabled: Bool, requestStarted: Bool) -> Bool {
-        enabled && !requestStarted
-    }
-
-    static func displayedRaster(
-        enabled: Bool,
-        raster: GarminRasterResponse?
-    ) -> GarminRasterResponse? {
-        enabled ? raster : nil
-    }
-}
-
 struct LiveGreenRangeYards: Equatable {
     let front: Int?
     let middle: Int?
@@ -2372,6 +2351,7 @@ enum LiveMapCarryOver {
 enum LiveMapDisplayState: Equatable {
     /// No drawable route: the one full-screen waiting page (hole · Par · yards).
     case waiting
+    /// A precise bitmap is already installed; show only neutral ground during its local decode.
     case factualPending
     /// Partial facts with nothing better coming (offline, timed out, or no service).
     case factual
@@ -2408,7 +2388,7 @@ enum LiveMapDisplayState: Equatable {
     static func resolve(prep: CoursePrepHole?, pending: Bool) -> LiveMapDisplayState {
         guard let prep, prep.resolvedMapOverlay != nil else { return .waiting }
         if prep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame {
-            return pending ? .factualPending : .factual
+            return .waiting
         }
         return .precise
     }
@@ -2487,33 +2467,34 @@ enum LiveMapDisplayState: Equatable {
         )
     }
 
-    /// Phone live-play display priority: precise CourseView raster > Garmin raster image > factual
-    /// route > one waiting surface. A Garmin descriptor with `available=false` can still provide
-    /// a visual image, but its projection is intentionally absent and the caller draws no geo overlays.
-    static func resolveLive(_ inputs: LiveInputs) -> LiveMapDisplayState {
+    /// Phone live-play display priority: precise CourseView raster > Garmin raster image > one
+    /// neutral waiting surface. A Garmin descriptor with `available=false` can still provide a
+    /// visual image, but its projection is intentionally absent and the caller draws no geo overlays.
+    static func resolveLive(
+        _ inputs: LiveInputs,
+        previous: LiveMapDisplayState? = nil
+    ) -> LiveMapDisplayState {
+        let resolved: LiveMapDisplayState
         if inputs.preciseTopoImageReady && inputs.preciseGeometryReady { return .precise }
         if inputs.preciseTopoAvailable || inputs.hasCachedPreciseTopo {
-            // Keep the screen on its neutral ground until the exact bitmap is decoded. The
-            // Garmin descriptor can be ready at this point, but it is not the authority for a
-            // hole whose exact local image is already known.
-            // A known precise bitmap with no prep route is still in the neutral decode-pending
-            // frame. Waiting is reserved for the case where neither bitmap nor route is known.
-            return .factualPending
-        }
-        if !inputs.garminImageFailed,
+            resolved = .factualPending
+        } else if !inputs.garminImageFailed,
            inputs.garminImageReady,
            inputs.garminRaster?.hasDisplayableImage == true {
-            return .garminRaster
+            resolved = .garminRaster
+        } else {
+            // No precise or Garmin bitmap exists yet. Keep a neutral preparation surface; the
+            // former CourseView route/green sketch is deliberately never a live fallback.
+            resolved = .waiting
         }
-        if inputs.hasRoute == true { return .factual }
-        if inputs.hasRoute == false { return .waiting }
-        return .numericPlaceholder
+        // A precise bitmap is a one-way upgrade. A transient decode/error update must not replace
+        // it with Garmin or the neutral surface after it has become visible.
+        if previous == .precise { return .precise }
+        return resolved
     }
 
     /// 备战 applies the same contract to the installed course. Precise means precise facts AND the
-    /// revision-bound local topo; a hole whose installed revision the server has positively replaced
-    /// (`isStale`) is shown on its factual route until the new map lands. `downloadActive` only
-    /// distinguishes "the precise map is still coming" from "nothing better is coming".
+    /// revision-bound local topo; otherwise the row remains neutral until a bitmap is ready.
     static func resolvePrep(
         prep: CoursePrepHole?,
         hasLocalTopo: Bool,
@@ -2526,11 +2507,13 @@ enum LiveMapDisplayState: Equatable {
            !isStale {
             return .precise
         }
-        return downloadActive ? .factualPending : .factual
+        // Prep follows the same no-line contract. The caller may independently supply a Garmin
+        // raster; until either bitmap is ready this row remains the neutral waiting surface.
+        return .waiting
     }
 
     /// 洞条: a hole whose precise map is not ready is only faded; tapping it still opens it.
-    var fadesInHoleStrip: Bool { self == .numericPlaceholder || self == .waiting || self == .factualPending || self == .factual }
+    var fadesInHoleStrip: Bool { self != .precise }
 }
 
 enum LiveMapPixelSpace: Equatable {
@@ -2542,6 +2525,15 @@ enum LiveMapPixelSpace: Equatable {
 /// this decision pure prevents a numeric/error state from accidentally reusing a topo overlay or
 /// projection, and lets native tests exercise the same branch as CurrentHoleView.
 enum LiveMapDisplaySelection {
+    /// J4.5: explain why a visible Garmin background cannot carry geographic advice yet.
+    static func showsGarminRouteWaitingNotice(
+        state: LiveMapDisplayState,
+        hasGarminImage: Bool,
+        projectionUsable: Bool
+    ) -> Bool {
+        state == .garminRaster && hasGarminImage && !projectionUsable
+    }
+
     /// The overlay used to place the bitmap and clamp gestures. A Garmin descriptor can arrive
     /// before CourseView supplies an overlay; in that case its own raster dimensions still define
     /// one shared frame for the backdrop and both gesture paths.
@@ -2550,6 +2542,7 @@ enum LiveMapDisplaySelection {
         overlay: CoursePrepOverlay?,
         garminProjection: CoursePrepHoleImageProjection?
     ) -> CoursePrepOverlay? {
+        guard state != .factualPending else { return nil }
         if state == .garminRaster {
             return overlay ?? gestureFrameOverlay(
                 for: state,
@@ -2568,7 +2561,7 @@ enum LiveMapDisplaySelection {
         overlay: CoursePrepOverlay?,
         garminProjection: CoursePrepHoleImageProjection?
     ) -> CoursePrepOverlay? {
-        if let overlay, (state == .precise || state == .garminRaster || state == .factualPending || state == .factual) { return overlay }
+        if let overlay, (state == .precise || state == .garminRaster || state == .factual) { return overlay }
         guard state == .garminRaster else { return nil }
         let width = (garminProjection?.widthPx ?? 0) > 0
             ? (garminProjection?.widthPx ?? 1242)
@@ -2596,9 +2589,9 @@ enum LiveMapDisplaySelection {
         switch state {
         case .garminRaster:
             return garmin
-        case .precise, .factualPending, .factual:
+        case .precise, .factual:
             return precise
-        case .waiting, .numericPlaceholder:
+        case .waiting, .numericPlaceholder, .factualPending:
             return nil
         }
     }
@@ -2610,7 +2603,7 @@ enum LiveMapDisplaySelection {
         garminProjection: CoursePrepHoleImageProjection?
     ) -> CoursePrepOverlay? {
         switch state {
-        case .precise, .factualPending, .factual:
+        case .precise, .factual:
             return precise
         case .garminRaster:
             guard let garminProjection,
@@ -2625,7 +2618,7 @@ enum LiveMapDisplaySelection {
                 from: preciseProjection,
                 to: garminProjection
             ) ?? empty
-        case .waiting, .numericPlaceholder:
+        case .waiting, .numericPlaceholder, .factualPending:
             return nil
         }
     }

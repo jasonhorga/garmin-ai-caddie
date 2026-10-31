@@ -1,0 +1,11 @@
+diff --git a/mobile/ios/AICaddie/Views/HoleImageMapView.swift b/mobile/ios/AICaddie/Views/HoleImageMapView.swift
+index 309502dd..1ab784d1 100644
+--- a/mobile/ios/AICaddie/Views/HoleImageMapView.swift
++++ b/mobile/ios/AICaddie/Views/HoleImageMapView.swift
+@@ -296,3 +296,5 @@ public struct HoleImageMapView: View {
+     var drawsLightweightFacts: Bool {
+-        false
++        hole.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
++            && topoURL == nil
++            && garminRasterURL == nil
+     }

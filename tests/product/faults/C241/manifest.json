@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C241-01-line-fallback",
+      "patch": "tests/product/faults/C241/01-line-fallback.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testJ45NoBitmapIsNeutralWaitingEvenWhenRouteExists",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C241-02-precise-regresses",
+      "patch": "tests/product/faults/C241/02-precise-regresses.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testJ45PreciseMapNeverRegressesToGarmin",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C241-03-route-without-coordinate",
+      "patch": "tests/product/faults/C241/03-route-without-coordinate.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testJ45GarminWithoutProjectionDoesNotDrawRoute",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C241-04-line-when-both-missing",
+      "patch": "tests/product/faults/C241/04-line-when-both-missing.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testJ45NoBitmapNeverDrawsLightweightFacts",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C241-05-c33-retry-neutral",
+      "patch": "tests/product/faults/C241/05-c33-retry-placeholder.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33DrawingTests/testFourthGarminAttemptDisplaysImageAndBackoffStaysCapped",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C241-06-partial-neutral",
+      "patch": "tests/product/faults/C241/06-partial-numeric-placeholder.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testPartialWithoutCachedTopoDoesNotEnterPreciseOrReuseProjection",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C241-07-first-frame-garmin",
+      "patch": "tests/product/faults/C241/07-first-frame-pending.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveMapFirstFrameTests/testKnownPreciseTopoNeverFallsBackToGarminBeforeDecode",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C241-08-descriptor-neutral",
+      "patch": "tests/product/faults/C241/08-descriptor-numeric.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundPlayOrderTests/testGarminDescriptorNeedsDecodedImageBeforeRasterState",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C241-09-garmin-gesture-preservation",
+      "patch": "tests/product/faults/C241/09-garmin-gesture-reset.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testPreciseMapReplacesRouteTierWithoutChangingInteractionPolicy",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C241-S2-garmin-display-gate",
+      "patch": "tests/product/faults/C241/S2-garmin-display-gate.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_cached_garmin_reaches_live_page_display_state",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C241-S3-hide-route-notice",
+      "patch": "tests/product/faults/C241/S3-hide-route-notice.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testJ45GarminRouteWaitingNoticeMatchesVisibleMap",
+      "promise": "J4.5"
+    }
+  ]
+}
