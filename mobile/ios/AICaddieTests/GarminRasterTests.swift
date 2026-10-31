@@ -76,7 +76,8 @@ final class GarminRasterTests: XCTestCase {
         XCTAssertEqual(state, .waiting)
     }
 
-    /// J4.5-2: once precise imagery is visible, later Garmin/decode updates cannot downgrade it.
+    /// J4.5-2: once precise imagery is visible, later decode failure uses a neutral frame rather
+    /// than downgrading to Garmin or drawing stale geographic overlays.
     func testJ45PreciseMapNeverRegressesToGarmin() {
         let precise = LiveMapDisplayState.resolveLive(.init(
             coverage: "ready", preciseTopoImageReady: true, garminRaster: nil,
@@ -88,7 +89,7 @@ final class GarminRasterTests: XCTestCase {
             garminImageReady: true, garminImageFailed: false, hasCachedPreciseTopo: false
         ), previous: precise)
         XCTAssertEqual(precise, .precise)
-        XCTAssertEqual(after, .precise)
+        XCTAssertEqual(after, .factualPending)
     }
 
     /// J4.5-5: a Garmin raster without projection is background-only; route overlays wait for the

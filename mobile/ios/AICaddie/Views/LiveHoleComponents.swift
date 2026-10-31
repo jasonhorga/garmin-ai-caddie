@@ -2467,9 +2467,10 @@ enum LiveMapDisplayState: Equatable {
             // former CourseView route/green sketch is deliberately never a live fallback.
             resolved = .waiting
         }
-        // A precise bitmap is a one-way upgrade. A transient decode/error update must not replace
-        // it with Garmin or the neutral surface after it has become visible.
-        if previous == .precise { return .precise }
+        // A precise bitmap is a one-way authority upgrade: after a visible image fails to decode,
+        // stay on the neutral frame until that same tier is ready again. The retained marker keeps
+        // Garmin from flashing underneath it, while the factualPending state prevents any stale
+        // geographic overlay from being drawn over a missing bitmap.
         return resolved
     }
 
