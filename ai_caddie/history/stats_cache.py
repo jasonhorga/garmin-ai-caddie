@@ -95,8 +95,9 @@ _inflight: dict[tuple, threading.Event] = {}
 # deploy does not keep serving projections built by the old code (v2: WHS handicap estimate;
 # v3: the estimate takes the lowest k of N per the WHS table, with its N=3/4/6 adjustments, from 3
 # differentials instead of the lowest ceil(40%) from 5; v4: stats read the corrected history — round
-# correction events, putt-corrected default holes back in GIR, GIR from corrected putts).
-_PERSISTENT_CACHE_SCHEMA = "ai-caddie-history-stats-cache-v4"
+# correction events, putt-corrected default holes back in GIR, GIR from corrected putts; v5: C260
+# back-nine cards of one 18-hole venue keep their own loop key instead of folding into the front).
+_PERSISTENT_CACHE_SCHEMA = "ai-caddie-history-stats-cache-v5"
 _PERSISTENT_CACHE_MAX_BYTES = 64 * 1024 * 1024
 # A stats projection can be tens of megabytes on a real history.  Never make the first package
 # caller serialize and write that projection synchronously: the request only needs the in-memory

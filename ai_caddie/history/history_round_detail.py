@@ -12,6 +12,7 @@ from ai_caddie.history.history import (
     HistoryData,
     history_course_segment,
     history_course_venue_name,
+    round_loop_half,
     round_source_shots,
 )
 
@@ -609,7 +610,8 @@ def _hole_geometry_target(row: dict[str, Any], hole_number: int) -> dict[str, in
         }
     back_global_id = _int_value(row.get("backNineGlobalCourseId"))
     if back_global_id is not None:
-        return {"globalId": back_global_id, "localHole": hole_number - 9}
+        local_hole = hole_number if round_loop_half(row, "back") == "back" else hole_number - 9
+        return {"globalId": back_global_id, "localHole": local_hole}
     return {
         "globalId": _int_value(row.get("globalId")) or _int_value(row.get("courseId")) or _int_value(row.get("frontNineGlobalCourseId")),
         "localHole": hole_number,

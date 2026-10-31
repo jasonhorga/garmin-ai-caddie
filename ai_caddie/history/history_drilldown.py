@@ -13,6 +13,7 @@ from ai_caddie.history.history import (
     OWNER_ID,
     history_course_segment,
     history_course_venue_name,
+    round_loop_half,
 )
 from ai_caddie.reports.reports import iter_report_records
 from ai_caddie.llm.weather_context import list_weather_snapshots
@@ -677,7 +678,8 @@ def _hole_geometry_target(row: dict[str, Any], hole_number: int) -> dict[str, in
         return {"globalId": global_id, "localHole": hole_number}
     back_global_id = _int_field(row, "backNineGlobalCourseId")
     if back_global_id is not None:
-        return {"globalId": back_global_id, "localHole": hole_number - 9}
+        local_hole = hole_number if round_loop_half(row, "back") == "back" else hole_number - 9
+        return {"globalId": back_global_id, "localHole": local_hole}
     return {
         "globalId": _int_field(row, "globalId") or _int_field(row, "courseId") or _int_field(row, "frontNineGlobalCourseId"),
         "localHole": hole_number,

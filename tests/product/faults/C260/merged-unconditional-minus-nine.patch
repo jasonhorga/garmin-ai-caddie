@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/rounds/round_shot_map.py b/ai_caddie/rounds/round_shot_map.py
+index 8cc9cd0d..65406264 100644
+--- a/ai_caddie/rounds/round_shot_map.py
++++ b/ai_caddie/rounds/round_shot_map.py
+@@ -45,7 +45,7 @@ def _geometry_target(row: dict[str, Any], hole: int) -> tuple[int | None, int]:
+         return gid, hole
+     back = _int(row.get("backNineGlobalCourseId"))
+     if back is not None:
+-        return back, hole if round_loop_half(row, "back") == "back" else hole - 9
++        return back, hole - 9
+     return _int(row.get("globalId")) or _int(row.get("courseId")) or _int(row.get("frontNineGlobalCourseId")), hole
+ 
+ 

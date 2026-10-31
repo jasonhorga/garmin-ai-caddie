@@ -1,11 +1,11 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index 9a4520fa..cd073c3f 100644
+index d503c8a2..8eae7b57 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -321,9 +321,7 @@ def corrected_rounds(
-                 if _int(score_payload.get("restoreGlobalId")) is not None:
-                     synthetic["sourceGlobalId"] = _int(score_payload["restoreGlobalId"])
-             front_gid = _int(row.get("frontNineGlobalCourseId") or row.get("globalId") or row.get("courseId"))
+@@ -339,9 +339,7 @@ def corrected_rounds(
+             if restore_gid is not None:
+                 synthetic["sourceGlobalId"] = restore_gid
+             front_gid = front_course_global_id(row)
 -            if number >= 10 and isinstance(score_payload, dict) and (
 -                    _int(score_payload.get("restoreLocalHole")) != number
 -                    or _int(score_payload.get("restoreGlobalId")) != front_gid):
