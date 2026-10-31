@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
+index 8e8d161..e85e592 100644
+--- a/.github/workflows/native-mobile.yml
++++ b/.github/workflows/native-mobile.yml
+@@ -1293,7 +1293,7 @@ jobs:
+   # Keep the public job conclusion and artifact names consumed by the project console.
+   # This runner only combines already secret-scanned evidence; it never starts a simulator.
+   native-mobile:
+-    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' }}
++    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+     needs: [native-live, native-unit-watch, native-real-flow, native-screenshots, native-product-ui]
+     runs-on: ubuntu-latest
+     timeout-minutes: 15

@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
+index 8e8d161..0952568 100644
+--- a/.github/workflows/native-mobile.yml
++++ b/.github/workflows/native-mobile.yml
+@@ -987,7 +987,7 @@ jobs:
+             esac
+           }
+           ios_status="$(status_from_outcome "$IOS_TARGET_OUTCOME")"
+-          if [[ "$IOS_TARGET_OUTCOME" == "success" ]]; then
++          if [[ "$IOS_TARGET_OUTCOME" == "success" && "$NATIVE_EVENT_NAME" == "workflow_dispatch" ]]; then
+             ios_status="$(status_from_outcome "$IOS_CAPTURE_OUTCOME")"
+           fi
+           if [[ "$FIXTURE_MODE" == "true" && "$FIXTURE_START_OUTCOME" != "success" ]]; then

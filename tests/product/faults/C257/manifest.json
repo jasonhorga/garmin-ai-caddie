@@ -1,0 +1,110 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C257-01-quick-dns-bypass",
+      "patch": "tests/product/faults/C257/01-quick-dns-bypass.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_quick_j4_2_dns_gate_checks_completed_test_logs",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C257-02-watch-skips-ios-failure",
+      "patch": "tests/product/faults/C257/02-watch-skips-ios-failure.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_quick_watch_survives_ios_failure_only_with_build_products",
+      "promise": "J4"
+    },
+    {
+      "id": "tests-product-faults-C257-03-watch-missing-products",
+      "patch": "tests/product/faults/C257/03-watch-missing-products.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_quick_watch_survives_ios_failure_only_with_build_products",
+      "promise": "J4"
+    },
+    {
+      "id": "tests-product-faults-C257-04-quick-device-by-name",
+      "patch": "tests/product/faults/C257/04-quick-device-by-name.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_quick_uses_prebooted_device_and_shared_fixture_trigger",
+      "promise": "J4"
+    },
+    {
+      "id": "tests-product-faults-C257-05-shared-fixture-no-trigger",
+      "patch": "tests/product/faults/C257/05-shared-fixture-no-trigger.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_quick_uses_prebooted_device_and_shared_fixture_trigger",
+      "promise": "J4"
+    },
+    {
+      "id": "tests-product-faults-C257-06-dispatch-pr-dead-branch",
+      "patch": "tests/product/faults/C257/06-dispatch-pr-dead-branch.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_dispatch_conditions_have_no_pr_branch",
+      "promise": "J4"
+    },
+    {
+      "id": "tests-product-faults-C257-07-real-flow-step-timeout",
+      "patch": "tests/product/faults/C257/07-real-flow-step-timeout.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_capture_timeout_budgets_follow_shard",
+      "promise": "J3"
+    },
+    {
+      "id": "tests-product-faults-C257-08-real-flow-job-timeout",
+      "patch": "tests/product/faults/C257/08-real-flow-job-timeout.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_capture_timeout_budgets_follow_shard",
+      "promise": "J3"
+    },
+    {
+      "id": "tests-product-faults-C257-09-missing-video-fatal",
+      "patch": "tests/product/faults/C257/09-missing-video-fatal.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_screenshot_missing_video_preserves_test_status_and_annotation",
+      "promise": "J3"
+    },
+    {
+      "id": "tests-product-faults-C257-10-summary-runs-cancelled",
+      "patch": "tests/product/faults/C257/10-summary-runs-cancelled.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_summary_rejects_every_required_failed_cancelled_or_skipped_job",
+      "promise": "J4"
+    },
+    {
+      "id": "tests-product-faults-C257-11-summary-downloads-everything",
+      "patch": "tests/product/faults/C257/11-summary-downloads-everything.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_artifacts_download_only_shards_and_replace_previous_attempt",
+      "promise": "J4"
+    },
+    {
+      "id": "tests-product-faults-C257-12-duplicate-screenshot-copies",
+      "patch": "tests/product/faults/C257/12-duplicate-screenshot-copies.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_summary_preserves_shard_diagnostics_and_combines_evidence",
+      "promise": "J4"
+    },
+    {
+      "id": "tests-product-faults-C257-13-live-requires-product-ui",
+      "patch": "tests/product/faults/C257/13-live-requires-product-ui.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_summary_rejects_every_required_failed_cancelled_or_skipped_job",
+      "promise": "J4"
+    },
+    {
+      "id": "tests-product-faults-C257-14-combined-artifact-no-overwrite",
+      "patch": "tests/product/faults/C257/14-combined-artifact-no-overwrite.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_artifacts_download_only_shards_and_replace_previous_attempt",
+      "promise": "J4"
+    },
+    {
+      "id": "tests-product-faults-C257-15-dispatch-evidence-pr-context",
+      "patch": "tests/product/faults/C257/15-dispatch-evidence-pr-context.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_native_dispatch_evidence_uses_scope_without_pr_context",
+      "promise": "J4"
+    }
+  ]
+}
