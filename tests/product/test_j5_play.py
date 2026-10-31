@@ -127,6 +127,56 @@ class PlayTests(HTTPFixture, unittest.TestCase):
                     failures.append((row["id"],actual,row["expected"]))
         self.assertEqual(failures, [], "Manual scorecards must retain left/right/unknown, never blanket miss")
 
+    def _ingest_tee_positions(self, points, *, strokes, penalties, key, expected_gir=True):
+        """J5.8: real HTTP ingest with the shared, invented northbound fairway."""
+        row = vectors("tee_result.json")["cases"][0]
+        events = [event("location", {"latitude": lat, "longitude": lon}, id=f"loc-{i}")
+                  for i, (lat, lon) in enumerate(points)]
+        events.extend(score_events(strokes=strokes, putts=2, penalties=penalties))
+        with patch("ai_caddie.courses.course_prep.tee_result_geometry", return_value={
+            "fairwayOutline": row["fairwayOutline"], "routeLatLon": row["route"],
+        }):
+            response = self.ingest(events, key=key)
+        self.assertEqual(response.status_code, 201, response.text)
+        hole = self.holes(response.json()["id"])[0]
+        self.assertEqual((hole["strokes"], hole["penalties"]), (strokes, penalties))
+        # J2.5: 4-2=2 is regulation on par4; 5-2=3 is not. Entered putts win.
+        self.assertIs(hole["gir"], expected_gir)
+        return hole
+
+    def test_j5_8_penalty_drop_is_not_a_tee_landing(self):
+        """J5.8: a drop is not stroke 2; even an exact position count cannot prove it is."""
+        # Northbound fairway spans longitude -0.0001..+0.0001. This drop is west
+        # at -0.0002 (old code reports left), but says nothing about the tee landing.
+        for count in (4, 5):
+            with self.subTest(positions=count):
+                hole = self._ingest_tee_positions(
+                    [(0, 0), (0.0015, -0.0002), *[(0.003, 0)] * (count - 2)],
+                    strokes=5, penalties=1, key=f"penalty-drop-{count}", expected_gir=False,
+                )
+                self.assertIsNone(hole.get("fairway"))
+
+    def test_j5_8_extra_position_before_approach_keeps_tee_result_unknown(self):
+        """J5.8: five taps for four strokes cannot identify the second stroke's start."""
+        # An extra tap west of the route precedes the actual approach at its centre.
+        # Neither left nor hit can be inferred from position index 1 in this log.
+        hole = self._ingest_tee_positions(
+            [(0, 0), (0.0001, -0.0002), (0.0015, 0), (0.003, 0), (0.003, 0)],
+            strokes=4, penalties=0, key="extra-before-approach",
+        )
+        self.assertIsNone(hole.get("fairway"))
+
+    def test_j5_8_exact_position_count_preserves_tee_sides(self):
+        """J5.8: four positions, four strokes, no penalty preserves hit/left/right."""
+        # The northbound rectangle contains lon 0; -0.0002 is left, +0.0002 right.
+        for lon, expected in ((0, "hit"), (-0.0002, "left"), (0.0002, "right")):
+            with self.subTest(expected=expected):
+                hole = self._ingest_tee_positions(
+                    [(0, 0), (0.0015, lon), (0.003, 0), (0.003, 0)],
+                    strokes=4, penalties=0, key=f"exact-positions-{expected}",
+                )
+                self.assertEqual(hole.get("fairway"), expected)
+
     def test_j5_9_event_retry_order_and_materialization(self):
         # h2 arrives before h1; each is 5 strokes, 2 putts, 1 penalty. Total = 10.
         for name, source, expected_source in [("entered", "manual_edit", "manual_edit"),
