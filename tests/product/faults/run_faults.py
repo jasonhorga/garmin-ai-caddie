@@ -76,20 +76,28 @@ observed_paths = []
 batch_tainted = False
 needs_isolation = False
 original_import = builtins.__import__
+tracking = False
 
 def tracked_import(name, globals=None, locals=None, fromlist=(), level=0):
-    global batch_tainted, needs_isolation
-    current = list(sys.path)
-    if current != baseline_path and directories(current) != baseline_directories:
-        # Observe paths at import time, including paths a target later removes.
-        observed_paths.extend(current)
-        if not level:
-            top = name.partition(".")[0]
-            if signature(PathFinder.find_spec(top, current)) != signature(
-                    PathFinder.find_spec(top, baseline_path)):
-                # Cached modules can mask the target's own changed resolution.
-                needs_isolation |= top in sys.modules
-                batch_tainted = True
+    global batch_tainted, needs_isolation, tracking
+    if tracking:
+        return original_import(name, globals, locals, fromlist, level)
+    # Path/spec inspection may itself import pathlib helpers on some runtimes.
+    tracking = True
+    try:
+        current = list(sys.path)
+        if current != baseline_path and directories(current) != baseline_directories:
+            # Observe paths at import time, including paths a target later removes.
+            observed_paths.extend(current)
+            if not level:
+                top = name.partition(".")[0]
+                if signature(PathFinder.find_spec(top, current)) != signature(
+                        PathFinder.find_spec(top, baseline_path)):
+                    # Cached modules can mask the target's own changed resolution.
+                    needs_isolation |= top in sys.modules
+                    batch_tainted = True
+    finally:
+        tracking = False
     return original_import(name, globals, locals, fromlist, level)
 
 multiple_targets = len(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))) > 1
