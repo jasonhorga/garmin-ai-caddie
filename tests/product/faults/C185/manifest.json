@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C185-01-mesh-identity",
+      "patch": "tests/product/faults/C185/01-mesh-identity.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.CourseRefreshTests.test_j4_2_replaced_mesh_is_visible_with_preserved_size_and_mtime",
+      "promise": "4.2"
+    },
+    {
+      "id": "C185-02-sidecar-backoff",
+      "patch": "tests/product/faults/C185/02-sidecar-backoff.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.CourseRefreshTests.test_j4_2_release_metadata_write_failure_defers_refetch",
+      "promise": "4.2"
+    },
+    {
+      "id": "C185-03-release-writer-lock",
+      "patch": "tests/product/faults/C185/03-release-writer-lock.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.CourseRefreshTests.test_j4_2_geometry_release_publication_waits_for_reference_refresh",
+      "promise": "4.2"
+    },
+    {
+      "id": "C185-05-session-pointer-retry",
+      "patch": "tests/product/faults/C185/05-session-pointer-retry.patch",
+      "kind": "python",
+      "target": "tests.product.test_j9_web_api.SessionGenerationReadTests.test_j9_3_reader_retries_once_when_import_removes_its_generation",
+      "promise": "9.3"
+    },
+    {
+      "id": "C185-06-private-exception",
+      "patch": "tests/product/faults/C185/06-private-exception.patch",
+      "kind": "python",
+      "target": "tests.product.test_j3_corrections.CorrectionFailureTests.test_j3_4_concurrent_unreadable_history_has_independent_errors",
+      "promise": "3.4"
+    }
+  ]
+}
