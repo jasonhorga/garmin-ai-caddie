@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -14,6 +15,201 @@ import yaml
 
 
 class CIWorkflowTests(unittest.TestCase):
+    def test_native_artifacts_download_only_shards_and_replace_previous_attempt(self) -> None:
+        """J3/J4: summary excludes unrelated/combined artifacts and consumes latest uploads."""
+        jobs = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())["jobs"]
+        download = next(s for s in jobs["native-mobile"]["steps"]
+                        if s.get("uses", "").startswith("actions/download-artifact@"))
+        pattern = download["with"].get("pattern", "*")
+        required = [f"{artifact}-{shard}" for artifact in ("real-screenshots", "real-video")
+                    for shard in ("real-flow", "screenshots")]
+        required += [f"fixture-startup-diagnostics-{s}" for s in ("unit-watch", "real-flow", "screenshots")]
+        required += ["native-build-evidence-ci-fixture-unit-watch"]
+        unwanted = ["product-ui-xcresult", "real-screenshots", "real-video", "design-snapshots",
+                    "watch-snapshots", "native-build-evidence-ci-fixture", "native-quick-failure-diagnostics"]
+        for name in required + unwanted:
+            result = subprocess.run(["bash", "-O", "extglob", "-c", '[[ "$NAME" == $PATTERN ]]'],
+                                    env={**os.environ, "NAME": name, "PATTERN": pattern})
+            self.assertEqual(name in required, result.returncode == 0, name)
+        for job in jobs.values():
+            for step in job["steps"]:
+                if step.get("uses", "").startswith("actions/upload-artifact@"):
+                    self.assertIs(True, step["with"].get("overwrite"), step["with"]["name"])
+
+    def test_native_dispatch_conditions_have_no_pr_branch(self) -> None:
+        """J3/J4: dispatch-only steps must not retain unreachable PR alternatives."""
+        jobs = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())["jobs"]
+        for name in ("native-live", "native-unit-watch", "native-real-flow", "native-screenshots"):
+            for step in jobs[name]["steps"]:
+                condition = step.get("if", "")
+                self.assertNotIn("github.event_name", condition, (name, step.get("name")))
+
+    def test_native_dispatch_evidence_uses_scope_without_pr_context(self) -> None:
+        """J3/J4: dispatch evidence uses capture outcomes and scope without a PR context."""
+        jobs = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())["jobs"]
+        for job_name in ("native-live", "native-unit-watch"):
+            step = next(s for s in jobs[job_name]["steps"] if s.get("name") == "Write native build evidence")
+            self.assertNotIn("NATIVE_EVENT_NAME", step["env"])
+            for scope in ("full", "review"):
+                with self.subTest(job=job_name, scope=scope), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    script = root / "ops/write_native_build_evidence.py"
+                    script.parent.mkdir()
+                    script.write_text("import sys\nprint(' '.join(sys.argv[1:]))\n")
+                    env = {**os.environ, "NATIVE_CAPTURE_SCOPE": scope, "IOS_TARGET_OUTCOME": "success",
+                           "IOS_CAPTURE_OUTCOME": "failure", "WATCH_TEST_OUTCOME": "success",
+                           "FIXTURE_MODE": "false", "FIXTURE_START_OUTCOME": "skipped",
+                           "LAUNCH_VALIDATION_OUTCOME": "success", "LAUNCH_PREREQ_OUTCOME": "success"}
+                    env.pop("NATIVE_EVENT_NAME", None)
+                    result = subprocess.run(["bash", "-e", "-c", step["run"].replace("${{ inputs.fixture_mode }}", "false")],
+                                            cwd=root, env=env, text=True, capture_output=True)
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertEqual(["--ios-status", "failed", "--watch-status",
+                                      "passed" if scope == "full" else "skipped"], result.stdout.split())
+
+    @staticmethod
+    def _native_condition(expression: str, values: dict, *, success=True, cancelled=False) -> bool:
+        """Replay the Actions status-function/default-success semantics used by these gates."""
+        expression = expression.removeprefix("${{").removesuffix("}}").strip()
+        explicit_status = re.search(r"\b(?:always|cancelled|failure|success)\(\)", expression)
+        if not explicit_status and not success:
+            return False
+        for function, value in {"always()": True, "cancelled()": cancelled,
+                                "success()": success, "failure()": not success}.items():
+            expression = expression.replace(function, repr(value))
+        expression = re.sub(r"\b(?:github|inputs|steps)\.[\w.]+",
+                            lambda match: repr(values[match[0]]), expression)
+        expression = re.sub(r"!(?!=)", " not ", expression)
+        return bool(eval(expression.replace("&&", " and ").replace("||", " or "),
+                         {"__builtins__": {}}, {}))
+
+    def test_native_quick_j4_2_dns_gate_checks_completed_test_logs(self) -> None:
+        """J4.2: quick feedback must reject fixture DNS leaks and missing iOS logs."""
+        job = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())["jobs"]["native-quick"]
+        gates = [s for s in job["steps"] if "check_native_fixture_dns.py" in s.get("run", "")]
+        self.assertEqual(1, len(gates), "quick must run the fixture DNS gate")
+        gate = gates[0]
+        for outcome in ("success", "failure", "skipped"):
+            for cancelled in (False, True):
+                self.assertEqual(outcome != "skipped" and not cancelled,
+                                 self._native_condition(gate["if"], {
+                                     "steps.test_ios_app.outcome": outcome},
+                                     success=outcome == "success", cancelled=cancelled))
+        checker = Path(".github/scripts/check_native_fixture_dns.py").resolve()
+        for ios, watch, expected in ((None, "", False), ("", None, True),
+                                      ("", "", True), ("NSURLErrorDomain Code=-1003 NSErrorFailingURLStringKey=https://fixture.invalid/api/v2/courses", None, False),
+                                      ("", "NSURLErrorDomain Code=-1003 NSErrorFailingURLStringKey=https://fixture.invalid/api/v2/courses", False)):
+            with self.subTest(ios=ios, watch=watch), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                target = root / ".github/scripts/check_native_fixture_dns.py"
+                target.parent.mkdir(parents=True)
+                shutil.copyfile(checker, target)
+                logs = root / "native-quick-results"
+                logs.mkdir()
+                for name, content in (("ios-test-xcodebuild.log", ios), ("watch-test-xcodebuild.log", watch)):
+                    if content is not None:
+                        (logs / name).write_text(content)
+                result = subprocess.run(["bash", "-eu", "-c", gate["run"]], cwd=root,
+                                        text=True, capture_output=True)
+                self.assertEqual(expected, result.returncode == 0, result.stdout + result.stderr)
+
+    def test_native_quick_watch_survives_ios_failure_only_with_build_products(self) -> None:
+        """J4: collect Watch feedback after an iOS assertion failure, with a usable build."""
+        job = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())["jobs"]["native-quick"]
+        watch = next(s for s in job["steps"] if s.get("name") == "Test Watch unit target when affected")
+        producers = [s for s in job["steps"] if s.get("id") == "quick_products"]
+        self.assertEqual(1, len(producers), "probe build products independently of iOS test outcome")
+        probe = producers[0]
+        self.assertLess(job["steps"].index(probe), job["steps"].index(watch))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            products = root / "NativeQuickDerivedData/Build/Products"
+            products.mkdir(parents=True)
+            for present in (False, True):
+                if present:
+                    (products / "AICaddie_iphonesimulator.xctestrun").touch()
+                result = subprocess.run(["bash", "-eu", "-c", probe["run"]], text=True, capture_output=True,
+                                        env={**os.environ, "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(root / "output")})
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertIn(f"ready={str(present).lower()}", (root / "output").read_text().splitlines()[-1])
+                for needed in ("true", "false"):
+                    for cancelled in (False, True):
+                        for build in ("success", "failure"):
+                            self.assertEqual(present and needed == "true" and not cancelled and build == "success",
+                                             self._native_condition(watch["if"], {
+                                                 "steps.quick_build.outcome": build,
+                                                 "steps.watch_changes.outputs.needed": needed,
+                                                 "steps.quick_products.outputs.ready": str(present).lower()},
+                                                 success=False, cancelled=cancelled))
+        self.assertTrue(self._native_condition(probe["if"], {}, success=False))
+        self.assertFalse(self._native_condition(probe["if"], {}, cancelled=True))
+
+    def test_native_quick_uses_prebooted_device_and_shared_fixture_trigger(self) -> None:
+        """J4: fixture JSON changes trigger quick, which tests the simulator it booted."""
+        workflow = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())
+        self.assertIn("tests/product/fixtures/shared/**", workflow[True]["pull_request"]["paths"])
+        step = next(s for s in workflow["jobs"]["native-quick"]["steps"]
+                    if s.get("name") == "Test iOS app target without rebuilding")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for command in ("xcrun", "xcodebuild"):
+                script = root / command
+                script.write_text('#!/bin/bash\nprintf "%s\\n" "$@" >> "$ARGS"\n')
+                script.chmod(0o755)
+            (root / "native-quick-results").mkdir()
+            result = subprocess.run(["bash", "-eu", "-c", step["run"]], cwd=root, text=True, capture_output=True,
+                                    env={**os.environ, **workflow["jobs"]["native-quick"]["env"],
+                                         "RUNNER_TEMP": tmp, "NATIVE_QUICK_IOS_UDID": "chosen-device",
+                                         "PATH": tmp + os.pathsep + os.environ["PATH"], "ARGS": str(root / "args")})
+            self.assertEqual(0, result.returncode, result.stderr)
+            args = (root / "args").read_text().splitlines()
+            self.assertEqual("platform=iOS Simulator,id=chosen-device", args[args.index("-destination") + 1])
+
+    def test_native_capture_timeout_budgets_follow_shard(self) -> None:
+        """J3/J4: allow real-flow jitter without relaxing the screenshots shard."""
+        jobs = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())["jobs"]
+        for name, job_budget, step_budget in (("native-real-flow", 55, 45),
+                                            ("native-screenshots", 45, 35), ("native-live", 150, 90)):
+            job = jobs[name]
+            self.assertEqual(job_budget, job["timeout-minutes"])
+            capture = next(s for s in job["steps"] if s.get("id") == "real_ios_capture")
+            value = capture["timeout-minutes"]
+            if isinstance(value, str):
+                value = value.removeprefix("${{").removesuffix("}}").strip()
+                value = value.replace("inputs.fixture_mode", str(name != "native-live"))
+                value = value.replace("env.NATIVE_CAPTURE_SHARD", repr(job["env"]["NATIVE_CAPTURE_SHARD"]))
+                value = eval(value.replace("&&", " and ").replace("||", " or "), {"__builtins__": {}})
+            self.assertEqual(step_budget, value)
+
+    def test_native_screenshot_missing_video_preserves_test_status_and_annotation(self) -> None:
+        """J3/J4: optional recording must not mask a UI failure or invent one."""
+        jobs = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())["jobs"]
+        capture = next(s for s in jobs["native-screenshots"]["steps"] if s.get("id") == "real_ios_capture")
+        # Replay the production collection/error path after the simulator command returns.
+        tail = capture["run"].split("TEST_STATUS=$?", 1)[1]
+        for status in (0, 7):
+            for recording in (False, True):
+                with self.subTest(status=status, recording=recording), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    (root / "real-videos").mkdir()
+                    if recording:
+                        (root / "real-videos/real-flow.mp4").write_bytes(b"video")
+                    result_dir = root / "Library/Developer/Xcode/DerivedData/Probe/Logs/Test/Test-AICaddieUITests-test.xcresult"
+                    result_dir.mkdir(parents=True)
+                    for command, body in (("kill", "exit 0"), ("sleep", "exit 0"),
+                                          ("xcrun", 'echo \'{"testFailures":[{"testName":"broken UI","failureText":"assertion failed"}]}\'')):
+                        script = root / command
+                        script.write_text("#!/bin/bash\n" + body + "\n")
+                        script.chmod(0o755)
+                    result = subprocess.run(["bash", "-eu", "-c", tail], cwd=root, text=True, capture_output=True,
+                                            env={**os.environ, "HOME": tmp, "NATIVE_CAPTURE_SHARD": "screenshots",
+                                                 "UITEST_CAPTURE_SCOPE": "review", "TEST_STATUS": str(status), "REC_PID": "99999999",
+                                                 "PATH": tmp + os.pathsep + os.environ["PATH"]})
+                    self.assertEqual(status, result.returncode, result.stderr)
+                    self.assertEqual(not recording, "::warning::" in result.stdout)
+                    self.assertEqual(status != 0, "::error title=UI test failure::" in result.stdout)
+                    self.assertEqual(recording, (root / "real-videos/screenshots.mp4").exists())
+
     def test_fixture_capture_shards_partition_every_dispatch_scope(self) -> None:
         workflow = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())
         jobs = workflow["jobs"]
@@ -75,12 +271,15 @@ class CIWorkflowTests(unittest.TestCase):
     def test_native_summary_rejects_every_required_failed_cancelled_or_skipped_job(self) -> None:
         workflow = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())
         summary = workflow["jobs"]["native-mobile"]
-        self.assertIn("always()", summary["if"])
+        for cancelled in (False, True):
+            for success in (False, True):
+                self.assertEqual(not cancelled, self._native_condition(summary["if"], {
+                    "github.event_name": "workflow_dispatch"}, success=success, cancelled=cancelled))
         script = next(s["run"] for s in summary["steps"] if s.get("name") == "Verify native job conclusions")
         for fixture in (True, False):
             for scope in ("full", "review", "edit"):
                 expected = {"native-screenshots"} if fixture else {"native-live"}
-                if scope != "edit":
+                if fixture and scope != "edit":
                     expected.add("native-product-ui")
                     if fixture:
                         expected.update(("native-unit-watch", "native-real-flow"))
@@ -95,6 +294,9 @@ class CIWorkflowTests(unittest.TestCase):
                     )
 
                 self.assertEqual(0, replay(jobs).returncode)
+                if not fixture:
+                    for status in ("failure", "cancelled", "skipped"):
+                        self.assertEqual(0, replay({**jobs, "native-product-ui": {"result": status}}).returncode)
                 for name in expected:
                     for status in ("failure", "cancelled", "skipped"):
                         with self.subTest(fixture=fixture, scope=scope, job=name, status=status):
@@ -116,6 +318,9 @@ class CIWorkflowTests(unittest.TestCase):
                     screenshots.mkdir(parents=True)
                     (screenshots / "ios-app.log").write_text(f"diagnostic from {shard}")
                     (screenshots / f"{shard}.png").write_bytes(b"image")
+                    (screenshots / "shared.png").write_bytes(b"shared image")
+                    (screenshots / "nested").mkdir()
+                    (screenshots / "nested/info.txt").write_text(shard)
                     video = root / "native-shards" / f"real-video-{shard}"
                     video.mkdir()
                     (video / f"{shard}.mp4").write_bytes(b"video")
@@ -135,8 +340,13 @@ class CIWorkflowTests(unittest.TestCase):
                 self.assertEqual(0, result.returncode, result.stderr)
                 for shard in shards:
                     self.assertIn(f"diagnostic from {shard}", (root / "real-screenshots/ios-app.log").read_text())
-                    self.assertTrue((root / "real-screenshots/shards" / shard / "ios-app.log").is_file())
+                    self.assertEqual(len(shards) > 1,
+                                     (root / "real-screenshots/shards" / shard / "ios-app.log").is_file())
                     self.assertTrue((root / "real-video" / f"{shard}.mp4").is_file())
+                self.assertEqual(len(shards) + 1, len(list((root / "real-screenshots").rglob("*.png"))),
+                                 "each screenshot must be stored once")
+                self.assertEqual(set(shards), {p.read_text() for p in (root / "real-screenshots").rglob("info.txt")},
+                                 "differing diagnostics with the same relative name must survive")
                 final_stamp = root / "native-build-evidence-ci-fixture/native_build_evidence.json"
                 if scope == "edit":
                     self.assertFalse(final_stamp.exists())
@@ -730,7 +940,6 @@ class CIWorkflowTests(unittest.TestCase):
         evidence_step = steps["Write native build evidence"]
         self.assertEqual(
             {
-                "NATIVE_EVENT_NAME": "${{ github.event_name }}",
                 "NATIVE_CAPTURE_SCOPE": "${{ github.event.inputs.capture_scope || 'full' }}",
                 "IOS_TARGET_OUTCOME": "${{ steps.test_ios_app.outcome }}",
                 "IOS_CAPTURE_OUTCOME": "${{ steps.real_ios_capture.outcome }}",
