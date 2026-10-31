@@ -1412,6 +1412,49 @@ public struct WatchHoleMapView: View {
     /// multi-shot plans, landing labels, leader lines and continuations belong to full maps.
     static func drawsRouteAndPlan(fullMap: Bool) -> Bool { fullMap }
 
+    /// J4.5 map degradation policy seam. This is intentionally kept pure so the Watch native
+    /// tests can lock the same three-state decision used by the Canvas renderer.
+    enum MapDisplayState: Equatable {
+        case waiting
+        case garmin
+        case precise
+    }
+
+    enum MapRenderLayer: Equatable {
+        case neutral
+        case garminBitmap
+        case preciseBitmap
+        case lightweightMapFacts
+    }
+
+    static func resolveMapDisplayState(
+        preciseImageReady: Bool,
+        garminImageReady: Bool,
+        previous: MapDisplayState? = nil
+    ) -> MapDisplayState {
+        // Red-test stub: the old Watch path treated every map as factual geometry while waiting.
+        // The next commit replaces this with the one-way bitmap priority from J4.5.
+        if preciseImageReady { return .precise }
+        if garminImageReady { return .garmin }
+        return previous == .precise ? .precise : .precise
+    }
+
+    static func mapRenderLayers(
+        preciseImageReady: Bool,
+        garminImageReady: Bool,
+        previous: MapDisplayState? = nil
+    ) -> [MapRenderLayer] {
+        switch resolveMapDisplayState(
+            preciseImageReady: preciseImageReady,
+            garminImageReady: garminImageReady,
+            previous: previous
+        ) {
+        case .precise: return [.preciseBitmap]
+        case .garmin: return [.garminBitmap]
+        case .waiting: return [.neutral]
+        }
+    }
+
     // MARK: - Canvas drawing
     private func drawMap(_ context: inout GraphicsContext, size: CGSize) {
         context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))

@@ -212,6 +212,65 @@ final class WatchHolePagesTests: XCTestCase {
         XCTAssertTrue(WatchHoleMapView.drawsRouteAndPlan(fullMap: true))
     }
 
+    /// J4.5: the Watch hole map is precise bitmap > Garmin bitmap > neutral waiting. A missing
+    /// bitmap must not expose the old route/fairway/green-outline sketch as a fourth map state.
+    func testHoleMapDegradationNeverUsesLineFactsAndShowsPreparingSurface() {
+        XCTAssertEqual(
+            WatchHoleMapView.resolveMapDisplayState(preciseImageReady: false, garminImageReady: false),
+            .waiting
+        )
+        XCTAssertEqual(
+            WatchHoleMapView.mapRenderLayers(preciseImageReady: false, garminImageReady: false),
+            [.neutral]
+        )
+        XCTAssertFalse(
+            WatchHoleMapView.mapRenderLayers(preciseImageReady: false, garminImageReady: false)
+                .contains(.lightweightMapFacts)
+        )
+    }
+
+    /// J4.5: a usable Garmin bitmap is shown while the precise bitmap is pending, and a precise
+    /// bitmap always wins when both are present.
+    func testHoleMapDegradationPrefersPreciseThenGarmin() {
+        XCTAssertEqual(
+            WatchHoleMapView.resolveMapDisplayState(preciseImageReady: false, garminImageReady: true),
+            .garmin
+        )
+        XCTAssertEqual(
+            WatchHoleMapView.mapRenderLayers(preciseImageReady: false, garminImageReady: true),
+            [.garminBitmap]
+        )
+        XCTAssertEqual(
+            WatchHoleMapView.resolveMapDisplayState(preciseImageReady: true, garminImageReady: true),
+            .precise
+        )
+        XCTAssertEqual(
+            WatchHoleMapView.mapRenderLayers(preciseImageReady: true, garminImageReady: true),
+            [.preciseBitmap]
+        )
+    }
+
+    /// J4.5: once precise imagery has been displayed, a later lower-quality/missing update cannot
+    /// downgrade the current hole back to Garmin or the neutral surface.
+    func testHoleMapDegradationNeverDowngradesAfterPrecise() {
+        XCTAssertEqual(
+            WatchHoleMapView.resolveMapDisplayState(
+                preciseImageReady: false,
+                garminImageReady: true,
+                previous: .precise
+            ),
+            .precise
+        )
+        XCTAssertEqual(
+            WatchHoleMapView.mapRenderLayers(
+                preciseImageReady: false,
+                garminImageReady: false,
+                previous: .precise
+            ),
+            [.preciseBitmap]
+        )
+    }
+
     func testTheGreenRotatesInStepsSoTheCrownOnlyZooms() {
         XCTAssertEqual(WatchGreenRotationStep.next(0), 15)
         XCTAssertEqual(WatchGreenRotationStep.next(165), 180)
