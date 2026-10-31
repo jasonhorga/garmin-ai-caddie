@@ -2470,6 +2470,12 @@ enum LiveMapDisplayState: Equatable {
     /// Phone live-play display priority: precise CourseView raster > Garmin raster image > one
     /// neutral waiting surface. A Garmin descriptor with `available=false` can still provide a
     /// visual image, but its projection is intentionally absent and the caller draws no geo overlays.
+    static func retainedState(
+        previous: LiveMapDisplayState?, next: LiveMapDisplayState
+    ) -> LiveMapDisplayState {
+        next
+    }
+
     static func resolveLive(
         _ inputs: LiveInputs,
         previous: LiveMapDisplayState? = nil
