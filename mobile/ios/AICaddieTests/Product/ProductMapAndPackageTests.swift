@@ -582,9 +582,13 @@ final class ProductMapAndPackageTests: XCTestCase {
         let success = await LiveHolePrepProbe.run(
             fetch: { ready }, publishInterim: { _ in }, wait: { _ in }
         )
-        XCTAssertEqual(LiveMapDisplayState.resolve(prep: partial, pending: true), .waiting)
+        XCTAssertEqual(LiveMapDisplayState.resolvePrep(
+            prep: partial, hasLocalTopo: false, isStale: false, downloadActive: true
+        ), .waiting)
         XCTAssertEqual(
-            LiveMapDisplayState.resolve(prep: success, pending: false), .precise,
+            LiveMapDisplayState.resolvePrep(
+                prep: success, hasLocalTopo: true, isStale: false, downloadActive: false
+            ), .precise,
             "successful prep ends the spinner and promotes the map"
         )
 
@@ -598,7 +602,9 @@ final class ProductMapAndPackageTests: XCTestCase {
         )
         XCTAssertNil(terminal)
         XCTAssertEqual(
-            LiveMapDisplayState.resolve(prep: failed, pending: false), .waiting,
+            LiveMapDisplayState.resolvePrep(
+                prep: failed, hasLocalTopo: false, isStale: false, downloadActive: false
+            ), .waiting,
             "terminal failure keeps the neutral surface without line facts"
         )
         XCTAssertFalse(
@@ -692,7 +698,10 @@ final class ProductMapAndPackageTests: XCTestCase {
             ("no-hole", nil, false, .waiting),
         ]
         for (id, prep, pending, expected) in rows {
-            XCTAssertEqual(LiveMapDisplayState.resolve(prep: prep, pending: pending), expected, id)
+            let hasLocalTopo = id == "precise"
+            XCTAssertEqual(LiveMapDisplayState.resolvePrep(
+                prep: prep, hasLocalTopo: hasLocalTopo, isStale: false, downloadActive: pending
+            ), expected, id)
         }
         XCTAssertEqual(LiveMapDisplayState.resolvePrep(prep: ready, hasLocalTopo: true, isStale: false, downloadActive: false), .precise)
         XCTAssertEqual(LiveMapDisplayState.resolvePrep(prep: ready, hasLocalTopo: true, isStale: true, downloadActive: true), .waiting)

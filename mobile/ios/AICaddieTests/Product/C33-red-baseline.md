@@ -12,7 +12,7 @@ against the original implementations after exposing the seams are:
 * Start deadline: request timeout is 120 (>30), isPreparingRound remains true and
   roundStartFailure is absent when the injected deadline expires.
 * Topo: XCTAssertNotNil(url) fails with ready package/partial prep.
-* Retry: attempts is 3 rather than 4; image nil; last state numericPlaceholder;
+* Retry: attempts is 3 rather than 4; image nil; last state waiting;
   nextPlan after repeated failures is nil rather than a 60 s plan.
 * Green: selection has no cropped bitmap for null map.image; expected topo and
   Garmin fallbacks are absent.

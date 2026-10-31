@@ -414,10 +414,8 @@ enum LiveHazardMapFrame {
                 hole: replacingFrame(of: prep, overlay: garminOverlay, projection: garminProjection),
                 row: garminRow
             )
-        case .waiting, .factualPending, .numericPlaceholder:
+        case .waiting, .factualPending:
             return .needsMapping(.noMap)
-        case .factual:
-            return .drawable(hole: prep, row: row)
         }
     }
 
@@ -1418,7 +1416,7 @@ public struct CurrentHoleView: View {
                 ?? Self.packageGarminRaster(for: hole)
             preciseTopoImageReady = false
             preciseTopoDecodeFailed = false
-            retainedLiveMapDisplayState = nil
+            retainedLiveMapDisplayState = LiveMapRetentionPolicy.stateAfterHoleChange()
             garminRasterImageFailed = false
             garminRasterImageReady = false
             if let url = liveGarminRasterURL {
@@ -1496,8 +1494,9 @@ public struct CurrentHoleView: View {
             carryOverMapInteraction(from: previous, to: next)
         }
         .onChange(of: liveMapDisplayState, initial: true) { previous, next in
-            retainedLiveMapDisplayState = LiveMapDisplayState.retainedState(
-                previous: retainedLiveMapDisplayState ?? previous,
+            retainedLiveMapDisplayState = LiveMapRetentionPolicy.stateAfterDisplayChange(
+                retained: retainedLiveMapDisplayState,
+                observedPrevious: previous,
                 next: next
             )
             if next == .waiting {
@@ -2524,7 +2523,7 @@ public struct CurrentHoleView: View {
                 state = value
             }
             .onEnded { value in
-                guard liveMapDisplayState != .numericPlaceholder,
+                guard liveMapDisplayState != .factualPending,
                       liveMapDisplayState != .waiting else {
                     heroMapScale = 1
                     heroMapOffset = .zero
@@ -2555,7 +2554,7 @@ public struct CurrentHoleView: View {
                     pinchScale: heroMapPinchScale
                 ),
                       liveMapDisplayState != .waiting,
-                      liveMapDisplayState != .numericPlaceholder,
+                      liveMapDisplayState != .factualPending,
                       !heroTargetDragging,
                       !heroTargetHit(at: value.startLocation, in: viewport) else { return }
                 heroMapTransientDragOffset = value.translation
@@ -2566,7 +2565,7 @@ public struct CurrentHoleView: View {
                     pinchScale: heroMapPinchScale
                 ),
                       liveMapDisplayState != .waiting,
-                      liveMapDisplayState != .numericPlaceholder,
+                      liveMapDisplayState != .factualPending,
                       !heroTargetDragging,
                       !heroTargetHit(at: value.startLocation, in: viewport) else {
                     heroMapTransientDragOffset = .zero

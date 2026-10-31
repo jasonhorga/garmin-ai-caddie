@@ -149,17 +149,24 @@ final class GarminRasterTests: XCTestCase {
     /// replace that retention marker with a Garmin downgrade.
     func testPreciseRetentionKeepsAuthorityAcrossNeutralDecodeFrame() {
         XCTAssertEqual(
-            LiveMapDisplayState.retainedState(previous: nil, next: .precise),
+            LiveMapRetentionPolicy.stateAfterDisplayChange(
+                retained: nil, observedPrevious: .precise, next: .precise
+            ),
             .precise
         )
         XCTAssertEqual(
-            LiveMapDisplayState.retainedState(previous: .precise, next: .factualPending),
+            LiveMapRetentionPolicy.stateAfterDisplayChange(
+                retained: .precise, observedPrevious: .factualPending, next: .factualPending
+            ),
             .precise
         )
         XCTAssertEqual(
-            LiveMapDisplayState.retainedState(previous: .garminRaster, next: .factualPending),
+            LiveMapRetentionPolicy.stateAfterDisplayChange(
+                retained: .garminRaster, observedPrevious: .garminRaster, next: .factualPending
+            ),
             .factualPending
         )
+        XCTAssertNil(LiveMapRetentionPolicy.stateAfterHoleChange())
     }
 
     /// Product spec 4.5: a failed/timeout raster request immediately leaves a usable factual or
@@ -427,7 +434,7 @@ final class GarminRasterTests: XCTestCase {
             yPixel: CGPoint(x: 240, y: 330)
         )
         let preciseResult = LiveMapViewportTransition.preserve(
-            previous: .factual,
+            previous: .factualPending,
             next: .precise,
             viewportSize: CGSize(width: 390, height: 844),
             sourceFrame: CGRect(x: 75, y: 100, width: 240, height: 360),
@@ -477,9 +484,9 @@ final class GarminRasterTests: XCTestCase {
         let garminFrame = CGRect(x: 0, y: 80, width: 390, height: 603)
         let transitions: [(LiveMapDisplayState, LiveMapDisplayState)] = [
             (.factualPending, .garminRaster),
-            (.factual, .garminRaster),
+            (.factualPending, .garminRaster),
             (.precise, .garminRaster),
-            (.garminRaster, .factual),
+            (.garminRaster, .factualPending),
             (.garminRaster, .factualPending),
             (.garminRaster, .precise),
         ]
@@ -547,12 +554,12 @@ final class GarminRasterTests: XCTestCase {
         // the old implementation inspected offset, so this assertion is red on that baseline.
         // Garmin → factualPending remains the centred fitted-state regression guard.
         for (previous, next) in [
-            (LiveMapDisplayState.factual, LiveMapDisplayState.garminRaster),
+            (LiveMapDisplayState.factualPending, LiveMapDisplayState.garminRaster),
             (.garminRaster, .factualPending),
         ] {
             let sourceProjection = previous == .garminRaster ? garminProjection : preciseProjection
             let destinationProjection = next == .garminRaster ? garminProjection : preciseProjection
-            let nearFittedBoundary = previous == .factual && next == .garminRaster
+            let nearFittedBoundary = previous == .factualPending && next == .garminRaster
             let interaction = LiveMapViewportInteraction(
                 scale: nearFittedBoundary ? 1.005 : 1,
                 offset: nearFittedBoundary ? CGSize(width: 3, height: 0) : .zero,
@@ -605,9 +612,9 @@ final class GarminRasterTests: XCTestCase {
             greenPinPixel: CGPoint(x: 91, y: 52)
         )
         for (previous, next) in [
-            (LiveMapDisplayState.factual, LiveMapDisplayState.factualPending),
+            (LiveMapDisplayState.factualPending, LiveMapDisplayState.factualPending),
             (.factualPending, .precise),
-            (.precise, .factual),
+            (.precise, .factualPending),
             (.waiting, .factualPending),
         ] {
             let result = LiveMapViewportTransition.preserve(
@@ -800,7 +807,7 @@ final class GarminRasterTests: XCTestCase {
         let sourceFrame = CGRect(x: 75, y: 100, width: 240, height: 360)
         let destinationFrame = CGRect(x: 0, y: 80, width: 390, height: 603)
         let result = LiveMapViewportTransition.preserve(
-            previous: .factual,
+            previous: .factualPending,
             next: .garminRaster,
             viewportSize: viewport,
             sourceFrame: sourceFrame,
@@ -917,7 +924,7 @@ final class GarminRasterTests: XCTestCase {
             greenPinPixel: CGPoint(x: 120, y: 30)
         )
         let result = LiveMapViewportTransition.preserve(
-            previous: .factual,
+            previous: .factualPending,
             next: .garminRaster,
             viewportSize: CGSize(width: 390, height: 844),
             sourceFrame: CGRect(x: 75, y: 100, width: 240, height: 360),
@@ -936,21 +943,21 @@ final class GarminRasterTests: XCTestCase {
         XCTAssertNil(result.greenPinPixel)
     }
 
-    func testNumericPlaceholderGestureStateResetsScaleAndOffset() {
+    func testWaitingGestureStateResetsScaleAndOffset() {
         XCTAssertEqual(
-            LiveMapDisplaySelection.gestureScale(for: .numericPlaceholder, proposed: 4),
+            LiveMapDisplaySelection.gestureScale(for: .waiting, proposed: 4),
             1
         )
         XCTAssertEqual(
             LiveMapDisplaySelection.gestureOffset(
-                for: .numericPlaceholder,
+                for: .waiting,
                 proposed: CGSize(width: 120, height: -80)
             ),
             .zero
         )
         XCTAssertNil(
             LiveMapDisplaySelection.gestureFrameOverlay(
-                for: .numericPlaceholder,
+                for: .waiting,
                 overlay: CoursePrepOverlay(w: 240, h: 360, ppm: 1, ln: 0, route: []),
                 garminProjection: nil
             )

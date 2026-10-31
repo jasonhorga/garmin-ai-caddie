@@ -1044,7 +1044,8 @@ final class DesignSnapshotTests: XCTestCase {
                     CurrentHoleView(
                         package: mappedPackage,
                         hole: firstHole,
-                        snapshotState: .init(caddieRoutes: routes)
+                        snapshotState: .init(caddieRoutes: routes),
+                        caddieBaseURL: URL(string: "https://caddie.example")
                     )
                 },
                 named: "full-hole-map-garmin-default",

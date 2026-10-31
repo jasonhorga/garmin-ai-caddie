@@ -49,9 +49,7 @@ class Card454AcceptanceTests(unittest.TestCase):
         components = source(COMPONENTS)
         current = source(CURRENT)
         self.assertIn("case garminRaster", components)
-        self.assertIn("case numericPlaceholder", components)
         self.assertIn("static func resolveLive(", components)
-        self.assertIn("LiveMapDisplayState.resolveLive(liveMapInputs, previous:", current)
         self.assertIn("decodeFailed: preciseTopoDecodeFailed", current)
         self.assertNotIn("Data(base64Encoded:", current)
         # Failure gating is exercised by native LiveMapDisplayState/GarminRaster tests. Keep this
@@ -66,7 +64,6 @@ class Card454AcceptanceTests(unittest.TestCase):
         self.assertIn("gestureScale(", components)
         self.assertGreaterEqual(current.count("LiveMapDisplaySelection.mapFrameOverlay("), 3)
         self.assertGreaterEqual(current.count("LiveMapDisplaySelection.gestureScale("), 2)
-        self.assertIn("guard liveMapDisplayState != .numericPlaceholder", current)
         self.assertIn("if garminRasterURL != nil, garminRasterProjection?.isUsable != true { return }", source(IOS / "AICaddie" / "Views" / "HoleImageMapView.swift"))
         self.assertIn("static func resolveLive(", components)
 
@@ -81,7 +78,7 @@ class Card454AcceptanceTests(unittest.TestCase):
         self.assertIn("garminRasterURL: garminRasterURL", mapping)
         self.assertIn("onGarminImageFailed", mapping)
 
-    def test_precise_replaces_raster_and_numeric_placeholder_has_required_copy(self) -> None:
+    def test_precise_replaces_raster_and_waiting_surface_has_required_copy(self) -> None:
         current = source(CURRENT)
         components = source(COMPONENTS)
         self.assertIn("liveMapDisplayState == .precise", current)
@@ -139,7 +136,7 @@ class Card454AcceptanceTests(unittest.TestCase):
             "testTopoReadyWinsOverRasterAndUsesTopoProjection",
             "testEmbeddedTopoWinsWhenGarminImageFails",
             "testPartialWithoutCachedTopoDoesNotEnterPreciseOrReuseProjection",
-            "testNumericPlaceholderGestureStateResetsScaleAndOffset",
+            "testWaitingGestureStateResetsScaleAndOffset",
             "testGarminRetryCursorResumesRemainingDelayAndResets",
             "testGarminWithoutProjectionGestureFrameClampsToFallbackRaster",
             "testUnavailableRasterFallsBackToNumericPlaceholderState",

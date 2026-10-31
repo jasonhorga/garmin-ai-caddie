@@ -2345,52 +2345,27 @@ enum LiveMapCarryOver {
 }
 
 /// What the live hole shows for the map data it has (README 地图降级契约 / IMPLEMENTATION_PLAN map
-/// table). `pending` means a partial CourseView map while the precise topo is still expected
-/// online and not cached: the factual route, green outline and existing obstacle facts (browsable
-/// through 障碍) draw at once; the Touch Target and flag entries wait for the precise map.
+/// table). A partial CourseView row stays on Garmin or the neutral waiting surface while the precise
+/// topo is pending; no temporary line map is mounted. The Touch Target and flag entries wait for a
+/// registered bitmap.
 enum LiveMapDisplayState: Equatable {
     /// No drawable route: the one full-screen waiting page (hole · Par · yards).
     case waiting
     /// A precise bitmap is already installed; show only neutral ground during its local decode.
     case factualPending
-    /// Partial facts with nothing better coming (offline, timed out, or no service).
-    case factual
     /// Garmin's raster fallback is visible while the precise CourseView image is pending.
     case garminRaster
     case precise
-    /// Numeric hole facts remain available when neither raster is usable.
-    case numericPlaceholder
 
-    /// Pixel spaces used by the viewport carry-over. Factual, pending, precise, and the
-    /// point-bearing waiting state all use CourseView's projection; Garmin has its own raster
-    /// projection. A numeric placeholder has no map plane to carry into.
+    /// Pixel spaces used by the viewport carry-over. The neutral pending frame and precise image
+    /// use CourseView's projection for geographic handoff; Garmin has its own raster projection.
     var pixelSpace: LiveMapPixelSpace? {
         switch self {
-        case .factual, .factualPending, .precise, .waiting:
+        case .factualPending, .precise, .waiting:
             return .precise
         case .garminRaster:
             return .garmin
-        case .numericPlaceholder:
-            return nil
         }
-    }
-
-    static func isPrecisePending(
-        geometryCoverage: String?,
-        timedOut: Bool,
-        hasBaseURL: Bool,
-        hasCachedTopo: Bool
-    ) -> Bool {
-        guard geometryCoverage?.caseInsensitiveCompare("partial") == .orderedSame else { return false }
-        return !timedOut && hasBaseURL && !hasCachedTopo
-    }
-
-    static func resolve(prep: CoursePrepHole?, pending: Bool) -> LiveMapDisplayState {
-        guard let prep, prep.resolvedMapOverlay != nil else { return .waiting }
-        if prep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame {
-            return .waiting
-        }
-        return .precise
     }
 
     /// All inputs that can change the live fallback state. Keeping this pure makes the actual hole
@@ -2470,12 +2445,6 @@ enum LiveMapDisplayState: Equatable {
     /// Phone live-play display priority: precise CourseView raster > Garmin raster image > one
     /// neutral waiting surface. A Garmin descriptor with `available=false` can still provide a
     /// visual image, but its projection is intentionally absent and the caller draws no geo overlays.
-    static func retainedState(
-        previous: LiveMapDisplayState?, next: LiveMapDisplayState
-    ) -> LiveMapDisplayState {
-        next
-    }
-
     static func resolveLive(
         _ inputs: LiveInputs,
         previous: LiveMapDisplayState? = nil
@@ -2537,6 +2506,22 @@ enum LiveMapDisplayState: Equatable {
     var fadesInHoleStrip: Bool { self != .precise }
 }
 
+/// Pure state transitions used by CurrentHoleView's SwiftUI wiring. Keeping both the initial
+/// observation and hole reset behind this seam lets native tests verify the one-way map contract
+/// without relying on a particular view-host timing.
+enum LiveMapRetentionPolicy {
+    static func stateAfterDisplayChange(
+        retained: LiveMapDisplayState?, observedPrevious: LiveMapDisplayState,
+        next: LiveMapDisplayState
+    ) -> LiveMapDisplayState {
+        LiveMapDisplayState.retainedState(previous: retained ?? observedPrevious, next: next)
+    }
+
+    static func stateAfterHoleChange() -> LiveMapDisplayState? {
+        nil
+    }
+}
+
 enum LiveMapPixelSpace: Equatable {
     case precise
     case garmin
@@ -2563,7 +2548,7 @@ enum LiveMapDisplaySelection {
         overlay: CoursePrepOverlay?,
         garminProjection: CoursePrepHoleImageProjection?
     ) -> CoursePrepOverlay? {
-        guard state != .factualPending else { return nil }
+        guard state != .factualPending, state != .waiting else { return nil }
         if state == .garminRaster {
             return overlay ?? gestureFrameOverlay(
                 for: state,
@@ -2575,14 +2560,13 @@ enum LiveMapDisplaySelection {
     }
 
     /// Overlay dimensions used by map gestures, including a Garmin bitmap whose projection is
-    /// unavailable and therefore has no factual route to remap. Numeric placeholders have no map
-    /// plane and deliberately return nil.
+    /// unavailable and therefore has no factual route to remap. Neutral frames have no map plane.
     static func gestureFrameOverlay(
         for state: LiveMapDisplayState,
         overlay: CoursePrepOverlay?,
         garminProjection: CoursePrepHoleImageProjection?
     ) -> CoursePrepOverlay? {
-        if let overlay, (state == .precise || state == .garminRaster || state == .factual) { return overlay }
+        if let overlay, (state == .precise || state == .garminRaster) { return overlay }
         guard state == .garminRaster else { return nil }
         let width = (garminProjection?.widthPx ?? 0) > 0
             ? (garminProjection?.widthPx ?? 1242)
@@ -2594,12 +2578,12 @@ enum LiveMapDisplaySelection {
     }
 
     static func gestureScale(for state: LiveMapDisplayState, proposed: CGFloat) -> CGFloat {
-        guard state != .numericPlaceholder, state != .waiting else { return 1 }
+        guard state != .factualPending, state != .waiting else { return 1 }
         return min(max(proposed, 1), 4)
     }
 
     static func gestureOffset(for state: LiveMapDisplayState, proposed: CGSize) -> CGSize {
-        (state == .numericPlaceholder || state == .waiting) ? .zero : proposed
+        (state == .factualPending || state == .waiting) ? .zero : proposed
     }
 
     static func projection(
@@ -2610,9 +2594,9 @@ enum LiveMapDisplaySelection {
         switch state {
         case .garminRaster:
             return garmin
-        case .precise, .factual:
+        case .precise:
             return precise
-        case .waiting, .numericPlaceholder, .factualPending:
+        case .waiting, .factualPending:
             return nil
         }
     }
@@ -2624,7 +2608,7 @@ enum LiveMapDisplaySelection {
         garminProjection: CoursePrepHoleImageProjection?
     ) -> CoursePrepOverlay? {
         switch state {
-        case .precise, .factual:
+        case .precise:
             return precise
         case .garminRaster:
             guard let garminProjection,
@@ -2639,7 +2623,7 @@ enum LiveMapDisplaySelection {
                 from: preciseProjection,
                 to: garminProjection
             ) ?? empty
-        case .waiting, .numericPlaceholder, .factualPending:
+        case .waiting, .factualPending:
             return nil
         }
     }
