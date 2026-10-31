@@ -1,5 +1,5 @@
 diff --git a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
-index 6a2290cad..9304951ab 100644
+index 3c0b36810..9c646219c 100644
 --- a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
 +++ b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
 @@ -1498,7 +1498,7 @@ public struct WatchHoleMapView: View {
