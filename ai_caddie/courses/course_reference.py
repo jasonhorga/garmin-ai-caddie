@@ -218,8 +218,11 @@ def record_release_language(global_id: int, pb: bytes, *, root: Path = ROOT) -> 
             },
         )
     except (OSError, TypeError, ValueError):
-        # A missing marker only costs one later refresh; it must never discard a valid release.
-        pass
+        # Valid bytes remain usable, but without a durable fetch clock each reader would
+        # immediately refetch. Reuse the refresh failure backoff until metadata can be saved.
+        _RELEASE_FETCH_FAILED_AT[(str(root.resolve()), int(global_id))] = time.monotonic()
+    else:
+        _RELEASE_FETCH_FAILED_AT.pop((str(root.resolve()), int(global_id)), None)
 
 
 def _catalogue_name_path(global_id: int, *, root: Path = ROOT) -> Path:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+from contextlib import nullcontext
 import json
 import threading
 import time
@@ -166,18 +167,18 @@ def _release(course_id: int, *, live: bool | None = None) -> tuple[dict[str, Any
     modes = (live,) if live is not None else (False, True)
     for mode in modes:
         try:
-            pb = load_release_pb(
-                course_id,
-                bool(mode),
-                language_code=GARMIN_OMT_SIMPLIFIED_CHINESE,
-            )
-            release = inspect_valid_release(pb, expected_course_id=course_id)
-            if mode:
-                course_reference.save_release_pb(
+            root = COURSEVIEW.parent.parent
+            # All live release writers share reference refresh's lock, including the fetch:
+            # a slow older fetch must not overwrite a later publication from another lane.
+            with course_reference._release_lock(course_id, root) if mode else nullcontext():
+                pb = load_release_pb(
                     course_id,
-                    pb,
-                    root=COURSEVIEW.parent.parent,
+                    bool(mode),
+                    language_code=GARMIN_OMT_SIMPLIFIED_CHINESE,
                 )
+                release = inspect_valid_release(pb, expected_course_id=course_id)
+                if mode:
+                    course_reference.save_release_pb(course_id, pb, root=root)
             return release, "live" if mode else "cache"
         except Exception as exc:
             errors.append(f"{'live' if mode else 'cache'}: {exc}")
