@@ -7,6 +7,20 @@
       "kind": "python",
       "target": "tests.product.test_j1_sync.SyncProductTests.test_j1_1_pipeline_entrypoint_emits_diff_to_stderr",
       "promise": "J1.1"
+    },
+    {
+      "id": "tests-product-faults-C197-04-ignore-entire-url",
+      "patch": "tests/product/faults/C197/04-ignore-entire-url.patch",
+      "kind": "python",
+      "target": "tests.product.test_j1_shot_compare.ShotCompareProductTests.test_j1_1_changed_garmin_image_path_is_logged_and_saved",
+      "promise": "J1.1"
+    },
+    {
+      "id": "tests-product-faults-C197-05-keep-garmindlm",
+      "patch": "tests/product/faults/C197/05-keep-garmindlm.patch",
+      "kind": "python",
+      "target": "tests.product.test_j1_shot_compare.ShotCompareProductTests.test_j1_1_rotating_garmindlm_token_is_a_shot_cache_hit",
+      "promise": "J1.1"
     }
   ]
 }

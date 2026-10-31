@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/garmin/fetch.py b/ai_caddie/garmin/fetch.py
+index 575dd278..f6684160 100644
+--- a/ai_caddie/garmin/fetch.py
++++ b/ai_caddie/garmin/fetch.py
+@@ -134,7 +134,7 @@ def _normalize_shot_for_compare(value: Any, *, field: str | None = None) -> Any:
+         and isinstance(value, str)
+         and value.startswith(("http://", "https://"))
+     ):
+-        return canonical_url_without_garmindlm(value)
++        return value  # mutant: rotating signatures remain changes
+     return value
+ 
+ 
