@@ -1,0 +1,14 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index fcdc48d7..686bc88e 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -252,9 +252,6 @@ public struct StartRoundView: View {
+         let merged = StartRoundPresentation.offlineRows(downloads).first(where: {
+             samePhysicalVenue($0.course, venue)
+         })
+-        if let record = merged, record.phase != .ready {
+-            return downloadStatus(for: record, downloaded: downloaded, catalogue: catalogue)
+-        }
+         if let installed = downloadedCoverageLabel(for: venue, downloaded: downloaded, catalogue: catalogue) {
+             return installed
+         }

@@ -128,6 +128,13 @@
       "promise": "4.1"
     },
     {
+      "id": "C162-installed-label-before-pending",
+      "patch": "tests/product/faults/C162/installed-label-before-pending.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testPartiallyInstalledVenueShowsPendingLoopStatusOnUpperRow",
+      "promise": "4.2"
+    },
+    {
       "id": "C162-nearby-pending-never-ends",
       "patch": "tests/product/faults/C162/nearby-pending-never-ends.patch",
       "kind": "native-unit",
