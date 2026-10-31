@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C261-01-drop-namespace-locations",
+      "patch": "tests/product/faults/C261/01-drop-namespace-locations.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_batch_removes_namespace_package_from_added_directory",
+      "promise": "fault-runner infrastructure: M2: namespace package locations must participate in cleanup"
+    },
+    {
+      "id": "tests-product-faults-C261-02-no-resolve-location",
+      "patch": "tests/product/faults/C261/02-no-resolve-location.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_batch_resolves_symlink_module_locations_before_cleanup",
+      "promise": "fault-runner infrastructure: M4: symlink module locations must resolve before comparison"
+    }
+  ]
+}

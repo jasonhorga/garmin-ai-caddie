@@ -1,0 +1,13 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+index 0926541..be72aa6 100644
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -111,7 +111,7 @@ for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
+                 continue
+             spec = getattr(module, "__spec__", None)
+             origin = getattr(spec, "origin", None) or getattr(module, "__file__", None)
+-            locations = list(getattr(spec, "submodule_search_locations", None) or [])
++            locations = []
+             if origin and origin not in {"built-in", "frozen"}:
+                 locations.append(origin)
+             if any(Path(location).resolve().is_relative_to(directory)
