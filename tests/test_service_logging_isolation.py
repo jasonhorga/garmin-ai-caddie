@@ -6,6 +6,22 @@ import unittest
 
 
 class ServiceLoggingIsolationTests(unittest.TestCase):
+    def test_J42_background_slot_logging_suite_is_discoverable(self):
+        """J4.2: the logging isolation regression suite is visible to unittest discover."""
+        discovered = unittest.defaultTestLoader.discover("tests", pattern="test*.py")
+
+        def test_ids(suite):
+            for test in suite:
+                if isinstance(test, unittest.TestSuite):
+                    yield from test_ids(test)
+                else:
+                    yield test.id()
+
+        self.assertIn(
+            "tests.product.test_c154b.BackgroundSlotLoggingIsolationTests.test_J42_background_slot_logging_isolation_suite",
+            set(test_ids(discovered)),
+        )
+
     def assert_module_restores_logging(self, module):
         from server_v2.main import SERVICE_INFO_LOGGERS
 
