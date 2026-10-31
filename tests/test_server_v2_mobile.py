@@ -22,9 +22,10 @@ from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_
 from server_v2.main import app
 from tests.round_loop_authority import fixture_course_authority
 from tests.event_log_io import count_log_reads
+from tests.service_logging import ServiceLoggingIsolationMixin
 
 
-class ServerV2MobileTests(unittest.TestCase):
+class ServerV2MobileTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_mobile_course_package_keeps_selected_vector_pending_after_background_enqueue(self) -> None:
         """J4.4: the HTTP route exposes retryable selected-Tee work to the client."""
         from server_v2 import main as server_main, map_startup
@@ -4917,7 +4918,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class C33StartFastRouteTests(unittest.TestCase):
+class C33StartFastRouteTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_route_returns_pending_raster_package_with_busy_geometry(self):
         from tests.product.test_c33_start_fast import cold_package, StartFastTests
         from server_v2 import main

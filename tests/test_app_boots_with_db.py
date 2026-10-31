@@ -7,6 +7,8 @@ from unittest import mock
 
 from alembic import command
 from alembic.config import Config
+from tests.service_logging import ServiceLoggingIsolationMixin
+
 from fastapi.testclient import TestClient
 from sqlalchemy import inspect
 
@@ -15,7 +17,7 @@ from server_v2 import db
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-class AppBootsWithDbTests(unittest.TestCase):
+class AppBootsWithDbTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_health_ok_after_migrate_then_boot_on_sqlite(self):
         """Deploy flow: `alembic upgrade head` (the sole schema authority) then serve."""
         self.addCleanup(db.reset_engine_for_tests)
