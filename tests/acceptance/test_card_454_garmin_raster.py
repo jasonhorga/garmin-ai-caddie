@@ -139,7 +139,7 @@ class Card454AcceptanceTests(unittest.TestCase):
             "testWaitingGestureStateResetsScaleAndOffset",
             "testGarminRetryCursorResumesRemainingDelayAndResets",
             "testGarminWithoutProjectionGestureFrameClampsToFallbackRaster",
-            "testUnavailableRasterFallsBackToNumericPlaceholderState",
+            "testUnavailableRasterFallsBackToWaitingState",
             "testRasterToTopoTransferKeepsGeographicViewportCenter",
             "testSameCoordinateIsPixelAccurateInBothProjectionFrames",
             "testRasterFailureReasonDoesNotCrashAndIsNotUsable",

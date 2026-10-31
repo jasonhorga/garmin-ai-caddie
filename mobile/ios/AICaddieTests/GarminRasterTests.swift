@@ -1071,7 +1071,7 @@ final class GarminRasterTests: XCTestCase {
         XCTAssertGreaterThan(rasterFrame.height, 0)
     }
 
-    func testUnavailableRasterFallsBackToNumericPlaceholderState() throws {
+    func testUnavailableRasterFallsBackToWaitingState() throws {
         let hole = try prep()
         XCTAssertEqual(
             LiveMapDisplayState.resolveLive(
