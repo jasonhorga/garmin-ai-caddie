@@ -211,7 +211,7 @@ public struct HoleImageMapView: View {
 
     public var body: some View {
         #if canImport(UIKit)
-        if let overlay = displayOverlay, overlay.w > 0, overlay.h > 0 {
+        if drawsCanvas, let overlay = displayOverlay, overlay.w > 0, overlay.h > 0 {
             let map = ZStack {
                 // A partial CourseView package already has factual vectors but no prodgeometry
                 // bitmap. Do not issue a guaranteed 404 and pin AsyncImage in its failure state;
@@ -292,19 +292,12 @@ public struct HoleImageMapView: View {
     /// Whether this view would mount its Canvas layer. A factual overlay without a bitmap has no
     /// valid pixel frame and must stay completely blank until a bitmap tier is available.
     var drawsCanvas: Bool {
-        displayOverlay != nil
+        displayOverlay != nil && hasBitmapAsset
     }
 
     /// Whether this row's route, tee, flag and plan are drawn over the base bitmap at all.
     var drawsFactLayer: Bool {
         displayOverlay != nil
-    }
-
-    /// The coarse CourseView fairway band and green stand in for a missing bitmap only (README
-    /// 地图降级契约: the factual route shows until the precise map arrives); a real map is never
-    /// overdrawn with them.
-    var drawsLightweightFacts: Bool {
-        false
     }
 
     /// Whether this row's pixels belong to the precise topo bitmap passed in `topoURL`.
@@ -315,6 +308,10 @@ public struct HoleImageMapView: View {
     }
 
     #if canImport(UIKit)
+    private var hasBitmapAsset: Bool {
+        preciseTopoURL != nil || garminRasterURL != nil || decodedImage != nil
+    }
+
     private var decodedImage: UIImage? {
         guard let uri = hole.map?.image,
               let comma = uri.firstIndex(of: ","),

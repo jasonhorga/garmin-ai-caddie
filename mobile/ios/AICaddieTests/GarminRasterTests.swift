@@ -145,6 +145,23 @@ final class GarminRasterTests: XCTestCase {
         ))
     }
 
+    /// J4.5-2: the first precise frame is retained, and a later neutral decode frame does not
+    /// replace that retention marker with a Garmin downgrade.
+    func testPreciseRetentionKeepsAuthorityAcrossNeutralDecodeFrame() {
+        XCTAssertEqual(
+            LiveMapDisplayState.retainedState(previous: nil, next: .precise),
+            .precise
+        )
+        XCTAssertEqual(
+            LiveMapDisplayState.retainedState(previous: .precise, next: .factualPending),
+            .precise
+        )
+        XCTAssertEqual(
+            LiveMapDisplayState.retainedState(previous: .garminRaster, next: .factualPending),
+            .factualPending
+        )
+    }
+
     /// Product spec 4.5: a failed/timeout raster request immediately leaves a usable factual or
     /// numeric surface; its later retry must never own the hole screen's visible loading state.
     @MainActor
