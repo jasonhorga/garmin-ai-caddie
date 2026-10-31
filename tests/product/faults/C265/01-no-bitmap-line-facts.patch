@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
+index 6a2290cad..ff1c9a045 100644
+--- a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
++++ b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
+@@ -1499,7 +1499,7 @@ public struct WatchHoleMapView: View {
+         ) {
+         case .precise: return [.preciseBitmap]
+         case .garmin: return [.garminBitmap]
+-        case .waiting: return [.neutral]
++        case .waiting: return [.lightweightMapFacts]
+         }
+     }
+ 

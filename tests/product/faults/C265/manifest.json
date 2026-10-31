@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C265-01-no-bitmap-line-facts",
+      "patch": "tests/product/faults/C265/01-no-bitmap-line-facts.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchHolePagesTests/testHoleMapDegradationNeverUsesLineFactsAndShowsPreparingSurface",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C265-02-garmin-neutral",
+      "patch": "tests/product/faults/C265/02-garmin-neutral.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchHolePagesTests/testHoleMapDegradationPrefersPreciseThenGarmin",
+      "promise": "J4.5"
+    }
+  ]
+}
