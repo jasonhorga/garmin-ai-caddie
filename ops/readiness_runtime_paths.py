@@ -89,6 +89,14 @@ def audit_hook(event, args):
 
 sys.addaudithook(audit_hook)
 original_check = readiness._check
+_warm_threads = []
+original_warm = getattr(readiness, "warm_stats_cache_in_background", None)
+
+def traced_warm(*args, **kwargs):
+    thread = original_warm(*args, **kwargs)
+    if thread is not None:
+        _warm_threads.append(thread)
+    return thread
 
 def traced_check(label, *args, **kwargs):
     paths_by_label.setdefault(label, set()).update(observed)
@@ -100,11 +108,19 @@ for name in original_path_methods:
 for name in original_os_methods:
     setattr(os, name, wrap_os(name))
 readiness._check = traced_check
+if original_warm is not None:
+    readiness.warm_stats_cache_in_background = traced_warm
 try:
     readiness.build_readiness_response()
 finally:
+    # A daemon warm must finish its trace before the child emits the manifest.  Waiting on the
+    # actual thread completion makes the C220 F4 mutant deterministic without a timing guess.
+    for thread in _warm_threads:
+        thread.join()
     active = False
     readiness._check = original_check
+    if original_warm is not None:
+        readiness.warm_stats_cache_in_background = original_warm
     for name, original in original_path_methods.items():
         setattr(Path, name, original)
     for name, original in original_os_methods.items():

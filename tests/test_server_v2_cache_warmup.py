@@ -159,6 +159,28 @@ class CacheWarmupTests(ServiceLoggingIsolationMixin, unittest.TestCase):
                 self.assertTrue(snapshot["stale"])
                 self.assertIn("summary", snapshot["value"])
 
+    def test_C263_memory_snapshot_hit_does_not_read_persistent_snapshot_file(self) -> None:
+        """C263: readiness's in-memory hit must not deserialize the large disk projection."""
+        player_id = "c263-memory-hit"
+        key = (player_id, "fixture", ".", ".", ".", ".", "all")
+        stats_cache.clear(player_id)
+        with stats_cache._lock:
+            stats_cache._cache[key] = (("fingerprint",), {"summary": {"totalRounds": 1}})
+            stats_cache._cache_source_revisions[key] = "revision-memory"
+        try:
+            with tempfile.TemporaryDirectory() as tmp, \
+                 patch.dict("os.environ", {"AI_CADDIE_STATS_CACHE_DIR": tmp}):
+                path = stats_cache._persistent_cache_path(key)
+                assert path is not None
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("{}", encoding="utf-8")
+                with patch.object(stats_cache.Path, "read_text", side_effect=AssertionError("disk snapshot read")):
+                    snapshot = stats_cache.cached_history_stats_snapshot(player_id=player_id)
+        finally:
+            stats_cache.clear(player_id)
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot["source"], "memory")
+
     def test_G7_mobile_readiness_does_not_invalidate_warmed_all_stats_with_weather(self) -> None:
         """G7: readiness package probes do not write weather and evict the all-history snapshot."""
         from server_v2.readiness import build_readiness_response

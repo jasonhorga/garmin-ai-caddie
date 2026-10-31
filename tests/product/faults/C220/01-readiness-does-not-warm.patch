@@ -1,12 +1,12 @@
 diff --git a/server_v2/readiness.py b/server_v2/readiness.py
 --- a/server_v2/readiness.py
 +++ b/server_v2/readiness.py
-@@ -1004,7 +1004,7 @@
-                 )
-             )
-             stats = None
+@@ -1099,7 +1099,7 @@
+         stats_snapshot = snapshot
+         if snapshot is None:
+             warm_failure = history_warm_failure_details()
 -            warm_error = _start_history_warm()
 +            warm_error = None
-             if warm_error:
-                 checks[-1]["state"] = "degraded"
-                 checks[-1]["detail"] = "History statistics failed to start warming."
+             history_state = "degraded" if warm_error else "warming"
+             checks.append(
+                 _check(
