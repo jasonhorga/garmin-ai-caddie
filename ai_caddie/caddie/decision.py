@@ -1862,6 +1862,7 @@ def _sequence_tail(
     allow_replan_gap: bool = False,
     forbid_repeated_clubs: bool = False,
     max_overshoot_m: float = MAX_SEQUENCE_OVERSHOOT_M,
+    prefer_layup_window: bool = False,
     memo: dict[Any, Any] | None = None,
 ) -> list[dict[str, Any]]:
     if remaining_m <= 20.0:
@@ -1890,16 +1891,23 @@ def _sequence_tail(
         bool(allow_replan_gap),
         bool(forbid_repeated_clubs),
         round(float(max_overshoot_m), 1),
+        bool(prefer_layup_window),
     )
     if memo is not None and tail_key in memo:
         return memo[tail_key]
-    playable = [
+    all_playable = [
         row
         for row in rows
         if _is_playable_club(row)
         and _club_identity(row) not in excluded
         and (not forbid_driver or not _driver_row(row))
-        and (maximum_carry_m is None or _float(row.get("median_m")) <= maximum_carry_m)
+    ]
+    if not all_playable:
+        return []
+    longest_available_m = max(_float(row.get("median_m")) for row in all_playable)
+    playable = [
+        row for row in all_playable
+        if maximum_carry_m is None or _float(row.get("median_m")) <= maximum_carry_m
     ]
     if not playable:
         return []
@@ -1926,6 +1934,7 @@ def _sequence_tail(
     minimum_steps = max(1, math.ceil(max(0.0, remaining_m - 20.0) / longest_m))
     first_candidate_steps = max(1, minimum_steps - 1) if allow_replan_gap else minimum_steps
     maximum_steps = min(MAX_SEQUENCE_STEPS - 1, minimum_steps + 1)
+    needs_layup = prefer_layup_window and remaining_m > longest_available_m + max_overshoot_m
     best: tuple[tuple[float, ...], list[dict[str, Any]]] | None = None
     for step_count in range(first_candidate_steps, maximum_steps + 1):
         for indexes in combinations_with_replacement(range(len(playable)), step_count):
@@ -1964,6 +1973,11 @@ def _sequence_tail(
                 for position in range(1, len(candidate))
             )
             chain_cost += repeated_clubs * REPEATED_CLUB_PENALTY_M
+            if needs_layup and len(indexes) >= 2:
+                pre_final_leave_m = remaining_m - sum(carry_by_index[index] for index in indexes[:-1])
+                layup_window_rank = 0.0 if LAYUP_WEDGE_MIN_M <= pre_final_leave_m <= LAYUP_WEDGE_MAX_M else 1.0
+            else:
+                layup_window_rank = 0.0
             if allow_replan_gap:
                 # In degraded mode prefer a bounded shortfall to a large overshoot. A missing
                 # wedge is a reason to re-plan from the next lie, never a reason to add another
@@ -1980,6 +1994,8 @@ def _sequence_tail(
                 key = (
                     excessive_overshoot,
                     unresolved_leave,
+                    float(step_count) if needs_layup else 0.0,
+                    layup_window_rank,
                     chain_cost + extra_step_cost,
                     overshoot_m,
                     -float(sample_strength),
@@ -2198,6 +2214,7 @@ def _sequence_option(
                 allow_replan_gap=allow_replan_gap,
                 forbid_repeated_clubs=not allow_repeats,
                 max_overshoot_m=max_overshoot_m,
+                prefer_layup_window=not _non_tee_context(context),
                 memo=memo,
             ),
         ]
