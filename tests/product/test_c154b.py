@@ -12,6 +12,8 @@ from fastapi import BackgroundTasks
 from ai_caddie.core.priority_work import ForegroundGate, PriorityExecutor
 from tests.service_logging import preserve_service_logging
 
+LOGGING_ISOLATION_REQUIRED = True
+
 
 class _RunningApplicationLoggingSuite(unittest.TestSuite):
     def run(self, result, debug=False):
@@ -32,6 +34,15 @@ def background_slot_logging_isolation_suite():
         ObservabilityTests("test_request_timing_info_is_enabled_and_has_mobile_segments"),
         ForegroundAdmissionTests("test_J42_background_slot_logs_hold_duration_by_unit_type"),
     ])
+
+
+class BackgroundSlotLoggingIsolationTests(unittest.TestCase):
+    """J4.2 regression suite exposed as a normal unittest-discoverable test."""
+
+    def test_J42_background_slot_logging_isolation_suite(self):
+        result = unittest.TestResult()
+        background_slot_logging_isolation_suite().run(result)
+        self.assertTrue(result.wasSuccessful(), result)
 
 
 class ForegroundAdmissionTests(unittest.TestCase):
