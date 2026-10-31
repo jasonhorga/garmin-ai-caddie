@@ -1495,9 +1495,12 @@ public struct CurrentHoleView: View {
         .onChange(of: holePrep) { previous, next in
             carryOverMapInteraction(from: previous, to: next)
         }
-        .onChange(of: liveMapDisplayState) { previous, next in
-            retainedLiveMapDisplayState = next
-            if next == .numericPlaceholder || next == .waiting {
+        .onChange(of: liveMapDisplayState, initial: true) { previous, next in
+            retainedLiveMapDisplayState = LiveMapDisplayState.retainedState(
+                previous: retainedLiveMapDisplayState ?? previous,
+                next: next
+            )
+            if next == .waiting {
                 heroMapScale = 1
                 heroMapOffset = .zero
                 heroMapTransientDragOffset = .zero

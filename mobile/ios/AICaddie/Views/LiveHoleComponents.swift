@@ -2482,7 +2482,12 @@ enum LiveMapDisplayState: Equatable {
     ) -> LiveMapDisplayState {
         let resolved: LiveMapDisplayState
         if inputs.preciseTopoImageReady && inputs.preciseGeometryReady { return .precise }
-        if inputs.preciseTopoAvailable || inputs.hasCachedPreciseTopo {
+        if previous == .precise && !inputs.preciseTopoImageReady {
+            // A precise image that was already visible must not flash Garmin or reintroduce
+            // geographic overlays while a later decode/reload fails. Hold the neutral frame until
+            // the same precise bitmap is decoded again.
+            resolved = .factualPending
+        } else if inputs.preciseTopoAvailable || inputs.hasCachedPreciseTopo {
             resolved = .factualPending
         } else if !inputs.garminImageFailed,
            inputs.garminImageReady,
@@ -2497,6 +2502,16 @@ enum LiveMapDisplayState: Equatable {
         // it with Garmin or the neutral surface after it has become visible.
         if previous == .precise { return .precise }
         return resolved
+    }
+
+    /// State retained by CurrentHoleView after a display-state change. A precise tier remains the
+    /// authority while its replacement decode is pending; the view shows the neutral frame without
+    /// allowing a Garmin bitmap or stale overlays to flash underneath it.
+    static func retainedState(
+        previous: LiveMapDisplayState?, next: LiveMapDisplayState
+    ) -> LiveMapDisplayState {
+        if previous == .precise, next == .factualPending { return .precise }
+        return next
     }
 
     /// 备战 applies the same contract to the installed course. Precise means precise facts AND the
