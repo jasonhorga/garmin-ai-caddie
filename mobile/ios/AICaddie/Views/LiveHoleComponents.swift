@@ -2084,8 +2084,8 @@ struct LiveHazardMapNotice: View {
     }
 }
 
-/// Live play's waiting surface for a hole with no drawable route yet (a hole that has one draws its
-/// factual route at once instead). It is the shared `HoleMapWaitingPage`.
+/// Live play's waiting surface while neither bitmap tier is drawable. It is the shared
+/// `HoleMapWaitingPage`; a route never becomes a temporary line map.
 struct LiveMapPreparingSurface: View {
     let holeNumber: Int
     var par: Int? = nil
@@ -2100,9 +2100,9 @@ struct LiveMapPreparingSurface: View {
     }
 }
 
-/// README 地图降级契约: the one full-screen waiting page for a hole with no drawable route yet —
-/// hole · Par, the yards and a spinner, never an empty hole and never download wording. Live play
-/// and 备战 show the same page; the map replaces it by itself when the facts arrive.
+/// README 地图降级契约: the one full-screen waiting page while no bitmap is drawable — hole · Par,
+/// the yards and a spinner, never an empty hole and never download wording. Live play and 备战 show
+/// the same page; a bitmap replaces it when ready.
 struct HoleMapWaitingPage: View {
     let holeNumber: Int
     let par: Int?
@@ -2210,9 +2210,9 @@ struct LivePlayPanel<Content: View>: View {
     .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
 }
 
-/// README 地图降级契约: a background precise map that replaces the lightweight one must not reset the
+/// README 地图降级契约: a precise bitmap that upgrades Garmin or the neutral frame must not reset
 /// zoom, pan, obstacle selection, target point or flag. Zoom and pan are view state and survive by
-/// themselves; the points and the obstacle id are tied to the old map and are carried here.
+/// themselves; the points and obstacle id are tied to the old map and are carried here.
 enum LiveMapCarryOver {
     /// Move a topo pixel from one overlay frame to another. An identical frame keeps the pixel.
     /// Otherwise the point is expressed as (station along the factual route in metres, signed

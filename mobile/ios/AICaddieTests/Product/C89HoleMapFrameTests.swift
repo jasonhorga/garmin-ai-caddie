@@ -95,7 +95,7 @@ final class C89HoleMapFrameTests: XCTestCase {
             plannedShots: shots,
             drawsPlannedRouteInMap: false
         )
-        // README 地图降级契约: the factual route is shown only until the precise map arrives.
+        // J4.5: a mismatched row has no bitmap frame for its CourseView overlay.
         XCTAssertFalse(overTopo.drawsCanvas, "a mismatched frame has no Canvas overlay")
         XCTAssertFalse(overTopo.drawsFactLayer, "no tee dot, route or flag in the CourseView frame")
         XCTAssertTrue(overTopo.plannedLegs().isEmpty, "the viewport route layer gets no CourseView legs")

@@ -3118,10 +3118,8 @@ public struct CurrentHoleView: View {
                                  }
                              },
                              showsCardChrome: false,
-                             // CourseView already supplies a factual route and pixel projection.
-                             // Draw that lightweight map immediately while precise topo/hazard
-                             // assets continue in the background; the selected caddie sequence
-                             // replaces the restrained centreline as soon as it is available.
+                             // CourseView supplies the route and pixel projection used only when a
+                             // bitmap owns the frame; no line-map fallback is drawn while assets load.
                              showsRecommendedRoute: true,
                              // The selected obstacle is rendered once by the viewport-plane
                              // `LiveHazardOverlayRenderer` below. Keep HoleImageMapView's legacy
@@ -3135,8 +3133,8 @@ public struct CurrentHoleView: View {
                              // `LivePlannedRouteRenderer` draws the route with its "杆名 码数"
                              // labels in the viewport plane (screen-size type at every zoom).
                              drawsPlannedRouteInMap: false,
-                             // Garmin owns the bitmap frame while it is active; placing the
-                             // numeric card underneath would cover its factual route/loading state.
+                             // Garmin owns the bitmap frame while it is active; placing the numeric
+                             // card underneath would cover its raster/loading state.
                              placeholder: liveMapDisplayState == .garminRaster ? nil : liveMapPlaceholder)
     }
 

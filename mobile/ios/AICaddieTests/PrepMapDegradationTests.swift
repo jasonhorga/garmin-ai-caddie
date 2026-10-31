@@ -277,7 +277,7 @@ final class PrepMapDegradationTests: XCTestCase {
             holeNumbers: preciseRows.map(\.number),
             planCount: preciseRows[1].plans.count
         )
-        XCTAssertEqual(session, before, "a precise map replacing the factual one resets nothing")
+        XCTAssertEqual(session, before, "a precise map upgrading the fallback resets nothing")
         XCTAssertFalse(session.viewport.isFitted)
 
         // Only an explicit hole change starts the next hole fitted.
