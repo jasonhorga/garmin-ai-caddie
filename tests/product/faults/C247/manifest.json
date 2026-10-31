@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C247-X3-finish-cache-stores-last-bool",
+      "patch": "tests/product/faults/C247/01-finish-cache-stores-last-bool.patch",
+      "kind": "python",
+      "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_new_round_after_finished_edit_on_warm_index_registers",
+      "promise": "4.2"
+    }
+  ]
+}
