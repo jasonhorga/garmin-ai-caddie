@@ -1,8 +1,13 @@
 diff --git a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
-index 9c34d076..cbf06598 100644
+index e0a2a9f5..5c237257 100644
 --- a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
 +++ b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
-@@ -2488,3 +2488,2 @@ enum LiveMapDisplayState: Equatable {
-         // it with Garmin or the neutral surface after it has become visible.
--        if previous == .precise { return .precise }
-         return resolved
+@@ -2455,7 +2455,7 @@ enum LiveMapDisplayState: Equatable {
+             // A precise image that was already visible must not flash Garmin or reintroduce
+             // geographic overlays while a later decode/reload fails. Hold the neutral frame until
+             // the same precise bitmap is decoded again.
+-            resolved = .factualPending
++            resolved = .garminRaster
+         } else if inputs.preciseTopoAvailable || inputs.hasCachedPreciseTopo {
+             resolved = .factualPending
+         } else if !inputs.garminImageFailed,
