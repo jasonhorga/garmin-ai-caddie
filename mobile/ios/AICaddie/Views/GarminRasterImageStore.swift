@@ -231,12 +231,13 @@ final class GarminRasterImageStore: ObservableObject {
                 isLoading = false
                 return
             }
-            // The visual request has ended for this attempt. Keep the neutral map surface while
-            // the independent retry cursor waits in the background; do not draw a line fallback.
+            // The visual request has ended for this attempt. Show the factual route/numeric
+            // fallback immediately while the independent retry cursor waits in the background;
+            // otherwise the map keeps a corner spinner for the entire retry ladder.
             failedURL = url
             isLoading = false
             cursor.recordFailure(at: nowNanoseconds())
-            // Keep the neutral waiting surface alive while another delayed attempt is pending.
+            // Keep the numeric placeholder alive while another delayed attempt is pending.
             isRetrying = true
             Self.retryCursorByURL[url] = cursor
         }
