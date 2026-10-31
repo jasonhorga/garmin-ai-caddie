@@ -438,16 +438,26 @@ class ManifestFragmentTests(unittest.TestCase):
     def test_batch_timeout_reports_duration_and_isolated_retry_count(self):
         """验收方式 infrastructure: timeout degradation must be visible."""
         (self.root / "test_slow.py").write_text(
-            "import time\nimport unittest\ntime.sleep(0.5)\n"
+            "import unittest\n"
             "class Slow(unittest.TestCase):\n"
             "    def test_slow(self): pass\n", encoding="utf-8",
         )
         self.init_repo()
         targets = ["test_witness.Witness.test_subject", "test_slow", "test_witness.Witness"]
         records = [{**self.record(str(i)), "target": target} for i, target in enumerate(targets)]
+        real_run = subprocess.run
+
+        def timeout_batch(command, **kwargs):
+            if command[:2] == [str(runner.SHARED_PYTHON), "-c"]:
+                targets = json.loads(Path(command[-2]).read_text())
+                if len(targets) > 1:
+                    raise subprocess.TimeoutExpired(command, kwargs['timeout'])
+                self.assertGreater(kwargs['timeout'], 60)
+            return real_run(command, **kwargs)
+
         with mock.patch.object(runner, "PYTHON_BATCH_TIMEOUT", 0.05, create=True):
             with contextlib.redirect_stderr(io.StringIO()) as errors:
-                with mock.patch.object(runner.subprocess, "run", wraps=subprocess.run) as processes:
+                with mock.patch.object(runner.subprocess, "run", side_effect=timeout_batch) as processes:
                     code, rows, _ = self.invoke_main("--check", records)
         self.assertEqual([row["status"] for row in rows], ["ok", "ok", "ok"])
         self.assertEqual(code, 0)
@@ -533,6 +543,7 @@ class ManifestFragmentTests(unittest.TestCase):
         # Inspect the batch itself so independent retries cannot mask M2.
         result = runner._run_python_load_probe(["test_a", "test_b"], self.root)
         self.assertEqual([result[t][0] for t in ["test_a", "test_b"]], ["ok", "unavailable"])
+        self.assertIn('ModuleNotFoundError', result['test_b'][1])
 
     def test_batch_resolves_symlink_module_locations_before_cleanup(self):
         """验收方式: symlink and real module locations identify one directory."""
@@ -542,6 +553,7 @@ class ManifestFragmentTests(unittest.TestCase):
         (self.root / 'link').symlink_to(self.root / 'real', target_is_directory=True)
         result = runner._run_python_load_probe(["test_a", "test_b"], self.root)
         self.assertEqual([result[t][0] for t in ["test_a", "test_b"]], ["ok", "unavailable"])
+        self.assertIn('ModuleNotFoundError', result['test_b'][1])
 
     def test_check_directory_aliases_and_root_keep_single_initialization_cached(self):
         """验收方式: harmless path spellings require one batch, no retry."""
