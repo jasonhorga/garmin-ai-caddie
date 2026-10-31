@@ -227,6 +227,7 @@ final class WatchHolePagesTests: XCTestCase {
             WatchHoleMapView.mapRenderLayers(preciseImageReady: false, garminImageReady: false)
                 .contains(.lightweightMapFacts)
         )
+        XCTAssertEqual(WatchHoleMapView.mapPreparingTitle, "地图准备中")
     }
 
     /// J4.5: a usable Garmin bitmap is shown while the precise bitmap is pending, and a precise
