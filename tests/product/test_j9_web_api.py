@@ -32,6 +32,47 @@ def _round_body(course: str) -> dict[str, object]:
     }
 
 
+class SessionGenerationReadTests(unittest.TestCase):
+    def test_j9_3_reader_retries_once_when_import_removes_its_generation(self):
+        """J9.3: importing a valid new session must leave sync with a complete usable pair."""
+        sm = session_material
+        with tempfile.TemporaryDirectory() as tmp:
+            token_dir = Path(tmp) / ".garmin_tokens"
+            sm.save_session_material(token_dir=token_dir, web_session="sample=old", anti_forgery="old-csrf")
+            original_read = Path.read_text
+            reads = []
+            def read_during_import(path, *args, **kwargs):
+                if path.name == sm.WEB_SESSION_FILE:
+                    reads.append(path)
+                    if len(reads) == 1:
+                        # The old cookie is already open/read when a successful import replaces
+                        # the pointer and removes the old directory, before CSRF is opened.
+                        value = original_read(path, *args, **kwargs)
+                        sm.save_session_material(token_dir=token_dir, web_session="sample=new", anti_forgery="new-csrf")
+                        return value
+                return original_read(path, *args, **kwargs)
+            with mock.patch.object(Path, "read_text", new=read_during_import):
+                self.assertEqual(sm.read_session_material(token_dir), ("sample=new", "new-csrf"))
+            self.assertEqual(len(reads), 2)
+
+    def test_j9_3_startup_cleans_aged_rollback_orphan_and_preserves_session(self):
+        """J9.3: failed imports preserve the working session, including after startup cleanup."""
+        sm = session_material
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            token_dir = root / ".garmin_tokens"
+            sm.save_garmin_cn_web_session(root=root, web_session_header="sample=old", anti_forgery_value="old-csrf")
+            with mock.patch.object(sm, "write_connector_status", side_effect=OSError("status unavailable")):
+                with self.assertRaises(OSError):
+                    sm.save_garmin_cn_web_session(root=root, web_session_header="sample=bad", anti_forgery_value="bad-csrf")
+            current = (token_dir / sm.CURRENT_FILE).read_text().strip()
+            orphan, = [p for p in (token_dir / sm.GENERATIONS_DIR).iterdir() if p.name != current]
+            os.utime(orphan, (1, 1))  # Older than the existing ten-minute in-flight grace period.
+            sm.cleanup_session_material(root)
+            self.assertFalse(orphan.exists())
+            self.assertEqual(sm.read_session_material(token_dir), ("sample=old", "old-csrf"))
+
+
 class J9WebApiTests(unittest.TestCase):
     @staticmethod
     def _current_generation(token_dir: Path) -> Path:

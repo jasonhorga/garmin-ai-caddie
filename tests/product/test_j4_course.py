@@ -7,6 +7,8 @@ import re
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 from unittest.mock import patch
 
@@ -33,6 +35,101 @@ def join_mesh(*meshes):
 
 def rectangle(x1,y1,x2,y2):
     return mesh([(x1,y1),(x2,y1),(x2,y2),(x1,y2)], [[0,1,2],[0,2,3]])
+
+
+class CourseRefreshTests(unittest.TestCase):
+    def test_j4_2_replaced_mesh_is_visible_with_preserved_size_and_mtime(self):
+        """J4.2: a replacement map must replace the old in-process geometry too."""
+        from ai_caddie.geometry import hole_render
+        hole_render._load_mesh_cached.cache_clear()
+        self.addCleanup(hole_render._load_mesh_cached.cache_clear)
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "mesh.json"
+            # Handwritten replacement moves the green from north=100 to north=200.
+            def payload(north):
+                return json.dumps({"meshes": [{"name": "Green", "positions": [[0, 0, north]]}]})
+            path.write_text(payload(100))
+            before = path.stat()
+            with patch.object(hole_render, "mesh_path", return_value=path):
+                self.assertEqual(hole_render.load_mesh(81001, 1)[1]["Green"]["positions"], [[0, 0, 100]])
+                replacement = path.with_suffix(".new")
+                replacement.write_text(payload(200))
+                os.utime(replacement, ns=(before.st_atime_ns, before.st_mtime_ns))
+                os.replace(replacement, path)
+                self.assertEqual(path.stat().st_size, before.st_size)
+                self.assertEqual(path.stat().st_mtime_ns, before.st_mtime_ns)
+                self.assertEqual(hole_render.load_mesh(81001, 1)[1]["Green"]["positions"], [[0, 0, 200]])
+
+    def test_j4_2_release_metadata_write_failure_defers_refetch(self):
+        """J4.2: keep a usable map available while its refresh metadata cannot be saved."""
+        cr = course_reference
+        payload = (Path(__file__).parents[1] / "fixtures/courseview_release_31936.pb").read_bytes()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "data/courseview/31936_releases.pb"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(payload)
+            os.utime(path, (1, 1))
+            clock = [1000.0]
+            with patch.object(cr, "load_release_pb", return_value=payload) as fetch, \
+                 patch.object(cr, "atomic_write_json_if_changed", side_effect=OSError("metadata unavailable")), \
+                 patch.object(cr.time, "monotonic", side_effect=lambda: clock[0]):
+                for _ in range(3):
+                    self.assertEqual(cr.courseview_release_info(31936, root=root)["course_id"], 31936)
+                self.assertEqual(fetch.call_count, 1)
+                # Existing release retry policy is five minutes, including the boundary.
+                clock[0] += 300
+                self.assertEqual(cr.courseview_release_info(31936, root=root)["course_id"], 31936)
+                self.assertEqual(fetch.call_count, 2)
+                cr.courseview_release_info(31936, root=root, force_refresh=True)
+                self.assertEqual(fetch.call_count, 3)
+            self.assertEqual(path.read_bytes(), payload)
+            self.assertEqual(path.stat().st_mtime, 1)
+
+    def test_j4_2_geometry_release_publication_waits_for_reference_refresh(self):
+        """J4.2: concurrent map preparers publish complete release updates in lock order."""
+        from ai_caddie.geometry import geometry_sync
+        cr = course_reference
+        payload = (Path(__file__).parents[1] / "fixtures/courseview_release_31936.pb").read_bytes()
+        # Protobuf field 2 = release version; later values 129 and 130 win.
+        reference_pb, geometry_pb = payload + b"\x10\x81\x01", payload + b"\x10\x82\x01"
+        reference_fetching, finish_reference = threading.Event(), threading.Event()
+        geometry_waiting, geometry_fetched = threading.Event(), threading.Event()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lock = threading.Lock()
+            class ObservedLock:
+                def __enter__(self):
+                    if reference_fetching.is_set():
+                        geometry_waiting.set()
+                    lock.acquire()
+                def __exit__(self, *args):
+                    lock.release()
+            def fetch_reference(*args, **kwargs):
+                reference_fetching.set()
+                if not finish_reference.wait(5):
+                    raise RuntimeError("test release barrier timed out")
+                return reference_pb
+            def fetch_geometry(*args, **kwargs):
+                geometry_fetched.set()
+                return geometry_pb
+            with patch.object(cr, "_release_lock", return_value=ObservedLock()), \
+                 patch.object(cr, "load_release_pb", side_effect=fetch_reference), \
+                 patch.object(geometry_sync, "COURSEVIEW", root / "data/courseview"), \
+                 patch.object(geometry_sync, "load_release_pb", side_effect=fetch_geometry), \
+                 ThreadPoolExecutor(max_workers=2) as pool:
+                reference = pool.submit(cr.courseview_release_info, 31936, root=root)
+                try:
+                    self.assertTrue(reference_fetching.wait(5))
+                    geometry = pool.submit(geometry_sync._release, 31936, live=True)
+                    # Either it waits on the shared lock or incorrectly fetches immediately.
+                    self.assertFalse(geometry_fetched.wait(0.1))
+                    self.assertTrue(geometry_waiting.is_set())
+                finally:
+                    finish_reference.set()
+                self.assertEqual(reference.result(timeout=5)["release_version"], 129)
+                self.assertEqual(geometry.result(timeout=5)[0]["release_version"], 130)
+            self.assertEqual((root / "data/courseview/31936_releases.pb").read_bytes(), geometry_pb)
 
 
 class CourseHTTPTests(HTTPFixture, unittest.TestCase):
