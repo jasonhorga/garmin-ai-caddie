@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
+index 4b7bf4ae..906bbf68 100644
+--- a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
++++ b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
+@@ -2514,7 +2514,7 @@ enum LiveMapRetentionPolicy {
+         retained: LiveMapDisplayState?, observedPrevious: LiveMapDisplayState,
+         next: LiveMapDisplayState
+     ) -> LiveMapDisplayState {
+-        LiveMapDisplayState.retainedState(previous: retained ?? observedPrevious, next: next)
++        next
+     }
+ 
+     static func stateAfterHoleChange() -> LiveMapDisplayState? {
