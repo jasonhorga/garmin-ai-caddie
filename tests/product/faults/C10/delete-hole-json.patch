@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/ops/retention.py b/ai_caddie/ops/retention.py
+index 8bac670a..c671dcb8 100644
+--- a/ai_caddie/ops/retention.py
++++ b/ai_caddie/ops/retention.py
+@@ -121,6 +121,8 @@ def _clean_garmin_snapshots(root: Path) -> None:
+             continue
+         try:
+             manifest.unlink()
++            for hole in (manifest.parent / (directory.name + "_hole.json"),):
++                hole.unlink(missing_ok=True)
+         except OSError:
+             logger.warning("retention could not remove Garmin snapshot manifest %s", manifest, exc_info=True)
+ 

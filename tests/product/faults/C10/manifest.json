@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C10-01-snapshot-mtime-sort",
+      "patch": "tests/product/faults/C10/snapshot-mtime-sort.patch",
+      "kind": "python",
+      "target": "tests.test_retention.PrivateVolumeRetentionTests.test_G2_cleanup_keeps_supported_topo_and_latest_three_snapshot_pairs",
+      "promise": "G2"
+    },
+    {
+      "id": "tests-product-faults-C10-02-retain-two",
+      "patch": "tests/product/faults/C10/retain-two.patch",
+      "kind": "python",
+      "target": "tests.test_retention.PrivateVolumeRetentionTests.test_G2_cleanup_keeps_supported_topo_and_latest_three_snapshot_pairs",
+      "promise": "G2"
+    },
+    {
+      "id": "tests-product-faults-C10-03-delete-hole-json",
+      "patch": "tests/product/faults/C10/delete-hole-json.patch",
+      "kind": "python",
+      "target": "tests.test_retention.PrivateVolumeRetentionTests.test_G2_cleanup_keeps_supported_topo_and_latest_three_snapshot_pairs",
+      "promise": "G2"
+    },
+    {
+      "id": "tests-product-faults-C10-04-drop-topo-v11",
+      "patch": "tests/product/faults/C10/drop-topo-v11.patch",
+      "kind": "python",
+      "target": "tests.test_retention.PrivateVolumeRetentionTests.test_G2_cleanup_keeps_supported_topo_and_latest_three_snapshot_pairs",
+      "promise": "G2"
+    },
+    {
+      "id": "tests-product-faults-C10-05-retention-switch-ignored",
+      "patch": "tests/product/faults/C10/retention-switch-ignored.patch",
+      "kind": "python",
+      "target": "tests.test_retention.PrivateVolumeRetentionTests.test_G2_cleanup_disabled_is_a_noop_and_second_run_is_idempotent",
+      "promise": "G2"
+    }
+  ]
+}
