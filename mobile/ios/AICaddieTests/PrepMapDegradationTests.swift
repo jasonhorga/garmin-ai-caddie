@@ -78,7 +78,7 @@ final class PrepMapDegradationTests: XCTestCase {
 
     func testOnlyThePreciseMapIsUnfadedInTheHoleStrip() {
         XCTAssertFalse(LiveMapDisplayState.precise.fadesInHoleStrip)
-        for state in [.factualPending, .waiting, .garminRaster] {
+        for state: LiveMapDisplayState in [.factualPending, .waiting, .garminRaster] {
             XCTAssertTrue(state.fadesInHoleStrip, "\(state) is not ready and is faded")
         }
     }
