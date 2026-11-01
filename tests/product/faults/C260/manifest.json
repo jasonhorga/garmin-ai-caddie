@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C260-01-par-uses-inline-holepars",
+      "patch": "tests/product/faults/C260/par-inline-holepars.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_mixed_course_restore_uses_the_restored_loop_par",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C260-02-merged-unconditional-minus-nine",
+      "patch": "tests/product/faults/C260/merged-unconditional-minus-nine.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_back_loop_identity_controls_physical_geometry_and_sides",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C260-03-merged-never-minus-nine",
+      "patch": "tests/product/faults/C260/merged-never-minus-nine.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_back_loop_identity_controls_physical_geometry_and_sides",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C260-04-course-store-uses-mobile-root",
+      "patch": "tests/product/faults/C260/course-store-uses-mobile-root.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_reconciliation_uses_one_explicit_course_store_root",
+      "promise": "1.3"
+    }
+  ]
+}

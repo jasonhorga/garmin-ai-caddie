@@ -18,10 +18,11 @@ from typing import Any
 
 import requests
 
-from ai_caddie.core.data import atomic_write_json, atomic_write_json_if_changed
+from ai_caddie.core.data import _canonical_json, atomic_write_json, atomic_write_json_if_changed
 from ai_caddie.core.revisions import bump_revision
 from ai_caddie.connectors.redaction import sanitize_secret_text
 from ai_caddie.garmin.garmin_auth import auth_headers, ensure_web_auth
+from ai_caddie.geometry.geometry_authority import canonical_url_without_garmindlm
 
 ROOT = Path(__file__).resolve().parents[2]
 TOKEN_DIR = ROOT / ".garmin_tokens"
@@ -120,6 +121,23 @@ def _read_json_for_diff(path: Path) -> tuple[bool, Any]:
         return False, None
 
 
+def _normalize_shot_for_compare(value: Any, *, field: str | None = None) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _normalize_shot_for_compare(item, field=str(key))
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_normalize_shot_for_compare(item, field=field) for item in value]
+    if (
+        field == "holeImageUrl"
+        and isinstance(value, str)
+        and value.startswith(("http://", "https://"))
+    ):
+        return canonical_url_without_garmindlm(value)
+    return value
+
+
 def _write_shot_cache_if_changed(
     path: Path,
     payload: Any,
@@ -129,6 +147,12 @@ def _write_shot_cache_if_changed(
 ) -> bool:
     """Write a shot response and emit one bounded diff line when an existing response changed."""
     had_previous, before = _read_json_for_diff(path)
+    if (
+        had_previous
+        and _canonical_json(_normalize_shot_for_compare(before))
+        == _canonical_json(_normalize_shot_for_compare(payload))
+    ):
+        return False
     saved = atomic_write_json_if_changed(path, payload)
     should_log = (
         saved

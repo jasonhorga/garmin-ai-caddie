@@ -1,0 +1,17 @@
+diff --git a/ai_caddie/caddie/decision.py b/ai_caddie/caddie/decision.py
+index 2d3ab9ce..d698bcbb 100644
+--- a/ai_caddie/caddie/decision.py
++++ b/ai_caddie/caddie/decision.py
+@@ -1967,11 +1967,7 @@ def _sequence_tail(
+                 for position in range(1, len(candidate))
+             )
+             chain_cost += repeated_clubs * REPEATED_CLUB_PENALTY_M
+-            if needs_layup and len(indexes) >= 2:
+-                pre_final_leave_m = remaining_m - sum(carry_by_index[index] for index in indexes[:-1])
+-                layup_window_rank = 0.0 if LAYUP_WEDGE_MIN_M <= pre_final_leave_m <= LAYUP_WEDGE_MAX_M else 1.0
+-            else:
+-                layup_window_rank = 0.0
++            layup_window_rank = 0.0
+             if allow_replan_gap:
+                 # In degraded mode prefer a bounded shortfall to a large overshoot. A missing
+                 # wedge is a reason to re-plan from the next lie, never a reason to add another

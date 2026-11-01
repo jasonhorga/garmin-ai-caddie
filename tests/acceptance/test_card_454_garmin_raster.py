@@ -51,7 +51,7 @@ class Card454AcceptanceTests(unittest.TestCase):
         self.assertIn("case garminRaster", components)
         self.assertIn("case numericPlaceholder", components)
         self.assertIn("static func resolveLive(", components)
-        self.assertIn("LiveMapDisplayState.resolveLive(liveMapInputs)", current)
+        self.assertIn("LiveMapDisplayState.resolveLive(liveMapInputs, previous:", current)
         self.assertIn("decodeFailed: preciseTopoDecodeFailed", current)
         self.assertNotIn("Data(base64Encoded:", current)
         # Failure gating is exercised by native LiveMapDisplayState/GarminRaster tests. Keep this

@@ -66,11 +66,11 @@ def load_mesh(global_id: int, local_hole: int):
     """
     path = mesh_path(global_id, local_hole).resolve()
     stat = path.stat()
-    return _load_mesh_cached(path, stat.st_mtime_ns, stat.st_size)
+    return _load_mesh_cached(path, stat.st_mtime_ns, stat.st_size, stat.st_ino, stat.st_ctime_ns)
 
 
 @lru_cache(maxsize=8)
-def _load_mesh_cached(path: Path, mtime_ns: int, size: int):
+def _load_mesh_cached(path: Path, mtime_ns: int, size: int, inode: int, ctime_ns: int):
     md = json.loads(path.read_text())
     return md, {m["name"]: m for m in md["meshes"]}
 

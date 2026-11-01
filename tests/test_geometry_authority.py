@@ -16,6 +16,7 @@ from ai_caddie.geometry.geometry_authority import (
     build_authority,
     cache_token,
     canonical_asset_path,
+    canonical_url_without_garmindlm,
     legacy_outputs_match,
     load_authority,
     valid_geometry_zip_sha256,
@@ -127,6 +128,14 @@ class GeometryAuthorityTests(unittest.TestCase):
         com = "https://securemaps.garmin.com/a/hole02_220542.zip?garmindlm=two"
         self.assertEqual(canonical_asset_path(cn), "/a/hole02_220542.zip")
         self.assertEqual(canonical_asset_path(cn), canonical_asset_path(com))
+
+    def test_url_identity_drops_only_garmindlm_and_keeps_other_query(self) -> None:
+        self.assertEqual(
+            canonical_url_without_garmindlm(
+                "https://birdseye.garmin.cn/a/hole.jpg?locale=zh_CN&garmindlm=old&size=730"
+            ),
+            "https://birdseye.garmin.cn/a/hole.jpg?locale=zh_CN&size=730",
+        )
 
     def test_asset_version_accepts_every_observed_garmin_format_tag(self) -> None:
         self.assertEqual(asset_version("/a/hole02_220542.zip"), "220542")

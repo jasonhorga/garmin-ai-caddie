@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C239-01-unreliable-tee-index",
+      "patch": "tests/product/faults/C239/01-unreliable-tee-index.patch",
+      "kind": "python",
+      "target": "tests.test_gir_fairway_derivation.GirFairwayDerivationTests.test_fairway_hit_side_and_par3_none",
+      "promise": "J5.8: penalty drops and extra positions cannot identify the tee landing by position index"
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 """J3: append-only edits and hand-authored audit snapshots over real HTTP stores."""
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future
 from copy import deepcopy
 import json
 import threading
@@ -20,6 +21,62 @@ BASE = [
     {'id':'s:101:2','club':'7I','lie':'Fairway','start':[160,680],'end':[240,380]},
     {'id':'s:101:3','club':'PW','lie':'Rough','start':[240,380],'end':[320,160]},
 ]
+
+
+class CorrectionFailureTests(unittest.TestCase):
+    def test_j3_4_concurrent_unreadable_history_has_independent_errors(self):
+        """J3.4: concurrent readers fail safely without changing each other's failure state."""
+        from ai_caddie.history import corrected_history as ch
+        entered, release, followers_ready = threading.Event(), threading.Event(), threading.Event()
+        guard = threading.Lock()
+        waiting = 0
+        class ObservedFuture(Future):
+            def result(self, *args, **kwargs):
+                nonlocal waiting
+                with guard:
+                    waiting += 1
+                    if waiting == 3:
+                        followers_ready.set()
+                return super().result(*args, **kwargs)
+        def unreadable(*args, **kwargs):
+            entered.set()
+            if not release.wait(5):
+                raise RuntimeError("test failure barrier timed out")
+            error = ValueError("correction store unavailable")
+            error.add_note("synthetic failure detail")
+            raise error
+        data = history.HistoryData(raw_rounds=[], rounds=[], shots=[], source_fingerprint="failure-isolation")
+        def read():
+            try:
+                ch.corrected_history_data(data)
+            except ValueError as error:
+                return error
+            self.fail("unreadable history unexpectedly succeeded")
+        with patch.object(ch, "_PROJECTIONS", {}), patch.object(ch, "_PROJECTION_INFLIGHT", {}), \
+             patch.object(ch, "Future", ObservedFuture), \
+             patch.object(stats_cache, "correction_projection_inputs", return_value=()), \
+             patch.object(ch, "_build_corrected_history_data", side_effect=unreadable) as build, \
+             ThreadPoolExecutor(max_workers=4) as pool:
+            leader = pool.submit(read)
+            try:
+                self.assertTrue(entered.wait(5))
+                followers = [pool.submit(read) for _ in range(3)]
+                self.assertTrue(followers_ready.wait(5))
+            finally:
+                release.set()
+            errors = [leader.result(timeout=5), *(f.result(timeout=5) for f in followers)]
+            self.assertEqual(build.call_count, 1)
+        self.assertEqual([str(error) for error in errors], ["correction store unavailable"] * 4)
+        self.assertEqual([error.__notes__ for error in errors], [["synthetic failure detail"]] * 4)
+        self.assertEqual(len({id(error) for error in errors}), 4)
+        for error in errors:
+            frames = []
+            tb = error.__traceback__
+            while tb is not None:
+                frames.append(tb.tb_frame.f_code.co_name)
+                tb = tb.tb_next
+            self.assertEqual(frames.count("corrected_history_data"), 1)
+            self.assertEqual(frames.count("unreadable"), 1)
 
 
 def prepare(s, *, snapshot=True):

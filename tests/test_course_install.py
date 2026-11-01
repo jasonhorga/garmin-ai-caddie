@@ -653,6 +653,37 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
         self.assertEqual(self.main._current_course_ids("fixture"), ())
         self.assertFalse(self.main.nearby_work_blocked())
 
+    def test_new_round_after_finished_edit_on_warm_index_registers(self):
+        """J4.2: a new round's first event checks its own finish entry on a warm index."""
+        self._identity("finished", 456)
+        self._post_events("finished", "start", timestamp="2026-10-29T08:00:00Z")
+        self._finish_persisted("finished", 456)
+        self._post_events("finished", "edit", timestamp="2026-10-29T12:00:00Z")
+        self.assertNotIn(("fixture", "finished"), self.main._ACTIVE_ROUNDS)
+
+        self._identity("live", 123)
+        self._post_events("live", "start", timestamp="2026-10-29T13:00:00Z")
+        self.assertIn(("fixture", "live"), self.main._ACTIVE_ROUNDS)
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
+    def test_finished_retry_after_other_round_warms_index_stays_rejected(self):
+        """J4.2: a cached index hit still checks the retried round's finish entry."""
+        self._identity("finished", 456)
+        self._post_events("finished", "start", timestamp="2026-10-29T08:00:00Z")
+        self._finish_persisted("finished", 456)
+        self._post_events("finished", "edit", timestamp="2026-10-29T12:00:00Z")
+
+        self._identity("other", 789)
+        self._post_events("other", "start", timestamp="2026-10-29T09:00:00Z")
+        self._finish_persisted("other", 789)
+        self._identity("live", 123)
+        self._post_events("live", "start", timestamp="2026-10-29T10:00:00Z")
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
+        self._post_events("finished", "edit", timestamp="2026-10-29T12:00:00Z")
+        self.assertNotIn(("fixture", "finished"), self.main._ACTIVE_ROUNDS)
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+
     def test_event_batch_finish_index_reads_are_bounded_and_reused(self):
         """J4.2: cold batch <=2 index loads; unchanged warm batch <=1, for 1 or 32 events.
 
