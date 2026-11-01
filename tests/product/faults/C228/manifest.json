@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C228-feedback-annotation-only",
+      "patch": "tests/product/faults/C228/C228-feedback-audit-only.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_applied_feedback_annotation_suppresses_repeat_without_decision_audit",
+      "promise": "7.2"
+    },
+    {
+      "id": "tests-product-faults-C228-earliest-score-event",
+      "patch": "tests/product/faults/C228/C228-earliest-score-event.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_same_hole_score_reconciliation_uses_latest_mobile_event",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C228-score-correction-overwrites-garmin",
+      "patch": "tests/product/faults/C228/C228-score-correction-overwrites-garmin.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_score_correction_from_mismatch_keeps_late_garmin_value_visible",
+      "promise": "3.1"
+    }
+  ]
+}
