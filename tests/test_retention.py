@@ -96,6 +96,18 @@ class PrivateVolumeRetentionTests(unittest.TestCase):
                 cleanup_private_volume(root=root)
             self.assertFalse(old.exists())
 
+    def test_G2_empty_legacy_default_cache_root_is_removed_when_override_is_active(self) -> None:
+        """G2: switching to a private cache root also retires an empty legacy output root."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            legacy = root / "output" / "topo_render_cache"
+            (legacy / "topo-v1").mkdir(parents=True)
+            (legacy / "topo-v1" / "old.png").write_bytes(b"x")
+            override = root / "private-cache"
+            with patch.dict(os.environ, {"AI_CADDIE_TOPO_CACHE_DIR": str(override)}, clear=False):
+                cleanup_private_volume(root=root)
+            self.assertFalse(legacy.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

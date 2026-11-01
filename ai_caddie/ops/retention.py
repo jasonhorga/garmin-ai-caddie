@@ -45,7 +45,7 @@ def _style_version(relative_path: Path) -> str | None:
     return None
 
 
-def _clean_topo_cache(cache_root: Path) -> None:
+def _clean_topo_cache(cache_root: Path, *, remove_empty: bool = False) -> None:
     if not cache_root.is_dir():
         return
     supported = topo_render.SUPPORTED_STYLE_VERSIONS
@@ -68,6 +68,12 @@ def _clean_topo_cache(cache_root: Path) -> None:
                     path.rmdir()
         except OSError:
             logger.warning("retention could not remove topo cache entry %s", path, exc_info=True)
+    if remove_empty:
+        try:
+            if not any(cache_root.iterdir()):
+                cache_root.rmdir()
+        except OSError:
+            logger.warning("retention could not remove empty legacy topo cache %s", cache_root, exc_info=True)
 
 
 def _parse_snapshot_time(name: str, manifest: Path) -> datetime | None:
@@ -125,9 +131,14 @@ def cleanup_private_volume(*, root: Path | None = None) -> None:
         return
     base = Path(root) if root is not None else ROOT
     try:
+        configured = os.environ.get("AI_CADDIE_TOPO_CACHE_DIR")
+        legacy_default = base / "output" / "topo_render_cache"
         for cache_root in _topo_roots(base):
             try:
-                _clean_topo_cache(cache_root)
+                _clean_topo_cache(
+                    cache_root,
+                    remove_empty=bool(configured and cache_root == legacy_default and Path(configured) != legacy_default),
+                )
             except Exception:
                 logger.warning("retention topo cleanup failed for %s", cache_root, exc_info=True)
         try:
