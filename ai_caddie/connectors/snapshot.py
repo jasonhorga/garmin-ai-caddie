@@ -16,6 +16,7 @@ from ai_caddie.history.history import (
     canonical_course_name,
     course_key,
     merge_same_day_halves,
+    merged_back_local_hole,
     millionths_to_deg,
     normalize_scorecard_hole,
     remap_shots_to_merged_rounds,
@@ -329,7 +330,7 @@ def _shot_hole_ref(round_row: dict[str, Any], hole: int) -> tuple[Any, int]:
             hole,
         )
     if round_row.get("backNineGlobalCourseId"):
-        return round_row.get("backNineGlobalCourseId"), hole - 9
+        return round_row.get("backNineGlobalCourseId"), merged_back_local_hole(round_row, hole)
     return round_row.get("globalId") or round_row.get("courseId"), hole
 
 
