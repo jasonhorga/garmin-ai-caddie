@@ -820,19 +820,23 @@ def reconcile_mobile_round_events(
     # Keep one response contract for every local-only cause.  Mapped rows use Garmin's display axis
     # in ``hole`` and retain the phone axis in ``phoneHole``; an unmapped row has no Garmin axis, so
     # both fields intentionally carry the phone hole. ``unmapped`` distinguishes those cases.
+    applied_feedback_annotations = _existing_source_suggestion_ids(
+        root=annotations_root if annotations_root is not None else root,
+        player_id=player_id,
+    )
     applied_decision_ids = {
         str(row.get("decisionId") or "")
         for row in list_decision_audits(root=root, player_id=player_id)
         if row.get("decisionId")
     }
-    applied_feedback_annotations = _existing_source_suggestion_ids(
-        root=annotations_root if annotations_root is not None else root,
-        player_id=player_id,
-    )
+    feedback_filtered_audits = [
+        row for row in candidate_audits
+        if f"{row.get('eventId')}:caddie-feedback" not in applied_feedback_annotations
+    ]
+    candidate_audits = feedback_filtered_audits
     candidate_audits = [
         row for row in candidate_audits
         if str(row.get("decisionId") or "") not in applied_decision_ids
-        and f"{row.get('eventId')}:caddie-feedback" not in applied_feedback_annotations
     ]
     identity_holes = {
         int(row.get("number")): row for row in (identity or {}).get("holes", [])
