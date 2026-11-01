@@ -1,0 +1,24 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index c09d8822..1f4877e5 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2666,7 +2666,7 @@ def _durable_round_is_finished(player_id: str, round_id: str) -> bool:
+         with _FINISH_INDEX_CACHE_LOCK:
+             cached = _FINISH_INDEX_CACHE.get(player_id)
+         if cached is not None and cached[:2] == (str(path), generation):
+-            index = cached[2]
++            return bool(cached[2].get("__last__"))
+         else:
+             # I/O stays outside both selector and cache locks. If a writer races this read, the
+             # next request observes its new generation; failures never populate the cache.
+@@ -2679,7 +2679,9 @@ def _durable_round_is_finished(player_id: str, round_id: str) -> bool:
+                        type(exc).__name__)
+         return False
+     entry = (index.get("entries") or {}).get(f"mobile-finish:{round_id}")
+-    return isinstance(entry, dict) and entry.get("id") is not None
++    result = isinstance(entry, dict) and entry.get("id") is not None
++    index["__last__"] = result
++    return result
+ 
+ 
+ def _latest_rounds_by_player() -> dict[str, tuple[str, str]]:
