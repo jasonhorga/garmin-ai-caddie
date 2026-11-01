@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
+index 9c34d076..0b2d3385 100644
+--- a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
++++ b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
+@@ -2482,7 +2482,7 @@ enum LiveMapDisplayState: Equatable {
+         } else {
+             // No precise or Garmin bitmap exists yet. Keep a neutral preparation surface; the
+             // former CourseView route/green sketch is deliberately never a live fallback.
+-            resolved = .waiting
++            return .factual
+         }
+         // A precise bitmap is a one-way upgrade. A transient decode/error update must not replace
+         // it with Garmin or the neutral surface after it has become visible.

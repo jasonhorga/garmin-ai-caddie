@@ -518,8 +518,11 @@ final class ProductPhoneUITests: XCTestCase {
     }
 
     func test_j4_5_phone_three_map_states_have_visible_content() {
-        // The precise tier is the phone's precise topo surface; route-only and waiting have none yet.
-        for (name, expected) in [("ready", "live-hole-map-precise"), ("partial", "live-hole-map-partial"), ("missing", "live-map-preparing-surface")] {
+        // C241: the live hole map never draws lines; it is precise topo > Garmin raster > neutral
+        // waiting. Partial coverage has no topo (topo.png 404s), and this fixture has no Garmin
+        // raster at all (no package descriptor; the garmin-raster endpoint 404s), so partial must
+        // show the same waiting surface as missing and must never be promoted to precise.
+        for (name, expected) in [("ready", "live-hole-map-precise"), ("partial", "live-map-preparing-surface"), ("missing", "live-map-preparing-surface")] {
             var state = ProductFixtureServer.State(); state.coverage = name
             server.configure(state); launch(); startRound()
             let map = element(expected)
@@ -530,7 +533,7 @@ final class ProductPhoneUITests: XCTestCase {
             if name == "partial" {
                 let precise = element("live-hole-map-precise")
                 Thread.sleep(forTimeInterval: 2)
-                XCTAssertTrue(map.exists, "partial route map disappeared; requestedPaths:\n\(server.requestedPaths().joined(separator: "\n"))")
+                XCTAssertTrue(map.exists, "partial waiting surface disappeared; requestedPaths:\n\(server.requestedPaths().joined(separator: "\n"))")
                 XCTAssertFalse(precise.exists, "partial fixture unexpectedly promoted to precise; requestedPaths:\n\(server.requestedPaths().joined(separator: "\n"))")
             }
             app.terminate()

@@ -16,6 +16,7 @@ import unittest
 from unittest.mock import patch
 
 from ai_caddie.core.priority_work import FOREGROUND, NEARBY, PriorityExecutor
+from tests.service_logging import ServiceLoggingIsolationMixin
 
 
 @contextmanager
@@ -117,7 +118,7 @@ def selected_tee_fixture_course():
         yield mobile, vp, cp, root, jobs
 
 
-class StartFastTests(unittest.TestCase):
+class StartFastTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def assert_pending(self, package):
         # Card 1: first hole always describes the Garmin fallback and a retryable geometry state.
         first = package.holes[0]
@@ -210,7 +211,7 @@ class StartFastTests(unittest.TestCase):
         self.assertEqual(holes[0]["geometryCoverage"], "partial")
 
 
-class WarmBudgetTests(unittest.TestCase):
+class WarmBudgetTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_ten_nearby_courses_enqueue_nearest_three(self):
         from ai_caddie.courses.course_search import CourseMatch
         from server_v2 import map_startup as ms
@@ -334,7 +335,7 @@ class WarmBudgetTests(unittest.TestCase):
             pool.shutdown()
 
 
-class ObservabilityTests(unittest.TestCase):
+class ObservabilityTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_request_timing_info_is_enabled_and_has_mobile_segments(self):
         from server_v2 import timing, main
         main.configure_request_timing_logging()
@@ -394,7 +395,7 @@ class ObservabilityTests(unittest.TestCase):
         self.assertNotIn(secret, text)  # Card 7: validation diagnostics never echo an event's body/message.
 
 
-class TimingHeaderTests(unittest.TestCase):
+class TimingHeaderTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_server_timing_header_carries_live_package_segments(self):
         from starlette.requests import Request
         from starlette.responses import JSONResponse
@@ -410,7 +411,7 @@ class TimingHeaderTests(unittest.TestCase):
         self.assertIn("mobile_seeds;dur=", response.headers["Server-Timing"])
 
 
-class ActivityLifecycleTests(unittest.TestCase):
+class ActivityLifecycleTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_package_marks_play_and_finish_releases_nearby(self):
         from fastapi import BackgroundTasks
         from server_v2 import main
@@ -425,7 +426,7 @@ class ActivityLifecycleTests(unittest.TestCase):
             self.assertFalse(main.nearby_work_blocked())  # Finished play releases the admission gate.
 
 
-class CachedRouteTests(unittest.TestCase):
+class CachedRouteTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_missing_hazard_cache_never_falls_back_to_mesh_decode(self):
         from ai_caddie.caddie import mobile_live as ml
         from ai_caddie.geometry import geometry_evidence as ge
@@ -438,7 +439,7 @@ class CachedRouteTests(unittest.TestCase):
         self.assertIsNotNone(route)
 
 
-class ReworkContractTests(unittest.TestCase):
+class ReworkContractTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_j4_4_selected_vector_waits_for_background_admission_before_building(self):
         """J4.4: a queued selected-Tee supplement yields to a live foreground package."""
         from ai_caddie.core import priority_work
@@ -678,7 +679,7 @@ class ReworkContractTests(unittest.TestCase):
         self.assertEqual(result.offlinePackageStatus['degradationReason'], 'singleflight_timeout')
 
 
-class ReworkActivityTests(unittest.TestCase):
+class ReworkActivityTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_preview_prefixes_do_not_block_and_events_expire_after_thirty_minutes(self):
         from server_v2 import main
         with (patch.dict(main._ACTIVE_ROUNDS, {}, clear=True),
@@ -728,7 +729,7 @@ class ReworkActivityTests(unittest.TestCase):
             fetch.assert_called_once()
 
 
-class ReworkSchedulingTests(unittest.TestCase):
+class ReworkSchedulingTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_no_context_render_yields_to_foreground(self):
         from ai_caddie.core import priority_work as pw
         slot = pw.PrioritySlots(1)
@@ -778,7 +779,7 @@ class ReworkSchedulingTests(unittest.TestCase):
         self.assertEqual(seen, [NEARBY])  # P2: boot/sync/ingest warmer explicitly enters the background lane.
 
 
-class ReworkLoggingTests(unittest.TestCase):
+class ReworkLoggingTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_timing_reload_preserves_logging_configuration(self):
         import importlib
         from server_v2 import timing
@@ -800,7 +801,7 @@ class ReworkLoggingTests(unittest.TestCase):
         self.assertNotIn(sentinel, '\n'.join(logs.output))  # P2: retain at most first 2 KiB of exporter diagnostics.
 
 
-class ReworkTeeWarmTests(unittest.TestCase):
+class ReworkTeeWarmTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_completed_derivatives_build_requested_tee(self):
         import os
         from ai_caddie.courses import vector_prep as vp
@@ -827,7 +828,7 @@ class ReworkTeeWarmTests(unittest.TestCase):
             self.assertIn(4, [c.kwargs.get('tee_set') for c in build.call_args_list])  # P1: actual white-Tee install warms white vectors after export.
 
 
-class ReworkPreemptionTests(unittest.TestCase):
+class ReworkPreemptionTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_J42_preemption_fixture_keeps_files_and_patches_until_workers_finish(self):
         """J4.2: force the final vector callback to outlive the distance-order assertion."""
         from ai_caddie.courses import vector_prep as vp
@@ -935,7 +936,7 @@ class ReworkPreemptionTests(unittest.TestCase):
             pool.shutdown()
 
 
-class ReworkDependencyTests(unittest.TestCase):
+class ReworkDependencyTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_domain_mobile_import_does_not_load_server(self):
         import os
         import subprocess
@@ -966,7 +967,7 @@ import ai_caddie.caddie.mobile_live
         enqueue.assert_called_once()
 
 
-class ReworkTeeScopeTests(unittest.TestCase):
+class ReworkTeeScopeTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_requested_tees_are_scoped_to_vector_cache_root(self):
         from ai_caddie.courses import vector_prep as vp
         with TemporaryDirectory() as d, patch.dict(vp._REQUESTED_TEES, {}, clear=True):

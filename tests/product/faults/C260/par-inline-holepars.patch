@@ -1,0 +1,14 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index d503c8a2..038cd721 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -194,8 +194,7 @@ def restore_hole_par(
+         return None
+     # A restore from another loop must never index the first card's inline 18-hole par string.
+     # That string describes the front course even when the display hole is 10..18.
+-    front_gid = front_course_global_id(row)
+-    direct = None if front_gid is not None and gid != front_gid else _hole_par(row, {}, number)
++    direct = _hole_par(row, {}, number)
+     if direct is not None:
+         return direct
+     try:

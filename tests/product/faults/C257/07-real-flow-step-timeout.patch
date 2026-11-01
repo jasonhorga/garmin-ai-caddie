@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
+index 8e8d161..d22b971 100644
+--- a/.github/workflows/native-mobile.yml
++++ b/.github/workflows/native-mobile.yml
+@@ -611,7 +611,7 @@ jobs:
+         id: real_ios_capture
+         if: ${{ (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+         # Leave fixture runners time to scan/upload diagnostics before their job cap.
+-        timeout-minutes: ${{ inputs.fixture_mode && (env.NATIVE_CAPTURE_SHARD == 'real-flow' && 45 || 35) || 90 }}
++        timeout-minutes: ${{ inputs.fixture_mode && (env.NATIVE_CAPTURE_SHARD == 'real-flow' && 35 || 35) || 90 }}
+         env:
+           # TEST_RUNNER_-prefixed vars are forwarded by xcodebuild into the UI-test runner environment
+           # (the plain forms are a fallback in case they propagate too). The test reads both.

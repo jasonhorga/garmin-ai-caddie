@@ -838,9 +838,9 @@ public struct CurrentHoleView: View {
     @GestureState private var heroMapPinchScale: CGFloat = 1
     @State private var preciseMapTimedOut = false
     @State private var liveMapTransitionsEnabled = false
-    /// Garmin imagery is an optional visual layer. The choice is shared across holes, while the
-    /// factual CourseView map remains the default and never waits for Garmin.
-    @AppStorage(LiveGarminRasterPolicy.preferenceKey) private var garminRasterEnabled = false
+    /// Once a precise bitmap is visible it remains authoritative for this physical hole. This
+    /// prevents a late image/decode failure callback from downgrading the screen to Garmin.
+    @State private var retainedLiveMapDisplayState: LiveMapDisplayState?
     /// Garmin CN's fallback descriptor/image for this physical hole. It is deliberately separate
     /// from `holePrep`: the CourseView facts can be retained offline while the raster request fails.
     @State private var garminDescriptorLoadingKey: String?
@@ -1073,7 +1073,6 @@ public struct CurrentHoleView: View {
         var garminRaster: GarminRasterResponse?
         var preciseTopoReady = false
         var currentCoordinate: CLLocationCoordinate2D?
-        var garminRasterEnabled = false
     }
 
     init(package: LiveRoundPackage, hole: Hole, snapshotState: SnapshotState, caddieBaseURL: URL? = nil) {
@@ -1104,7 +1103,6 @@ public struct CurrentHoleView: View {
         }
         _heroMapScale = State(initialValue: min(max(snapshotState.mapScale, 1), 4))
         _garminRaster = State(initialValue: snapshotState.garminRaster ?? Self.packageGarminRaster(for: hole))
-        _garminRasterEnabled = AppStorage(wrappedValue: snapshotState.garminRasterEnabled, LiveGarminRasterPolicy.preferenceKey)
         _preciseTopoImageReady = State(initialValue: snapshotState.preciseTopoReady)
         _currentCoordinate = State(initialValue: snapshotState.currentCoordinate)
         if let targetPixel = snapshotState.targetPixel {
@@ -1117,7 +1115,6 @@ public struct CurrentHoleView: View {
     private func applySnapshotState() {
         guard let snapshotState else { return }
         garminRaster = snapshotState.garminRaster ?? Self.packageGarminRaster(for: hole)
-        garminRasterEnabled = snapshotState.garminRasterEnabled
         preciseTopoImageReady = snapshotState.preciseTopoReady
         currentCoordinate = snapshotState.currentCoordinate
         garminRasterImageFailed = false
@@ -1421,6 +1418,7 @@ public struct CurrentHoleView: View {
                 ?? Self.packageGarminRaster(for: hole)
             preciseTopoImageReady = false
             preciseTopoDecodeFailed = false
+            retainedLiveMapDisplayState = nil
             garminRasterImageFailed = false
             garminRasterImageReady = false
             if let url = liveGarminRasterURL {
@@ -1498,6 +1496,7 @@ public struct CurrentHoleView: View {
             carryOverMapInteraction(from: previous, to: next)
         }
         .onChange(of: liveMapDisplayState) { previous, next in
+            retainedLiveMapDisplayState = next
             if next == .numericPlaceholder || next == .waiting {
                 heroMapScale = 1
                 heroMapOffset = .zero
@@ -1505,10 +1504,6 @@ public struct CurrentHoleView: View {
             }
             carryOverLiveMapViewport(from: previous, to: next)
             recordLiveMapDisplayTrace(previous: previous, next: next)
-        }
-        .onChange(of: garminRasterEnabled) { _, enabled in
-            guard enabled else { return }
-            Task { await loadGarminRasterIfNeeded() }
         }
         .task(id: "\(liveTopoURL?.absoluteString ?? ""):\(isSelected)") {
             guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected),
@@ -1519,14 +1514,14 @@ public struct CurrentHoleView: View {
             preciseTopoImageReady = ready
             preciseTopoDecodeFailed = !ready
         }
-        .task(id: "\(garminDescriptorRecoveryKey):\(garminRasterEnabled):\(isSelected)") {
+        .task(id: "\(garminDescriptorRecoveryKey):\(isSelected)") {
             guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
             await recoverGarminDescriptor()
         }
         // Garmin is an optional visual request. Keep its first descriptor fetch in its own task
         // so a slow/failed raster can never delay the hole's route, caddie decision, or initial-load
         // callback. The request guard coalesces this with the app-level prefetch pass.
-        .task(id: "garmin-raster:\(garminDescriptorRecoveryKey):\(garminRasterEnabled):\(isSelected)") {
+        .task(id: "garmin-raster:\(garminDescriptorRecoveryKey):\(isSelected)") {
             guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
             await loadGarminRasterIfNeeded()
         }
@@ -1721,12 +1716,6 @@ public struct CurrentHoleView: View {
                         )
                         .reportsLiveChrome()
                         prepRoundBanner
-                            .reportsLiveChrome()
-                        Toggle("Garmin 实景", isOn: $garminRasterEnabled)
-                            .font(.system(size: 11, weight: .semibold))
-                            .toggleStyle(.button)
-                            .tint(.white.opacity(0.9))
-                            .accessibilityIdentifier("live-garmin-toggle")
                             .reportsLiveChrome()
                         if !isPrepMode {
                             LivePlayRoundButtons(
@@ -2226,7 +2215,7 @@ public struct CurrentHoleView: View {
 
                 // Holding the target shows the same map magnified around the finger (100 pt,
                 // 2.35x, crosshair), exactly as the former Touch Target page did.
-                if let focus = heroTargetDragLocation {
+                if let focus = heroTargetDragLocation, liveMapDisplayState != .factualPending {
                     LiveMapTargetMagnifierLoupe(
                         mapSize: geo.size,
                         focus: focus,
@@ -2241,7 +2230,7 @@ public struct CurrentHoleView: View {
 
                 // C89: a selected obstacle that cannot be placed on the bitmap on screen says so
                 // (its distances stay in the bar below) instead of leaving the map silently blank.
-                if let notice = selectedHazardMapNotice {
+                if let notice = selectedHazardMapNotice, liveMapDisplayState != .factualPending {
                     LiveHazardMapNotice(text: notice)
                         .position(x: geo.size.width * 0.5, y: geo.size.height * 0.62)
                         .allowsHitTesting(false)
@@ -2249,7 +2238,7 @@ public struct CurrentHoleView: View {
 
                 // A cached topo image is already a usable map.  Do not cover it with the old
                 // "hazards later" pill while a background metadata refresh catches up.
-                if holePrep == nil {
+                if holePrep == nil, liveMapDisplayState != .factualPending {
                     LiveMapPreparingPill()
                         .position(x: geo.size.width * 0.5, y: geo.size.height * 0.88)
                         .allowsHitTesting(false)
@@ -2959,7 +2948,7 @@ public struct CurrentHoleView: View {
 
     /// 球洞俯视图(2D): precise topo first, then Garmin's raster, then a numeric placeholder.
     @ViewBuilder private var liveMapBackdrop: some View {
-        if liveMapDisplayState == .factualPending && hasPreciseTopoAvailable {
+        if liveMapDisplayState == .factualPending {
             // The local precise PNG is known, but its decode is still in flight. Hold a neutral
             // ground for this first frame; neither a spinner nor the Garmin fallback is useful.
             TopoHoleBaseImage.groundColor
@@ -2992,6 +2981,21 @@ public struct CurrentHoleView: View {
                     placeholder: liveMapPlaceholder
                 )
                 .transition(.opacity)
+                .overlay {
+                    if LiveMapDisplaySelection.showsGarminRouteWaitingNotice(
+                        state: liveMapDisplayState,
+                        hasGarminImage: liveGarminRasterURL != nil,
+                        projectionUsable: liveGarminRasterProjection?.isUsable == true
+                    ) {
+                        Text("路线等精细地图出来后显示")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.92))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(.black.opacity(0.68), in: Capsule())
+                            .accessibilityIdentifier("garmin-route-waiting-for-precise-map")
+                    }
+                }
             } else {
                 liveMapPlaceholder
             }
@@ -3002,14 +3006,6 @@ public struct CurrentHoleView: View {
                     "live-hole-map-precise"
                 )
                 .transition(.opacity)
-        } else if let holePrep, liveMapDisplayState == .factual {
-            ZStack {
-                liveHoleImageMap(holePrep)
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier("live-hole-map-partial")
-                liveGarminRasterPreloader
-            }
-            .transition(.opacity)
         } else if liveMapDisplayState == .waiting {
             ZStack {
                 LiveMapPreparingSurface(
@@ -3652,16 +3648,14 @@ public struct CurrentHoleView: View {
     /// Keep this projection in the same type as `holeImageProjection` so all phone interaction paths
     /// use the image currently on screen.
     private var liveGarminRasterProjection: CoursePrepHoleImageProjection? {
-        guard garminRasterEnabled,
-              garminRaster?.available == true,
+        guard garminRaster?.available == true,
               let projection = garminRaster?.projection,
               projection.isUsable else { return nil }
         return projection.coursePrepProjection
     }
 
     private var liveGarminRasterURL: URL? {
-        guard garminRasterEnabled,
-              let garminRaster,
+        guard let garminRaster,
               let caddieBaseURL else { return nil }
         guard garminRaster.hasDisplayableImage else { return nil }
         // A non-empty server URL that fails origin validation is unavailable. Never substitute a
@@ -3681,7 +3675,7 @@ public struct CurrentHoleView: View {
     }
 
     private var liveMapDisplayState: LiveMapDisplayState {
-        LiveMapDisplayState.resolveLive(liveMapInputs)
+        LiveMapDisplayState.resolveLive(liveMapInputs, previous: retainedLiveMapDisplayState)
     }
 
     private var liveMapInputs: LiveMapDisplayState.LiveInputs {
@@ -3693,13 +3687,9 @@ public struct CurrentHoleView: View {
             hasEmbeddedTopoImage: hasEmbeddedTopoImage,
             preciseTopoImageReady: preciseTopoImageReady,
             memoryCached: liveTopoURL.map { TopoHoleImageStore.isMemoryCached($0) } ?? false,
-            garminRaster: LiveGarminRasterPolicy.displayedRaster(
-                enabled: garminRasterEnabled,
-                raster: garminRaster
-            ),
-            garminImageReady: garminRasterEnabled && garminImageReadyForDisplay,
-            garminImageFailed: garminRasterEnabled
-                && (garminRasterImageFailed || garminRasterImageRetrying),
+            garminRaster: garminRaster,
+            garminImageReady: garminImageReadyForDisplay,
+            garminImageFailed: garminRasterImageFailed || garminRasterImageRetrying,
             hasRoute: liveHasRoute
         )
     }
@@ -4027,9 +4017,9 @@ public struct CurrentHoleView: View {
     /// was then planned from there (a 308 y "tee shot" on a 397 y hole, 2026-10-10). Only the
     /// caddie's planning inputs change; the map, recording and on-screen GPS numbers do not.
     private var isTeeShotOffTheHole: Bool {
-        let route = (liveMapOverlay?.route ?? []).compactMap { point -> CLLocationCoordinate2D? in
+        let route = (planningMapOverlay?.route ?? []).compactMap { point -> CLLocationCoordinate2D? in
             guard point.count >= 2 else { return nil }
-            return liveCoordinate(forOverlayPixel: CGPoint(x: point[0], y: point[1]))
+            return planningCoordinate(forOverlayPixel: CGPoint(x: point[0], y: point[1]))
         }
         return Self.isTeeShotOffTheHole(
             shotsRecorded: recordedNonPuttShotCount,
@@ -4350,16 +4340,16 @@ public struct CurrentHoleView: View {
         if let coordinateDistance = distanceFromMapReference(to: targetCoordinate) {
             return coordinateDistance
         }
-        return pixelDistanceMetres(from: mapReferencePixel, to: validMapPixel(targetPixel))
+        return pixelDistanceMetres(from: mapReferencePixel, to: planningValidMapPixel(targetPixel))
     }
 
     /// The shared topo pixel frame is still measurable when a searched/off-course course has no
     /// affine geo anchors. Prefer a projected coordinate when available, then use the factual route
     /// endpoints as the tee/pin references.
     private var mapReferencePixel: CGPoint? {
-        guard let overlay = liveMapOverlay else { return nil }
+        guard let overlay = planningMapOverlay else { return nil }
         if let reference = mapReferenceCoordinate,
-           let refs = liveMapProjection?.refs,
+           let refs = planningMapProjection?.refs,
            let projected = WatchEventBridge.projectToTopoPx(
                lat: reference.latitude,
                lon: reference.longitude,
@@ -4380,7 +4370,7 @@ public struct CurrentHoleView: View {
     private func pixelDistanceMetres(from start: CGPoint?, to end: CGPoint?) -> Double? {
         guard let start,
               let end,
-              let ppm = liveMapOverlay?.ppm,
+              let ppm = planningMapOverlay?.ppm,
               ppm.isFinite,
               ppm > 0,
               start.x.isFinite,
@@ -4396,6 +4386,31 @@ public struct CurrentHoleView: View {
 
     private func validMapPixel(_ pixel: CGPoint?) -> CGPoint? {
         LiveMapDisplaySelection.validTargetPixel(pixel, in: liveMapOverlay)
+    }
+
+    /// Planning keeps using the installed CourseView facts when Garmin is the visible backdrop
+    /// without a projection. These facts drive local distances and off-hole detection only; they
+    /// are never passed to the Garmin drawing layer as route/label/flag overlays.
+    private var planningMapOverlay: CoursePrepOverlay? {
+        liveMapOverlay ?? (holePrep ?? packagePrepForCurrentHole)?.resolvedMapOverlay
+    }
+
+    private var planningMapProjection: CoursePrepHoleImageProjection? {
+        liveMapProjection ?? (holePrep ?? packagePrepForCurrentHole)?.holeImageProjection
+    }
+
+    private func planningValidMapPixel(_ pixel: CGPoint?) -> CGPoint? {
+        LiveMapDisplaySelection.validTargetPixel(pixel, in: planningMapOverlay)
+    }
+
+    private func planningCoordinate(forOverlayPixel pixel: CGPoint) -> CLLocationCoordinate2D? {
+        guard let refs = planningMapProjection?.refs,
+              let projected = WatchEventBridge.projectFromTopoPx(
+                  px: pixel.x,
+                  py: pixel.y,
+                  refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+              ) else { return nil }
+        return CLLocationCoordinate2D(latitude: projected.latitude, longitude: projected.longitude)
     }
 
     private var displayedTargetYards: Int? {
@@ -4697,10 +4712,7 @@ public struct CurrentHoleView: View {
     #endif
 
     private func loadGarminRasterIfNeeded() async {
-        guard LiveGarminRasterPolicy.shouldFetch(
-            enabled: garminRasterEnabled,
-            requestStarted: sessionEntry().garminRequestStarted
-        ) else { return }
+        guard !sessionEntry().garminRequestStarted else { return }
         guard snapshotState?.garminRaster == nil else { return }
         await loadGarminRaster()
     }
@@ -4712,8 +4724,7 @@ public struct CurrentHoleView: View {
     /// Descriptor failures recover independently, so they never hold up the initial hole load or
     /// stop the precise-geometry refresh. SwiftUI cancels this task when the physical hole changes.
     private func recoverGarminDescriptor() async {
-        guard garminRasterEnabled,
-              snapshotState == nil,
+        guard snapshotState == nil,
               caddieBaseURL != nil,
               hole.sourceGlobalId > 0 else { return }
         var cursor = GarminRasterRetryCursor()
@@ -4734,8 +4745,7 @@ public struct CurrentHoleView: View {
     /// continues unaffected.
     @MainActor
     private func loadGarminRaster() async {
-        guard garminRasterEnabled,
-              let caddieBaseURL,
+        guard let caddieBaseURL,
               hole.sourceGlobalId != 0,
               hole.sourceLocalHole > 0 else {
             garminRaster = GarminRasterResponse(available: false, reason: "unavailable")
@@ -6777,9 +6787,9 @@ public struct CurrentHoleView: View {
     #endif
     private var currentRemainingRouteMetres: Double? {
         guard !isTeeShotOffTheHole,
-              let overlay = liveMapOverlay,
+              let overlay = planningMapOverlay,
               let coordinate = liveCoordinateForCurrentHole,
-              let refs = liveMapProjection?.refs,
+              let refs = planningMapProjection?.refs,
               let px = WatchEventBridge.projectToTopoPx(
                   lat: coordinate.latitude,
                   lon: coordinate.longitude,

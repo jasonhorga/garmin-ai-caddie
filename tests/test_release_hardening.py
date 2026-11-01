@@ -17,6 +17,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from tests.service_logging import ServiceLoggingIsolationMixin
+
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
@@ -43,7 +45,7 @@ _ANNOTATION = {
 # ---------------------------------------------------------------------------
 # Fix 1: member annotation GET reads are player-scoped
 # ---------------------------------------------------------------------------
-class AnnotationReadIsolationTests(unittest.TestCase):
+class AnnotationReadIsolationTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     """A member's annotation GET (list + by-target) returns ONLY their own partition; the owner stays
     flat. Mirrors the already-scoped WRITE path (tests/test_server_v2_member_evidence_writes.py).
 
@@ -119,7 +121,7 @@ class AnnotationReadIsolationTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Fix 2: admin header must not elevate a member bearer
 # ---------------------------------------------------------------------------
-class AdminDispositionTests(unittest.TestCase):
+class AdminDispositionTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     """Unit-level coverage of ``admin_request_disposition`` for every header/bearer combination."""
 
     @staticmethod
@@ -181,7 +183,7 @@ class AdminDispositionTests(unittest.TestCase):
             self.assertEqual(players_api.admin_request_disposition(self._request()), "allow")
 
 
-class AdminHeaderMemberBearerGateTests(unittest.TestCase):
+class AdminHeaderMemberBearerGateTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     """End-to-end through the global admin gate on a genuinely-admin route (/api/v2/admin/players)."""
 
     def setUp(self) -> None:
@@ -211,7 +213,7 @@ class AdminHeaderMemberBearerGateTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Fix 3: open-dev / require-admin startup config assertion
 # ---------------------------------------------------------------------------
-class SecurityConfigStartupAssertionTests(unittest.TestCase):
+class SecurityConfigStartupAssertionTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_require_admin_profile_without_token_raises(self) -> None:
         for profile in ("private", "staging", "production"):
             with self.subTest(profile=profile):
@@ -243,7 +245,7 @@ class SecurityConfigStartupAssertionTests(unittest.TestCase):
             warn.assert_not_called()
 
 
-class SecurityConfigLifespanWiringTests(unittest.TestCase):
+class SecurityConfigLifespanWiringTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_lifespan_invokes_the_security_assertion(self) -> None:
         with (
             mock.patch.dict(os.environ, {"AI_CADDIE_BOOT_BACKGROUND_WORK": "1"}),

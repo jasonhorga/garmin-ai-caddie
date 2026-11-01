@@ -17,6 +17,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError
 
+from tests.service_logging import ServiceLoggingIsolationMixin
+
 from fastapi import BackgroundTasks, HTTPException
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -101,7 +103,7 @@ def start_round():
     )
 
 
-class ColdReleaseStartTests(unittest.TestCase):
+class ColdReleaseStartTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def assert_complete_round(self, package):
         self.assertEqual([h["number"] for h in package.holes], list(range(1, 19)))
         self.assertEqual([h["sourceGlobalId"] for h in package.holes], [31870] * 9 + [31871] * 9)
@@ -241,7 +243,7 @@ class ColdReleaseStartTests(unittest.TestCase):
         garmin.release.assert_not_called()
 
 
-class BackgroundProgressLoggingTests(unittest.TestCase):
+class BackgroundProgressLoggingTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_startup_enables_background_progress_info(self):
         import logging
         from server_v2 import main

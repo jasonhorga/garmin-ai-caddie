@@ -28,7 +28,7 @@ import threading
 from ai_caddie.core.data import OWNER_ID
 from ai_caddie.core.request_timing import mark
 from ai_caddie.courses.prep_work import PrepCancelled
-from ai_caddie.history.history import HistoryData, history_data_fingerprint, round_source_shots
+from ai_caddie.history.history import HistoryData, history_data_fingerprint, round_source_shots, round_loop_half
 from ai_caddie.reports.annotations import list_annotation_records
 from ai_caddie.rounds import round_corrections
 from ai_caddie.rounds.correction_audit import effective_hole, is_penalty_correction
@@ -57,6 +57,15 @@ def _int(value: Any) -> int | None:
 
 def _round_refs(row: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys([str(row.get("id")), *[str(item) for item in (row.get("ids") or [])]]))
+
+
+def front_course_global_id(row: dict[str, Any]) -> int | None:
+    """The shared front-loop course identity used by history and mobile reconciliation."""
+    for key in ("frontNineGlobalCourseId", "globalId", "courseGlobalId", "courseId"):
+        value = _int(row.get(key))
+        if value is not None:
+            return value
+    return None
 
 
 def _shot_ref(shot: dict[str, Any], index: int) -> str:
@@ -126,13 +135,17 @@ def hole_sides(row: dict[str, Any]) -> list[tuple[dict[str, Any], int, int, str]
         for index, hole in enumerate(holes):
             number = numbers[index]
             if index < split:
-                physical = int(hole.get("localHole") or number)
+                physical = int(hole.get("localHole") or hole.get("sourceLocalHole") or number)
                 out.append((hole, number if number <= 9 else number - 9, physical, "front"))
             else:
-                out.append((hole, number, number - 9, "back"))
+                physical = int(hole.get("localHole") or hole.get("sourceLocalHole") or 0)
+                if not physical:
+                    physical = number if round_loop_half(row, "back") == "back" else number - 9
+                out.append((hole, number, physical, "back"))
     else:
         for hole, number in zip(holes, numbers):
-            out.append((hole, number, number, "back" if number > 9 else "front"))
+            physical = int(hole.get("localHole") or hole.get("sourceLocalHole") or number)
+            out.append((hole, number, physical, "back" if number > 9 else "front"))
     # Compare display numbers after merged-nine normalization: a legacy first-card 10 may be
     # display 1. Explicit identities win even when they occur later in the source list.
     explicit_displays = {display for hole, display, _physical, _side in out
@@ -169,19 +182,23 @@ def restore_hole_par(
 ) -> int | None:
     """Return the one par source that makes a missing score safe to materialize.
 
-    The scorecard's own hole/par wins.  A partial nine-hole card can then name the physical
-    course loop and hole in the restore payload; the persisted course-reference store supplies
-    that loop's nine-hole par.  Both reconciliation suggestions and corrected history call this
-    function, so an unavailable par cannot produce an annotation that later has no effect.
+    The scorecard's own hole/par wins when the restore stays on its front loop. A partial card
+    can name another physical course loop and hole in the restore payload; the persisted
+    course-reference store supplies that loop's par. Both reconciliation suggestions and corrected
+    history call this function, so an unavailable par cannot produce an annotation that later has
+    no effect.
     """
-    direct = _hole_par(row, {}, number)
-    if direct is not None:
-        return direct
     payload = payload if isinstance(payload, dict) else {}
     gid = _int(payload.get("restoreGlobalId"))
     local = _int(payload.get("restoreLocalHole"))
     if gid is None or local is None or local <= 0:
         return None
+    # A restore from another loop must never index the first card's inline 18-hole par string.
+    # That string describes the front course even when the display hole is 10..18.
+    front_gid = front_course_global_id(row)
+    direct = None if front_gid is not None and gid != front_gid else _hole_par(row, {}, number)
+    if direct is not None:
+        return direct
     try:
         from ai_caddie.courses.course_reference import load_course_par
         record = load_course_par(gid, root=root) if root is not None else load_course_par(gid)
@@ -315,12 +332,14 @@ def corrected_rounds(
             synthetic["par"] = par
             synthetic["strokes"] = total
             synthetic["_scoreCorrected"] = True
-            if (row.get("merged") and number <= 9
-                    and isinstance(score_payload, dict) and _int(score_payload.get("restoreLocalHole"))):
-                synthetic["localHole"] = _int(score_payload["restoreLocalHole"])
-                if _int(score_payload.get("restoreGlobalId")) is not None:
-                    synthetic["sourceGlobalId"] = _int(score_payload["restoreGlobalId"])
-            front_gid = _int(row.get("frontNineGlobalCourseId") or row.get("globalId") or row.get("courseId"))
+            restore_local = _int(score_payload.get("restoreLocalHole")) if isinstance(score_payload, dict) else None
+            restore_gid = _int(score_payload.get("restoreGlobalId")) if isinstance(score_payload, dict) else None
+            if restore_local:
+                synthetic["localHole"] = restore_local
+                synthetic["sourceLocalHole"] = restore_local
+            if restore_gid is not None:
+                synthetic["sourceGlobalId"] = restore_gid
+            front_gid = front_course_global_id(row)
             if number >= 10 and isinstance(score_payload, dict) and (
                     _int(score_payload.get("restoreLocalHole")) != number
                     or _int(score_payload.get("restoreGlobalId")) != front_gid):
@@ -337,6 +356,24 @@ def corrected_rounds(
         row = {**row, "holes": holes}
         if added_back_gid is not None and not row.get("backNineGlobalCourseId"):
             row["backNineGlobalCourseId"] = added_back_gid
+            if not row.get("roundLoops"):
+                from ai_caddie.history.history import _round_loop_table
+                front_half = "front" if len(str(row.get("holePars") or "")) >= 18 else "all"
+                restore_local_holes = [
+                    _int(hole.get("localHole") or hole.get("sourceLocalHole"))
+                    for hole in holes
+                    if isinstance(hole, dict) and _int(hole.get("number")) and _int(hole.get("number")) >= 10
+                ]
+                restore_half = "back" if any(local and local > 9 for local in restore_local_holes) else "all"
+                if restore_half == "all":
+                    try:
+                        from ai_caddie.courses.course_reference import load_course_par
+                        record = load_course_par(added_back_gid, root=restore_root) if restore_root is not None else load_course_par(added_back_gid)
+                        if record is not None and len(record.par or []) >= 18:
+                            restore_half = "front"
+                    except (OSError, TypeError, ValueError):
+                        pass
+                row["roundLoops"] = _round_loop_table([(front_gid or added_back_gid, front_half), (added_back_gid, restore_half)])
         if corrected_refs:
             if _int(row.get("strokes")) is not None:
                 row["strokes"] = _int(row["strokes"]) + delta + added_total
@@ -435,6 +472,8 @@ def corrected_history_data(
     same-size rewrites invalidate. Unversioned in-memory inputs use a content digest; loaded
     histories already carry that digest and need no full-history serialization on a cache hit.
     """
+    if course_root is None:
+        course_root = annotations_root if annotations_root is not None else corrections_root
     if data.corrected:
         return data
     kwargs = dict(player_id=player_id, annotations_root=annotations_root,

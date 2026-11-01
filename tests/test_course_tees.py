@@ -13,6 +13,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import call, patch
 
+from tests.service_logging import ServiceLoggingIsolationMixin
+
 from fastapi.testclient import TestClient
 
 from ai_caddie.caddie import analysis
@@ -34,7 +36,7 @@ def _geometry_with_tees(set_to_distance: dict[int, float]) -> dict:
     return {"hazards": {"tees": tees}}
 
 
-class CourseTeeOptionsTests(unittest.TestCase):
+class CourseTeeOptionsTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_default_path_uses_transient_tee_geometry_not_full_classification_cache(self) -> None:
         per_hole = _geometry_with_tees({1: 300.0, 2: 280.0})
         release_tees = [
@@ -276,7 +278,7 @@ class CourseTeeOptionsTests(unittest.TestCase):
         self.assertIsNone(_normalize_tee_color(None))
 
 
-class CourseTeesEndpointTests(unittest.TestCase):
+class CourseTeesEndpointTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_repeated_tee_list_does_not_reread_hole_meshes(self) -> None:
         # C87: Tee yards come from each hole's compact hazard export; the large mesh is read only to
         # rebind older exports. A second request over unchanged files must not parse any mesh again.
