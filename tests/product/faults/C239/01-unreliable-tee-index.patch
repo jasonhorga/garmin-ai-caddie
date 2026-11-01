@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/rounds/round_ingest.py b/ai_caddie/rounds/round_ingest.py
+index fbfb2cd..eb55d14 100644
+--- a/ai_caddie/rounds/round_ingest.py
++++ b/ai_caddie/rounds/round_ingest.py
+@@ -810,6 +810,3 @@ def _geometry_inputs(
+                 gir_end = (landing["lat"], landing["lon"])
+-    tee_point = (
+-        (shots[1]["lat"], shots[1]["lon"])
+-        if par >= 4 and len(shots) >= 2 and index_reliable else None
+-    )
++    tee_point = (shots[1]["lat"], shots[1]["lon"]) if par >= 4 and len(shots) >= 2 else None
+     return gir_end, tee_point
