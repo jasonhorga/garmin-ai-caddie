@@ -824,16 +824,16 @@ def reconcile_mobile_round_events(
         root=annotations_root if annotations_root is not None else root,
         player_id=player_id,
     )
-    applied_decision_ids = {
-        str(row.get("decisionId") or "")
-        for row in list_decision_audits(root=root, player_id=player_id)
-        if row.get("decisionId")
-    }
     feedback_filtered_audits = [
         row for row in candidate_audits
         if f"{row.get('eventId')}:caddie-feedback" not in applied_feedback_annotations
     ]
     candidate_audits = feedback_filtered_audits
+    applied_decision_ids = {
+        str(row.get("decisionId") or "")
+        for row in list_decision_audits(root=root, player_id=player_id)
+        if row.get("decisionId")
+    }
     candidate_audits = [
         row for row in candidate_audits
         if str(row.get("decisionId") or "") not in applied_decision_ids
