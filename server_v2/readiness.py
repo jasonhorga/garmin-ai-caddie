@@ -1029,10 +1029,15 @@ def warm_mobile_readiness_in_background(stats_snapshot: dict[str, Any]) -> threa
         existing = _MOBILE_READINESS_THREADS.get("me")
         if current is not None and current.get("revision") == revision and existing is not None and existing.is_alive():
             return existing
+        last_failure = (
+            (current.get("evidence") or {}).get("reason")
+            if current and current.get("revision") == revision else None
+        )
         _MOBILE_READINESS["me"] = {
             "state": "warming",
             "revision": revision,
-            "evidence": {"stale": True, "revision": revision, "source": "background"},
+            "evidence": {"stale": True, "revision": revision, "source": "background",
+                         **({"reason": last_failure} if last_failure else {})},
         }
 
         def run() -> None:
@@ -1073,14 +1078,20 @@ def _mobile_readiness_status(stats_snapshot: dict[str, Any] | None) -> dict[str,
     revision = str(stats_snapshot.get("revision") or "") if isinstance(stats_snapshot, dict) else ""
     with _MOBILE_READINESS_LOCK:
         status = dict(_MOBILE_READINESS.get("me") or {})
-    if status.get("revision") == revision and status.get("state") in {"ready", "degraded"}:
+    same_revision = status.get("revision") == revision
+    # A completed package can legitimately be degraded (e.g. missing geometry). Cache that
+    # evidence, but retry a builder exception on the next poll instead of making it permanent.
+    last_failure = (status.get("evidence") or {}).get("reason") if same_revision else None
+    retry_failed_build = status.get("state") == "degraded" and bool(last_failure)
+    if same_revision and status.get("state") in {"ready", "warming", "degraded"} and not retry_failed_build:
         return status
     if isinstance(stats_snapshot, dict) and os.getenv("AI_CADDIE_READINESS_TRACE") != "1":
         warm_mobile_readiness_in_background(stats_snapshot)
     return {
         "state": "warming",
         "revision": revision,
-        "evidence": {"stale": True, "revision": revision, "source": "background"},
+        "evidence": {"stale": True, "revision": revision, "source": "background",
+                     **({"reason": last_failure} if last_failure else {})},
     }
 
 
