@@ -7,6 +7,20 @@
       "kind": "python",
       "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_C263_readiness_snapshot_hit_only_reports_mobile_status",
       "promise": "C263"
+    },
+    {
+      "id": "tests-product-faults-C263-F2",
+      "patch": "tests/product/faults/C263/02-cache-failed-mobile-warm.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_G7_mobile_warm_recovers_after_transient_failure_at_same_revision",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C263-F3",
+      "patch": "tests/product/faults/C263/03-failed-mobile-warm-stays-warming.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_G7_mobile_warm_recovers_after_transient_failure_at_same_revision",
+      "promise": "G7"
     }
   ]
 }
