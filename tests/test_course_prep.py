@@ -932,6 +932,43 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual([step["club"] for step in steps], ["Driver", "3W", "3W", "SW"])
         self._assert_no_landing_in_water(steps, hazards)
 
+    def test_j4_6_every_continuation_path_uses_the_shared_tail(self) -> None:
+        """J4.6: nearest, longest advance, and no-layup paths use the online tail rule."""
+        cases = (
+            # nearest-club branch: the shared scorer chooses the hand-written continuation.
+            ([('Driver', 197), ('8I', 121), ('50', 84)], 330.0),
+            # longest-advance branch on a long Par 5.
+            ([('Driver', 197), ('3W', 170), ('8I', 121), ('50', 84)], 560.0),
+            # no full-wedge club: _layup_position_club returns None.
+            ([('Driver', 197), ('3W', 170), ('9I', 60)], 396.0),
+        )
+        for ladder, route_len in cases:
+            with self.subTest(route_len=route_len, ladder=ladder):
+                with patch.object(cp, '_shared_sequence_tail', return_value=[('50', 84.0)]):
+                    steps, *_ = cp._strategy(4 if route_len < 500 else 5, route_len, self._NO_HAZARDS, ladder)
+                self.assertEqual([step['club'] for step in steps], ['Driver', '50'])
+
+    def test_j4_6_scoring_window_includes_16_to_20m_boundary(self) -> None:
+        """J4.6: a continuation leaving 16–20m is the scoring leg."""
+        ladder = [('Driver', 197), ('3W', 170), ('8I', 121), ('50', 84)]
+        steps, *_ = cp._strategy(4, 334.0, self._NO_HAZARDS, ladder)
+        self.assertEqual([step['club'] for step in steps], ['Driver', '8I'])
+        self.assertEqual(steps[-1]['role'], 'scoring')
+        self.assertGreaterEqual(steps[-1]['expectedRemaining_m'], 16.0)
+        self.assertLessEqual(steps[-1]['expectedRemaining_m'], 20.0)
+
+    def test_j4_6_shared_tail_fallback_keeps_carry_descending_through_water(self) -> None:
+        """J4.6: an empty shared tail must not reintroduce an increasing carry."""
+        ladder = [('Driver', 197), ('3W', 170), ('8I', 121), ('50', 84), ('58', 35)]
+        hazards = {'water_carry': [[360.0, 470.0]], 'bunkers': [], 'details': []}
+        # The water makes every complete shared continuation infeasible.  The layup probe is
+        # deliberately a shorter safe position, which exposed the old fallback's next long club.
+        with patch.object(cp, '_shared_sequence_tail', return_value=[]), \
+                patch.object(cp, '_layup_position_club', return_value=('58', 35.0)):
+            steps, *_ = cp._strategy(4, 396.0, hazards, ladder)
+        carries = [step['targetCarry_m'] for step in steps]
+        self.assertEqual(carries, sorted(carries, reverse=True))
+
     def test_in_triangle(self) -> None:
         a, b, c = (0, 0), (10, 0), (0, 10)
         self.assertTrue(cp._in_tri((2, 2), a, b, c))
