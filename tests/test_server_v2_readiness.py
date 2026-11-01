@@ -210,6 +210,51 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(overall, "ready")
         self.assertEqual(runtime, "ready")
 
+    def test_G7_mobile_warm_recovers_after_transient_failure_at_same_revision(self) -> None:
+        """G7: retrying mobile warm stays warming and eventually opens the TF gate."""
+        snapshot = {
+            "value": {"summary": {"totalRounds": 1}, "drillDown": {"roundIds": ["900001"]}},
+            "revision": "mobile-transient-retry",
+            "stale": False,
+            "dataMode": "fixture",
+            "source": "memory",
+        }
+        package = SimpleNamespace(
+            schema_="ai-caddie-live-round-package-v2", roundId="900001", holes=[],
+            caddieDecisionEndpoint="/api/v2/caddie/decision", offlinePackageStatus={},
+            sourceCoverage={"state": "ready"}, geometryCoverage={"state": "ready"},
+            readinessChecks=[], caddieContextSeeds=[], cachedCaddieRules={}, missingData=[],
+        )
+        start_warm = readiness.warm_mobile_readiness_in_background
+        workers = []
+
+        def start_and_finish(snapshot):
+            worker = start_warm(snapshot)
+            if worker is not None:
+                workers.append(worker)
+                # Complete this poll's real worker before the next poll; no scheduling/sleep race.
+                worker.join()
+            return worker
+
+        with patch.object(readiness, "_MOBILE_READINESS", {}), \
+             patch.object(readiness, "_MOBILE_READINESS_THREADS", {}), \
+             patch.dict("os.environ", {"AI_CADDIE_READINESS_TRACE": "0"}), \
+             patch.object(readiness, "load_history_stats_snapshot", return_value=snapshot), \
+             patch.object(readiness, "build_mobile_round_package_response",
+                          side_effect=[RuntimeError("transient package failure"), package]) as builder, \
+             patch.object(readiness, "warm_mobile_readiness_in_background", side_effect=start_and_finish):
+            polls = []
+            for _ in range(4):
+                payload = build_readiness_response()
+                polls.append(next(row for row in payload["checks"] if row["label"] == "mobile_package"))
+
+        # G7: the failed attempt and its retry wait; the completed retry and later polls are ready.
+        self.assertEqual([row["state"] for row in polls], ["warming", "warming", "ready", "ready"])
+        self.assertIn("transient package failure", polls[1]["evidence"]["reason"])
+        self.assertNotIn("reason", polls[2]["evidence"])
+        self.assertEqual(builder.call_count, 2, "successful mobile evidence must stay cached at the same revision")
+        self.assertEqual(len(workers), 2)
+
     def _write_backup_manifest(self, path: Path, created_at: datetime) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         snapshot = path.parent / "ai-caddie-snapshot.tar.gz"
