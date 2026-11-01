@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C271-01-remap-unconditional-minus-nine",
+      "patch": "tests/product/faults/C271/remap-unconditional-minus-nine.patch",
+      "kind": "python",
+      "target": "tests.test_corrected_history.MergedShotHoleMappingTest.test_j1_3_m1_back_shot_stays_on_physical_hole_12",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C271-02-mobile-unconditional-minus-nine",
+      "patch": "tests/product/faults/C271/mobile-unconditional-minus-nine.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_mobile.MergedMobileHoleGeometryTest.test_j1_3_mobile_live_geometry_uses_back_loop_identity",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C271-03-snapshot-unconditional-minus-nine",
+      "patch": "tests/product/faults/C271/snapshot-unconditional-minus-nine.patch",
+      "kind": "python",
+      "target": "tests.test_connector_snapshot.MergedSnapshotHoleGeometryTest.test_j1_3_snapshot_shot_geometry_keeps_m1_back_hole_12",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C271-04-nine-hole-no-minus-nine",
+      "patch": "tests/product/faults/C271/nine-hole-no-minus-nine.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_mobile.MergedMobileHoleGeometryTest.test_j1_3_mobile_live_geometry_normalizes_nine_and_front_loops",
+      "promise": "1.3"
+    }
+  ]
+}

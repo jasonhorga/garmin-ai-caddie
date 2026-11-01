@@ -1,0 +1,9 @@
+diff --git a/ai_caddie/history/history.py b/ai_caddie/history/history.py
+index 74128f32..438e8e49 100644
+--- a/ai_caddie/history/history.py
++++ b/ai_caddie/history/history.py
+@@ -897,3 +897,3 @@ def remap_shots_to_merged_rounds(
+                     physical_back = offset == 9 and source_hole > 9 and alias.get("backHalf") == "back"
+-                    if offset == 9 and source_hole > 9 and not physical_back:
++                    if offset == 9 and source_hole > 9:
+                         source_hole -= 9

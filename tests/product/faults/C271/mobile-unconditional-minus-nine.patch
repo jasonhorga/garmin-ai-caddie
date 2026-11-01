@@ -1,0 +1,9 @@
+diff --git a/ai_caddie/caddie/mobile_live.py b/ai_caddie/caddie/mobile_live.py
+index 71e427ce..ae25dc77 100644
+--- a/ai_caddie/caddie/mobile_live.py
++++ b/ai_caddie/caddie/mobile_live.py
+@@ -799,3 +799,3 @@ def _round_hole_geometry_ref(round_row: dict[str, Any], hole: int) -> tuple[int
+     if back_global_id is not None:
+-        return back_global_id, merged_back_local_hole(round_row, hole)
++        return back_global_id, hole - 9
+     # Garmin can encode an A+A (or standalone nine played twice) round without repeating the
