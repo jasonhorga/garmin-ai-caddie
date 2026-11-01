@@ -42,6 +42,35 @@ def _event_rows(round_id: str, *, root: Path | str | None = None, player_id: str
     return rows
 
 
+def _latest_effective_score_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep the authoritative last score/putt/penalty event for each phone hole.
+
+    The event store's server sequence is the append order used by the mobile round state.  Events
+    of other kinds remain untouched because they are independent evidence (for example, each shot
+    can audit a different caddie decision).
+    """
+    latest: dict[tuple[str, int], tuple[int, int]] = {}
+    for index, event in enumerate(events):
+        kind = str(event.get("kind") or "")
+        hole = _safe_int(event.get("hole")) or 0
+        if kind not in {"score", "putt", "penalty"} or hole <= 0:
+            continue
+        sequence = _safe_int(event.get("serverSequence"))
+        order = sequence if sequence is not None else index
+        key = (kind, hole)
+        previous = latest.get(key)
+        if previous is None or (order, index) > previous:
+            latest[key] = (order, index)
+    return [
+        event for index, event in enumerate(events)
+        if (
+            str(event.get("kind") or "") not in {"score", "putt", "penalty"}
+            or (_safe_int(event.get("hole")) or 0) <= 0
+            or latest.get((str(event.get("kind") or ""), _safe_int(event.get("hole")) or 0), (None, index))[1] == index
+        )
+    ]
+
+
 def _round_row(round_id: str, data: HistoryData) -> dict[str, Any]:
     requested = str(round_id)
     return next(
@@ -63,6 +92,13 @@ def _hole_scores(
     from ai_caddie.reports.annotations import list_annotation_records
     from ai_caddie.rounds.correction_audit import _round_correction_events, effective_hole
 
+    # Keep the source Garmin values alongside the effective values.  A normal correction is
+    # conditional on the ``from`` value the player saw; if a later Garmin sync changed that
+    # source value, reconciliation must compare the phone event with Garmin again rather than
+    # letting the old annotation hide the new fact.
+    source_holes = {
+        number: hole for hole, number, _physical, _side in hole_sides(round_row)
+    }
     annotation_records = list_annotation_records(
         root=annotations_root if annotations_root is not None else root, player_id=player_id,
     )
@@ -90,9 +126,20 @@ def _hole_scores(
     correction_events = _round_correction_events(player_id, round_row, root=root)
     scores: dict[int, dict[str, Any]] = {}
     for _hole, number, _physical, _side in hole_sides(round_row):
-        (total, _), (putts, _), (penalty, _) = effective_hole(
+        (total, total_winner), (putts, _), (penalty, _) = effective_hole(
             round_row, number, annotation_records, correction_events,
         )
+        source_hole = source_holes.get(number) or {}
+        source_strokes = _safe_int(source_hole.get("strokes"))
+        # Only a non-restore score correction has a meaningful source value.  A restore uses
+        # ``from=None`` and remains effective until Garmin supplies a real score, which the
+        # corrected-history projection already leaves visible.
+        if (isinstance(total_winner, dict)
+                and total_winner.get("kind") == "score_correction"
+                and isinstance(total_winner.get("payload"), dict)):
+            from_value = _safe_int(total_winner["payload"].get("from"))
+            if from_value is not None and source_strokes is not None and source_strokes != from_value:
+                total = source_strokes
         scores[number] = {
             "strokes": total,
             "putts": putts,
@@ -572,7 +619,7 @@ def reconcile_mobile_round_events(
     course_root: Path | str | None = None,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
-    events = _event_rows(round_id, root=root, player_id=player_id)
+    events = _latest_effective_score_events(_event_rows(round_id, root=root, player_id=player_id))
     round_row = _round_row(round_id, data)
     identity = load_mobile_round_identity(round_id, root=root, player_id=player_id)
     hole_map = _reconciliation_hole_map(round_row, identity)
@@ -778,9 +825,14 @@ def reconcile_mobile_round_events(
         for row in list_decision_audits(root=root, player_id=player_id)
         if row.get("decisionId")
     }
+    applied_feedback_annotations = _existing_source_suggestion_ids(
+        root=annotations_root if annotations_root is not None else root,
+        player_id=player_id,
+    )
     candidate_audits = [
         row for row in candidate_audits
         if str(row.get("decisionId") or "") not in applied_decision_ids
+        and f"{row.get('eventId')}:caddie-feedback" not in applied_feedback_annotations
     ]
     identity_holes = {
         int(row.get("number")): row for row in (identity or {}).get("holes", [])
