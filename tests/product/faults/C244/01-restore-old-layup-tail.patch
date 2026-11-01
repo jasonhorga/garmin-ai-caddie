@@ -1,0 +1,15 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 04908c47..5ef4169e 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -1950,9 +1950,7 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_
+                         remaining, approach_ladder, start_m=route_offset_m, hazards=hazards,
+                     )
+                     if layup is not None:
+-                        shared_tail = _shared_sequence_tail(
+-                            remaining, approach_ladder, start_m=route_offset_m, hazards=hazards,
+-                        )
++                        shared_tail = []
+                         if shared_tail:
+                             for tail_index, (tail_club, tail_distance) in enumerate(shared_tail):
+                                 before = remaining

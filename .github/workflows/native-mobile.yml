@@ -41,6 +41,7 @@ on:
     paths:
       - 'mobile/ios/**'
       - 'Package.swift'
+      - 'tests/product/fixtures/shared/**'
       - 'ops/write_native_build_evidence.py'
       - '.github/scripts/preflight_live_course_catalogue.py'
       - '.github/scripts/retry-transient-command.sh'
@@ -85,6 +86,7 @@ jobs:
       - name: Generate native project
         run: xcodegen generate --spec mobile/ios/project.yml --project-root .
       - name: Build iOS tests while prebooting simulator
+        id: quick_build
         run: |
           set -euo pipefail
           mkdir -p native-quick-results
@@ -107,6 +109,7 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/NativeQuickDerivedData" \
             2>&1 | tee native-quick-results/ios-build-xcodebuild.log
       - name: Test iOS app target without rebuilding
+        id: test_ios_app
         run: |
           set -euo pipefail
           xcrun simctl bootstatus "$NATIVE_QUICK_IOS_UDID" -b \
@@ -119,12 +122,22 @@ jobs:
             -test-timeouts-enabled YES \
             -default-test-execution-time-allowance 120 \
             -maximum-test-execution-time-allowance 300 \
-            -destination "$IOS_DESTINATION" \
+            -destination "platform=iOS Simulator,id=$NATIVE_QUICK_IOS_UDID" \
             -derivedDataPath "$RUNNER_TEMP/NativeQuickDerivedData" \
             -resultBundlePath native-quick-results/iOS.xcresult \
             2>&1 | tee native-quick-results/ios-test-xcodebuild.log
+      - name: Check quick build products
+        id: quick_products
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          if compgen -G "$RUNNER_TEMP/NativeQuickDerivedData/Build/Products/*.xctestrun" > /dev/null; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Test Watch unit target when affected
-        if: steps.watch_changes.outputs.needed == 'true'
+        if: ${{ !cancelled() && steps.quick_build.outcome == 'success' && steps.watch_changes.outputs.needed == 'true' && steps.quick_products.outputs.ready == 'true' }}
         run: |
           set -euo pipefail
           WATCH_UDID=$(xcrun simctl list devices available -j | jq -r '
@@ -148,10 +161,30 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/NativeQuickDerivedData" \
             -resultBundlePath native-quick-results/Watch.xcresult \
             2>&1 | tee native-quick-results/watch-test-xcodebuild.log
+      - name: J4.2 fixture DNS gate (quick native tests)
+        if: ${{ !cancelled() && steps.test_ios_app.outcome != 'skipped' }}
+        run: |
+          set -euo pipefail
+          if ! test -f native-quick-results/ios-test-xcodebuild.log; then
+            echo 'J4.2 native fixture DNS gate: iOS test log is missing' >&2
+            exit 1
+          fi
+          logs=()
+          for log in native-quick-results/ios-test-xcodebuild.log native-quick-results/watch-test-xcodebuild.log; do
+            if [ -f "$log" ]; then
+              logs+=("$log")
+            fi
+          done
+          if [ "${#logs[@]}" -eq 0 ]; then
+            echo 'J4.2 native fixture DNS gate: no fixture test logs were produced' >&2
+            exit 1
+          fi
+          python3 .github/scripts/check_native_fixture_dns.py "${logs[@]}"
       - name: Upload quick failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
+          overwrite: true
           name: native-quick-failure-diagnostics
           path: native-quick-results/
           if-no-files-found: warn
@@ -184,12 +217,12 @@ jobs:
         run: xcrun simctl list devices available
       - &install_uv_for_isolated_ci_fixture
         name: Install uv for isolated CI fixture
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
+        if: ${{ inputs.fixture_mode }}
         run: brew install uv
       - &start_isolated_ci_fixture
         name: Start isolated CI fixture
         id: start_fixture
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
+        if: ${{ inputs.fixture_mode }}
         run: |
           set -euo pipefail
           command -v openssl >/dev/null 2>&1 || { echo "openssl is required for fixture token generation" >&2; exit 1; }
@@ -231,7 +264,7 @@ jobs:
           exit 1
       - &upload_fixture_startup_diagnostics
         name: Upload fixture startup diagnostics
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.fixture_mode && steps.start_fixture.outcome == 'failure' }}
+        if: ${{ always() && inputs.fixture_mode && steps.start_fixture.outcome == 'failure' }}
         run: |
           set -euo pipefail
           mkdir -p fixture-startup-diagnostics
@@ -244,15 +277,16 @@ jobs:
         continue-on-error: true
       - &upload_fixture_startup_diagnostics_artifact
         name: Upload fixture startup diagnostics artifact
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.fixture_mode && steps.start_fixture.outcome == 'failure' }}
+        if: ${{ always() && inputs.fixture_mode && steps.start_fixture.outcome == 'failure' }}
         uses: actions/upload-artifact@v4
         with:
+          overwrite: true
           name: fixture-startup-diagnostics${{ env.NATIVE_ARTIFACT_SUFFIX }}
           path: fixture-startup-diagnostics/
           if-no-files-found: error
       - &configure_live_native_auth
         name: Configure live native auth
-        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fixture_mode }}
+        if: ${{ !inputs.fixture_mode }}
         env:
           LIVE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
         run: |
@@ -264,7 +298,7 @@ jobs:
           printf 'ARTIFACT_ADMIN_TOKEN=%s\n' "$LIVE_ADMIN_TOKEN" >> "$GITHUB_ENV"
       - &resolve_live_api_host_for_hosted_runners
         name: Resolve live API host for hosted runners
-        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fixture_mode }}
+        if: ${{ !inputs.fixture_mode }}
         env:
           NATIVE_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
         run: |
@@ -324,7 +358,7 @@ jobs:
       - &validate_native_launch_prerequisites
         name: Validate native launch prerequisites
         id: validate_native_launch_prereq
-        if: ${{ github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
+        if: ${{ (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         env:
           NATIVE_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
           NATIVE_FIXTURE_MODE: ${{ inputs.fixture_mode && '1' || '0' }}
@@ -347,7 +381,7 @@ jobs:
       - &validate_native_launch_environment_app_target
         name: Validate native launch environment (app target)
         id: validate_native_launch_environment_app
-        if: ${{ github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
+        if: ${{ (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         env:
           NATIVE_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
           NATIVE_FIXTURE_MODE: ${{ inputs.fixture_mode && '1' || '0' }}
@@ -369,7 +403,7 @@ jobs:
       - &validate_native_launch_environment
         name: Validate native launch environment
         id: validate_native_launch_environment
-        if: ${{ github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
+        if: ${{ (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         env:
           NATIVE_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
           NATIVE_FIXTURE_MODE: ${{ inputs.fixture_mode && '1' || '0' }}
@@ -544,19 +578,20 @@ jobs:
       - &scan_design_snapshots_for_secret_bytes
         name: Scan design snapshots for secret bytes
         id: scan_design_snapshots
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && github.event.inputs.capture_scope != 'edit' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN design-snapshots
       - &upload_design_snapshots
         name: Upload design snapshots
         if: ${{ always() && (github.event.inputs.capture_scope != 'edit' && steps.scan_design_snapshots.outcome == 'success') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         uses: actions/upload-artifact@v4
         with:
+          overwrite: true
           name: design-snapshots
           path: design-snapshots/
           if-no-files-found: warn
       - &preflight_live_course_discovery
         name: Preflight live course discovery
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.require_live_preflight && !inputs.fixture_mode }}
+        if: ${{ inputs.require_live_preflight && !inputs.fixture_mode }}
         env:
           AI_CADDIE_PREFLIGHT_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
           AI_CADDIE_PREFLIGHT_AUTH_MODE: admin
@@ -574,9 +609,9 @@ jobs:
       - &real_simulator_screenshots_ios_xcuitest_against_live_backend
         name: Real-simulator screenshots (iOS, XCUITest against live backend)
         id: real_ios_capture
-        if: ${{ github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
-        # Leave fixture runners time to scan/upload diagnostics before their 45-minute job cap.
-        timeout-minutes: ${{ inputs.fixture_mode && 35 || 90 }}
+        if: ${{ (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        # Leave fixture runners time to scan/upload diagnostics before their job cap.
+        timeout-minutes: ${{ inputs.fixture_mode && (env.NATIVE_CAPTURE_SHARD == 'real-flow' && 45 || 35) || 90 }}
         env:
           # TEST_RUNNER_-prefixed vars are forwarded by xcodebuild into the UI-test runner environment
           # (the plain forms are a fallback in case they propagate too). The test reads both.
@@ -666,7 +701,11 @@ jobs:
           kill -INT "$REC_PID" 2>/dev/null || true
           sleep 4
           if [[ "$NATIVE_CAPTURE_SHARD" == "screenshots" && "$UITEST_CAPTURE_SCOPE" != "edit" ]]; then
-            mv real-videos/real-flow.mp4 real-videos/screenshots.mp4
+            if [ -f real-videos/real-flow.mp4 ]; then
+              mv real-videos/real-flow.mp4 real-videos/screenshots.mp4
+            else
+              echo '::warning::Screenshot shard recording is missing; preserving UI test status'
+            fi
           fi
           ls -la real-videos || true
           # Surface each UI-test assertion as a job annotation: the inline xcodebuild failure line
@@ -685,7 +724,7 @@ jobs:
           exit "$TEST_STATUS"
       - &collect_real_screenshots
         name: Collect real screenshots
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           mkdir -p real-screenshots
           find ~/Library/Developer/CoreSimulator -path "*Documents/real-screenshots/*" -exec cp {} real-screenshots/ \; 2>/dev/null || true
@@ -713,30 +752,32 @@ jobs:
       - &scan_real_native_evidence_for_secret_bytes
         name: Scan real Native evidence for secret bytes
         id: scan_real_native_evidence
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: >-
           python3 .github/scripts/scan_artifacts_for_secrets.py
           --secret-env ARTIFACT_ADMIN_TOKEN
           real-screenshots real-videos
       - &upload_real_screenshots
         name: Upload real screenshots
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && steps.scan_real_native_evidence.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && steps.scan_real_native_evidence.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         uses: actions/upload-artifact@v4
         with:
+          overwrite: true
           name: real-screenshots${{ env.NATIVE_ARTIFACT_SUFFIX }}
           path: real-screenshots/
           if-no-files-found: warn
       - &upload_real_video
         name: Upload real video
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && steps.scan_real_native_evidence.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && steps.scan_real_native_evidence.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         uses: actions/upload-artifact@v4
         with:
+          overwrite: true
           name: real-video${{ env.NATIVE_ARTIFACT_SUFFIX }}
           path: real-videos/
           if-no-files-found: warn
       - &remove_ui_test_app_data
         name: Remove UI-test app data
-        if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+        if: ${{ always() }}
         run: |
           UDID=$(xcrun simctl list devices available | grep -E "iPhone 16 \(" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
           if [ -n "$UDID" ]; then
@@ -745,7 +786,7 @@ jobs:
           fi
       - &stop_isolated_ci_fixture
         name: Stop isolated CI fixture
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
+        if: ${{ always() && inputs.fixture_mode }}
         run: |
           if [ -f "$RUNNER_TEMP/ai-caddie-fixture.pid" ]; then
             pid="$(cat "$RUNNER_TEMP/ai-caddie-fixture.pid")"
@@ -823,20 +864,21 @@ jobs:
       - &scan_watch_design_snapshots_for_secret_bytes
         name: Scan Watch design snapshots for secret bytes
         id: scan_watch_snapshots
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN watch-snapshots
       - &upload_watch_design_snapshots
         name: Upload Watch design snapshots
         if: ${{ always() && (github.event.inputs.capture_scope == 'full' && steps.scan_watch_snapshots.outcome == 'success') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         uses: actions/upload-artifact@v4
         with:
+          overwrite: true
           name: watch-snapshots
           path: watch-snapshots/
           if-no-files-found: warn
       - &real_watch_round_seed_and_restore_screenshots
         name: Real Watch round seed and restore screenshots
         id: capture_watch_real_screenshots
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           set -euo pipefail
           WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
@@ -914,20 +956,20 @@ jobs:
       - &scan_watch_runtime_screenshots_for_secret_bytes
         name: Scan Watch runtime screenshots for secret bytes
         id: scan_watch_real_screenshots
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN watch-real-screenshots
       - &upload_watch_real_screenshots
         name: Upload watch real screenshots
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && steps.scan_watch_real_screenshots.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && steps.scan_watch_real_screenshots.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         uses: actions/upload-artifact@v4
         with:
+          overwrite: true
           name: watch-real-screenshots
           path: watch-real-screenshots/
           if-no-files-found: error
       - name: Write native build evidence
         if: ${{ always() && github.event.inputs.capture_scope != 'edit' }}
         env:
-          NATIVE_EVENT_NAME: ${{ github.event_name }}
           NATIVE_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
           IOS_TARGET_OUTCOME: ${{ steps.test_ios_app.outcome }}
           IOS_CAPTURE_OUTCOME: ${{ steps.real_ios_capture.outcome }}
@@ -945,7 +987,7 @@ jobs:
             esac
           }
           ios_status="$(status_from_outcome "$IOS_TARGET_OUTCOME")"
-          if [[ "$IOS_TARGET_OUTCOME" == "success" && "$NATIVE_EVENT_NAME" == "workflow_dispatch" ]]; then
+          if [[ "$IOS_TARGET_OUTCOME" == "success" ]]; then
             ios_status="$(status_from_outcome "$IOS_CAPTURE_OUTCOME")"
           fi
           if [[ "$FIXTURE_MODE" == "true" && "$FIXTURE_START_OUTCOME" != "success" ]]; then
@@ -958,7 +1000,7 @@ jobs:
             ios_status="skipped"
           fi
           watch_status="passed"
-          if [[ "$NATIVE_EVENT_NAME" == "workflow_dispatch" && "$NATIVE_CAPTURE_SCOPE" != "full" ]]; then
+          if [[ "$NATIVE_CAPTURE_SCOPE" != "full" ]]; then
             watch_status="skipped"
           else
             watch_status="$(status_from_outcome "$WATCH_TEST_OUTCOME")"
@@ -978,13 +1020,14 @@ jobs:
       - &scan_native_build_evidence_for_secret_bytes
         name: Scan native build evidence for secret bytes
         id: scan_native_build_evidence
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && github.event.inputs.capture_scope != 'edit' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN mobile/ios/native_build_evidence.json
       - &upload_native_build_evidence
         name: Upload native build evidence
         if: always() && (github.event.inputs.capture_scope != 'edit' && steps.scan_native_build_evidence.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')))
         uses: actions/upload-artifact@v4
         with:
+          overwrite: true
           name: ${{ inputs.fixture_mode && 'native-build-evidence-ci-fixture' || 'native-build-evidence' }}${{ env.NATIVE_ARTIFACT_SUFFIX }}
           path: mobile/ios/native_build_evidence.json
 
@@ -1032,7 +1075,6 @@ jobs:
       - name: Write native build evidence
         if: ${{ always() && github.event.inputs.capture_scope != 'edit' }}
         env:
-          NATIVE_EVENT_NAME: ${{ github.event_name }}
           NATIVE_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
           IOS_TARGET_OUTCOME: ${{ steps.test_ios_app.outcome }}
           IOS_CAPTURE_OUTCOME: ${{ steps.test_ios_app.outcome }}
@@ -1049,7 +1091,7 @@ jobs:
   native-real-flow:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 55
     env:
       IOS_DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=latest
       WATCH_DESTINATION: platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest
@@ -1235,6 +1277,7 @@ jobs:
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
+          overwrite: true
           name: product-ui-xcresult
           path: product-ui-results/
           if-no-files-found: warn
@@ -1242,6 +1285,7 @@ jobs:
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
+          overwrite: true
           name: product-ui-screenshots
           path: product-ui-screenshots/
           if-no-files-found: warn
@@ -1249,7 +1293,7 @@ jobs:
   # Keep the public job conclusion and artifact names consumed by the project console.
   # This runner only combines already secret-scanned evidence; it never starts a simulator.
   native-mobile:
-    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' }}
     needs: [native-live, native-unit-watch, native-real-flow, native-screenshots, native-product-ui]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1269,10 +1313,8 @@ jobs:
           fixture = os.environ['FIXTURE_MODE'] == 'true'
           edit = os.environ['CAPTURE_SCOPE'] == 'edit'
           expected = ['native-screenshots'] if fixture else ['native-live']
-          if not edit:
-              expected += ['native-product-ui']
-              if fixture:
-                  expected += ['native-unit-watch', 'native-real-flow']
+          if fixture and not edit:
+              expected += ['native-product-ui', 'native-unit-watch', 'native-real-flow']
           failures = {name: jobs[name]['result'] for name in expected
                       if jobs[name]['result'] != 'success'}
           print('Required native job conclusions:', {name: jobs[name]['result'] for name in expected})
@@ -1285,6 +1327,7 @@ jobs:
         continue-on-error: true
         with:
           path: native-shards
+          pattern: "@(real-screenshots|real-video|fixture-startup-diagnostics|native-build-evidence-ci-fixture)-@(unit-watch|real-flow|screenshots)"
       - name: Combine fixture evidence under the legacy contract
         id: combine_fixture_evidence
         if: ${{ always() && inputs.fixture_mode }}
@@ -1293,6 +1336,7 @@ jobs:
           CAPTURE_SCOPE: ${{ inputs.capture_scope }}
         run: |
           python3 - <<'PY'
+          import filecmp
           import json
           import os
           from pathlib import Path
@@ -1316,20 +1360,36 @@ jobs:
               ('fixture-startup-diagnostics', ['unit-watch', *shards], 'stderr.log'),
           ):
               destination = Path(artifact)
-              logs = []
+              files = {}
               for shard in suffixes:
                   source = root / f'{artifact}-{shard}'
                   if not source.is_dir():
                       continue
-                  # Preserve the original root screenshot names and every shard's originals,
-                  # including any diagnostics whose basenames coincide across runners.
-                  shutil.copytree(source, destination, dirs_exist_ok=True)
-                  if artifact != 'real-video':
-                      shutil.copytree(source, destination / 'shards' / shard, dirs_exist_ok=True)
-                  if log_name and (source / log_name).is_file():
-                      logs.append(f'=== {shard} ===\n' + (source / log_name).read_text(errors='replace'))
-              if logs:
-                  (destination / log_name).write_text('\n'.join(logs), encoding='utf-8')
+                  for path in sorted(source.rglob('*')):
+                      if path.is_file():
+                          files.setdefault(path.relative_to(source), []).append((shard, path))
+              for relative, entries in files.items():
+                  target = destination / relative
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  if str(relative) == log_name:
+                      logs = [f'=== {shard} ===\n' + path.read_text(errors='replace')
+                              for shard, path in entries]
+                      target.write_text('\n'.join(logs), encoding='utf-8')
+                      if len(entries) > 1:
+                          for shard, path in entries:
+                              original = destination / 'shards' / shard / relative
+                              original.parent.mkdir(parents=True, exist_ok=True)
+                              shutil.copy2(path, original)
+                  else:
+                      # Store each unique capture once; retain differing basename conflicts.
+                      shutil.copy2(entries[0][1], target)
+                      seen = [entries[0][1]]
+                      for shard, path in entries[1:]:
+                          if not any(filecmp.cmp(path, previous, shallow=False) for previous in seen):
+                              conflict = destination / 'shards' / shard / relative
+                              conflict.parent.mkdir(parents=True, exist_ok=True)
+                              shutil.copy2(path, conflict)
+                              seen.append(path)
               if destination.is_dir():
                   outputs.append(f'{artifact}=true')
 
@@ -1353,6 +1413,7 @@ jobs:
         if: ${{ always() && steps.combine_fixture_evidence.outputs.real-screenshots == 'true' }}
         uses: actions/upload-artifact@v4
         with:
+          overwrite: true
           name: real-screenshots
           path: real-screenshots/
           if-no-files-found: error
@@ -1360,6 +1421,7 @@ jobs:
         if: ${{ always() && steps.combine_fixture_evidence.outputs.real-video == 'true' }}
         uses: actions/upload-artifact@v4
         with:
+          overwrite: true
           name: real-video
           path: real-video/
           if-no-files-found: error
@@ -1367,6 +1429,7 @@ jobs:
         if: ${{ always() && steps.combine_fixture_evidence.outputs.fixture-startup-diagnostics == 'true' }}
         uses: actions/upload-artifact@v4
         with:
+          overwrite: true
           name: fixture-startup-diagnostics
           path: fixture-startup-diagnostics/
           if-no-files-found: error
@@ -1374,6 +1437,7 @@ jobs:
         if: ${{ always() && steps.combine_fixture_evidence.outputs.native-build-evidence-ci-fixture == 'true' }}
         uses: actions/upload-artifact@v4
         with:
+          overwrite: true
           name: native-build-evidence-ci-fixture
           path: native-build-evidence-ci-fixture/native_build_evidence.json
           if-no-files-found: error

@@ -1,9 +1,14 @@
 diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+index 3a9beb41..00b43f23 100644
 --- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 +++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -6773,4 +6773,3 @@
+@@ -6782,8 +6782,7 @@ public struct CurrentHoleView: View {
+     }
+     #endif
      private var currentRemainingRouteMetres: Double? {
 -        guard !isTeeShotOffTheHole,
--              let overlay = liveMapOverlay,
-+        guard let overlay = liveMapOverlay,
+-              let overlay = planningMapOverlay,
++        guard let overlay = planningMapOverlay,
                let coordinate = liveCoordinateForCurrentHole,
+               let refs = planningMapProjection?.refs,
+               let px = WatchEventBridge.projectToTopoPx(

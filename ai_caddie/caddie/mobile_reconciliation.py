@@ -56,7 +56,8 @@ def _round_row(round_id: str, data: HistoryData) -> dict[str, Any]:
 
 def _hole_scores(
     round_row: dict[str, Any], *, root: Path | str | None = None,
-    annotations_root: Path | str | None = None, player_id: str = OWNER_ID,
+    annotations_root: Path | str | None = None, course_root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[int, dict[str, Any]]:
     from ai_caddie.history.corrected_history import hole_sides
     from ai_caddie.reports.annotations import list_annotation_records
@@ -73,7 +74,7 @@ def _hole_scores(
         player_id=player_id,
         annotations_root=annotations_root if annotations_root is not None else root,
         corrections_root=root,
-        course_root=root,
+        course_root=course_root if course_root is not None else root,
     )
     round_row = projected.rounds[0] if projected.rounds else round_row
     # Restore annotations have already been materialized by the corrected projection.  Do
@@ -131,10 +132,8 @@ def _reconciliation_hole_map(
         return None
     from ai_caddie.history.corrected_history import hole_sides
 
-    front_gid = _safe_int(
-        round_row.get("frontNineGlobalCourseId") or round_row.get("globalId")
-        or round_row.get("courseGlobalId") or round_row.get("courseId")
-    )
+    from ai_caddie.history.corrected_history import front_course_global_id
+    front_gid = front_course_global_id(round_row)
     back_gid = _safe_int(round_row.get("backNineGlobalCourseId"))
     nine_gids = {loop["globalId"] for loop in identity["roundLoops"] if loop["half"] == "all"}
     garmin_visits: dict[tuple[int, int], list[int]] = {}
@@ -360,6 +359,7 @@ def _annotation_suggestions(
     candidate_audits: list[dict[str, Any]],
     round_row: dict[str, Any] | None = None,
     root: Path | str | None = None,
+    course_root: Path | str | None = None,
 ) -> list[dict[str, Any]]:
     from ai_caddie.history.corrected_history import restore_hole_par
     def restore_payload(row: dict[str, Any], event_id: str, local_value: Any) -> dict[str, Any]:
@@ -377,7 +377,7 @@ def _annotation_suggestions(
         if row.get("kind") == "score" and row.get("localValue") is not None
         and restore_hole_par(round_row or {}, _safe_int(row.get("hole")) or 0,
                               restore_payload(row, str(row.get("eventId") or ""), row.get("localValue")),
-                              root=root) is not None
+                              root=course_root if course_root is not None else root) is not None
     }
     suggestions: list[dict[str, Any]] = []
     for conflict in conflicts:
@@ -444,8 +444,10 @@ def _annotation_suggestions(
             if local_value is None:
                 continue
             payload = restore_payload(row, event_id, local_value)
-            if restore_hole_par(round_row or {}, hole, payload, root=root) is None:
-                row["restoreUnavailableReason"] = "standard_par_unavailable"
+            if restore_hole_par(round_row or {}, hole, payload,
+                                root=course_root if course_root is not None else root) is None:
+                if not row.get("unmapped"):
+                    row["restoreUnavailableReason"] = "standard_par_unavailable"
                 continue
             suggestions.append(
                 _suggestion(
@@ -459,8 +461,6 @@ def _annotation_suggestions(
             )
         elif kind == "putt":
             if local_value is None or hole not in score_holes:
-                if local_value is not None:
-                    row["restoreUnavailableReason"] = "standard_par_unavailable"
                 continue
             suggestions.append(
                 _suggestion(
@@ -488,7 +488,6 @@ def _annotation_suggestions(
                 )
         elif kind == "penalty":
             if hole not in score_holes:
-                row["restoreUnavailableReason"] = "standard_par_unavailable"
                 continue
             suggestions.append(
                 _suggestion(
@@ -570,13 +569,15 @@ def reconcile_mobile_round_events(
     *,
     root: Path | str | None = None,
     annotations_root: Path | str | None = None,
+    course_root: Path | str | None = None,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     events = _event_rows(round_id, root=root, player_id=player_id)
     round_row = _round_row(round_id, data)
     identity = load_mobile_round_identity(round_id, root=root, player_id=player_id)
     hole_map = _reconciliation_hole_map(round_row, identity)
-    scores = _hole_scores(round_row, root=root, annotations_root=annotations_root, player_id=player_id)
+    scores = _hole_scores(round_row, root=root, annotations_root=annotations_root,
+                          course_root=course_root, player_id=player_id)
     shots = _shot_facts(round_id, data)
     unmatched_shots = {shot["ref"]: shot for shot in shots}
     matched: list[dict[str, Any]] = []
@@ -801,6 +802,7 @@ def reconcile_mobile_round_events(
         candidate_audits=candidate_audits,
         round_row=round_row,
         root=root,
+        course_root=course_root,
     )
     unsafe_event_ids = {
         str(row.get("eventId") or "")
@@ -849,6 +851,7 @@ def apply_mobile_reconciliation_suggestions(
     suggestion_ids: list[str] | None = None,
     root: Path | str | None = None,
     annotations_root: Path | str | None = None,
+    course_root: Path | str | None = None,
     decision_audit_root: Path | str | None = None,
     decision_ledger_root: Path | str | None = None,
     player_id: str = OWNER_ID,
@@ -857,7 +860,8 @@ def apply_mobile_reconciliation_suggestions(
     """Write the selected suggestions as annotations. ``data_loader`` re-reads history inside each
     score annotation's audit bracket (``correction_audit.load_coherent``)."""
     reconciliation = reconcile_mobile_round_events(
-        round_id, data, root=root, annotations_root=annotations_root, player_id=player_id,
+        round_id, data, root=root, annotations_root=annotations_root,
+        course_root=course_root, player_id=player_id,
     )
     suggestions = {str(row.get("id")): row for row in reconciliation.get("annotationSuggestions", [])}
     requested_ids = list(suggestion_ids or suggestions.keys())

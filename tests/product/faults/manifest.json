@@ -2067,20 +2067,6 @@
       "promise": "J1.1"
     },
     {
-      "id": "tests-product-faults-C136-01",
-      "patch": "tests/product/faults/C136/01-garmin-disabled-model.patch",
-      "kind": "native-unit",
-      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_garmin_disabled_model_sends_no_raster_request",
-      "promise": "J4.5"
-    },
-    {
-      "id": "tests-product-faults-C136-01a",
-      "patch": "tests/product/faults/C136/01a-garmin-disabled-hole-gate.patch",
-      "kind": "native-unit",
-      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_garmin_disabled_hole_view_sends_no_raster_request",
-      "promise": "J4.5"
-    },
-    {
       "id": "tests-product-faults-C136-02",
       "patch": "tests/product/faults/C136/02-garmin-slow-blocks-hole.patch",
       "kind": "native-unit",
@@ -2288,14 +2274,14 @@
       "patch": "tests/product/faults/C134/block3-map-only-intent.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/TemplateAcquisitionTests/testDownloadWhileMapOnlyIntentIsInFlightUsesAnIndependentFullPackage",
-      "promise": "\u63213"
+      "promise": "挡3"
     },
     {
       "id": "tests-product-faults-C134-N5-intent-followup",
       "patch": "tests/product/faults/C134/N5-start-intent-followup.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/TemplateAcquisitionTests/testStartPrepIntentContinuesAsWholeCourseOfflineDownload",
-      "promise": "N5\u2460"
+      "promise": "N5①"
     },
     {
       "id": "tests-product-faults-C134-r11-topo-status-retries",

@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+index 27dfc197..88c5e7a8 100644
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -3688,7 +3688,7 @@ public struct CurrentHoleView: View {
+             preciseTopoImageReady: preciseTopoImageReady,
+             memoryCached: liveTopoURL.map { TopoHoleImageStore.isMemoryCached($0) } ?? false,
+             garminRaster: garminRaster,
+-            garminImageReady: garminImageReadyForDisplay,
++            garminImageReady: false && garminImageReadyForDisplay,
+             garminImageFailed: garminRasterImageFailed || garminRasterImageRetrying,
+             hasRoute: liveHasRoute
+         )

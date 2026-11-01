@@ -1,13 +1,13 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index 9c01ec3f..2cdf42c8 100644
+index d503c8a2..bf1b0c85 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -314,7 +314,7 @@ def corrected_rounds(
+@@ -330,7 +330,7 @@ def corrected_rounds(
                  continue
              synthetic["par"] = par
              synthetic["strokes"] = total
 -            synthetic["_scoreCorrected"] = True
-+            # marker mutant
-             if (row.get("merged") and number <= 9
-                     and isinstance(score_payload, dict) and _int(score_payload.get("restoreLocalHole"))):
-                 synthetic["localHole"] = _int(score_payload["restoreLocalHole"])
++            pass  # marker mutant
+             restore_local = _int(score_payload.get("restoreLocalHole")) if isinstance(score_payload, dict) else None
+             restore_gid = _int(score_payload.get("restoreGlobalId")) if isinstance(score_payload, dict) else None
+             if restore_local:

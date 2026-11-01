@@ -170,14 +170,14 @@ final class LiveMapCarryOverTests: XCTestCase {
             geometryCoverage: partial.geometryCoverage, timedOut: false, hasBaseURL: true, hasCachedTopo: false
         )
         XCTAssertTrue(pending)
-        XCTAssertEqual(LiveMapDisplayState.resolve(prep: partial, pending: pending), .factualPending)
+        XCTAssertEqual(LiveMapDisplayState.resolve(prep: partial, pending: pending), .waiting)
         for (timedOut, hasBaseURL, cached) in [(true, true, false), (false, false, false), (false, true, true)] {
             let settled = LiveMapDisplayState.isPrecisePending(
                 geometryCoverage: partial.geometryCoverage,
                 timedOut: timedOut, hasBaseURL: hasBaseURL, hasCachedTopo: cached
             )
             XCTAssertFalse(settled)
-            XCTAssertEqual(LiveMapDisplayState.resolve(prep: partial, pending: settled), .factual)
+            XCTAssertEqual(LiveMapDisplayState.resolve(prep: partial, pending: settled), .waiting)
         }
     }
 

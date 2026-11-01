@@ -16,7 +16,6 @@ final class DesignSnapshotTests: XCTestCase {
     }
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: LiveGarminRasterPolicy.preferenceKey)
         super.tearDown()
     }
 
@@ -1045,14 +1044,13 @@ final class DesignSnapshotTests: XCTestCase {
                     CurrentHoleView(
                         package: mappedPackage,
                         hole: firstHole,
-                        snapshotState: .init(caddieRoutes: routes, garminRasterEnabled: false)
+                        snapshotState: .init(caddieRoutes: routes)
                     )
                 },
-                named: "full-hole-map-garmin-off",
+                named: "full-hole-map-garmin-default",
                 dark: true
             )
-            // README 地图降级契约: without the precise topo the live hole draws the factual route and
-            // the geometry it already has (green outline, obstacle facts), immediately.
+            // J4.5: without the precise topo the live hole uses Garmin as the bitmap fallback.
             let greenOutlineJSON = (0..<24).map { index -> String in
                 let angle = Double(index) / 24 * 2 * Double.pi
                 return String(format: "[%.1f,%.1f]", 120 + 22 * cos(angle), 52 + 18 * sin(angle))
@@ -1137,7 +1135,6 @@ final class DesignSnapshotTests: XCTestCase {
                             selectsFirstHazard: true,
                             caddieRoutes: routes,
                             garminRaster: partialRasterDescriptor,
-                            garminRasterEnabled: true
                         ),
                         caddieBaseURL: partialRasterBaseURL
                     )
@@ -1145,7 +1142,7 @@ final class DesignSnapshotTests: XCTestCase {
                 named: "full-hole-map-partial-pending",
                 dark: true
             )
-            // Pending without a selection: the 障碍 control is offered for the existing facts.
+            // J4.5: Garmin remains the background while a precise image is pending.
             try captureScreen(
                 NavigationStack {
                     CurrentHoleView(
@@ -1154,7 +1151,6 @@ final class DesignSnapshotTests: XCTestCase {
                         snapshotState: .init(
                             caddieRoutes: routes,
                             garminRaster: partialRasterDescriptor,
-                            garminRasterEnabled: true
                         ),
                         caddieBaseURL: partialRasterBaseURL
                     )
@@ -1162,8 +1158,7 @@ final class DesignSnapshotTests: XCTestCase {
                 named: "full-hole-map-partial-pending-default",
                 dark: true
             )
-            // ... and with no drawable route at all it shows the numeric placeholder and download
-            // copy instead of the retired full-screen waiting page.
+            // ... and with no drawable bitmap it shows the neutral map-preparing surface.
             let noMapPrepJSON = """
             {"hole":\(firstHole.number),"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":375,\
             "route":[],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]}}
@@ -1791,7 +1786,6 @@ final class DesignSnapshotTests: XCTestCase {
         let state = CurrentHoleView.SnapshotState(
             garminRaster: descriptor,
             currentCoordinate: CLLocationCoordinate2D(latitude: 40.0005, longitude: 116.0005),
-            garminRasterEnabled: true
         )
         try captureScreen(
             NavigationStack {

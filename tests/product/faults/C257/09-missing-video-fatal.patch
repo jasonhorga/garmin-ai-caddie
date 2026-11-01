@@ -1,0 +1,17 @@
+diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
+index 8e8d161..13cc4fc 100644
+--- a/.github/workflows/native-mobile.yml
++++ b/.github/workflows/native-mobile.yml
+@@ -701,11 +701,7 @@ jobs:
+           kill -INT "$REC_PID" 2>/dev/null || true
+           sleep 4
+           if [[ "$NATIVE_CAPTURE_SHARD" == "screenshots" && "$UITEST_CAPTURE_SCOPE" != "edit" ]]; then
+-            if [ -f real-videos/real-flow.mp4 ]; then
+-              mv real-videos/real-flow.mp4 real-videos/screenshots.mp4
+-            else
+-              echo '::warning::Screenshot shard recording is missing; preserving UI test status'
+-            fi
++            mv real-videos/real-flow.mp4 real-videos/screenshots.mp4
+           fi
+           ls -la real-videos || true
+           # Surface each UI-test assertion as a job annotation: the inline xcodebuild failure line

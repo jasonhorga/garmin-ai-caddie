@@ -1,0 +1,8 @@
+diff --git a/tests/service_logging.py b/tests/service_logging.py
+index 26eb33dd..0ae3d9bd 100644
+--- a/tests/service_logging.py
++++ b/tests/service_logging.py
+@@ -21,2 +21,3 @@ def preserve_service_logging():
+             logger.filters[:] = filters
++            continue
+             logger.setLevel(level)

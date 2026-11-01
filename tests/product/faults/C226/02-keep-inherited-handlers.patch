@@ -1,0 +1,9 @@
+diff --git a/tests/product/test_c154b.py b/tests/product/test_c154b.py
+index efff6fc9..bfe41279 100644
+--- a/tests/product/test_c154b.py
++++ b/tests/product/test_c154b.py
+@@ -99,4 +99,2 @@ class ForegroundAdmissionTests(unittest.TestCase):
+         # has service handlers. The cleanup above restores those exact handlers.
+-        for name in SERVICE_INFO_LOGGERS:
+-            logging.getLogger(name).handlers.clear()
+         configure_request_timing_logging()

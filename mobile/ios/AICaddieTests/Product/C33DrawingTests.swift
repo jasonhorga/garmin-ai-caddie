@@ -119,6 +119,7 @@ final class C33DrawingTests: XCTestCase {
     }
 
     func testFourthGarminAttemptDisplaysImageAndBackoffStaysCapped() async throws {
+        // J4.5: retrying without a decoded bitmap stays neutral; the fourth decoded attempt shows Garmin.
         let url = URL(string: "https://c33.example.test/\(UUID().uuidString).jpg")!
         let image = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 30)).image { _ in UIColor.green.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: 20, height: 30)) }
         var now: UInt64 = 0
@@ -133,6 +134,7 @@ final class C33DrawingTests: XCTestCase {
         let subscription = store.$isRetrying.sink { retrying in
             states.append(LiveMapDisplayState.resolveLive(.init(
                 coverage: "partial", preciseTopoImageReady: false, garminRaster: descriptor,
+                garminImageReady: store.image != nil,
                 garminImageFailed: retrying, hasCachedPreciseTopo: false
             )))
         }
@@ -145,7 +147,7 @@ final class C33DrawingTests: XCTestCase {
         // C33 explicitly requires surviving the initial three failures and immediately displaying #4.
         XCTAssertEqual(attempts, 4)
         XCTAssertEqual(delays, [5_000_000_000, 15_000_000_000, 30_000_000_000])
-        XCTAssertTrue(states.contains(.numericPlaceholder))
+        XCTAssertTrue(states.contains(.waiting), "J4.5 retries without a decoded bitmap keep the neutral surface")
         XCTAssertEqual(states.last, .garminRaster)
         XCTAssertTrue(store.image === image)
         XCTAssertFalse(store.isRetrying)

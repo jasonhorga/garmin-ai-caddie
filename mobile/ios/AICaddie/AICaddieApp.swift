@@ -973,9 +973,6 @@ public final class LiveRoundAppModel: ObservableObject {
     var garminRasterDownloader: (URL) async -> Bool = { url in
         await LiveRoundAppModel.cacheGarminRaster(url)
     }
-    /// The live-hole switch also gates the model-owned ahead-of-play raster pass. A closure keeps
-    /// this policy deterministic in native tests without sharing UserDefaults between tests.
-    var garminRasterPreloadingEnabled: () -> Bool = { LiveGarminRasterPolicy.isEnabled() }
     private var garminRasterDownloadTask: Task<Void, Never>?
     private var garminRasterDownloadRoundId: String?
     #if DEBUG
@@ -2437,10 +2434,6 @@ public final class LiveRoundAppModel: ObservableObject {
         #if DEBUG
         if roundBackgroundWorkStoppedForTesting { return }
         #endif
-        // Garmin is an opt-in visual layer. The factual CourseView route/topo remains usable while
-        // this pass is disabled, and a later hole screen starts its own descriptor request when the
-        // player turns the switch on.
-        guard garminRasterPreloadingEnabled() else { return }
         guard let snapshot = package,
               let baseURL = apiBaseURL ?? syncClient?.baseURL,
               liveRoundState?.roundId == snapshot.roundId else { return }

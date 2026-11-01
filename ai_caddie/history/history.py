@@ -669,6 +669,20 @@ def merge_same_day_halves(rounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "hasShots": all(r.get("hasShots") for r in group),
                 "shotStatus": "ready" if all(r.get("hasShots") for r in group) else "partial",
                 "merged": True,
+                "roundLoops": _round_loop_table([
+                    (
+                        front.get("frontNineGlobalCourseId")
+                        or front.get("globalId")
+                        or front.get("courseId"),
+                        _card_loop_half(front),
+                    ),
+                    (
+                        back.get("frontNineGlobalCourseId")
+                        or back.get("globalId")
+                        or back.get("courseId"),
+                        _card_loop_half(back),
+                    ),
+                ]),
                 **({"frontHoleOffset": front_offset} if front_offset else {}),
             })
         else:
@@ -718,6 +732,40 @@ def round_source_shots(data: HistoryData, round_row: dict[str, Any]) -> list[tup
     positions = sorted({position for member in member_ids for position in index.get(member, ())})
     remapped = remap_shots_to_merged_rounds([data.shots[position] for position in positions], [round_row])
     return list(zip(positions, remapped))
+
+
+def round_loop_half(row: dict[str, Any], side: str) -> str | None:
+    """Return the resolved ``front``/``back``/``all`` identity for one display side."""
+    loops = row.get("roundLoops")
+    if not isinstance(loops, list):
+        return None
+    index = 0 if side == "front" else 1 if side == "back" else -1
+    if index < 0 or index >= len(loops) or not isinstance(loops[index], dict):
+        return None
+    half = loops[index].get("half")
+    return str(half) if half in {"front", "back", "all"} else None
+
+
+def _card_loop_half(row: dict[str, Any]) -> str:
+    """Infer a raw nine-card loop identity before it is merged into a history row."""
+    numbers = [int(hole.get("number") or 0) for hole in row.get("holes") or [] if isinstance(hole, dict)]
+    if any(number >= 10 for number in numbers):
+        return "back"
+    if len(str(row.get("holePars") or "")) >= 18:
+        return "front"
+    return "all"
+
+
+def _round_loop_table(loops: list[tuple[int, str]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "globalId": int(gid), "half": half,
+            "roundStartHole": 1 if index == 0 else 10,
+            "sourceStartHole": 10 if half == "back" else 1,
+            "holeCount": 9,
+        }
+        for index, (gid, half) in enumerate(loops)
+    ]
 
 
 def remap_shots_to_merged_rounds(

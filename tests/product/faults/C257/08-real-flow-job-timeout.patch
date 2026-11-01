@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
+index 8e8d161..d257c88 100644
+--- a/.github/workflows/native-mobile.yml
++++ b/.github/workflows/native-mobile.yml
+@@ -1091,7 +1091,7 @@ jobs:
+   native-real-flow:
+     if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
+     runs-on: macos-15
+-    timeout-minutes: 55
++    timeout-minutes: 45
+     env:
+       IOS_DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=latest
+       WATCH_DESTINATION: platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest
