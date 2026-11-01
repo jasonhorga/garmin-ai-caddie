@@ -49,6 +49,19 @@ def canonical_asset_path(url: object) -> str | None:
     return path or None
 
 
+def canonical_url_without_garmindlm(url: object) -> str | None:
+    """Keep a Garmin URL's path and other query parameters, dropping its expiring token."""
+    value = str(url or "").strip()
+    if not value:
+        return None
+    parsed = urlsplit(value)
+    query = "&".join(
+        part for part in parsed.query.split("&")
+        if part and part.split("=", 1)[0].lower() != "garmindlm"
+    )
+    return parsed._replace(query=query).geturl()
+
+
 def asset_version(path: object) -> str | None:
     """Embedded version from Garmin's geometry filename.
 
