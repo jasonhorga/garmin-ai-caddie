@@ -1,0 +1,13 @@
+diff --git a/tests/product/test_c154b.py b/tests/product/test_c154b.py
+index 225b2182..40ede815 100644
+--- a/tests/product/test_c154b.py
++++ b/tests/product/test_c154b.py
+@@ -108,8 +108,6 @@ class ForegroundAdmissionTests(unittest.TestCase):
+         service.handlers[:] = [logging.StreamHandler(stream)]
+         # Configure capture as a fresh startup even when the interpreter already
+         # has service handlers. The cleanup above restores those exact handlers.
+-        for name in SERVICE_INFO_LOGGERS:
+-            logging.getLogger(name).handlers.clear()
+         configure_request_timing_logging()
+         with gate.background(unit_type="fixture"):
+             pass

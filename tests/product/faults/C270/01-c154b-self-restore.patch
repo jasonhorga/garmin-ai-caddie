@@ -1,0 +1,12 @@
+diff --git a/tests/product/test_c154b.py b/tests/product/test_c154b.py
+index 225b2182..8a37b5b9 100644
+--- a/tests/product/test_c154b.py
++++ b/tests/product/test_c154b.py
+@@ -101,7 +101,6 @@ class ForegroundAdmissionTests(unittest.TestCase):
+         import io
+         import logging
+         from server_v2.main import SERVICE_INFO_LOGGERS, configure_request_timing_logging
+-        self.enterContext(preserve_service_logging())
+         gate = ForegroundGate()
+         service = logging.getLogger("uvicorn.error")
+         stream = io.StringIO()
