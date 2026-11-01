@@ -2474,5 +2474,40 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(annotations[0]["payload"]["sourceEventId"], "strategy-note")
 
 
+class MergedShapeGeometryAcceptanceTest(unittest.TestCase):
+    def test_j1_3_m1_and_m3_real_merged_shapes_have_independent_geometry_and_loops(self) -> None:
+        """J1.3: real two-card M1/M3 merges expose physical 12 and their loop identities."""
+        from ai_caddie.history.history import merge_same_day_halves
+        from ai_caddie.history.history_drilldown import _hole_geometry_target as drilldown_target
+        from ai_caddie.history.history_round_detail import _hole_geometry_target as detail_target
+        from ai_caddie.rounds.round_shot_map import _geometry_target
+
+        def card(rid: str, gid: int, numbers: range, pars: str, when: str) -> dict:
+            return {
+                "id": rid, "date": f"2026-10-01 {when}", "course": "V",
+                "courseCanonical": "v", "globalId": gid, "courseId": gid,
+                "frontNineGlobalCourseId": gid, "holePars": pars,
+                "holes": [{"number": n, "strokes": 5, "par": 4} for n in numbers],
+                "holesCompleted": 9, "strokes": 45, "par": 36,
+            }
+
+        for label, first_gid, second_gid, expected_gid in (
+            ("M1", 50001, 50001, 50001), ("M3", 50001, 50002, 50002),
+        ):
+            with self.subTest(shape=label):
+                row = merge_same_day_halves([
+                    card(f"{label}-front", first_gid, range(1, 10), "444444444444444444", "08:00"),
+                    card(f"{label}-back", second_gid, range(10, 19), "444444444444444444", "10:00"),
+                ])[0]
+                expected = (expected_gid, 12)
+                self.assertEqual(_geometry_target(row, 12), expected)
+                self.assertEqual(tuple(detail_target(row, 12).values()), expected)
+                self.assertEqual(tuple(drilldown_target(row, 12).values()), expected)
+                self.assertEqual(
+                    [(loop["globalId"], loop["half"]) for loop in row["roundLoops"]],
+                    [(first_gid, "front"), (second_gid, "back")],
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

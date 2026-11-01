@@ -26,6 +26,7 @@ from ai_caddie.core import data as disk
 from ai_caddie.geometry import hole_render
 from ai_caddie.history import hole_history_shots, stats_cache
 from ai_caddie.history.corrected_history import corrected_history_data
+from ai_caddie.history.history import HistoryData
 from ai_caddie.rounds import players, round_shot_map
 from tests.product.fixtures.c16a.support import Sandbox, write
 
@@ -377,6 +378,41 @@ class HoleHistoryShotsScopeTest(PinnedToday):
             self.assertEqual(member.status_code, 200, member.text)
             self.assertEqual((member.json()['roundCount'], member.json()['shots']), (0, []))
             self.assertEqual(s.client.get('/api/v2/' + URL).status_code, 401)
+
+
+class MergedShotHoleHistoryTest(PinnedToday):
+    def test_j1_3_m1_hole_history_uses_display_12_for_back_loop_shots(self) -> None:
+        """J1.3: an M1 merged 18-hole card puts its back-loop shot in (A,12), not (A,3)."""
+        from ai_caddie.history.history import merge_same_day_halves, remap_shots_to_merged_rounds
+
+        first = {
+            "id": "m1-front", "date": "2026-10-01", "courseCanonical": "m1",
+            "globalId": 50001, "frontNineGlobalCourseId": 50001, "holesCompleted": 9,
+            "holePars": "444444444444444444",
+            "holes": [{"number": n, "strokes": 4, "par": 4} for n in range(1, 10)],
+        }
+        second = {
+            "id": "m1-back", "date": "2026-10-01 10:00", "courseCanonical": "m1",
+            "globalId": 50001, "frontNineGlobalCourseId": 50001, "holesCompleted": 9,
+            "holePars": "444444444444444444",
+            "holes": [{"number": n, "strokes": 4, "par": 4} for n in range(10, 19)],
+        }
+        row = merge_same_day_halves([first, second])[0]
+        shot = remap_shots_to_merged_rounds(
+            [{"id": "m1-shot", "scorecardId": "m1-back", "roundId": "m1-back", "hole": 12,
+              "order": 1, "start": {"lat": 1.0, "lon": 1.0}, "end": {"lat": 1.1, "lon": 1.1}}],
+            [row],
+        )[0]
+        data = HistoryData(raw_rounds=[], rounds=[row], shots=[shot])
+        with patch.object(hole_history_shots, "hole_green_centre", return_value={
+            "available": False, "lat": None, "lon": None, "source": None,
+        }):
+            at_12 = hole_history_shots.build_hole_history_shots(data, 50001, 12, annotations_root=None)
+            at_3 = hole_history_shots.build_hole_history_shots(data, 50001, 3, annotations_root=None)
+        self.assertEqual(at_12["roundCount"], 1)
+        self.assertEqual([item["roundHole"] for item in at_12["shots"]], [12])
+        self.assertEqual(at_3["roundCount"], 0)
+        self.assertEqual(at_3["shots"], [])
 
 
 if __name__ == '__main__':

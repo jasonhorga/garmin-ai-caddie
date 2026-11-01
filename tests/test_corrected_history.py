@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from ai_caddie.history import stats_cache
 from ai_caddie.history.corrected_history import corrected_history_data, corrected_rounds, hole_sides
-from ai_caddie.history.history import HistoryData
+from ai_caddie.history.history import HistoryData, merge_same_day_halves, remap_shots_to_merged_rounds
 from ai_caddie.history.history_stats import _round_breakdowns
 from server_v2 import data_source, geometry as geometry_routes
 from tests.product.fixtures.c16a.support import Sandbox, write
@@ -269,6 +269,46 @@ def _shot_route_features(value) -> list[dict]:
         for item in value:
             found.extend(_shot_route_features(item))
     return found
+
+
+class MergedShotHoleMappingTest(unittest.TestCase):
+    """J1.3: merged scorecard shots retain the physical loop's hole identity."""
+
+    @staticmethod
+    def _card(rid: str, gid: int, numbers: range, hole_pars: str, when: str) -> dict:
+        return {
+            "id": rid, "date": f"2026-10-01 {when}", "course": "Merged fixture",
+            "courseCanonical": "merged-fixture", "globalId": gid, "courseId": gid,
+            "frontNineGlobalCourseId": gid, "backNineGlobalCourseId": None,
+            "holePars": hole_pars,
+            "holes": [{"number": number, "strokes": 5, "par": 4} for number in numbers],
+            "holesCompleted": 9, "strokes": 45, "par": 36,
+        }
+
+    def test_j1_3_m1_back_shot_stays_on_physical_hole_12(self) -> None:
+        """J1.3: an 18-hole back loop maps display 12 to physical 12 in shot history."""
+        first = self._card("m1-front", 50001, range(1, 10), "444444444444444444", "08:00")
+        second = self._card("m1-back", 50001, range(10, 19), "444444444444444444", "10:00")
+        merged = merge_same_day_halves([first, second])[0]
+        remapped = remap_shots_to_merged_rounds(
+            [{"scorecardId": "m1-back", "roundId": "m1-back", "hole": 12, "order": 1}],
+            [merged],
+        )[0]
+        self.assertEqual((remapped["hole"], remapped["localHole"], remapped["globalId"]), (12, 12, 50001))
+
+    def test_j1_3_nine_hole_and_front_loop_geometry_normalize_display_12(self) -> None:
+        """J1.3: nine-hole and front-loop cards use local hole 3 for display hole 12."""
+        from ai_caddie.rounds.round_shot_map import _geometry_target
+        for half in ("all", "front"):
+            with self.subTest(half=half):
+                row = {
+                    "id": f"{half}-merged", "merged": True, "backNineGlobalCourseId": 50002,
+                    "roundLoops": [
+                        {"globalId": 50001, "half": "front"},
+                        {"globalId": 50002, "half": half},
+                    ],
+                }
+                self.assertEqual(_geometry_target(row, 12), (50002, 3))
 
 
 if __name__ == '__main__':

@@ -857,5 +857,36 @@ class ConnectorSnapshotTests(unittest.TestCase):
         self.assertGreater(checks["credential_scan"]["evidence"]["issueCount"], 0)
 
 
+class MergedSnapshotHoleGeometryTest(unittest.TestCase):
+    def test_j1_3_snapshot_shot_geometry_keeps_m1_back_hole_12(self) -> None:
+        """J1.3: snapshot geometry follows an 18-hole back loop's physical local hole."""
+        from ai_caddie.connectors.snapshot import _shot_hole_ref
+
+        row = {
+            "globalId": 50001, "frontNineGlobalCourseId": 50001,
+            "backNineGlobalCourseId": 50001, "merged": True,
+            "roundLoops": [
+                {"globalId": 50001, "half": "front"},
+                {"globalId": 50001, "half": "back"},
+            ],
+        }
+        self.assertEqual(_shot_hole_ref(row, 12), (50001, 12))
+
+    def test_j1_3_snapshot_geometry_normalizes_nine_and_front_holes(self) -> None:
+        """J1.3: a nine-hole or front loop maps display 12 to local hole 3."""
+        from ai_caddie.connectors.snapshot import _shot_hole_ref
+
+        for half in ("all", "front"):
+            with self.subTest(half=half):
+                row = {
+                    "globalId": 50001, "backNineGlobalCourseId": 50002, "merged": True,
+                    "roundLoops": [
+                        {"globalId": 50001, "half": "front"},
+                        {"globalId": 50002, "half": half},
+                    ],
+                }
+                self.assertEqual(_shot_hole_ref(row, 12), (50002, 3))
+
+
 if __name__ == "__main__":
     unittest.main()

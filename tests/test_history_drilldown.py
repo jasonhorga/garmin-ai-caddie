@@ -562,5 +562,21 @@ class DrilldownPlayerScopeTests(unittest.TestCase):
         self.assertEqual(member["decisionAudits"], [])
 
 
+class MergedDrilldownHoleGeometryTest(unittest.TestCase):
+    def test_j1_3_drilldown_geometry_target_keeps_m1_back_hole_12(self) -> None:
+        """J1.3: drilldown uses the same physical target as round detail for M1."""
+        from ai_caddie.history.history_drilldown import _hole_geometry_target
+
+        row = {
+            "globalId": 50001, "frontNineGlobalCourseId": 50001,
+            "backNineGlobalCourseId": 50001, "merged": True,
+            "roundLoops": [
+                {"globalId": 50001, "half": "front"},
+                {"globalId": 50001, "half": "back"},
+            ],
+        }
+        self.assertEqual(_hole_geometry_target(row, 12), {"globalId": 50001, "localHole": 12})
+
+
 if __name__ == "__main__":
     unittest.main()
