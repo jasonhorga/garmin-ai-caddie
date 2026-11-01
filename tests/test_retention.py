@@ -31,6 +31,7 @@ class PrivateVolumeRetentionTests(unittest.TestCase):
             (default_cache / "unknown").mkdir()
             (default_cache / "unknown" / "asset.bin").write_bytes(b"keep")
             (default_cache / "topo-v10-loose.png").write_bytes(b"x")
+            (default_cache / "topo-v10x-unknown.bin").write_bytes(b"keep")
             override = root / "private-cache"
             (override / "topo-v9").mkdir(parents=True)
             (override / "topo-v9" / "old.png").write_bytes(b"x")
@@ -65,6 +66,7 @@ class PrivateVolumeRetentionTests(unittest.TestCase):
             self.assertTrue((default_cache / "topo-v12").exists())
             self.assertFalse((default_cache / "topo-v10").exists())
             self.assertFalse((default_cache / "topo-v10-loose.png").exists())
+            self.assertTrue((default_cache / "topo-v10x-unknown.bin").exists())
             self.assertFalse((override / "topo-v9").exists())
             self.assertTrue((default_cache / "unknown" / "asset.bin").exists())
             self.assertTrue((override / "unrecognised.bin").exists())

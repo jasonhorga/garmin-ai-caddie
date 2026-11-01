@@ -19,7 +19,7 @@ from ai_caddie.geometry import topo_render
 
 logger = logging.getLogger(__name__)
 
-_STYLE_VERSION_RE = re.compile(r"topo-v\d+")
+_STYLE_VERSION_RE = re.compile(r"(?<![A-Za-z0-9])topo-v\d+(?![A-Za-z0-9])")
 _SNAPSHOT_ID_RE = re.compile(r"^garmin_cn_(\d{8}T\d{6}Z)$")
 _RETENTION_DISABLED = frozenset(("0", "false", "no", "off", "disabled"))
 _CLEANUP_LOCK = threading.Lock()
