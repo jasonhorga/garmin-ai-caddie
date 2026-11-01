@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import threading
@@ -2521,6 +2522,98 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(audits[0]["sourceRef"], "900001:3")
         self.assertEqual(audits[0]["actualShotRefs"], ["900001:3:1"])
         self.assertEqual(after["annotationSuggestions"], [])
+
+    def test_applied_feedback_annotation_suppresses_repeat_without_decision_audit(self) -> None:
+        # J7.2: an applied feedback annotation is durable evidence even when no decision copy or
+        # ledger record is available to write an audit row.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch(
+                "900001",
+                [{
+                    "eventId": "feedback-without-copy",
+                    "roundId": "900001",
+                    "hole": 3,
+                    "kind": "club",
+                    "payload": {
+                        "clubName": "9I",
+                        "decisionId": "900001:3:missing",
+                        "actualShot": {"roundId": "900001", "hole": 3, "shotOrder": 1, "clubName": "9I"},
+                    },
+                }],
+                idempotency_key="feedback-without-copy",
+                root=root,
+            )
+            first = reconcile_mobile_round_events("900001", fixture_history_data(), root=root)
+            feedback = [row for row in first["annotationSuggestions"] if row["kind"] == "caddie_feedback"]
+            applied = apply_mobile_reconciliation_suggestions(
+                "900001", fixture_history_data(),
+                suggestion_ids=[feedback[0]["id"]],
+                root=root, annotations_root=root, decision_audit_root=root, decision_ledger_root=root,
+            )
+            after = reconcile_mobile_round_events(
+                "900001", fixture_history_data(), root=root, annotations_root=root,
+            )
+
+        self.assertEqual(applied["appliedCount"], 1)
+        self.assertEqual(applied["decisionAuditCount"], 0)
+        self.assertEqual(after["annotationSuggestions"], [])
+
+    def test_same_hole_score_reconciliation_uses_latest_mobile_event(self) -> None:
+        # J1.3: for each hole and score/putt/penalty kind, only the latest effective mobile value
+        # is reconciled; an earlier value superseded by a later event is evidence, not a suggestion.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch(
+                "900001", [{"eventId": "score-old", "roundId": "900001", "hole": 1,
+                            "kind": "score", "payload": {"strokes": 5}}],
+                idempotency_key="score-old", root=root,
+            )
+            append_event_batch(
+                "900001", [{"eventId": "score-new", "roundId": "900001", "hole": 1,
+                            "kind": "score", "payload": {"strokes": 8}}],
+                idempotency_key="score-new", root=root,
+            )
+            result = reconcile_mobile_round_events("900001", fixture_history_data(), root=root)
+
+        self.assertEqual([row["eventId"] for row in result["conflicts"]], ["score-new"])
+        self.assertEqual([row["id"] for row in result["annotationSuggestions"]], ["score-new:score-correction"])
+        self.assertEqual(result["annotationSuggestions"][0]["payload"]["from"], 4)
+        self.assertEqual(result["annotationSuggestions"][0]["payload"]["to"], 8)
+
+    def test_score_correction_from_mismatch_keeps_late_garmin_value_visible(self) -> None:
+        # J3.1: a correction is based on the Garmin value seen when it was made. If Garmin later
+        # changes to a different value, retain Garmin as the visible fact and surface a conflict.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch(
+                "900001", [{"eventId": "score-correction", "roundId": "900001", "hole": 1,
+                            "kind": "score", "payload": {"strokes": 6}}],
+                idempotency_key="score-correction", root=root,
+            )
+            original = fixture_history_data()
+            initial = reconcile_mobile_round_events("900001", original, root=root)
+            suggestion = next(row for row in initial["annotationSuggestions"]
+                              if row["kind"] == "score_correction")
+            applied = apply_mobile_reconciliation_suggestions(
+                "900001", original, suggestion_ids=[suggestion["id"]],
+                root=root, annotations_root=root, data_loader=lambda: original,
+            )
+            late_round = deepcopy(original.rounds[0])
+            late_round["holes"] = [
+                {**hole, "strokes": 7} if hole.get("number") == 1 else hole
+                for hole in late_round["holes"]
+            ]
+            late = HistoryData(raw_rounds=[], rounds=[late_round], shots=original.shots)
+            result = reconcile_mobile_round_events(
+                "900001", late, root=root, annotations_root=root,
+            )
+
+        self.assertEqual(applied["appliedCount"], 1)
+        self.assertEqual(len(result["conflicts"]), 1)
+        self.assertEqual(result["conflicts"][0]["garminValue"], 7)
+        self.assertEqual(result["annotationSuggestions"][0]["payload"]["from"], 7)
+        self.assertEqual(result["annotationSuggestions"][0]["payload"]["to"], 6)
 
     def test_apply_reconciliation_resolves_online_decision_id_without_embedded_copy(self) -> None:
         with TemporaryDirectory() as tmp:
