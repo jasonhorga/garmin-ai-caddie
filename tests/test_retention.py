@@ -45,6 +45,16 @@ class PrivateVolumeRetentionTests(unittest.TestCase):
             ):
                 self._make_snapshot(root, stamp)
             snapshots = root / "data" / "snapshots"
+            # Deliberately reverse filesystem mtimes: retention must use the timestamp in
+            # each garmin_cn ID, never incidental write order.
+            for index, stamp in enumerate((
+                "20261001T000000Z",
+                "20261002T000000Z",
+                "20261003T000000Z",
+                "20261004T000000Z",
+                "20261005T000000Z",
+            )):
+                os.utime(snapshots / f"garmin_cn_{stamp}.json", (5000 - index, 5000 - index))
             (snapshots / "garmin_cn_20261001T000000Z_hole.json").write_text("keep")
             (snapshots / "other.json").write_text("keep")
 
