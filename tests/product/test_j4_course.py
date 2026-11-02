@@ -140,16 +140,36 @@ class PrepRouteQualityTests(unittest.TestCase):
                 self.assertLessEqual(sum(s["targetCarry_m"] for s in row["steps"]),
                                      back_pond[0] - 8)
 
+    def test_j4_6_post_pin_water_prefers_stopping_before_the_pond(self):
+        # J4.6: a pond wholly behind the pin must be treated as a reason to
+        # lay up before its buffered front, rather than to fly past its back.
+        cases = (
+            ("GAP", 348, (353, 378), ("3W", "5I")),
+            ("GAP", 248, (253, 278), ("3W", "SW")),
+            ("NOWEDGE", 208, (213, 238), ("3W",)),
+            ("TRIG", 300, (305, 330), ("3W", "8I")),
+            ("OWNER", 232, (237, 262), ("3W", "54")),
+        )
+        for bag, length, pond, expected_clubs in cases:
+            with self.subTest(bag=bag, length=length):
+                row = self.prep(bag, 4, length, (pond,))
+                self.assert_complete(row)
+                self.assertEqual([s["club"] for s in row["steps"]], list(expected_clubs))
+                physical = sum(s["targetCarry_m"] for s in row["steps"])
+                self.assertLessEqual(physical, length + 30)
+                self.assertLessEqual(physical, pond[0] - 8)
+
     def test_j4_6_repair_does_not_move_a_safe_landing_into_post_pin_water(self):
         # J4.6: at L272, Driver200+7I120 lands at 320, beyond [277,302].
         # Replacing it with 200+50+50=300 would newly land in that real pond.
-        # NOWEDGE 210+155+135=500 similarly clears [457,482] at L452.
+        # Keep the accepted landing on the near side of the pond instead of
+        # treating a large flyover (the old +38 assertion) as equivalent.
         for bag, length in (("GAP", 272), ("NOWEDGE", 452)):
             with self.subTest(bag=bag):
                 row = self.prep(bag, 4, length, ((length + 5, length + 30),))
                 self.assert_complete(row)
                 physical = sum(s["targetCarry_m"] for s in row["steps"])
-                self.assertTrue(physical <= length - 3 or physical >= length + 38)
+                self.assertLessEqual(physical, length - 3)
 
     def test_j4_6_same_stroke_count_prefers_twenty_metre_overshoot(self):
         # J4.6: at L364, 197+102+84=383 (+19) and 197+109+84=390
