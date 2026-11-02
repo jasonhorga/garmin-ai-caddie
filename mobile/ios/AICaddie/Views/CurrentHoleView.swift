@@ -846,6 +846,8 @@ public struct CurrentHoleView: View {
     /// Once a precise bitmap is visible it remains authoritative for this physical hole. This
     /// prevents a late image/decode failure callback from downgrading the screen to Garmin.
     @State private var retainedLiveMapDisplayState: LiveMapDisplayState?
+    /// Selection restarts the load task but does not change the hole that owns map retention.
+    @State private var retainedLiveMapHoleNumber: Int
     /// Garmin CN's fallback descriptor/image for this physical hole. It is deliberately separate
     /// from `holePrep`: the CourseView facts can be retained offline while the raster request fails.
     @State private var garminDescriptorLoadingKey: String?
@@ -901,6 +903,7 @@ public struct CurrentHoleView: View {
     ) {
         self.package = package
         self.hole = hole
+        self._retainedLiveMapHoleNumber = State(initialValue: hole.number)
         self.onEvent = onEvent
         self.caddieClient = caddieClient ?? caddieBaseURL.map { CaddieDecisionClient(baseURL: $0, adminToken: adminToken) }
         self.mediaUploadClient = caddieBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: adminToken) }
@@ -1430,7 +1433,6 @@ public struct CurrentHoleView: View {
                 ?? Self.packageGarminRaster(for: hole)
             preciseTopoImageReady = false
             preciseTopoDecodeFailed = false
-            retainedLiveMapDisplayState = LiveMapRetentionPolicy.stateAfterHoleChange()
             garminRasterImageFailed = false
             garminRasterImageReady = false
             if let url = liveGarminRasterURL {
@@ -1438,6 +1440,13 @@ public struct CurrentHoleView: View {
             }
             garminRasterImageRetrying = false
             garminRasterImageReloadID = 0
+            if retainedLiveMapHoleNumber != hole.number {
+                // Only a different hole drops the previous tier. Reseed after installing this
+                // hole's inputs: an already precise bitmap may produce no subsequent onChange.
+                retainedLiveMapDisplayState = LiveMapRetentionPolicy.stateAfterHoleChange()
+                retainedLiveMapDisplayState = liveMapDisplayState
+                retainedLiveMapHoleNumber = hole.number
+            }
             GarminRasterImageStore.resetRetryCursors()
             garminVersionConflictURL = nil
             pinSheetMessage = nil
