@@ -725,6 +725,7 @@ public struct WatchGreenPreviewView: View {
                     let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
                     ZStack {
                         WatchNeutralMapSurface()
+                        rangeHeader(in: safeRect)
                         WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
                             .position(
                                 x: safeRect.minX + WatchDisplayGeometry.instrumentControlSize / 2,
@@ -735,8 +736,44 @@ public struct WatchGreenPreviewView: View {
                 .ignoresSafeArea()
             }
         }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { value in
+                    guard WatchEdgeBackGesture.shouldTrigger(
+                        startX: value.startLocation.x,
+                        translation: value.translation
+                    ) else { return }
+                    onBack()
+                },
+            including: edgeBackEnabled ? .all : .subviews
+        )
+        .accessibilityAction(named: Text("返回菜单"), onBack)
         .onChange(of: sourceGeometry.image) { _, _ in retainedGeometry = geometry }
         .onChange(of: sourceGeometry.greenDetailImage) { _, _ in retainedGeometry = geometry }
+    }
+
+    @ViewBuilder
+    private func rangeHeader(in safeRect: CGRect) -> some View {
+        if rangeUnavailable {
+            VStack(spacing: 1) {
+                Text("999")
+                    .font(.system(size: 22, weight: .black, design: .rounded))
+                    .monospacedDigit()
+                Text("等待定位")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(AICaddieDesignTokens.hudYellow)
+            }
+            .position(x: safeRect.midX, y: safeRect.minY + 18)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("999 码，等待定位")
+        } else if let distanceText {
+            Text(distanceText)
+                .font(.system(size: 16, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+                .position(x: safeRect.midX, y: safeRect.minY + 13)
+                .accessibilityLabel(metricsAccessibilityLabel ?? "到旗 \(distanceText) 码")
+        }
     }
 
     private var mappedContent: some View {
@@ -779,26 +816,7 @@ public struct WatchGreenPreviewView: View {
                     .allowsHitTesting(false)
                 }
 
-                if rangeUnavailable {
-                    VStack(spacing: 1) {
-                        Text("999")
-                            .font(.system(size: 22, weight: .black, design: .rounded))
-                            .monospacedDigit()
-                        Text("等待定位")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(AICaddieDesignTokens.hudYellow)
-                    }
-                    .position(x: safeRect.midX, y: safeRect.minY + 18)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("999 码，等待定位")
-                } else if let distanceText {
-                    Text(distanceText)
-                        .font(.system(size: 16, weight: .heavy, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(.white)
-                        .position(x: safeRect.midX, y: safeRect.minY + 13)
-                        .accessibilityLabel(metricsAccessibilityLabel ?? "到旗 \(distanceText) 码")
-                }
+                rangeHeader(in: safeRect)
 
                 if !hasFocusedGreenDetail {
                     Text("详细果岭图准备中")
@@ -900,18 +918,7 @@ public struct WatchGreenPreviewView: View {
             if placementChanged { persistPlacement() }
         }
         .ignoresSafeArea()
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 24)
-                .onEnded { value in
-                    guard WatchEdgeBackGesture.shouldTrigger(
-                        startX: value.startLocation.x,
-                        translation: value.translation
-                    ) else { return }
-                    onBack()
-                },
-            including: edgeBackEnabled ? .all : .subviews
-        )
-        .accessibilityAction(named: Text("返回菜单"), onBack)
+
     }
 
     private var pin: CGPoint { selectedPin ?? geometry.pinPx }
@@ -1062,7 +1069,6 @@ public struct WatchGreenPreviewView: View {
         context.fill(Path(CGRect(origin: .zero, size: size)),
                      with: .color(Color(red: 0.08, green: 0.20, blue: 0.12)))
         guard geometry.hasUsableBitmap || geometry.hasUsableGreenDetail else { return }
-
 
         #if canImport(UIKit)
         if let image = geometry.image {
