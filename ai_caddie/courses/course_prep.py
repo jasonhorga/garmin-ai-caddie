@@ -2161,22 +2161,28 @@ def _strategy(
             # so the safety fallback cannot reintroduce a short-then-long sequence.
             # Apply the same clipped constraints in the fallback while keeping the original
             # hazards for the measured display facts and cautions after planning finishes.
-            safe_ladder = [
+            eligible_ladder = [
                 (name, distance)
                 for name, distance in approach_ladder
                 if club_bag_service.canonical_club_name(name) not in used_clubs
                 and float(distance) <= previous_carry
-                and _strategy_water_safe(route_offset_m + float(distance), planning_hazards)
+            ]
+            safe_ladder = [
+                row for row in eligible_ladder
+                if _strategy_water_safe(route_offset_m + float(row[1]), planning_hazards)
             ]
             if not safe_ladder:
                 # Match the online repeat fallback when no distinct safe club can finish the
                 # scoring window. Repetition is still bounded by the prior carry, so it cannot
                 # reintroduce the short-then-long route that the safety fallback is meant to avoid.
-                safe_ladder = [
+                eligible_ladder = [
                     (name, distance)
                     for name, distance in approach_ladder
                     if float(distance) <= previous_carry
-                    and _strategy_water_safe(route_offset_m + float(distance), planning_hazards)
+                ]
+                safe_ladder = [
+                    row for row in eligible_ladder
+                    if _strategy_water_safe(route_offset_m + float(row[1]), planning_hazards)
                 ]
             if not safe_ladder:
                 break
@@ -2184,7 +2190,7 @@ def _strategy(
             approach_club, approach_distance = None, None
             if effective > longest_approach + 15 and remaining - longest_approach < LAYUP_LEAVE_MIN_M:
                 layup = _layup_position_club(
-                    remaining, safe_ladder, start_m=route_offset_m, hazards=planning_hazards,
+                    remaining, eligible_ladder, start_m=route_offset_m, hazards=planning_hazards,
                 )
                 if layup is not None:
                     approach_club, approach_distance = layup

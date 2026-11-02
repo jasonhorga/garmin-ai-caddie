@@ -161,6 +161,19 @@ class PrepWaterRouteTests(unittest.TestCase):
         )
         self.assertIsNone(layup)
 
+    def test_j4_6_distance_fallback_layup_keeps_water_constraints(self):
+        # J4.6: from 200 m, 9I@100 has the attractive 80 m wedge leave
+        # but lands in [280, 310]. 7I@120 clears 310+8, followed by SW@70.
+        # Force the factual fallback, as when the shared scorer has no candidate.
+        ladder = [("Driver", 200), ("7I", 120), ("9I", 100), ("PW", 80), ("SW", 70)]
+        with patch.object(course_prep, "_shared_sequence_tail", return_value=[]):
+            steps, *_ = course_prep._strategy(
+                4, 380, {"water_carry": [[280, 310]]}, ladder,
+            )
+        self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20)
+        for step in steps:
+            self.assertFalse(280 <= step["routeOffset_m"] <= 310)
+
     def test_j4_6_water_ending_at_pin_keeps_safe_landings_and_cautions(self):
         # J4.6: projected water can end exactly at the pin. The last metre is the
         # endpoint tolerance, not permission to land in the preceding 39 m of water.
