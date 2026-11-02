@@ -3,8 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import subprocess
-import sys
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -32,14 +30,14 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.addCleanup(authority.stop)
         self.addCleanup(self._reset_mobile_readiness_state)
 
-    @staticmethod
-    def _reset_mobile_readiness_state() -> None:
+    def _reset_mobile_readiness_state(self) -> None:
         with readiness._MOBILE_READINESS_LOCK:
             threads = list(readiness._MOBILE_READINESS_THREADS.values())
             readiness._MOBILE_READINESS.clear()
             readiness._MOBILE_READINESS_THREADS.clear()
         for thread in threads:
-            thread.join(timeout=5)
+            thread.join(timeout=10)
+            self.assertFalse(thread.is_alive(), "cleanup leaked a mobile worker")
         with readiness._MOBILE_READINESS_LOCK:
             readiness._MOBILE_READINESS.clear()
             readiness._MOBILE_READINESS_THREADS.clear()
@@ -288,6 +286,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
             readinessChecks=[], caddieContextSeeds=[], cachedCaddieRules={}, missingData=[],
         )
         calls = 0
+        waits: list[bool] = []
         second_started = threading.Event()
         release_second = threading.Event()
 
@@ -297,7 +296,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
             if calls == 1:
                 raise SystemExit("worker stopped")
             second_started.set()
-            self.assertTrue(release_second.wait(timeout=2))
+            waits.append(release_second.wait(timeout=10))
             return package
 
         with patch.object(readiness, "load_history_stats_snapshot", return_value=snapshot), \
@@ -314,10 +313,12 @@ class ServerV2ReadinessTests(unittest.TestCase):
             self.assertTrue(second_started.wait(timeout=2))
             restarted = readiness._MOBILE_READINESS_THREADS["me"]
             release_second.set()
-            restarted.join(timeout=2)
+            restarted.join(timeout=10)
+            self.assertFalse(restarted.is_alive())
             third = build_readiness_response()
             third_mobile = next(row for row in third["checks"] if row["label"] == "mobile_package")
         self.assertEqual(third_mobile["state"], "ready")
+        self.assertEqual(waits, [True], "builder barrier timed out")
         self.assertEqual(calls, 2)
 
     def test_G7_same_revision_concurrent_polls_start_only_one_mobile_build(self) -> None:
@@ -335,84 +336,82 @@ class ServerV2ReadinessTests(unittest.TestCase):
             sourceCoverage={"state": "ready"}, geometryCoverage={"state": "ready"},
             readinessChecks=[], caddieContextSeeds=[], cachedCaddieRules={}, missingData=[],
         )
-        real_threading = threading
-        start_gate = real_threading.Event()
-        first_start = real_threading.Event()
-        builder_started = real_threading.Event()
-        builder_release = real_threading.Event()
-        second_lock_entered = real_threading.Event()
-        calls = 0
-        calls_lock = real_threading.Lock()
+        start_gate = threading.Event()
+        first_start = threading.Event()
+        second_lock_attempted = threading.Event()
+        second_poll_done = threading.Event()
+        builder_started = threading.Event()
+        builder_release = threading.Event()
+        waits: list[tuple[str, bool]] = []
+        errors: list[BaseException] = []
+        workers: list[threading.Thread] = []
+        calls: list[str] = []
+        lock = threading.Lock()
 
-        class GatedThread(real_threading.Thread):
-            gated_once = False
-
+        class GatedThread(threading.Thread):
             def start(self) -> None:
-                if not GatedThread.gated_once:
-                    GatedThread.gated_once = True
+                workers.append(self)
+                if len(workers) == 1:
                     first_start.set()
-                    start_gate.wait(timeout=5)
+                    waits.append(("start gate", start_gate.wait(timeout=10)))
+                    # Outside-lock mutant must let the competing poll finish registering
+                    # its worker before this unstarted worker becomes alive.
+                    if not lock.locked():
+                        waits.append(("competing poll", second_poll_done.wait(timeout=10)))
                 super().start()
 
         def builder(*args, **kwargs):
-            nonlocal calls
-            with calls_lock:
-                calls += 1
+            calls.append("build")
             builder_started.set()
-            self.assertTrue(builder_release.wait(timeout=2))
+            waits.append(("builder release", builder_release.wait(timeout=10)))
             return package
 
-        second_poll: real_threading.Thread
-
         class ObservedLock:
-            def __init__(self) -> None:
-                self._lock = real_threading.Lock()
-
             def __enter__(self):
-                self._lock.acquire()
-                if real_threading.current_thread() is second_poll:
-                    second_lock_entered.set()
+                if threading.current_thread() is second_poll:
+                    second_lock_attempted.set()
+                lock.acquire()
                 return self
 
-            def __exit__(self, exc_type, exc, tb):
-                self._lock.release()
-                return False
+            def __exit__(self, *args):
+                lock.release()
 
-        shim = SimpleNamespace(
-            Thread=GatedThread,
-            current_thread=real_threading.current_thread,
-            Lock=real_threading.Lock,
-        )
-        first_poll = real_threading.Thread(
-            target=lambda: readiness._mobile_readiness_status(snapshot), daemon=True
-        )
-        second_poll = real_threading.Thread(
-            target=lambda: readiness._mobile_readiness_status(snapshot), daemon=True
-        )
-        try:
-            with patch.object(readiness, "threading", shim), \
-                 patch.object(readiness, "_MOBILE_READINESS_LOCK", ObservedLock()), \
-                 patch.object(readiness, "build_mobile_round_package_response", side_effect=builder):
+        def poll(done=None):
+            try:
+                readiness._mobile_readiness_status(snapshot)
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                if done is not None:
+                    done.set()
+
+        first_poll = threading.Thread(target=poll, daemon=True)
+        second_poll = threading.Thread(target=lambda: poll(second_poll_done), daemon=True)
+        shim = SimpleNamespace(Thread=GatedThread, current_thread=threading.current_thread)
+        with patch.object(readiness, "threading", shim), \
+             patch.object(readiness, "_MOBILE_READINESS_LOCK", ObservedLock()), \
+             patch.object(readiness, "build_mobile_round_package_response", side_effect=builder):
+            try:
                 first_poll.start()
-                self.assertTrue(first_start.wait(timeout=2))
+                self.assertTrue(first_start.wait(timeout=10))
                 second_poll.start()
-                second_lock_entered.wait(timeout=2)
+                self.assertTrue(second_lock_attempted.wait(timeout=10), "second poll never attempted the lock")
                 start_gate.set()
-                self.assertTrue(builder_started.wait(timeout=2))
+                self.assertTrue(builder_started.wait(timeout=10))
+                for thread in (first_poll, second_poll):
+                    thread.join(timeout=10)
+                    self.assertFalse(thread.is_alive(), "poll did not finish")
+            finally:
+                start_gate.set()
                 builder_release.set()
-                first_poll.join(timeout=2)
-                second_poll.join(timeout=2)
-                self.assertFalse(first_poll.is_alive())
-                self.assertFalse(second_poll.is_alive())
-                for thread in list(real_threading.enumerate()):
-                    if thread.name == "readiness-mobile-warm":
-                        thread.join(timeout=2)
-        finally:
-            start_gate.set()
-            builder_release.set()
-            first_poll.join(timeout=2)
-            second_poll.join(timeout=2)
-        self.assertEqual(calls, 1, "same-revision concurrent polls must start exactly one mobile build")
+                for thread in (first_poll, second_poll, *workers):
+                    if thread.ident is not None:
+                        thread.join(timeout=10)
+                        self.assertFalse(thread.is_alive(), "test leaked a worker")
+        self.assertEqual(errors, [], "poll thread failed")
+        for label, completed in waits:
+            self.assertTrue(completed, label)
+        self.assertEqual(len(calls), 1, "same-revision concurrent polls must start exactly one mobile build")
 
     def test_G7_mobile_warm_old_revision_cannot_overwrite_new_revision(self) -> None:
         """G7: completion from an old revision cannot replace the newer warm slot."""
@@ -421,6 +420,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
         release_first = threading.Event()
         release_second = threading.Event()
         calls: list[str] = []
+        waits: list[bool] = []
         package = SimpleNamespace(
             schema_="ai-caddie-live-round-package-v2", roundId="900001", holes=[],
             caddieDecisionEndpoint="/api/v2/caddie/decision", offlinePackageStatus={},
@@ -439,10 +439,10 @@ class ServerV2ReadinessTests(unittest.TestCase):
             calls.append(revision)
             if revision == "R1":
                 first_started.set()
-                self.assertTrue(release_first.wait(timeout=2))
+                waits.append(release_first.wait(timeout=10))
             else:
                 second_started.set()
-                self.assertTrue(release_second.wait(timeout=2))
+                waits.append(release_second.wait(timeout=10))
             return package
 
         snapshot_calls = 0
@@ -461,73 +461,123 @@ class ServerV2ReadinessTests(unittest.TestCase):
             first = build_readiness_response()
             self.assertEqual(next(row for row in first["checks"] if row["label"] == "mobile_package")["state"], "warming")
             self.assertTrue(first_started.wait(timeout=2))
+            r1_thread = readiness._MOBILE_READINESS_THREADS["me"]
             second = build_readiness_response()
             self.assertEqual(next(row for row in second["checks"] if row["label"] == "mobile_package")["state"], "warming")
             self.assertTrue(second_started.wait(timeout=2))
             r2_thread = readiness._MOBILE_READINESS_THREADS["me"]
-            r1_thread = [thread for thread in threading.enumerate() if thread.name == "readiness-mobile-warm" and thread is not r2_thread][0]
             release_second.set()
-            r2_thread.join(timeout=2)
+            r2_thread.join(timeout=10)
+            self.assertFalse(r2_thread.is_alive())
             release_first.set()
-            r1_thread.join(timeout=2)
+            r1_thread.join(timeout=10)
+            self.assertFalse(r1_thread.is_alive())
             final = build_readiness_response()
             final_mobile = next(row for row in final["checks"] if row["label"] == "mobile_package")
         self.assertEqual(final_mobile["state"], "ready")
+        self.assertEqual(waits, [True, True], "builder barrier timed out")
         self.assertEqual(calls.count("R1"), 1)
         self.assertEqual(calls.count("R2"), 1)
 
     def test_G7_mobile_warm_trace_mode_does_not_deadlock(self) -> None:
         """G7: trace mode performs the synchronous diagnostic warm without re-entering its lock."""
-        script = """
-from types import SimpleNamespace
-from server_v2 import readiness
-package = SimpleNamespace(
-    schema_='ai-caddie-live-round-package-v2', roundId='900001', holes=[],
-    caddieDecisionEndpoint='/api/v2/caddie/decision', offlinePackageStatus={},
-    sourceCoverage={'state': 'ready'}, geometryCoverage={'state': 'ready'},
-    readinessChecks=[], caddieContextSeeds=[], cachedCaddieRules={}, missingData=[],
-)
-readiness.build_mobile_round_package_response = lambda *args, **kwargs: package
-readiness.warm_mobile_readiness_in_background({
-    'value': {'summary': {'totalRounds': 1}, 'drillDown': {'roundIds': ['900001']}},
-    'revision': 'mobile-trace', 'stale': False, 'dataMode': 'fixture', 'source': 'memory',
-})
-assert readiness._MOBILE_READINESS['me']['state'] == 'ready'
-"""
-        env = {**os.environ, "AI_CADDIE_DATA_MODE": "fixture", "AI_CADDIE_READINESS_TRACE": "1"}
-        try:
-            result = subprocess.run(
-                [sys.executable, "-c", script], cwd=Path.cwd(), env=env,
-                capture_output=True, text=True, timeout=15,
-            )
-        except subprocess.TimeoutExpired:
-            self.fail("trace readiness warm deadlocked")
-        self.assertEqual(result.returncode, 0, result.stderr)
+        test = self
 
-    def test_G7_mobile_readiness_evidence_reflects_stale_history_snapshot(self) -> None:
-        """G7: mobile evidence carries the stale bit from its history snapshot."""
-        snapshot = {
+        class NoReentryLock:
+            def __init__(self):
+                self.lock = threading.Lock()
+
+            def __enter__(self):
+                test.assertTrue(self.lock.acquire(blocking=False), "trace readiness warm re-entered its lock")
+                return self
+
+            def __exit__(self, *args):
+                self.lock.release()
+
+        with patch.dict(os.environ, {"AI_CADDIE_READINESS_TRACE": "1"}), \
+             patch.object(readiness, "_MOBILE_READINESS_LOCK", NoReentryLock()), \
+             patch.object(readiness, "build_mobile_round_package_response", return_value=self._mobile_package()):
+            readiness.warm_mobile_readiness_in_background(self._mobile_snapshot())
+        self.assertEqual(readiness._MOBILE_READINESS["me"]["state"], "ready")
+
+    @staticmethod
+    def _mobile_snapshot(*, revision="mobile-evidence", stale=False):
+        return {
             "value": {"summary": {"totalRounds": 1}, "drillDown": {"roundIds": ["900001"]}},
-            "revision": "mobile-stale-history",
-            "stale": True,
-            "dataMode": "fixture",
-            "source": "disk",
+            "revision": revision, "stale": stale, "dataMode": "fixture", "source": "memory",
         }
-        package = SimpleNamespace(
+
+    @staticmethod
+    def _mobile_package():
+        return SimpleNamespace(
             schema_="ai-caddie-live-round-package-v2", roundId="900001", holes=[],
             caddieDecisionEndpoint="/api/v2/caddie/decision", offlinePackageStatus={},
             sourceCoverage={"state": "ready"}, geometryCoverage={"state": "ready"},
             readinessChecks=[], caddieContextSeeds=[], cachedCaddieRules={}, missingData=[],
         )
-        with patch.object(readiness, "load_history_stats_snapshot", return_value=snapshot), \
-             patch.object(readiness, "build_mobile_round_package_response", return_value=package):
-            payload = build_readiness_response()
-            thread = readiness._MOBILE_READINESS_THREADS.get("me")
-            if thread is not None:
-                thread.join(timeout=2)
-            payload = build_readiness_response()
-        mobile = next(row for row in payload["checks"] if row["label"] == "mobile_package")
-        self.assertTrue(mobile["evidence"]["stale"])
+
+    def test_G7_mobile_readiness_evidence_reflects_stale_history_snapshot(self) -> None:
+        """G7: completed mobile evidence distinguishes fresh and stale history snapshots."""
+        for stale in (False, True):
+            with self.subTest(stale=stale), \
+                 patch.object(readiness, "load_history_stats_snapshot", return_value=self._mobile_snapshot(stale=stale)), \
+                 patch.object(readiness, "_start_history_warm") as history_warm, \
+                 patch.object(readiness, "build_mobile_round_package_response", return_value=self._mobile_package()):
+                worker = readiness.warm_mobile_readiness_in_background(self._mobile_snapshot(stale=stale))
+                self.assertIsNotNone(worker)
+                worker.join(timeout=10)
+                self.assertFalse(worker.is_alive())
+                payload = build_readiness_response()
+                mobile = next(row for row in payload["checks"] if row["label"] == "mobile_package")
+                self.assertEqual(mobile["state"], "ready")
+                self.assertIs(mobile["evidence"]["stale"], stale)
+                self.assertEqual(history_warm.call_count, int(stale))
+
+    def test_G7_mobile_failed_build_keeps_stale_evidence_for_fresh_snapshot(self) -> None:
+        """G7: a failed projection remains degraded/stale even when its input is fresh."""
+        with patch.object(readiness, "build_mobile_round_package_response", side_effect=RuntimeError("projection failed")):
+            worker = readiness.warm_mobile_readiness_in_background(self._mobile_snapshot(stale=False))
+            worker.join(timeout=10)
+            self.assertFalse(worker.is_alive())
+        status = readiness._MOBILE_READINESS["me"]
+        self.assertEqual(status["state"], "degraded")
+        self.assertIn("projection failed", status["evidence"]["reason"])
+        self.assertIs(status["evidence"]["stale"], True)
+
+    def test_G7_superseded_worker_cannot_publish_into_same_revision_slot(self) -> None:
+        """G7: R1→R2→R1 keeps the registered worker's warming evidence until it completes."""
+        entered = [threading.Event() for _ in range(3)]
+        release = [threading.Event() for _ in range(3)]
+        waits: list[bool] = []
+        calls: list[int] = []
+        workers = []
+
+        def builder(*args, **kwargs):
+            index = len(calls)
+            calls.append(index)
+            entered[index].set()
+            waits.append(release[index].wait(timeout=10))
+            return self._mobile_package()
+
+        with patch.object(readiness, "build_mobile_round_package_response", side_effect=builder):
+            try:
+                for index, revision in enumerate(("R1", "R2", "R1")):
+                    workers.append(readiness.warm_mobile_readiness_in_background(self._mobile_snapshot(revision=revision)))
+                    self.assertTrue(entered[index].wait(timeout=10))
+                release[0].set()
+                workers[0].join(timeout=10)
+                self.assertFalse(workers[0].is_alive())
+                self.assertEqual(readiness._MOBILE_READINESS["me"]["state"], "warming",
+                                 "superseded R1 worker published into the newer R1 slot")
+                self.assertIs(readiness._MOBILE_READINESS_THREADS["me"], workers[2])
+            finally:
+                for event in release:
+                    event.set()
+                for worker in workers:
+                    worker.join(timeout=10)
+                    self.assertFalse(worker.is_alive())
+        self.assertEqual(waits, [True, True, True], "builder barrier timed out")
+        self.assertEqual(readiness._MOBILE_READINESS["me"]["state"], "ready")
 
     def _write_backup_manifest(self, path: Path, created_at: datetime) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -978,7 +978,7 @@ def _offline_seed_quality(package: Any) -> dict[str, Any]:
     }
 
 
-def _mobile_readiness_evidence(package: Any, *, stale: bool = False) -> tuple[str, dict[str, Any]]:
+def _mobile_readiness_evidence(package: Any) -> tuple[str, dict[str, Any]]:
     """Summarise a background package warm for the cheap readiness response."""
     package_ready = _mobile_package_runtime_ready(package)
     seed_quality = _offline_seed_quality(package)
@@ -1012,7 +1012,7 @@ def _mobile_readiness_evidence(package: Any, *, stale: bool = False) -> tuple[st
                 if isinstance(row, dict) and str(row.get("label") or "").strip()
             }
         ),
-        "stale": stale,
+        "stale": False,
         "source": "background",
     }
     return ("ready" if package_ready else "degraded"), evidence
