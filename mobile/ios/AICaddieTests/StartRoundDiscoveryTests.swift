@@ -2389,7 +2389,6 @@ final class StartRoundDiscoveryTests: XCTestCase {
         }
         XCTAssertEqual(text(fix: false), "正在等待定位…")
         XCTAssertEqual(text(fix: true), "正在找附近球场…")
-        XCTAssertEqual(text(fix: true), "正在找附近球场…", "usable rows remain pending during expansion")
         XCTAssertNil(text(failed: true, fix: true), "the retry icon replaces it")
         XCTAssertNil(text(manual: true, fix: true), "an explicit search pick ends the wait")
         XCTAssertNil(text(loading: false, fix: false), "denied GPS: nothing is being looked for")
