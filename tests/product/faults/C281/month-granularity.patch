@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index bfa394a8..b189e7bb 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -229,7 +229,7 @@ def _real_score_hole_keys(
+     keys_by_round: dict[str, tuple[str, set[tuple[int, int]]]] = {}
+     for row in rounds:
+         round_id = str(row.get("id"))
+-        day = str(row.get("date") or "")[:10]
++        day = str(row.get("date") or "")[:7]
+         keys = keys_by_round.setdefault(round_id, (day, set()))[1]
+         for hole, _display, physical, side in hole_sides(row):
+             if _int(hole.get("strokes")) is None:

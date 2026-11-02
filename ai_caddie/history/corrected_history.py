@@ -244,6 +244,34 @@ def _real_score_hole_keys(
     return keys_by_round
 
 
+def _same_day_non_overlapping_score_holes(
+    real_score_holes: dict[str, tuple[str, set[tuple[int, int]]]],
+) -> dict[str, set[tuple[int, int]]]:
+    """Index real holes from cards that can belong to the same outing.
+
+    A card with a physical hole already present on the current card is evidence of a
+    second outing on the same day. Cards with disjoint physical holes are the two
+    halves of one outing and can supersede a restore. Unknown dates are deliberately
+    excluded: without a date we cannot prove that a later card replaces a restore.
+    """
+    by_day: dict[str, list[tuple[str, set[tuple[int, int]]]]] = {}
+    for round_id, (day, keys) in real_score_holes.items():
+        if day:
+            by_day.setdefault(day, []).append((round_id, keys))
+    candidates: dict[str, set[tuple[int, int]]] = {}
+    for round_id, (day, own_keys) in real_score_holes.items():
+        if not day:
+            candidates[round_id] = set()
+            continue
+        candidates[round_id] = {
+            key
+            for other_id, other_keys in by_day.get(day, [])
+            if other_id != round_id and not (own_keys & other_keys)
+            for key in other_keys
+        }
+    return candidates
+
+
 def _restore_is_superseded(
     records: list[dict[str, Any]], other_real_score_holes: set[tuple[int, int]]
 ) -> bool:
@@ -288,17 +316,12 @@ def corrected_rounds(
     if not hole_annotations and not events_by_round:
         return rounds
     real_score_holes = _real_score_hole_keys(rounds)
+    same_day_non_overlapping = _same_day_non_overlapping_score_holes(real_score_holes)
     out: list[dict[str, Any]] = []
     for row in rounds:
         row_id = str(row.get("id"))
-        row_day = str(row.get("date") or "")[:10]
-        other_real_score_holes = {
-            key
-            for round_id, (other_day, keys) in real_score_holes.items()
-            if round_id != row_id and (not row_day or not other_day or row_day == other_day)
-            for key in keys
-        }
         refs = _round_refs(row)
+        other_real_score_holes = same_day_non_overlapping.get(row_id, set())
         events = events_by_round.get(str(row.get("id"))) or []
         penalty_events = [e for e in events if e.get("op") in PENALTY_EVENT_OPS] if "penalty" in fields else []
         hole_entries: list[tuple[int, int, dict[str, Any]]] = []
