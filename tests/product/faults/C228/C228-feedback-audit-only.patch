@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index 31b65e7d..781fc8a1 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -826,7 +826,7 @@ def reconcile_mobile_round_events(
+     )
+     feedback_filtered_audits = [
+         row for row in candidate_audits
+-        if f"{row.get('eventId')}:caddie-feedback" not in applied_feedback_annotations
++        if True
+     ]
+     candidate_audits = feedback_filtered_audits
+     applied_decision_ids = {

@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index 40e30b46..1448b081 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -163,7 +163,7 @@ def _hole_scores(
+                 to_value = _safe_int(winner_payload.get("to"))
+                 if (from_value is not None and source_strokes is not None
+                         and prior_total != from_value and source_strokes != to_value):
+-                    total = source_strokes
++                    total = total
+                     score_correction_conflict = True
+         scores[number] = {
+             "strokes": total,
