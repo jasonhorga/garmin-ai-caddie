@@ -4,15 +4,15 @@ Goldens come from the card: trusted online jobs use the Mac, forks/signing use
 GitHub, and each runner owns exact simulator names. Execute shell with fake tools.
 """
 import json
-import fcntl
 import os
 from pathlib import Path
 import shlex
-import signal
 import subprocess
 import sys
 import tempfile
 import unittest
+import time
+import urllib.request
 
 import yaml
 
@@ -44,6 +44,8 @@ with open(os.environ['CALLS'], 'a') as f:
 if args[:2] == ['simctl', 'list']:
     key = args[2]
     print(json.dumps({key: s[key]}))
+elif args[:2] == ['simctl', 'shutdown'] and os.environ.get('SHUTDOWN_TRANSITION'):
+    sys.exit(1)
 elif args[:2] == ['simctl', 'create']:
     name, model, runtime = args[2:]
     assert model in [d['identifier'] for d in s['devicetypes']], model
@@ -112,118 +114,102 @@ class MacRunnerJobsTests(unittest.TestCase):
         self.assertEqual(len(matches), 1, f'{job} must execute {name}')
         return matches[0]
 
-    def test_host_lock_waits_for_other_job_and_releases_after_cancellation(self):
-        step = self.mobile_step('Acquire host port 9000 lock')
-        lock = self.root / 'port.lock'
-        env = dict(CADDIE_PORT9000_LOCK=str(lock), CADDIE_PORT9000_WAIT_SECONDS='0.2',
-                   RUNNER_ENVIRONMENT='self-hosted', GITHUB_JOB='waiting-job')
-        self.addCleanup(lambda: self.shell('python3 .github/scripts/port9000.py release', **env))
-        with lock.open('w+') as holder:
-            fcntl.flock(holder, fcntl.LOCK_EX)
-            holder.write('other-job'); holder.flush()
-            result = self.shell(step['run'], **env)
-            self.assertNotEqual(result.returncode, 0, 'must wait/fail while another job holds the host lock')
-            self.assertIn('other-job', result.stdout + result.stderr)
-        result = self.shell(step['run'], **env)
+    def port_command(self, command, **env):
+        return self.shell('python3 .github/scripts/fixture-port.py ' + command, **env)
+
+    def selected_port(self, runner, environment='self-hosted'):
+        result = self.port_command('select', RUNNER_ENVIRONMENT=environment, RUNNER_NAME=runner)
         self.assertEqual(result.returncode, 0, result.stderr)
-        with lock.open() as probe:
-            with self.assertRaises(BlockingIOError, msg='lock must span subsequent workflow steps'):
-                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        release = self.mobile_step('Release host port 9000 lock')
-        for failed, cancelled in [(True, False), (False, True)]:
-            self.assertTrue(evaluate(release['if'], {'inputs.fixture_mode': True},
-                                     failed=failed, cancelled=cancelled, condition=True))
-        result = self.shell(release['run'], **env)
+        return _command_file(Path(self.env['GITHUB_ENV']))
+
+    def test_runner_ports_are_distinct_and_hosted_retains_9000(self):
+        # C307 card gives these exact reserved assignments, independent of job/run IDs.
+        for runner, port in [('caddie-mba', '9001'), ('caddie-mba-2', '9002'), ('caddie-mba-3', '9003')]:
+            with self.subTest(runner=runner):
+                values = self.selected_port(runner)
+                self.assertEqual(values['CADDIE_FIXTURE_PORT'], port)
+                self.assertEqual(values['TEST_RUNNER_CADDIE_FIXTURE_PORT'], port)
+        self.assertEqual(self.selected_port('arbitrary-hosted', 'github-hosted')['CADDIE_FIXTURE_PORT'], '9000')
+
+    def test_unknown_self_hosted_runner_fails_with_mapping_instructions(self):
+        result = self.port_command('select', RUNNER_ENVIRONMENT='self-hosted', RUNNER_NAME='unregistered')
+        self.assertNotEqual(result.returncode, 0, 'unknown self-hosted runner must fail closed')
+        self.assertIn('caddie-runner-ports.json', result.stderr)
+        self.assertIn('unregistered', result.stderr)
+        self.assertFalse(Path(self.env['GITHUB_ENV']).exists())
+
+    def test_port_commands_reject_outside_reserved_range_before_inspection(self):
+        for port in ['8999', '9010', 'invalid', '']:
+            result = self.port_command('prepare', CADDIE_FIXTURE_PORT=port)
+            self.assertNotEqual(result.returncode, 0, port)
+            self.assertIn('9000..9009', result.stderr)
+
+    def start_server(self, port, fixture=False):
+        if fixture:
+            command = [sys.executable, '-m', 'uvicorn', 'server_v2.main:app',
+                       '--host', '127.0.0.1', '--port', str(port), '--ws', 'none']
+        else:
+            command = [sys.executable, '-m', 'http.server', str(port), '--bind', '127.0.0.1']
+        log = (self.root / f'server-{port}.log').open('w')
+        self.addCleanup(log.close)
+        process = subprocess.Popen(command, cwd=ROOT, env={**os.environ,
+            'AI_CADDIE_DATA_MODE': 'fixture', 'AI_CADDIE_FIXTURE_MODE': '1',
+            'AI_CADDIE_SECURITY_PROFILE': 'private', 'AI_CADDIE_ADMIN_TOKEN': 'synthetic-c307',
+            'AI_CADDIE_BUILD_REVISION': 'ci-fixture-random-nonce'}, stdout=log, stderr=log)
+        def cleanup():
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill(); process.wait(timeout=5)
+        self.addCleanup(cleanup)
+        url = 'http://' + '127.0.0.1' + f':{port}' + ('/api/v2/health' if fixture else '/')
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            self.assertIsNone(process.poll(), (self.root / f'server-{port}.log').read_text())
+            try:
+                with urllib.request.urlopen(url, timeout=1) as response:
+                    response.read()
+                return process
+            except OSError:
+                time.sleep(0.1)
+        self.fail('real server did not start: ' + (self.root / f'server-{port}.log').read_text())
+
+    def test_real_fixture_health_uses_constant_revision_and_stop_kills_owned_pid(self):
+        process = self.start_server(9003, fixture=True)
+        url = 'http://' + '127.0.0.1' + ':9003/api/v2/health'
+        with urllib.request.urlopen(url) as response:
+            self.assertEqual(json.load(response)['revision'], 'ci-fixture-20260827-v1')
+        result = self.port_command('health', CADDIE_FIXTURE_PORT='9003',
+                                   AI_CADDIE_BUILD_REVISION='ci-fixture-random-nonce')
+        self.assertEqual(result.returncode, 0, 'real fixture must pass without echoing a nonce: ' + result.stderr)
+        (self.root / 'ai-caddie-fixture.pid').write_text(str(process.pid))
+        result = self.port_command('stop', CADDIE_FIXTURE_PORT='9003')
         self.assertEqual(result.returncode, 0, result.stderr)
-        with lock.open() as probe:
-            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        self.assertIsNotNone(process.poll(), 'stop must terminate its recorded fixture')
+        self.assertEqual(self.port_command('free', CADDIE_FIXTURE_PORT='9003').returncode, 0)
 
-    def test_lock_holder_process_exit_releases_kernel_lock(self):
-        env = dict(CADDIE_PORT9000_LOCK=str(self.root / 'port.lock'),
-                   RUNNER_ENVIRONMENT='self-hosted')
-        self.addCleanup(lambda: self.shell('python3 .github/scripts/port9000.py release', **env))
-        result = self.shell(self.mobile_step('Acquire host port 9000 lock')['run'], **env)
+    def test_prepare_cleans_only_selected_runner_port(self):
+        stale = self.start_server(9003)
+        other = self.start_server(9002)
+        result = self.port_command('prepare', CADDIE_FIXTURE_PORT='9003')
+        self.assertEqual(result.returncode, 0, 'startup must clean this runner residual listener: ' + result.stderr)
+        self.assertIsNotNone(stale.poll(), 'prepare must terminate the residual listener')
+        self.assertIsNone(other.poll(), 'prepare must preserve other runner listeners')
+        self.assertEqual(self.port_command('free', CADDIE_FIXTURE_PORT='9003').returncode, 0)
+
+    def test_stop_kills_own_pid_even_when_health_is_unavailable_and_checks_port(self):
+        process = self.start_server(9003)  # HTTP server has no fixture health.
+        (self.root / 'ai-caddie-fixture.pid').write_text(str(process.pid))
+        result = self.port_command('stop', CADDIE_FIXTURE_PORT='9003')
         self.assertEqual(result.returncode, 0, result.stderr)
-        pid = json.loads((self.root / 'port.lock').read_text())['pid']
-        os.kill(pid, signal.SIGTERM)  # The runner's cancellation cleanup kills tracked children.
-        result = self.shell(self.mobile_step('Release host port 9000 lock')['run'], **env)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        with (self.root / 'port.lock').open() as probe:
-            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
-
-    def test_hosted_acquire_skips_host_lock(self):
-        lock = self.root / 'port.lock'
-        with lock.open('w+') as holder:
-            fcntl.flock(holder, fcntl.LOCK_EX)
-            result = self.shell(self.mobile_step('Acquire host port 9000 lock')['run'],
-                                CADDIE_PORT9000_LOCK=str(lock), RUNNER_ENVIRONMENT='github-hosted')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse((self.root / 'caddie-port9000-state').exists())
-
-    def test_all_port_consumers_hold_lock_until_stop_and_release_always(self):
-        consumers = [('native-mobile.yml', job) for job in
-                     ('native-unit-watch', 'native-real-flow', 'native-screenshots', 'native-product-ui')]
-        consumers += [('agenthub-native-mutant.yml', 'native-mutant')]
-        for name, job in consumers:
-            with self.subTest(job=job):
-                steps = workflow(name)['jobs'][job]['steps']
-                names = [s.get('name') for s in steps]
-                self.assertIn('Acquire host port 9000 lock', names)
-                self.assertIn('Release host port 9000 lock', names)
-                first = 'Start isolated CI fixture' if 'Start isolated CI fixture' in names else (
-                    'Test iPhone UI scheme' if job == 'native-mutant' else 'Check Product UI fixture port is free')
-                last = 'Stop isolated CI fixture' if 'Stop isolated CI fixture' in names else (
-                    'Test iPhone UI scheme' if job == 'native-mutant' else 'Test Product UI tests')
-                self.assertLess(names.index('Acquire host port 9000 lock'), names.index(first))
-                self.assertGreater(names.index('Release host port 9000 lock'), names.index(last))
-                release = steps[names.index('Release host port 9000 lock')]
-                self.assertTrue(evaluate(release['if'], {'inputs.fixture_mode': True, 'inputs.include_ui': True},
-                                         failed=True, cancelled=True, condition=True))
-
-    def test_start_rejects_health_from_another_fixture(self):
-        # A bind failure followed by someone else's HTTP 200 must never be healthy.
-        self.fake_tool('uv', 'exit 0')
-        self.fake_tool('lsof', 'exit 1')
-        self.fake_tool('curl', "echo " + shlex.quote(json.dumps(dict(status='ok', revision='other-job'))))
-        self.fake_tool('sleep', 'exit 0')
-        result = self.shell(self.mobile_step('Start isolated CI fixture')['run'])
-        self.assertNotEqual(result.returncode, 0, 'foreign health token must not satisfy fixture startup')
-        self.assertIn('foreign fixture health revision', result.stderr)
-
-    def test_product_ui_rejects_an_already_listening_port(self):
-        self.fake_tool('lsof', 'echo 54321; exit 0')
-        result = self.shell(self.mobile_step('Check Product UI fixture port is free', 'native-product-ui')['run'])
-        self.assertNotEqual(result.returncode, 0, 'Product UI must reject a foreign listener')
-
-    def test_stop_rejects_a_foreign_listener_without_killing_it(self):
-        self.fake_tool('curl', "echo " + shlex.quote(json.dumps(dict(status='ok', revision='other-job'))))
-        self.fake_tool('lsof', 'echo 54321; exit 0')
-        self.fake_tool('sleep', 'exit 0')
-        foreign = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
-        self.addCleanup(foreign.wait)
-        self.addCleanup(foreign.terminate)
-        (self.root / 'ai-caddie-fixture.pid').write_text(str(foreign.pid))
-        result = self.shell(self.mobile_step('Stop isolated CI fixture')['run'],
-                            AI_CADDIE_BUILD_REVISION='our-job')
-        self.assertNotEqual(result.returncode, 0, 'stop must report a foreign listener still owning the port')
-        self.assertIsNone(foreign.poll(), 'stop must not kill a process whose health belongs to another job')
-
-    def test_stop_checks_port_after_terminating_its_own_fixture(self):
-        self.fake_tool('curl', 'echo ' + shlex.quote(json.dumps(dict(revision='our-job'))))
-        self.fake_tool('lsof', 'echo 54321; exit 0')
-        self.fake_tool('sleep', 'exit 0')
+        self.assertIsNotNone(process.poll(), 'own pid must be terminated before health/port checks')
+        remaining = self.start_server(9003)
         (self.root / 'ai-caddie-fixture.pid').write_text('99999999')
-        result = self.shell(self.mobile_step('Stop isolated CI fixture')['run'],
-                            AI_CADDIE_BUILD_REVISION='our-job')
-        self.assertNotEqual(result.returncode, 0, 'stop must check the port after terminating its own fixture')
-        self.assertIn('fixture port still serving', result.stderr)
-
-    def test_start_accepts_its_own_health_revision(self):
-        self.fake_tool('uv', 'exit 0')
-        self.fake_tool('lsof', 'exit 1')
-        self.fake_tool('curl', 'printf \'{"revision":"%s"}\\n\' "$AI_CADDIE_BUILD_REVISION"')
-        result = self.shell(self.mobile_step('Start isolated CI fixture')['run'])
-        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.port_command('stop', CADDIE_FIXTURE_PORT='9003')
+        self.assertNotEqual(result.returncode, 0, 'stop must report a still-listening port')
+        self.assertIsNone(remaining.poll())
 
     def test_product_ui_passes_single_value_options_once(self):
         self.fake_tool('xcodebuild', 'exec ' + shlex.quote(sys.executable) +
@@ -247,6 +233,15 @@ class MacRunnerJobsTests(unittest.TestCase):
         self.assertEqual(erases, [['simctl', 'erase', 'owned'],
                                   ['simctl', 'erase', 'created-runner-two-watch']],
                          'erase each selected owned simulator once per job; never erase all or hosted/foreign devices')
+
+    def test_selection_tolerates_shutdown_transition_before_erase(self):
+        runtime = 'com.apple.CoreSimulator.SimRuntime.iOS-27-2'
+        self.state['devices'][runtime].append(dict(name='runner-two-iphone', udid='owned',
+                                                  isAvailable=True, state='Shutting Down'))
+        self.save()
+        self.assertEqual(self.select('ios', CADDIE_SIM_PREFIX='runner-two', SHUTDOWN_TRANSITION='1'), 'owned')
+        self.assertEqual([c for c in self.calls() if c[:2] == ['simctl', 'erase']],
+                         [['simctl', 'erase', 'owned']])
 
     def test_runner_routing_obeys_online_trust_and_dispatch(self):
         cases = [('online', 'pull_request', 'owner/repo', ['self-hosted', 'caddie-mba']),
