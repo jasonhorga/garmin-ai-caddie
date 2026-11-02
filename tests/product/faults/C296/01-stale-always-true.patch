@@ -1,0 +1,13 @@
+diff --git a/server_v2/readiness.py b/server_v2/readiness.py
+index fe36d650..236bd86a 100644
+--- a/server_v2/readiness.py
++++ b/server_v2/readiness.py
+@@ -1059,7 +1059,7 @@ def warm_mobile_readiness_in_background(stats_snapshot: dict[str, Any]) -> threa
+                     "reason": f"{exc.__class__.__name__}: {exc}",
+                 }
+             if "reason" not in evidence:
+-                evidence["stale"] = bool(stats_snapshot.get("stale"))
++                evidence["stale"] = True
+             with _MOBILE_READINESS_LOCK:
+                 registered = _MOBILE_READINESS_THREADS.get("me")
+                 current_status = _MOBILE_READINESS.get("me") or {}

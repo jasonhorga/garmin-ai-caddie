@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C296-SM1",
+      "patch": "tests/product/faults/C296/01-stale-always-true.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_G7_mobile_readiness_evidence_reflects_stale_history_snapshot",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C296-SM2",
+      "patch": "tests/product/faults/C296/02-failure-stale-overwritten.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_G7_mobile_failed_build_keeps_stale_evidence_for_fresh_snapshot",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C296-SM3",
+      "patch": "tests/product/faults/C296/03-revision-only-ownership.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_G7_superseded_worker_cannot_publish_into_same_revision_slot",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C296-FM2",
+      "patch": "tests/product/faults/C296/04-fastfile-fm2-warming-timeout-bypass.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_G7_fastfile_readiness_gate_runs_against_real_ruby_when_available",
+      "promise": "G7"
+    }
+  ]
+}

@@ -30,14 +30,14 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.addCleanup(authority.stop)
         self.addCleanup(self._reset_mobile_readiness_state)
 
-    @staticmethod
-    def _reset_mobile_readiness_state() -> None:
+    def _reset_mobile_readiness_state(self) -> None:
         with readiness._MOBILE_READINESS_LOCK:
             threads = list(readiness._MOBILE_READINESS_THREADS.values())
             readiness._MOBILE_READINESS.clear()
             readiness._MOBILE_READINESS_THREADS.clear()
         for thread in threads:
-            thread.join(timeout=5)
+            thread.join(timeout=10)
+            self.assertFalse(thread.is_alive(), "cleanup leaked a mobile worker")
         with readiness._MOBILE_READINESS_LOCK:
             readiness._MOBILE_READINESS.clear()
             readiness._MOBILE_READINESS_THREADS.clear()
@@ -286,6 +286,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
             readinessChecks=[], caddieContextSeeds=[], cachedCaddieRules={}, missingData=[],
         )
         calls = 0
+        waits: list[bool] = []
         second_started = threading.Event()
         release_second = threading.Event()
 
@@ -295,7 +296,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
             if calls == 1:
                 raise SystemExit("worker stopped")
             second_started.set()
-            self.assertTrue(release_second.wait(timeout=2))
+            waits.append(release_second.wait(timeout=10))
             return package
 
         with patch.object(readiness, "load_history_stats_snapshot", return_value=snapshot), \
@@ -317,6 +318,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
             third = build_readiness_response()
             third_mobile = next(row for row in third["checks"] if row["label"] == "mobile_package")
         self.assertEqual(third_mobile["state"], "ready")
+        self.assertEqual(waits, [True], "builder barrier timed out")
         self.assertEqual(calls, 2)
 
     def test_G7_same_revision_concurrent_polls_start_only_one_mobile_build(self) -> None:
@@ -418,6 +420,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
         release_first = threading.Event()
         release_second = threading.Event()
         calls: list[str] = []
+        waits: list[bool] = []
         package = SimpleNamespace(
             schema_="ai-caddie-live-round-package-v2", roundId="900001", holes=[],
             caddieDecisionEndpoint="/api/v2/caddie/decision", offlinePackageStatus={},
@@ -436,10 +439,10 @@ class ServerV2ReadinessTests(unittest.TestCase):
             calls.append(revision)
             if revision == "R1":
                 first_started.set()
-                self.assertTrue(release_first.wait(timeout=2))
+                waits.append(release_first.wait(timeout=10))
             else:
                 second_started.set()
-                self.assertTrue(release_second.wait(timeout=2))
+                waits.append(release_second.wait(timeout=10))
             return package
 
         snapshot_calls = 0
@@ -472,6 +475,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
             final = build_readiness_response()
             final_mobile = next(row for row in final["checks"] if row["label"] == "mobile_package")
         self.assertEqual(final_mobile["state"], "ready")
+        self.assertEqual(waits, [True, True], "builder barrier timed out")
         self.assertEqual(calls.count("R1"), 1)
         self.assertEqual(calls.count("R2"), 1)
 

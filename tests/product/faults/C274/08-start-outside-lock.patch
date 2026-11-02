@@ -1,0 +1,17 @@
+diff --git a/server_v2/readiness.py b/server_v2/readiness.py
+index fe36d650..a9ab6a09 100644
+--- a/server_v2/readiness.py
++++ b/server_v2/readiness.py
+@@ -1078,9 +1078,10 @@ def warm_mobile_readiness_in_background(stats_snapshot: dict[str, Any]) -> threa
+         if not trace:
+             thread = threading.Thread(target=run, name="readiness-mobile-warm", daemon=True)
+             _MOBILE_READINESS_THREADS["me"] = thread
+-            thread.start()
+-            return thread
+ 
++    if not trace:
++        thread.start()
++        return thread
+     run()
+     return None
+ 
