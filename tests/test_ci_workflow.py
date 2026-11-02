@@ -1862,7 +1862,7 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
         self.assertIn("def next_testflight_build_number!(api_key:)", text)
 
     def test_testflight_uses_xcode27_self_hosted_runner_and_ephemeral_keychain(self) -> None:
-        """G8 (C343): TestFlight builds use the self-hosted Xcode 27 runner safely."""
+        """G7 (C343): TestFlight release builds use the self-hosted Xcode 27 runner safely."""
         workflow = yaml.safe_load(Path(".github/workflows/ios-testflight.yml").read_text(encoding="utf-8"))
         job = workflow["jobs"]["testflight"]
         self.assertEqual(["self-hosted", "caddie-mba"], job["runs-on"])
@@ -1889,7 +1889,7 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
         self.assertNotIn("default_keychain: true", fastfile)
 
     def test_testflight_does_not_require_hosted_toolcache_dependencies(self) -> None:
-        """G8 (C343): the self-hosted Mac checks its installed Ruby and XcodeGen."""
+        """G7 (C343): the self-hosted Mac checks its installed Ruby and XcodeGen."""
         workflow_text = Path(".github/workflows/ios-testflight.yml").read_text(encoding="utf-8")
         self.assertIn("command -v ruby", workflow_text)
         self.assertIn("command -v bundle", workflow_text)
