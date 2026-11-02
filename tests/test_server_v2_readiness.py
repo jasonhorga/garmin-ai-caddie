@@ -320,6 +320,101 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(third_mobile["state"], "ready")
         self.assertEqual(calls, 2)
 
+    def test_G7_same_revision_concurrent_polls_start_only_one_mobile_build(self) -> None:
+        """G7: concurrent readiness polls single-flight a same-revision mobile build."""
+        snapshot = {
+            "value": {"summary": {"totalRounds": 1}, "drillDown": {"roundIds": ["900001"]}},
+            "revision": "mobile-concurrent-polls",
+            "stale": False,
+            "dataMode": "fixture",
+            "source": "memory",
+        }
+        package = SimpleNamespace(
+            schema_="ai-caddie-live-round-package-v2", roundId="900001", holes=[],
+            caddieDecisionEndpoint="/api/v2/caddie/decision", offlinePackageStatus={},
+            sourceCoverage={"state": "ready"}, geometryCoverage={"state": "ready"},
+            readinessChecks=[], caddieContextSeeds=[], cachedCaddieRules={}, missingData=[],
+        )
+        real_threading = threading
+        start_gate = real_threading.Event()
+        first_start = real_threading.Event()
+        builder_started = real_threading.Event()
+        builder_release = real_threading.Event()
+        second_lock_entered = real_threading.Event()
+        calls = 0
+        calls_lock = real_threading.Lock()
+
+        class GatedThread(real_threading.Thread):
+            gated_once = False
+
+            def start(self) -> None:
+                if not GatedThread.gated_once:
+                    GatedThread.gated_once = True
+                    first_start.set()
+                    if not start_gate.wait(timeout=2):
+                        raise AssertionError("gated thread start was not released")
+                super().start()
+
+        def builder(*args, **kwargs):
+            nonlocal calls
+            with calls_lock:
+                calls += 1
+            builder_started.set()
+            self.assertTrue(builder_release.wait(timeout=2))
+            return package
+
+        second_poll: real_threading.Thread
+
+        class ObservedLock:
+            def __init__(self) -> None:
+                self._lock = real_threading.Lock()
+
+            def __enter__(self):
+                self._lock.acquire()
+                if real_threading.current_thread() is second_poll:
+                    second_lock_entered.set()
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                self._lock.release()
+                return False
+
+        shim = SimpleNamespace(
+            Thread=GatedThread,
+            current_thread=real_threading.current_thread,
+            Lock=real_threading.Lock,
+        )
+        first_poll = real_threading.Thread(
+            target=lambda: readiness._mobile_readiness_status(snapshot), daemon=True
+        )
+        second_poll = real_threading.Thread(
+            target=lambda: readiness._mobile_readiness_status(snapshot), daemon=True
+        )
+        try:
+            with patch.object(readiness, "threading", shim), \
+                 patch.object(readiness, "_MOBILE_READINESS_LOCK", ObservedLock()), \
+                 patch.object(readiness, "build_mobile_round_package_response", side_effect=builder):
+                first_poll.start()
+                self.assertTrue(first_start.wait(timeout=2))
+                second_poll.start()
+                second_lock_entered.wait(timeout=2)
+                start_gate.set()
+                self.assertTrue(builder_started.wait(timeout=2))
+                builder_release.set()
+                first_poll.join(timeout=2)
+                second_poll.join(timeout=2)
+                self.assertFalse(first_poll.is_alive())
+                self.assertFalse(second_poll.is_alive())
+                for thread in list(real_threading.enumerate()):
+                    if thread.name == "readiness-mobile-warm":
+                        thread.join(timeout=2)
+        finally:
+            start_gate.set()
+            builder_release.set()
+            first_poll.join(timeout=2)
+            second_poll.join(timeout=2)
+        self.assertEqual(calls, 1, "same-revision concurrent polls must start exactly one mobile build")
+
     def test_G7_mobile_warm_old_revision_cannot_overwrite_new_revision(self) -> None:
         """G7: completion from an old revision cannot replace the newer warm slot."""
         first_started = threading.Event()
