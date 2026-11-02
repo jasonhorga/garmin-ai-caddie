@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C286-stale-automatic-selection",
+      "patch": "tests/product/faults/C286/stale-automatic-selection.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyInitialFailureOrEmptyAnswerClearsStaleAutomaticSelection",
+      "promise": "4.1"
+    },
+    {
+      "id": "C286-manual-search-guard",
+      "patch": "tests/product/faults/C286/manual-search-guard.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyDiscoveryAppliesOnlyTheCurrentUncancelledGeneration",
+      "promise": "4.1"
+    },
+    {
+      "id": "C286-physical-venue-selection",
+      "patch": "tests/product/faults/C286/physical-venue-selection.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testAutomaticSelectionUsesPhysicalVenueIdentity",
+      "promise": "4.1"
+    },
+    {
+      "id": "C286-manual-search-keeps-nearby",
+      "patch": "tests/product/faults/C286/manual-search-keeps-nearby.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testManualSearchResetDropsNearbyRows",
+      "promise": "4.1"
+    },
+    {
+      "id": "C286-five-venues-expand",
+      "patch": "tests/product/faults/C286/five-venues-expand.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyFiveFirstPassVenuesNeedOnlyOneRequest",
+      "promise": "4.1"
+    }
+  ]
+}
