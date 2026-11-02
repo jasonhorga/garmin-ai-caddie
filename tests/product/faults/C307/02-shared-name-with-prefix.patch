@@ -1,0 +1,13 @@
+diff --git a/.github/scripts/select-sim.sh b/.github/scripts/select-sim.sh
+index 4738008e..25b96638 100755
+--- a/.github/scripts/select-sim.sh
++++ b/.github/scripts/select-sim.sh
+@@ -46,7 +46,7 @@ if profile:
+ prefix = os.environ.get('CADDIE_SIM_PREFIX', '')
+ if prefix and not re.fullmatch(r'[A-Za-z0-9_.-]+', prefix):
+     raise SystemExit('invalid CADDIE_SIM_PREFIX')
+-name = prefix + '-' + suffix if prefix else models[0]
++name = models[0]
+ devices = inventory('devices')
+ runtime_prefix = 'com.apple.CoreSimulator.SimRuntime.' + platform + '-'
+ fixed_runtime = os.environ.get('WATCH_RUNTIME', '') if profile in ('compact', 'ultra') else ''

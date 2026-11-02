@@ -1,13 +1,13 @@
 diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
-index 8e8d161..3c435d4 100644
+index 28fc63ec..91e29959 100644
 --- a/.github/workflows/native-mobile.yml
 +++ b/.github/workflows/native-mobile.yml
-@@ -217,7 +217,7 @@ jobs:
+@@ -243,7 +243,7 @@ jobs:
          run: xcrun simctl list devices available
        - &install_uv_for_isolated_ci_fixture
          name: Install uv for isolated CI fixture
 -        if: ${{ inputs.fixture_mode }}
 +        if: ${{ github.event_name != 'workflow_dispatch' || inputs.fixture_mode }}
-         run: brew install uv
+         run: command -v uv >/dev/null 2>&1 || brew install uv
        - &start_isolated_ci_fixture
          name: Start isolated CI fixture

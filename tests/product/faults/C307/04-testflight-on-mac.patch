@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/ios-testflight.yml b/.github/workflows/ios-testflight.yml
+index 547263e5..7d63b366 100644
+--- a/.github/workflows/ios-testflight.yml
++++ b/.github/workflows/ios-testflight.yml
+@@ -36,7 +36,7 @@ concurrency:
+ 
+ jobs:
+   testflight:
+-    runs-on: macos-15
++    runs-on: ${{ vars.MAC_RUNNER == 'online' && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
+     timeout-minutes: 45
+     steps:
+       - uses: actions/checkout@v4

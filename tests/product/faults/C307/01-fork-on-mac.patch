@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
+index 28fc63ec..c1baea7b 100644
+--- a/.github/workflows/native-mobile.yml
++++ b/.github/workflows/native-mobile.yml
+@@ -207,7 +207,7 @@ jobs:
+   # Live dispatch retains serial execution; fixture runners reuse the same launch and scan gates.
+   native-live:
+     if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fixture_mode }}
+-    runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
++    runs-on: ${{ vars.MAC_RUNNER == 'online' && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
+     # Live dispatch keeps the existing serial capture path.
+     timeout-minutes: 150
+     env:

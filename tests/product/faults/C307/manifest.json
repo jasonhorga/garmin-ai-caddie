@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C307-01-fork-on-mac",
+      "patch": "tests/product/faults/C307/01-fork-on-mac.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_runner_routing_obeys_online_trust_and_dispatch",
+      "promise": "C307 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-02-shared-name-with-prefix",
+      "patch": "tests/product/faults/C307/02-shared-name-with-prefix.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_prefixed_selection_creates_correct_models_then_reuses_them",
+      "promise": "C307 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-03-shutdown-all",
+      "patch": "tests/product/faults/C307/03-shutdown-all.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_cleanup_always_shuts_down_only_recorded_owned_udids",
+      "promise": "C307 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-04-testflight-on-mac",
+      "patch": "tests/product/faults/C307/04-testflight-on-mac.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_signing_and_testflight_always_stay_hosted",
+      "promise": "C307 CI infrastructure contract"
+    }
+  ]
+}
