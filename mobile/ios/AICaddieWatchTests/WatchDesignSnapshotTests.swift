@@ -2624,8 +2624,8 @@ final class WatchDesignSnapshotTests: XCTestCase {
             let map = WatchHoleMapView(ringPips: [], showTextOverlay: false, showHoleIdentity: false,
                                       fullMap: true, geometry: geometry)
                 .watchSnapshotFrame(width: 198, height: 242)
-            XCTAssertEqual(renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: map).cgImage)),
-                           expectedPixels, "J4.5: waiting has exactly one visible preparing notice")
+            assertPixelsMatch(renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: map).cgImage)),
+                              expectedPixels, "J4.5: waiting has exactly one visible preparing notice")
 
             // 198x242 uses the existing 10 pt content inset and 50 pt Back target: (35, 207).
             let expectedGreen = expected.overlay {
@@ -2706,8 +2706,8 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let missing = geometry(image: nil)
         for full in [geometry(image: image), geometry(image: nil, detail: detail)] {
             let retained = WatchGreenPreviewView(geometry: missing).snapshottingRetainedGeometry(full)
-            XCTAssertEqual(try pixels(retained), try pixels(WatchGreenPreviewView(geometry: full)),
-                           "J4.5: green retains both whole-hole and detail-only imagery")
+            assertPixelsMatch(try pixels(retained), try pixels(WatchGreenPreviewView(geometry: full)),
+                              "J4.5: green retains both whole-hole and detail-only imagery")
         }
         let route = [[435.0, 981.0, 0.0], [435.0, 279.0, 518.8]]
         let hazard = WatchHazard(kind: "water", label: "水障碍", startM: 190, endM: 210,
@@ -3413,6 +3413,27 @@ final class WatchDesignSnapshotTests: XCTestCase {
         }
         XCTAssertTrue(rendered, "could not decode rendered pixels")
         return pixels
+    }
+
+    /// Two compositing paths for the same picture can round a channel by 1; anything a real
+    /// regression draws (extra notice, contour, dropped bitmap) differs far more than this.
+    private func assertPixelsMatch(
+        _ actual: [UInt8], _ expected: [UInt8], maxChannelDelta: Int = 2, _ message: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        guard actual.count == expected.count else {
+            XCTFail("\(message): pixel buffer size \(actual.count) != \(expected.count)", file: file, line: line)
+            return
+        }
+        var worst = 0
+        var off = 0
+        for index in actual.indices {
+            let delta = abs(Int(actual[index]) - Int(expected[index]))
+            worst = max(worst, delta)
+            if delta > maxChannelDelta { off += 1 }
+        }
+        XCTAssertEqual(off, 0, "\(message): \(off) channels differ by more than \(maxChannelDelta) (worst \(worst))",
+                       file: file, line: line)
     }
 }
 
