@@ -1,10 +1,12 @@
 diff --git a/mobile/ios/AICaddie/Services/SyncClient.swift b/mobile/ios/AICaddie/Services/SyncClient.swift
+index 60cee8f8..59b8b6c1 100644
 --- a/mobile/ios/AICaddie/Services/SyncClient.swift
 +++ b/mobile/ios/AICaddie/Services/SyncClient.swift
-@@ -640,6 +640,5 @@
+@@ -666,7 +666,6 @@ public final class SyncClient {
              try Task.checkCancellation()
-             return try await urlSession.data(for: timedRequest)
+             return try await data(for: timedRequest, in: urlSession)
          }
 -        try Task.checkCancellation()
          do {
-             let result = try await urlSession.data(for: timedRequest)
+             let result = try await data(for: timedRequest, in: urlSession)
+             let finished = monotonicNow()
