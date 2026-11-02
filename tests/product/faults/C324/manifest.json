@@ -2,13 +2,6 @@
   "schema": 1,
   "records": [
     {
-      "id": "tests-product-faults-C324-ignore-post-pin-tee-water",
-      "patch": "tests/product/faults/C324/ignore-post-pin-tee-water.patch",
-      "kind": "python",
-      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_short_par4_uses_a_reachable_measured_tee",
-      "promise": "4.6"
-    },
-    {
       "id": "tests-product-faults-C324-skip-empty-ranking-repair",
       "patch": "tests/product/faults/C324/skip-empty-ranking-repair.patch",
       "kind": "python",

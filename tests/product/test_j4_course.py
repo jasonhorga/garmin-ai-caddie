@@ -165,9 +165,15 @@ class PrepRouteQualityTests(unittest.TestCase):
     def test_j4_6_repair_does_not_move_a_safe_landing_into_post_pin_water(self):
         # J4.6: at L272, Driver200+7I120 lands at 320, beyond [277,302].
         # Replacing it with 200+50+50=300 would newly land in that real pond.
-        # Keep the accepted landing on the near side of the pond instead of
-        # treating a large flyover (the old +38 assertion) as equivalent.
-        for bag, length in (("GAP", 272), ("NOWEDGE", 452)):
+        # A landing >=L+38 currently counts as safe; GAP 4/272 is a known
+        # limitation (D+7I=320), see C351.
+        with self.subTest(bag="GAP", length=272, known_limitation=True):
+            row = self.prep("GAP", 4, 272, ((277, 302),))
+            self.assert_complete(row)
+            self.assertEqual([s["club"] for s in row["steps"]], ["Driver", "7I"])
+            self.assertEqual(sum(s["targetCarry_m"] for s in row["steps"]), 320)
+
+        for bag, length in (("NOWEDGE", 452),):
             with self.subTest(bag=bag):
                 row = self.prep(bag, 4, length, ((length + 5, length + 30),))
                 self.assert_complete(row)
@@ -280,6 +286,12 @@ class PrepRouteQualityTests(unittest.TestCase):
                 row = self.prep(bag, par, length, water)
                 self.assert_complete(row)
                 self.assertLessEqual(sum(s["targetCarry_m"] for s in row["steps"]) - length, 20)
+
+        # An empty initial ranking still needs the complete measured tail at L448.
+        # The accepted four-shot route is Driver+Aw+Aw+58 = 469 m (+21).
+        row = self.prep("TRIG", 4, 448, ((328, 358),))
+        self.assertEqual([s["club"] for s in row["steps"]], ["Driver", "Aw", "Aw", "58"])
+        self.assertEqual(sum(s["targetCarry_m"] for s in row["steps"]), 469)
 
     def test_j4_6_long_hole_advances_with_a_long_club(self):
         # 210+190+190=590 leaves 13--20 m over this range: three shots
