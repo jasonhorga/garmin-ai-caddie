@@ -1075,17 +1075,14 @@ def warm_mobile_readiness_in_background(stats_snapshot: dict[str, Any]) -> threa
                     if registered is threading.current_thread():
                         _MOBILE_READINESS_THREADS.pop("me", None)
 
-        if trace:
-            pass
-        else:
+        if not trace:
             thread = threading.Thread(target=run, name="readiness-mobile-warm", daemon=True)
             _MOBILE_READINESS_THREADS["me"] = thread
+            thread.start()
+            return thread
 
-    if trace:
-        run()
-        return None
-    thread.start()
-    return thread
+    run()
+    return None
 
 
 def _mobile_readiness_status(stats_snapshot: dict[str, Any] | None) -> dict[str, Any]:

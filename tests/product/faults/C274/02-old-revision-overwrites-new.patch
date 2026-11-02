@@ -24,6 +24,6 @@ diff --git a/server_v2/readiness.py b/server_v2/readiness.py
 +                    "evidence": evidence,
 +                }
 +                _MOBILE_READINESS_THREADS.pop("me", None)
- 
-         if trace:
-             pass
+
+         if not trace:
+             thread = threading.Thread(target=run, name="readiness-mobile-warm", daemon=True)
