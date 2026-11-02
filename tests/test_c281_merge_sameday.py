@@ -95,6 +95,39 @@ class C281MergeSameDayTests(unittest.TestCase):
                 11,
             )
 
+    def test_j1_3_sorted_garmin_card_starts_after_physical_ring_gap(self) -> None:
+        """J1.3: a Garmin card sorted by hole number still starts after the largest ring gap.
+
+        The morning card starts on 10 and restores 1..9.  The later card is stored in Garmin's
+        fixed hole-number order [1..8, 18], although play resumed at physical hole 18.  Hole 18
+        is the one-hole boundary overlap, so only the restored 1..8 scores are replaced.
+        """
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _row("morning", "2026-06-01 07:30", list(range(10, 19)))
+            late = _row("late", "2026-06-01 13:30", list(range(1, 9)) + [18])
+            _restore(root, "morning", numbers=range(1, 10))
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (10, 10))
+
+    def test_j1_3_sorted_x10_card_keeps_the_morning_restore(self) -> None:
+        """J1.3: sorted [1, 2, 10..18] cannot consume a 1..9 restore from a 10-start outing."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _row("morning", "2026-06-01 07:30", list(range(1, 10)))
+            late = _row("late", "2026-06-01 13:30", [1, 2] + list(range(10, 19)))
+            _restore(root, "morning", numbers=range(10, 19))
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (18, 18))
+
     def test_j1_3_both_cards_need_non_overlapping_holes(self) -> None:
         """J1.3: two cards that only repeat their two holes cannot replace restores."""
         with TemporaryDirectory() as tmp:
