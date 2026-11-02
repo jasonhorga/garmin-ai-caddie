@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index a3022f66..781575ed 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -453,7 +453,7 @@ def _same_day_matching_boundary_score_holes(
+         baseline_display = legacy_displays[0] if legacy_displays else None
+         # A timestamp is an outlier when its hole is preceded on the ring by another timed hole;
+         # the geometry baseline remains a valid start even when its tee shot was missed.
+-        while len(timed_holes) >= 2:
++        while False:
+             first_display = timed_holes[0][1]
+             predecessor = (first_display - 2) % ring_size + 1
+             if (first_display == baseline_display or predecessor not in timed_by_display

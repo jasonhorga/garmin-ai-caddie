@@ -1,0 +1,9 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -347,3 +347,4 @@
+             return None
+-        return value * 1000 if value < 100_000_000_000 else value
++        return value
++    # mutant keeps seconds unscaled
+ 

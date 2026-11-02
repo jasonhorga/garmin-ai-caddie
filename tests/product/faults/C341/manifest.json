@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C341-01-no-backtrack",
+      "patch": "tests/product/faults/C341/01-no-backtrack.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_backtracks_over_scored_holes_without_shots",
+      "promise": "1.3",
+      "kills": "Skipping the scored/no-shot backtrack leaves both restored boundary holes materialized."
+    },
+    {
+      "id": "tests-product-faults-C341-02-accept-outlier",
+      "patch": "tests/product/faults/C341/02-accept-outlier.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_early_single_shot_does_not_move_start",
+      "promise": "1.3",
+      "kills": "Trusting an isolated early shot rotates the boundary and retains duplicate restores."
+    },
+    {
+      "id": "tests-product-faults-C341-03-no-unit-normalization",
+      "patch": "tests/product/faults/C341/03-no-unit-normalization.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_normalizes_mixed_shot_time_units",
+      "promise": "1.3",
+      "kills": "Comparing seconds and milliseconds directly reverses card chronology and blocks the valid continuation."
+    },
+    {
+      "id": "tests-product-faults-C341-04-trust-invalid-chronology",
+      "patch": "tests/product/faults/C341/04-trust-invalid-chronology.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_invalid_card_chronology_falls_back_to_ring",
+      "promise": "1.3",
+      "kills": "Applying chronology when the card clocks disagree blocks a valid ring continuation."
+    }
+  ]
+}

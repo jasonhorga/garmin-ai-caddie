@@ -1,13 +1,17 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index 05cbddd4..5fae8db5 100644
+index 980f3d9b..c680c88c 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -381,7 +381,7 @@ def _same_day_matching_boundary_score_holes(
-         if timed_holes:
-             start_times[str(row.get("id"))] = min(timed_holes)[0]
-         by_day.setdefault(day, []).append((
--            str(row.get("id")), scores, ring_order(scores, display_by_key, ring_size, start_display)
-+            str(row.get("id")), scores, (sorted(scores, key=lambda key: min((time for time, display in timed_holes if display == display_by_key[key]), default=float("inf"))) if timed_holes else ring_order(scores, display_by_key, ring_size, start_display))
-         ))
-     candidates: dict[str, set[tuple[int, int]]] = {}
-     for cards in by_day.values():
+@@ -472,7 +472,11 @@ def _same_day_matching_boundary_score_holes(
+                     break
+                 anchor -= 1
+             start_display = legacy_displays[anchor]
+-        card["timed_order"] = ring_order(card["scores"], card["display_by_key"], ring_size, start_display)
++        card["timed_order"] = sorted(
++            card["scores"],
++            key=lambda key: timed_by_display.get(
++                card["display_by_key"].get(key), float("inf")),
++        )
+         start_times[round_id] = start_time
+ 
+     # A timestamp is trusted for chronology only when both card starts are plausible for their

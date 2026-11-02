@@ -1,0 +1,9 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -520,4 +520,3 @@
+                 # If either card is untimed, preserve the legacy ring-only decision.
+-                if (frozenset((round_id, other_id)) in chronology_pairs
+-                        and start_times[other_id] < start_times[round_id]):
++                if start_times[other_id] < start_times[round_id]:
+                     continue

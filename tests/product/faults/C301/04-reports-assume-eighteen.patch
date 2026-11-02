@@ -1,8 +1,7 @@
 diff --git a/ai_caddie/reports/reports.py b/ai_caddie/reports/reports.py
-index 91571545..c60586e1 100644
 --- a/ai_caddie/reports/reports.py
 +++ b/ai_caddie/reports/reports.py
-@@ -477,3 +477,3 @@ def _round_differential_value(score: Any, rating: Any, slope: Any, holes_complet
+@@ -477,3 +477,3 @@
      return _round_differential({
 -        "holesCompleted": holes_completed,
 +        "holesCompleted": 18,

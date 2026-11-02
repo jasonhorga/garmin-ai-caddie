@@ -1,49 +1,15 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index 05cbddd4..9a45aba4 100644
+index 980f3d9b..72ec23be 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -317,28 +317,22 @@ def _same_day_matching_boundary_score_holes(
-         # appended after the inferred tail and boundary matching counts restored holes twice.
-         if ring_size == 9 and any(display > 9 for display in display_by_key.values()):
-             ring_size = 18
--        by_display: dict[int, list[tuple[int, int]]] = {}
--        for key in scores:
--            display = display_by_key.get(key)
--            if display is not None and 1 <= display <= ring_size:
--                by_display.setdefault(display, []).append(key)
--        displays = sorted(by_display)
--        if not displays:
--            return sorted(scores)
--        gaps = [
--            ((displays[(index + 1) % len(displays)] - display - 1) % ring_size, index)
--            for index, display in enumerate(displays)
--        ]
--        start = (max(gaps)[1] + 1) % len(displays)
--        if start_display is not None:
--            # The first shot may be on an unscored hole: begin at the next scored display.
--            start = min(range(len(displays)), key=lambda i: (displays[i] - start_display) % ring_size)
--        ordered = [
--            key
--            for display in displays[start:] + displays[:start]
--            for key in sorted(by_display[display])
--        ]
+@@ -334,7 +334,9 @@ def _same_day_matching_boundary_score_holes(
+             for display in displays[start:] + displays[:start]
+             for key in sorted(by_display[display])
+         ]
 -        return ordered + sorted(set(scores) - set(ordered))
-+        by_gid: dict[int, list[int]] = {}
-+        for gid, local in scores:
-+            by_gid.setdefault(gid, []).append(local)
-+        ordered: list[tuple[int, int]] = []
-+        for gid in sorted(by_gid, reverse=True):
-+            locals_ = sorted(set(by_gid[gid]))
-+            if len(locals_) == 1:
-+                start = 0
-+            else:
-+                gaps = [
-+                    ((locals_[(index + 1) % len(locals_)] - local - 1) % 18, index)
-+                    for index, local in enumerate(locals_)
-+                ]
-+                start = (max(gaps)[1] + 1) % len(locals_)
-+            ordered.extend((gid, local) for local in locals_[start:] + locals_[:start])
-+        return ordered
++        remainder = sorted(set(scores) - set(ordered))
++        return ([key for gid in sorted({key[0] for key in ordered}, reverse=True)
++                 for key in ordered if key[0] == gid] + remainder)
  
-     by_day: dict[str, list[tuple[str, dict[tuple[int, int], set[int]], list[tuple[int, int]]]]] = {}
-     start_times: dict[str, int] = {}
+     def normalize_shot_time(value: Any) -> int | None:
+         """Return a positive shot timestamp in milliseconds.

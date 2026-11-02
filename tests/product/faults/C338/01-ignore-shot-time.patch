@@ -1,13 +1,15 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index 05cbddd4..ef7cf6ad 100644
+index 980f3d9b..ef73a388 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -377,7 +377,7 @@ def _same_day_matching_boundary_score_holes(
-             if (isinstance(time, int) and not isinstance(time, bool) and time > 0
-                     and display is not None and 1 <= display <= ring_size):
-                 timed_holes.append((time, display))
--        start_display = min(timed_holes)[1] if timed_holes else None
-+        start_display = None
-         if timed_holes:
-             start_times[str(row.get("id"))] = min(timed_holes)[0]
-         by_day.setdefault(day, []).append((
+@@ -513,8 +513,8 @@ def _same_day_matching_boundary_score_holes(
+                 if (1 <= len(overlap) <= 2
+                         and len(overlap) < min(len(own), len(other))
+                         and all(len(own[key]) == 1 and own[key] == other[key] for key in overlap)):
+-                    effective_other_order = card_rows[other_id].get("timed_order", other_order)
+-                    effective_own_order = card_rows[round_id].get("timed_order", own_order)
++                    effective_other_order = other_order
++                    effective_own_order = own_order
+                     # Timing rotates only the cards whose boundary is genuinely ambiguous.
+                     # Recompute the boundary after the optional timed order is selected.
+                     own_boundary = set(effective_own_order[-len(overlap):]) if overlap else set()
