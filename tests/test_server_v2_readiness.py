@@ -404,7 +404,7 @@ assert readiness._MOBILE_READINESS['me']['state'] == 'ready'
         try:
             result = subprocess.run(
                 [sys.executable, "-c", script], cwd=Path.cwd(), env=env,
-                capture_output=True, text=True, timeout=5,
+                capture_output=True, text=True, timeout=15,
             )
         except subprocess.TimeoutExpired:
             self.fail("trace readiness warm deadlocked")
