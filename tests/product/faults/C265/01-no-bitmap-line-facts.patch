@@ -1,13 +1,25 @@
 diff --git a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
-index 3c0b36810..41b654ac3 100644
+index 5a374d413..512a65117 100644
 --- a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
 +++ b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
-@@ -1499,7 +1499,7 @@ public struct WatchHoleMapView: View {
-         ) {
-         case .precise: return [.preciseBitmap]
-         case .garmin: return [.garminBitmap]
--        case .waiting: return [.neutral]
-+        case .waiting: return [.lightweightMapFacts]
+@@ -1492,6 +1492,20 @@ public struct WatchHoleMapView: View {
+                 Path(CGRect(origin: .zero, size: size)),
+                 with: .color(Color(red: 0.08, green: 0.20, blue: 0.12))
+             )
++            // Mutant: restore route facts as a line map before any bitmap is available.
++            if let first = geometry.routePx.first {
++                let transform = anchors(size).t
++                var route = Path()
++                route.move(to: transform(first))
++                for point in geometry.routePx.dropFirst() {
++                    route.addLine(to: transform(point))
++                }
++                context.stroke(
++                    route,
++                    with: .color(Color(red: 0.21, green: 0.51, blue: 0.26)),
++                    style: StrokeStyle(lineWidth: 17, lineCap: .round, lineJoin: .round)
++                )
++            }
+             return
          }
-     }
  

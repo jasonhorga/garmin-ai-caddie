@@ -5,7 +5,7 @@
       "id": "tests-product-faults-C265-01-no-bitmap-line-facts",
       "patch": "tests/product/faults/C265/01-no-bitmap-line-facts.patch",
       "kind": "native-unit",
-      "target": "AICaddieWatchTests/WatchHolePagesTests/testHoleMapDegradationNeverUsesLineFactsAndShowsPreparingSurface",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testRestingRootWithoutBitmapIgnoresRouteFacts",
       "promise": "J4.5"
     },
     {
@@ -13,6 +13,13 @@
       "patch": "tests/product/faults/C265/02-garmin-neutral.patch",
       "kind": "native-unit",
       "target": "AICaddieWatchTests/WatchHolePagesTests/testHoleMapDegradationPrefersPreciseThenGarmin",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C265-03-image-nil-preparing-notice",
+      "patch": "tests/product/faults/C265/03-image-nil-preparing-notice.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testMapPreparingNoticeAppearsOnceOnlyWhileWaiting",
       "promise": "J4.5"
     }
   ]
