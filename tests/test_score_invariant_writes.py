@@ -80,8 +80,8 @@ class ReconciliationApplyTests(HTTPFixture, unittest.TestCase):
 
     def test_two_fixes_of_one_field_keep_the_last_value(self):
         # Card hole 1: 4 strokes, 2 putts, 0 penalties. The phone changed putts to 5, then to 1, and the
-        # total to 6. In request order putts 5 first is 4 < 5 + 0 + 1. Total 6 first (6 >= 3), then
-        # putts 5 (6 >= 6), then putts 1 (6 >= 2) stays possible and leaves the phone's last putts, 1.
+        # total to 6. C228 keeps only the latest effective putt value, so the stale putts-5 id is
+        # reported missing while the request remains a 200 and writes the final 6 / 1 state.
         rid = str(self.ingest(score_events(strokes=4, putts=2, penalties=0)).json()["id"])
         mobile_live.append_event_batch(rid, live(rid,
             event("putt", {"putts": 5}, id="rec-putt-5"),
@@ -92,7 +92,7 @@ class ReconciliationApplyTests(HTTPFixture, unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["missingSuggestionIds"], ["rec-putt-5:putt-correction"])
         stored = [(row["kind"], row["payload"]["to"]) for row in annotations.list_annotations(root=self.root)]
-        self.assertEqual(stored, [("score_correction", 6), ("putt_correction", 5), ("putt_correction", 1)])
+        self.assertEqual(stored, [("putt_correction", 1), ("score_correction", 6)])
 
     def test_penalty_set_to_zero_is_applied_with_a_putt_fix(self):
         # Card hole 1: 6 strokes, 4 putts, 1 penalty. A phone confirm always sends its penalty count,
