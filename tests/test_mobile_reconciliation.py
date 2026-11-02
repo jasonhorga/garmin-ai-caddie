@@ -2079,7 +2079,8 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(result["conflicts"][0]["eventId"], "score-conflict")
         self.assertEqual(result["conflicts"][0]["kind"], "score")
         self.assertEqual(result["conflicts"][0]["localValue"], 5)
-        self.assertEqual(result["conflicts"][0]["garminValue"], 4)
+        score_conflicts = [row for row in result["conflicts"] if row["kind"] == "score"]
+        self.assertEqual([row["garminValue"] for row in score_conflicts], [4])
         self.assertEqual(result["matched"][0]["eventId"], "club-match")
         self.assertEqual(result["localOnly"][0]["eventId"], "local-only-club")
         self.assertIn("900001:2:1", {row["ref"] for row in result["garminOnly"]})

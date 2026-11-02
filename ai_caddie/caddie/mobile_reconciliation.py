@@ -96,10 +96,11 @@ def _hole_scores(
     # conditional on the ``from`` value the player saw; if a later Garmin sync changed that
     # source value, reconciliation must compare the phone event with Garmin again rather than
     # letting the old annotation hide the new fact.
+    source_round_row = round_row
     source_holes = {
         number: hole for hole, number, _physical, _side in hole_sides(round_row)
     }
-    annotation_records = list_annotation_records(
+    all_annotation_records = list_annotation_records(
         root=annotations_root if annotations_root is not None else root, player_id=player_id,
     )
     # Re-read the corrected projection so annotations for a Garmin-missing hole materialize a
@@ -118,10 +119,15 @@ def _hole_scores(
     # real strokes, the projection intentionally keeps those strokes so reconciliation can
     # expose the conflict.
     annotation_records = [
-        record for record in annotation_records
+        record for record in all_annotation_records
         if not (record.get("kind") == "score_correction"
                 and isinstance(record.get("payload"), dict)
-                and record["payload"].get("restore") is True)
+                and record["payload"].get("restore") is True
+                and any(
+                    _safe_int(hole.get("strokes")) is not None
+                    for hole, display, _physical, _side in hole_sides(source_round_row)
+                    if display == _safe_int(str(record.get("targetId") or "").rsplit(":", 1)[-1])
+                ))
     ]
     correction_events = _round_correction_events(player_id, round_row, root=root)
     scores: dict[int, dict[str, Any]] = {}
@@ -131,15 +137,34 @@ def _hole_scores(
         )
         source_hole = source_holes.get(number) or {}
         source_strokes = _safe_int(source_hole.get("strokes"))
-        # Only a non-restore score correction has a meaningful source value.  A restore uses
-        # ``from=None`` and remains effective until Garmin supplies a real score, which the
-        # corrected-history projection already leaves visible.
+        score_correction_conflict = False
+        resolved_event_id = None
         if (isinstance(total_winner, dict)
                 and total_winner.get("kind") == "score_correction"
                 and isinstance(total_winner.get("payload"), dict)):
-            from_value = _safe_int(total_winner["payload"].get("from"))
-            if from_value is not None and source_strokes is not None and source_strokes != from_value:
-                total = source_strokes
+            winner_payload = total_winner["payload"]
+            resolution = winner_payload.get("resolution")
+            resolved_event_id = str(winner_payload.get("resolvedEventId") or "") or None
+            # A resolution annotation is an explicit user choice and must remain effective even
+            # when its from value differs from the current Garmin source.
+            if resolution not in {"garmin", "mobile"}:
+                prior_annotations = [record for record in all_annotation_records if record is not total_winner]
+                if source_strokes is not None:
+                    prior_annotations = [
+                        record for record in prior_annotations
+                        if not (record.get("kind") == "score_correction"
+                                and isinstance(record.get("payload"), dict)
+                                and record["payload"].get("restore") is True)
+                    ]
+                prior_total, _ = effective_hole(
+                    source_round_row, number, prior_annotations, correction_events,
+                )[0]
+                from_value = _safe_int(winner_payload.get("from"))
+                to_value = _safe_int(winner_payload.get("to"))
+                if (from_value is not None and source_strokes is not None
+                        and prior_total != from_value and source_strokes != to_value):
+                    total = source_strokes
+                    score_correction_conflict = True
         scores[number] = {
             "strokes": total,
             "putts": putts,
@@ -147,6 +172,10 @@ def _hole_scores(
             "penalties": penalty if penalty is not None else 0,
             "ref": f"{round_row.get('id')}:{number}",
         }
+        if score_correction_conflict:
+            scores[number]["scoreCorrectionConflict"] = True
+        if resolved_event_id:
+            scores[number]["resolvedEventId"] = resolved_event_id
     return scores
 
 
@@ -447,20 +476,45 @@ def _annotation_suggestions(
                 )
             )
         elif kind == "score":
-            suggestions.append(
-                _suggestion(
-                    f"{event_id}:score-correction",
-                    target_type="hole",
-                    target_id=ref,
-                    kind="score_correction",
-                    payload={
-                        "from": garmin_value,
-                        "to": local_value,
-                        "sourceEventId": event_id,
-                    },
-                    reason="Local score input can correct the derived score for this hole.",
+            if conflict.get("correctionConflict"):
+                for resolution, target_value, reason in (
+                    ("garmin", garmin_value, "Keep the later Garmin score for this hole."),
+                    ("mobile", local_value, "Keep the mobile score for this hole."),
+                ):
+                    suggestion_id = (
+                        f"{event_id}:score-correction-conflict:{resolution}:{garmin_value}:{local_value}"
+                    )
+                    suggestions.append(
+                        _suggestion(
+                            suggestion_id,
+                            target_type="hole",
+                            target_id=ref,
+                            kind="score_correction",
+                            payload={
+                                "from": local_value if resolution == "garmin" else garmin_value,
+                                "to": target_value,
+                                "sourceEventId": event_id,
+                                "resolvedEventId": event_id,
+                                "resolution": resolution,
+                            },
+                            reason=reason,
+                        )
+                    )
+            else:
+                suggestions.append(
+                    _suggestion(
+                        f"{event_id}:score-correction",
+                        target_type="hole",
+                        target_id=ref,
+                        kind="score_correction",
+                        payload={
+                            "from": garmin_value,
+                            "to": local_value,
+                            "sourceEventId": event_id,
+                        },
+                        reason="Local score input can correct the derived score for this hole.",
+                    )
                 )
-            )
         elif kind == "penalty":
             suggestions.append(
                 _suggestion(
@@ -673,6 +727,10 @@ def reconcile_mobile_round_events(
             local_value = _payload_value(payload, "strokes", "score")
             garmin = scores.get(hole)
             garmin_value = garmin.get("strokes") if garmin else None
+            if garmin and garmin.get("resolvedEventId") == event_id:
+                matched.append({"eventId": event.get("eventId"), "kind": kind, "hole": hole,
+                                "ref": garmin["ref"], "resolution": True})
+                continue
             if garmin_value is None:
                 local_only.append(
                     {
@@ -694,6 +752,7 @@ def reconcile_mobile_round_events(
                         "localValue": local_value,
                         "garminValue": garmin_value,
                         "ref": garmin["ref"],
+                        "correctionConflict": bool(garmin.get("scoreCorrectionConflict")),
                     }
                 )
             continue
