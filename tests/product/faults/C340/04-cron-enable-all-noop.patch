@@ -1,0 +1,13 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+index add6d086..d307a277 100644
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -223,7 +223,7 @@ def protect_future_handlers(*, all_loggers=False) -> ExitStack:
+     scope = {"all_loggers": all_loggers}
+ 
+     def enable_all():
+-        scope["all_loggers"] = True
++        scope["all_loggers"] = False
+         for reference, privacy_filter in list(added_filters.values()):
+             privacy_filter.all_loggers = True
+ 

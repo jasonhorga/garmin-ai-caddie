@@ -1,0 +1,24 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -20,18 +20,18 @@
+     re.IGNORECASE,
+ )
+ _IDENTITY = re.compile(
+     r"(?i)\b(player_?id|round_?id|player_?name|display_?name|nickname|player|round|"
+     r"[\w-]*token|cookie|csrf|authorization|[\w-]*secret|api_?key)([\"']?\s*[:=]\s*)"
+-    r"(\[redacted\]|bearer\s*:?\s*[^\s,;&#\)\}\]]+|\"[^\"\n]*\"|'[^'\n]*'|[^\s,;&#\)\}\]]+)"
++    r"(\[redacted\]|(?-i:Bearer)\s*:?\s*[^\s,;&#\)\}\]]+|\"[^\"\n]*\"|'[^'\n]*'|[^\s,;&#\)\}\]]+)"
+ )
+ _PLAYER_ID = re.compile(r"(?i)\bp_[0-9a-f]{8,16}\b")
+ _URL = re.compile(r"https?://[^\s\"'<>;,]+|(?<![\w/])/(?:api|p)/[^\s\"'<>;,]+")
+ _PRIVATE_PATH = re.compile(r"https?://[^\s\"'<>;,\)]+|(?<![\w/])(?:[A-Za-z]:[\\/]|/|\bdata/|\bplayers/)[^\s\"'<>;,\)]+")
+ _FRAME = re.compile(r'^(\s*File ")(.+)(", line \d+, in .+)$')
+ _AUTHORIZATION_BEARER = re.compile(
+-    r"(?i)(\bAuthorization[\"']?\s*[:=]\s*)([\"']?)"
++    r"(\bAuthorization[\"']?\s*[:=]\s*)([\"']?)"
+     r"(?:Bearer\s*:?\s*)?(?:\[redacted\]|([^\s,;}\]\\\"']+))(\2)"
+ )
+ _BARE_BEARER = re.compile(r"(?i)(?<!invalid )\bBearer\s*:?\s+[^\s,;}\]]+")
+ 
+ 

@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C340-03-bearer-case-sensitive",
+      "patch": "tests/product/faults/C340/03-bearer-case-sensitive.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_bearer_credentials_are_private_in_every_spelling",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C340-04-cron-enable-all-noop",
+      "patch": "tests/product/faults/C340/04-cron-enable-all-noop.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_repeated_cron_guard_expands_existing_service_guard",
+      "promise": "J7.3"
+    }
+  ]
+}

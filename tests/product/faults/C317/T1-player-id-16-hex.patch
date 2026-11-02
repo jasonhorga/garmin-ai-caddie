@@ -1,10 +1,10 @@
 diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
-index c235575..3b2d629 100644
+index add6d086..6d00cb95 100644
 --- a/server_v2/log_privacy.py
 +++ b/server_v2/log_privacy.py
-@@ -22,7 +22,7 @@ _IDENTITY = re.compile(
+@@ -24,7 +24,7 @@ _IDENTITY = re.compile(
      r"[\w-]*token|cookie|csrf|authorization|[\w-]*secret|api_?key)([\"']?\s*[:=]\s*)"
-     r"(\[redacted\]|\"[^\"\n]*\"|'[^'\n]*'|[^\s,;&#\)\}\]]+)"
+     r"(\[redacted\]|bearer\s*:?\s*[^\s,;&#\)\}\]]+|\"[^\"\n]*\"|'[^'\n]*'|[^\s,;&#\)\}\]]+)"
  )
 -_PLAYER_ID = re.compile(r"(?i)\bp_[0-9a-f]{8,16}\b")
 +_PLAYER_ID = re.compile(r"(?i)\bp_[0-9a-f]{8}\b")
