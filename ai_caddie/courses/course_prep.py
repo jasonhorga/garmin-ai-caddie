@@ -15,6 +15,7 @@ import hashlib
 import json
 import math
 import logging
+from functools import lru_cache
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 
@@ -1772,7 +1773,36 @@ def _strategy_tee_row(usable_ladder, hazards: dict):
     )
 
 
-def _shared_sequence_tail(remaining_m: float, approach_ladder, *, start_m: float = 0.0, hazards=None):
+@lru_cache(maxsize=1)
+def _shared_sequence_profiles() -> dict[str, dict]:
+    try:
+        profile_history = _corrected_profile_history()
+        profiles = build_club_profiles(
+            **({"history_data": profile_history} if profile_history is not None else {})
+        )
+        return {
+            token: profile
+            for profile_name, profile in (profiles or {}).items()
+            if isinstance(profile, dict)
+            and (token := club_bag_service.canonical_club_name(profile_name))
+        }
+    except Exception:
+        return {}
+
+
+def _shared_sequence_tail(
+    remaining_m: float,
+    approach_ladder,
+    *,
+    start_m: float = 0.0,
+    hazards=None,
+    exclude_club_keys=None,
+    maximum_carry_m: float | None = None,
+    allow_replan_gap: bool = False,
+    forbid_repeated_clubs: bool = True,
+    max_overshoot_m: float | None = None,
+    sample_size: int = 1,
+):
     """Return the continuation selected by the online decision tail scorer.
 
     CoursePrep owns the map/route offsets, while ``decision._sequence_tail`` owns the measured
@@ -1781,16 +1811,21 @@ def _shared_sequence_tail(remaining_m: float, approach_ladder, *, start_m: float
     """
     from ai_caddie.caddie.decision import _sequence_tail
 
-    rows = [
-        {
+    profile_by_token = _shared_sequence_profiles()
+    rows = []
+    for name, distance in approach_ladder:
+        profile = profile_by_token.get(club_bag_service.canonical_club_name(name) or "", {})
+        median = float(distance)
+        # A ladder row carries the same compact distribution contract as the online fixture.  When
+        # only a median is available, use the shared low-data band and sample prior rather than the
+        # old p10=p90/sample=1 shim; live rows with measured percentiles replace these values above.
+        rows.append({
             "clubName": name,
-            "median_m": float(distance),
-            "p10_m": float(distance),
-            "p90_m": float(distance),
-            "sampleSize": 1,
-        }
-        for name, distance in approach_ladder
-    ]
+            "median_m": median,
+            "p10_m": float(profile.get("p10") or profile.get("p10_m") or (median - 8.0)),
+            "p90_m": float(profile.get("p90") or profile.get("p90_m") or (median + 8.0)),
+            "sampleSize": int(profile.get("sampleSize") or sample_size or 20),
+        })
     avoid_zones = [
         {
             "kind": "water",
@@ -1806,6 +1841,15 @@ def _shared_sequence_tail(remaining_m: float, approach_ladder, *, start_m: float
         avoid_zones=avoid_zones,
         travelled_m=float(start_m),
         forbid_driver=True,
+        exclude_club_keys=set(exclude_club_keys or ()),
+        maximum_carry_m=maximum_carry_m,
+        allow_replan_gap=allow_replan_gap,
+        forbid_repeated_clubs=forbid_repeated_clubs,
+        max_overshoot_m=(
+            float(max_overshoot_m)
+            if max_overshoot_m is not None
+            else 10.0
+        ),
         prefer_layup_window=True,
     )
     return [(str(row.get("clubName") or ""), float(row.get("median_m") or 0.0)) for row in tail]
@@ -1941,48 +1985,78 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_
         # Plan a complete Par 4/5 chain. A long Par 5 remainder is not one imaginary approach; use
         # the longest playable non-driver until a normal scoring club can cover what remains.
         while remaining > 20 and approach_ladder and len(steps) < 4:
-            longest_approach = approach_ladder[0][1]
             effective = plays_like(remaining)
-            shared_tail = None
-            if effective > longest_approach + 15:
-                approach_club, approach_distance = approach_ladder[0]
-                if remaining - longest_approach < LAYUP_LEAVE_MIN_M:
-                    layup = _layup_position_club(
-                        remaining, approach_ladder, start_m=route_offset_m, hazards=hazards,
+            used_clubs = {
+                club_bag_service.canonical_club_name(step["club"])
+                for step in steps
+                if step.get("club")
+            }
+            previous_carry = float(steps[-1].get("targetCarry_m") or math.inf)
+            shared_tail = _shared_sequence_tail(
+                effective,
+                approach_ladder,
+                start_m=route_offset_m,
+                hazards=hazards,
+                exclude_club_keys=used_clubs,
+                maximum_carry_m=previous_carry,
+                forbid_repeated_clubs=True,
+                max_overshoot_m=10.0,
+                sample_size=1,
+            )
+            if shared_tail:
+                effective_remaining = effective
+                for tail_index, (tail_club, tail_distance) in enumerate(shared_tail):
+                    before = remaining
+                    remaining = max(0.0, remaining - tail_distance)
+                    before_effective = effective_remaining
+                    effective_remaining = max(0.0, effective_remaining - tail_distance)
+                    scoring = tail_index == len(shared_tail) - 1 and effective_remaining <= 20.0
+                    note = (
+                        f"剩约 {yd(before)}y 上果岭"
+                        if scoring
+                        else f"推进约 {yd(tail_distance)}y，剩约 {yd(remaining)}y"
                     )
-                    if layup is not None:
-                        shared_tail = _shared_sequence_tail(
-                            remaining, approach_ladder, start_m=route_offset_m, hazards=hazards,
-                        )
-                        if shared_tail:
-                            for tail_index, (tail_club, tail_distance) in enumerate(shared_tail):
-                                before = remaining
-                                remaining = max(0.0, remaining - tail_distance)
-                                scoring = tail_index == len(shared_tail) - 1
-                                note = (
-                                    f"剩约 {yd(before)}y 上果岭"
-                                    if scoring
-                                    else f"推进约 {yd(tail_distance)}y，剩约 {yd(remaining)}y"
-                                )
-                                append_step(
-                                    tail_club,
-                                    note,
-                                    tail_distance,
-                                    role="scoring" if scoring else "position",
-                                )
-                            break
-                    approach_club, approach_distance = layup or approach_ladder[0]
-            else:
-                approach_club, approach_distance = club_for(
-                    effective,
-                    approach_ladder,
-                    exclude=("driver", "1W", "1D"),
+                    landing_override = None
+                    if scoring and abs(before_effective - before) >= 3:
+                        slope = "上坡" if before_effective > before else "下坡"
+                        note += f"（{slope}，打起来像 {yd(before_effective)}y）"
+                        landing_override = route_len_m
+                    append_step(
+                        tail_club,
+                        note,
+                        tail_distance,
+                        role="scoring" if scoring else "position",
+                        route_landing_m=landing_override,
+                    )
+                break
+
+            # The online tail can be empty when every continuation is unsafe. Keep the old
+            # distance fallback, but constrain it to the already-played carry and to a fresh club
+            # so the safety fallback cannot reintroduce a short-then-long sequence.
+            safe_ladder = [
+                (name, distance)
+                for name, distance in approach_ladder
+                if club_bag_service.canonical_club_name(name) not in used_clubs
+                and float(distance) <= previous_carry
+                and _strategy_water_safe(route_offset_m + float(distance), hazards)
+            ]
+            if not safe_ladder:
+                break
+            longest_approach = safe_ladder[0][1]
+            approach_club, approach_distance = None, None
+            if effective > longest_approach + 15 and remaining - longest_approach < LAYUP_LEAVE_MIN_M:
+                layup = _layup_position_club(
+                    remaining, safe_ladder, start_m=route_offset_m, hazards=hazards,
                 )
+                if layup is not None:
+                    approach_club, approach_distance = layup
+            if approach_club is None:
+                approach_club, approach_distance = club_for(effective, safe_ladder)
             if approach_club is None or approach_distance is None:
                 break
             before = remaining
             sloped = effective != before
-            if sloped and effective - float(approach_distance) <= 15:
+            if sloped and effective - float(approach_distance) <= 20:
                 # Reaches the green by its plays-like distance: it ends on the green, whatever the
                 # slope does to its flat carry, and leaves the plays-like shortfall.
                 remaining = max(0.0, effective - float(approach_distance))
@@ -1990,7 +2064,7 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_
                 landing_override = route_len_m
             else:
                 remaining = max(0.0, remaining - float(approach_distance))
-                scoring = remaining <= 15
+                scoring = remaining <= 20
                 landing_override = None
             if scoring:
                 note = f"剩约 {yd(before)}y 上果岭"

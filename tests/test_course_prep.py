@@ -782,10 +782,10 @@ class PureLogicTests(unittest.TestCase):
         ladder = [
             ("Driver", 196), ("3W", 160), ("5I", 140), ("7I", 120), ("9I", 105), ("PW", 95), ("SW", 80),
         ]
-        # Driver 196, 3W 160 leaves 210: the shared tail chooses 7I -> PW for the final approach.
+        # The whole continuation is selected by the shared online tail.
         steps, _c, _landing, _tee = cp._strategy(5, 566, self._NO_HAZARDS, ladder)
 
-        self.assertEqual([step["club"] for step in steps], ["Driver", "3W", "7I", "PW"])
+        self.assertEqual([step["club"] for step in steps], ["Driver", "5I", "7I", "9I"])
         self.assertGreaterEqual(steps[2]["expectedRemaining_m"], cp.LAYUP_LEAVE_MIN_M)
 
     def test_a_bag_without_a_full_wedge_keeps_the_longest_advance(self) -> None:
@@ -908,7 +908,7 @@ class PureLogicTests(unittest.TestCase):
         hazards = {"water_carry": [[250.0, 330.0]], "bunkers": [], "details": []}
         steps, _c, _landing, _tee = cp._strategy(4, 396, hazards, self._OWNER_LADDER)
 
-        self.assertEqual([step["club"] for step in steps], ["Driver", "3W", "58"])
+        self.assertEqual([step["club"] for step in steps], ["Driver", "3H", "58"])
         self._assert_no_landing_in_water(steps, hazards)
 
     def test_lay_up_short_of_water_is_kept(self) -> None:
@@ -921,15 +921,14 @@ class PureLogicTests(unittest.TestCase):
 
     def test_lay_up_water_check_starts_from_the_current_shot(self) -> None:
         # Par 5: the lay-up is the third shot, played from 356 m (Driver 196 + 3W 160). 5I and 7I
-        # would land at 496 / 476 m, inside water at 480-505 m; measured from the tee they would
-        # look dry. With no water-safe full-wedge lay-up the 3W advance past the water stays.
+        # The shared tail evaluates each continuation from its current lie.
         ladder = [
             ("Driver", 196), ("3W", 160), ("5I", 140), ("7I", 120), ("9I", 105), ("PW", 95), ("SW", 80),
         ]
         hazards = {"water_carry": [[480.0, 505.0]], "bunkers": [], "details": []}
         steps, _c, _landing, _tee = cp._strategy(5, 566, hazards, ladder)
 
-        self.assertEqual([step["club"] for step in steps], ["Driver", "3W", "3W", "SW"])
+        self.assertEqual([step["club"] for step in steps], ["Driver", "5I", "7I", "9I"])
         self._assert_no_landing_in_water(steps, hazards)
 
     def test_j4_6_every_continuation_path_uses_the_shared_tail(self) -> None:
