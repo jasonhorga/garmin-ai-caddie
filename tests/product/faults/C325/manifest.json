@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C325-01-refresh-every-event",
+      "patch": "tests/product/faults/C325/01-refresh-every-event.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_10_drag_begin_refreshes_frozen_adjacent_once_without_event_churn",
+      "promise": "5.10"
+    },
+    {
+      "id": "tests-product-faults-C325-02-ignore-drag-revision",
+      "patch": "tests/product/faults/C325/02-ignore-drag-revision.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_10_drag_begin_refreshes_frozen_adjacent_once_without_event_churn",
+      "promise": "5.10"
+    }
+  ]
+}
