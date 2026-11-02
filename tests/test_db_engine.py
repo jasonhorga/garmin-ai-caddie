@@ -1,5 +1,6 @@
 # tests/test_db_engine.py
 import os
+import sqlalchemy
 import tempfile
 import unittest
 from pathlib import Path
@@ -70,6 +71,23 @@ class DatabaseUrlTests(unittest.TestCase):
                         s.add(AuthSession(user_id="GHOST", scope="user", token_hash="z" * 64,
                                           expires_at=datetime.now(timezone.utc)))
                         s.commit()
+
+    def test_sqlalchemy_errors_hide_bound_parameters(self):
+        """J7.3: database diagnostics never expose credential-derived bound values."""
+        self.addCleanup(db.reset_engine_for_tests)
+        secret = "c178-token-sha256-secret"
+        with tempfile.TemporaryDirectory() as tmp:
+            url = f"sqlite:///{Path(tmp) / 'hidden.db'}"
+            with mock.patch.dict(os.environ, {"AI_CADDIE_DATABASE_URL": url}):
+                db.reset_engine_for_tests()
+                engine = db.get_engine()
+                with self.assertRaises(sqlalchemy.exc.SQLAlchemyError) as raised:
+                    with engine.connect() as connection:
+                        connection.execute(
+                            text("select * from missing_table where token_hash=:token"),
+                            {"token": secret},
+                        )
+        self.assertNotIn(secret, str(raised.exception))
 
 
 if __name__ == "__main__":

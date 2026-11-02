@@ -525,10 +525,7 @@ class RoundIngestApiTests(unittest.TestCase):
                 player_id=self.alice["id"],
             )
 
-        log_exception.assert_called_once_with(
-            "late-event history refresh failed for round %s",
-            round_id,
-        )
+        log_exception.assert_called_once_with("late-event history refresh failed")
         self.assertEqual(response.acceptedEventIds, ["score-1"])
         self.assertEqual(
             [row["eventId"] for row in mobile.round_events(
