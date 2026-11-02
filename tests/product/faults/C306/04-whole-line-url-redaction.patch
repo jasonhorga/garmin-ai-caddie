@@ -1,0 +1,13 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+index 6782f771..643b81c8 100644
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -31,7 +31,7 @@ _FRAME = re.compile(r'^(\s*File ")(.+)(", line \d+, in .+)$')
+ def _text(value: str) -> str:
+     # URL helpers expect ONE URL; applying them to a whole log line eats fields
+     # after a share capability or query parameter.
+-    value = _URL.sub(lambda match: redact_url(match[0]), value)
++    value = redact_url(value)
+     value = _IDENTITY.sub(lambda match: match[1] + "=" + _REDACTED, value)
+     value = re.sub(r"(?i)\b(player|round)\s+(?:id\s+)?[^\s,;]+", r"\1=" + _REDACTED, value)
+     value = re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer " + _REDACTED, value)

@@ -1,0 +1,12 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 5d032812..e6ed6799 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -235,7 +235,6 @@ SERVICE_INFO_LOGGERS = (
+ 
+ def configure_request_timing_logging() -> None:
+     """Service logging belongs to startup, never to importing a library hook."""
+-    protect_future_handlers()
+     for name in SERVICE_INFO_LOGGERS:
+         service_log = logging.getLogger(name)
+         service_log.setLevel(logging.INFO)

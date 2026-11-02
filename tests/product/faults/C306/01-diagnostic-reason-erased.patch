@@ -1,0 +1,13 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+index 6782f771..6a14b2ba 100644
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -145,7 +145,7 @@ class LogPrivacyFilter(logging.Filter):
+         if not record.name.startswith(("server_v2", "ai_caddie", "uvicorn.error")):
+             return True
+         record.args = _arguments(record.args)
+-        record.msg = _text(record.getMessage())
++        record.msg = _text(record.getMessage()).replace("log_and_backup_mismatch", _REDACTED)
+         record.args = ()
+         record.__dict__.pop("message", None)
+         for key in tuple(record.__dict__):

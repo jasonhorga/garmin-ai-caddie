@@ -1,10 +1,12 @@
 diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
-index 4d7f2a14..4a3118f8 100644
+index 6782f771..13a48de4 100644
 --- a/server_v2/log_privacy.py
 +++ b/server_v2/log_privacy.py
-@@ -99,4 +99,4 @@ class LogPrivacyFilter(logging.Filter):
+@@ -164,6 +164,7 @@ class LogPrivacyFilter(logging.Filter):
+ 
  
  def protect_handler(handler: logging.Handler) -> None:
++    return
      if not any(isinstance(item, LogPrivacyFilter) for item in handler.filters):
--        handler.addFilter(LogPrivacyFilter())
-+        pass
+         handler.addFilter(LogPrivacyFilter())
+ 

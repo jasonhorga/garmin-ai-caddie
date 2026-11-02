@@ -1,0 +1,28 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+index 6782f771..f26ed57c 100644
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -125,23 +125,6 @@ def _arguments(value):
+ 
+ class LogPrivacyFilter(logging.Filter):
+     def filter(self, record: logging.LogRecord) -> bool:
+-        try:
+-            return self._filter(record)
+-        except Exception:
+-            # Logging is diagnostic: even malformed formatting or hostile values
+-            # must neither leak a partially processed record nor break business work.
+-            record.msg = "log record redaction failed"
+-            record.args = ()
+-            record.exc_info = record.exc_text = record.stack_info = None
+-            record.pathname = _REDACTED
+-            record.__dict__.pop("message", None)
+-            for key in tuple(record.__dict__):
+-                if key not in _STANDARD:
+-                    record.__dict__[key] = _REDACTED
+-            record._privacy_sanitized = True
+-            return True
+-
+-    def _filter(self, record: logging.LogRecord) -> bool:
+         if not record.name.startswith(("server_v2", "ai_caddie", "uvicorn.error")):
+             return True
+         record.args = _arguments(record.args)

@@ -1,13 +1,13 @@
 diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
-index 4d7f2a14..3a3bbb71 100644
+index 6782f771..33e2a7bd 100644
 --- a/server_v2/log_privacy.py
 +++ b/server_v2/log_privacy.py
-@@ -77,7 +77,7 @@ class LogPrivacyFilter(logging.Filter):
-             if isinstance(record.args, Mapping):
-                 record.args = {key: _context(value) for key, value in record.args.items()}
-             elif record.args:
--                record.args = tuple(_context(value) for value in record.args)
-+                record.args = tuple(record.args)
-         record.msg = _text(record.getMessage())
+@@ -145,7 +145,7 @@ class LogPrivacyFilter(logging.Filter):
+         if not record.name.startswith(("server_v2", "ai_caddie", "uvicorn.error")):
+             return True
+         record.args = _arguments(record.args)
+-        record.msg = _text(record.getMessage())
++        record.msg = record.getMessage()
          record.args = ()
          record.__dict__.pop("message", None)
+         for key in tuple(record.__dict__):

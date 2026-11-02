@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C306-01-diagnostic-reason-erased",
+      "patch": "tests/product/faults/C306/01-diagnostic-reason-erased.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_each_production_exit_redacts_identity_and_preserves_diagnostics",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C306-02-root-only",
+      "patch": "tests/product/faults/C306/02-root-only.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_each_production_exit_redacts_identity_and_preserves_diagnostics",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C306-03-filter-errors-escape",
+      "patch": "tests/product/faults/C306/03-filter-errors-escape.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_filter_failure_never_escapes_business_logging",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C306-04-whole-line-url-redaction",
+      "patch": "tests/product/faults/C306/04-whole-line-url-redaction.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_sensitive_values_do_not_swallow_neighboring_timing_fields",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C306-05-revision-partition-missing",
+      "patch": "tests/product/faults/C306/05-revision-partition-missing.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_revision_scanner_omits_private_directory_without_service_startup",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C306-06-uvicorn-traceback-unprotected",
+      "patch": "tests/product/faults/C306/06-uvicorn-traceback-unprotected.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_uvicorn_unhandled_exception_and_stack_keep_only_frame_locations",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C306-07-stack-frames-erased",
+      "patch": "tests/product/faults/C306/07-stack-frames-erased.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_uvicorn_unhandled_exception_and_stack_keep_only_frame_locations",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C306-08-late-handler-unprotected",
+      "patch": "tests/product/faults/C306/08-late-handler-unprotected.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_handlers_added_after_startup_are_protected",
+      "promise": "J7.3"
+    }
+  ]
+}
