@@ -2512,7 +2512,9 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
-    func testRestingRootWithoutTopoDrawsFallbackFacts() throws {
+    /// J4.5 (C265): without a precise or Garmin bitmap the resting root shows the neutral
+    /// "map preparing" surface; route facts must not be drawn as a line map.
+    func testRestingRootWithoutBitmapIgnoresRouteFacts() throws {
         let base = WatchHoleMapSample.geometry
         let route = [CGPoint(x: 435, y: 981), CGPoint(x: 435, y: 279)]
         let noFacts = WatchHoleMapGeometry(
@@ -2534,10 +2536,10 @@ final class WatchDesignSnapshotTests: XCTestCase {
             return renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: view).cgImage))
         }
 
-        XCTAssertNotEqual(
+        XCTAssertEqual(
             try render(noFacts),
             try render(withFacts),
-            "a bitmapless resting root must retain its fallback route facts"
+            "a bitmapless resting root must stay neutral instead of drawing route facts as lines"
         )
     }
 
