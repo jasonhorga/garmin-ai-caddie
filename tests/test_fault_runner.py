@@ -438,16 +438,26 @@ class ManifestFragmentTests(unittest.TestCase):
     def test_batch_timeout_reports_duration_and_isolated_retry_count(self):
         """验收方式 infrastructure: timeout degradation must be visible."""
         (self.root / "test_slow.py").write_text(
-            "import time\nimport unittest\ntime.sleep(0.5)\n"
+            "import unittest\n"
             "class Slow(unittest.TestCase):\n"
             "    def test_slow(self): pass\n", encoding="utf-8",
         )
         self.init_repo()
         targets = ["test_witness.Witness.test_subject", "test_slow", "test_witness.Witness"]
         records = [{**self.record(str(i)), "target": target} for i, target in enumerate(targets)]
+        real_run = subprocess.run
+
+        def timeout_batch(command, **kwargs):
+            if command[:2] == [str(runner.SHARED_PYTHON), "-c"]:
+                targets = json.loads(Path(command[-2]).read_text())
+                if len(targets) > 1:
+                    raise subprocess.TimeoutExpired(command, kwargs['timeout'])
+                self.assertGreater(kwargs['timeout'], 60)
+            return real_run(command, **kwargs)
+
         with mock.patch.object(runner, "PYTHON_BATCH_TIMEOUT", 0.05, create=True):
             with contextlib.redirect_stderr(io.StringIO()) as errors:
-                with mock.patch.object(runner.subprocess, "run", wraps=subprocess.run) as processes:
+                with mock.patch.object(runner.subprocess, "run", side_effect=timeout_batch) as processes:
                     code, rows, _ = self.invoke_main("--check", records)
         self.assertEqual([row["status"] for row in rows], ["ok", "ok", "ok"])
         self.assertEqual(code, 0)
@@ -476,6 +486,121 @@ class ManifestFragmentTests(unittest.TestCase):
         self.assertEqual(rows[0]["status"], "unavailable")
         self.assertIn("target 无法加载：", rows[0]["detail"])
         self.assertNotEqual(code, 0)
+
+    # Product spec 验收方式: fault-runner infrastructure; C261 card refines
+    # search-path isolation, directory aliases, and configurable load budgets.
+    def path_fixture(self, files):
+        test = "import unittest\nclass T(unittest.TestCase):\n    def test_loads(self): pass\n"
+        for name, body in files.items():
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(body + (test if name.startswith('test_') else ''), encoding="utf-8")
+
+    def assert_path_check(self):
+        self.init_repo()
+        records = [{**self.record(str(i)), "target": t}
+                   for i, t in enumerate(["test_a", "test_b"])]
+        code, rows, _ = self.invoke_main("--check", records)
+        self.assertEqual([r["status"] for r in rows], ["ok", "unavailable"])
+        self.assertNotEqual(code, 0)
+
+    def test_check_cached_baseline_module_cannot_shadow_added_directory(self):
+        """验收方式: fresh B must see the broken module in its own directory."""
+        self.path_fixture({"util.py": "VALUE=1\n",
+            "extra/util.py": "raise ImportError('broken added util')\n",
+            "test_a.py": "import util\n",
+            "test_b.py": "import sys\nsys.path.insert(0, 'extra')\nimport util\n"})
+        self.assert_path_check()
+
+    def test_check_shared_module_cannot_retain_transitive_added_helper(self):
+        """验收方式: a baseline shared module cannot hide a missing helper."""
+        self.path_fixture({"extra/helper.py": "VALUE=1\n", "shared.py": "import helper\n",
+            "test_a.py": "import sys\nsys.path.insert(0, 'extra')\nimport shared\n",
+            "test_b.py": "import shared\n"})
+        self.assert_path_check()
+
+    def test_check_reordered_baseline_paths_cannot_poison_next_target(self):
+        """验收方式: path order alone changes which duplicate module loads."""
+        self.path_fixture({"dup.py": "raise ImportError('broken baseline dup')\n",
+            "other/dup.py": "VALUE=1\n",
+            "test_a.py": "import sys, os\np=os.environ['PYTHONPATH']\nsys.path.remove(p)\nsys.path.insert(0,p)\nimport dup\n",
+            "test_b.py": "import dup\n"})
+        with mock.patch.dict(runner.os.environ, {"PYTHONPATH": str(self.root / 'other')}):
+            self.assert_path_check()
+
+    def test_check_transient_added_path_cannot_leave_cached_helper(self):
+        """验收方式: removing an added path does not remove its cached helper."""
+        self.path_fixture({"extra/helper.py": "VALUE=1\n",
+            "test_a.py": "import sys\nsys.path.insert(0,'extra')\nimport helper\nsys.path.remove('extra')\n",
+            "test_b.py": "import helper\n"})
+        self.assert_path_check()
+
+    def test_batch_removes_namespace_package_from_added_directory(self):
+        """验收方式 explicitly includes namespace packages without an origin."""
+        self.path_fixture({"extra/namespace_only/child.py": "VALUE=1\n",
+            "test_a.py": "import sys\nsys.path.insert(0,'extra')\nimport namespace_only\n",
+            "test_b.py": "import namespace_only\n"})
+        # Inspect the batch itself so independent retries cannot mask M2.
+        result = runner._run_python_load_probe(["test_a", "test_b"], self.root)
+        self.assertEqual([result[t][0] for t in ["test_a", "test_b"]], ["ok", "unavailable"])
+        self.assertIn('ModuleNotFoundError', result['test_b'][1])
+
+    def test_batch_resolves_symlink_module_locations_before_cleanup(self):
+        """验收方式: symlink and real module locations identify one directory."""
+        self.path_fixture({"real/helper.py": "VALUE=1\n",
+            "test_a.py": "import sys\nsys.path.insert(0,'link')\nimport helper\n",
+            "test_b.py": "import helper\n"})
+        (self.root / 'link').symlink_to(self.root / 'real', target_is_directory=True)
+        result = runner._run_python_load_probe(["test_a", "test_b"], self.root)
+        self.assertEqual([result[t][0] for t in ["test_a", "test_b"]], ["ok", "unavailable"])
+        self.assertIn('ModuleNotFoundError', result['test_b'][1])
+
+    def test_check_directory_aliases_and_root_keep_single_initialization_cached(self):
+        """验收方式: harmless path spellings require one batch, no retry."""
+        once = ("import builtins\nif getattr(builtins, '_alias_once', False):\n"
+                "    raise ImportError('single initialization only')\nbuiltins._alias_once=True\n")
+        for entry in ("__import__('os').getcwd()", "'/'"):
+            with self.subTest(entry=entry):
+                self.path_fixture({"once_dep.py": once,
+                    "test_a.py": f"import sys\nsys.path.insert(0, {entry})\nimport once_dep\n",
+                    "test_b.py": "import once_dep\n"})
+                self.init_repo()
+                records = [{**self.record(str(i)), "target": t}
+                           for i, t in enumerate(["test_a", "test_b"])]
+                with mock.patch.object(runner.subprocess, "run", wraps=subprocess.run) as processes:
+                    code, rows, _ = self.invoke_main("--check", records)
+                self.assertEqual([r['status'] for r in rows], ['ok', 'ok'])
+                self.assertEqual(code, 0)
+                probes = [c for c in processes.call_args_list
+                          if c.args[0][:2] == [str(runner.SHARED_PYTHON), '-c']]
+                self.assertEqual(len(probes), 1)
+
+    def test_single_probe_budget_can_be_configured_above_sixty_seconds(self):
+        """验收方式 + card: scheduler delay is not an unavailable target."""
+        def finish(command, **kwargs):
+            # Controlled virtual load takes 120 s; no wall-clock sleep.
+            if kwargs['timeout'] < 120:
+                raise subprocess.TimeoutExpired(command, kwargs['timeout'])
+            Path(command[-1]).write_text(json.dumps({'test_slow': {'ok': True}}))
+            return subprocess.CompletedProcess(command, 0, '', '')
+        with mock.patch.dict(runner.os.environ, {'CADDIE_PYTHON_LOAD_TIMEOUT': '180'}):
+            with mock.patch.object(runner.subprocess, 'run', side_effect=finish) as process:
+                result = runner._run_python_load_probe(['test_slow'], self.root)
+        self.assertEqual(result['test_slow'], ('ok', ''))
+        self.assertEqual(process.call_args.kwargs['timeout'], 180)
+
+    def test_probe_timeout_diagnostic_differs_from_unloadable_target(self):
+        """验收方式: both fail closed, but timeout is explicitly identified."""
+        with mock.patch.object(runner.subprocess, 'run', side_effect=subprocess.TimeoutExpired('probe', 180)):
+            status, detail = runner._run_python_load_probe(['test_slow'], self.root)['test_slow']
+        self.assertEqual(status, 'unavailable')
+        self.assertIn('加载超时', detail)
+        self.assertIn('180', detail)
+        self.assertIn('CADDIE_PYTHON_LOAD_TIMEOUT', detail)
+        status, detail = runner._run_python_load_probe(['absent_target'], self.root)['absent_target']
+        self.assertEqual(status, 'unavailable')
+        self.assertIn('ModuleNotFoundError', detail)
+        self.assertNotIn('加载超时', detail)
 
     def test_dispatch_native_no_match_json_has_empty_commands(self):
         """验收方式 infrastructure: native dispatch no-match remains valid JSON."""
@@ -509,6 +634,14 @@ class ManifestFragmentTests(unittest.TestCase):
             "    def test_loads(self): pass\n", encoding="utf-8",
         )
         self.init_repo()
+        batch = runner._run_python_load_probe(
+            ["test_adds_path", "test_needs_clean_path"], self.root
+        )
+        # 批量探测本身必须观察到 helper 不再可见；外层 probe_python_targets
+        # 的独立复核不能把 sys.path/模块清理故障救回。
+        self.assertEqual(batch["test_adds_path"][0], "ok")
+        self.assertEqual(batch["test_needs_clean_path"][0], "unavailable")
+        self.assertIn("ModuleNotFoundError", batch["test_needs_clean_path"][1])
         records = [{**self.record(str(index)), "target": target}
                    for index, target in enumerate(("test_adds_path", "test_needs_clean_path"))]
         code, rows, _ = self.invoke_main("--check", records)

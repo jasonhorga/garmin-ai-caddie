@@ -8,6 +8,7 @@ patch to the caller's checkout: every check and mutant run gets its own detached
 from __future__ import annotations
 
 import argparse
+import math
 import base64
 import json
 import os
@@ -37,6 +38,8 @@ PYTHON_BATCH_TIMEOUT = 900.0
 # Use a result file: imported test modules may write arbitrary stdout/stderr.
 # Inspect unittest's objects and loader errors, never its formatted console output.
 PYTHON_LOAD_PROBE = r'''
+import builtins
+from importlib.machinery import PathFinder
 import json
 from pathlib import Path
 import sys
@@ -50,16 +53,70 @@ def failed_tests(test):
         return any(failed_tests(child) for child in test)
     return False
 
+def directories(entries):
+    # Empty entries mean cwd. Duplicate spellings do not change import order.
+    return tuple(dict.fromkeys(Path(entry).resolve() for entry in entries))
+
+def signature(spec):
+    if spec is None:
+        return None
+    origin = getattr(spec, "origin", None)
+    search = getattr(spec, "submodule_search_locations", None) or []
+    return (str(Path(origin).resolve()) if origin and origin not in {"built-in", "frozen"}
+            else origin, tuple(str(Path(item).resolve()) for item in search))
+
+def baseline_cached(name):
+    top = name.partition(".")[0]
+    module = sys.modules.get(top)
+    return signature(getattr(module, "__spec__", None)) == signature(
+        PathFinder.find_spec(top, baseline_path))
+
+baseline_directories = directories(sys.path)
+observed_paths = []
+batch_tainted = False
+needs_isolation = False
+original_import = builtins.__import__
+tracking = False
+
+def tracked_import(name, globals=None, locals=None, fromlist=(), level=0):
+    global batch_tainted, needs_isolation, tracking
+    if tracking:
+        return original_import(name, globals, locals, fromlist, level)
+    # Path/spec inspection may itself import pathlib helpers on some runtimes.
+    tracking = True
+    try:
+        current = list(sys.path)
+        if current != baseline_path and directories(current) != baseline_directories:
+            # Observe paths at import time, including paths a target later removes.
+            observed_paths.extend(current)
+            if not level:
+                top = name.partition(".")[0]
+                if signature(PathFinder.find_spec(top, current)) != signature(
+                        PathFinder.find_spec(top, baseline_path)):
+                    # Cached modules can mask the target's own changed resolution.
+                    needs_isolation |= top in sys.modules
+                    batch_tainted = True
+    finally:
+        tracking = False
+    return original_import(name, globals, locals, fromlist, level)
+
+multiple_targets = len(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))) > 1
 reports = {}
 baseline_path = list(sys.path)
 previous_modules = set(sys.modules)
 for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
-    # Remove only the previous target's imports from paths it added. Normal
-    # dependencies must stay cached: some C extensions cannot initialize twice.
-    added_paths = [Path(entry).resolve() for entry in sys.path if entry not in baseline_path]
+    builtins.__import__ = tracked_import
+    needs_isolation = batch_tainted
+    # Keep normal dependencies, even beneath broad added paths such as '/'.
+    # Suspicious successes are independently checked instead of clearing caches.
+    added_paths = [entry for entry in directories([*observed_paths, *sys.path])
+                   if entry not in baseline_directories]
+    observed_paths.clear()
     if added_paths:
         for name in set(sys.modules) - previous_modules:
             module = sys.modules[name]
+            if baseline_cached(name):
+                continue
             spec = getattr(module, "__spec__", None)
             origin = getattr(spec, "origin", None) or getattr(module, "__file__", None)
             locations = list(getattr(spec, "submodule_search_locations", None) or [])
@@ -80,6 +137,8 @@ for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
             report = {"ok": False, "reason": "0 tests loaded"}
         else:
             report = {"ok": True, "reason": ""}
+        if multiple_targets and report["ok"] and needs_isolation:
+            report.update(ok=False, reason="search-path effects require isolated verification")
     except (Exception, SystemExit):
         report = {"ok": False, "reason": traceback.format_exc()}
     reports[target] = report
@@ -95,17 +154,24 @@ def _run_python_load_probe(targets: list[str], repo: Path) -> dict[str, tuple[st
             source = Path(directory) / "targets.json"
             output = Path(directory) / "load.json"
             source.write_text(json.dumps(targets), encoding="utf-8")
-            timeout = PYTHON_BATCH_TIMEOUT if len(targets) > 1 else 60.0
+            # Independently configurable: high host load must not impose a fixed
+            # 60 s ceiling on single-target imports. Environment is read per probe.
+            timeout = PYTHON_BATCH_TIMEOUT if len(targets) > 1 else float(
+                env.get("CADDIE_PYTHON_LOAD_TIMEOUT", "900"))
+            if not math.isfinite(timeout) or timeout <= 0:
+                raise ValueError("load timeout must be a finite positive number")
             try:
                 result = subprocess.run(
                     [str(SHARED_PYTHON), "-c", PYTHON_LOAD_PROBE, str(source), str(output)],
                     cwd=repo, env=env, text=True, capture_output=True, timeout=timeout,
                 )
-            except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired as error:
                 if len(targets) > 1:
                     print(f"LOAD_PROBE_TIMEOUT timeout={timeout:g}s fallback_targets={len(targets)}",
                           file=sys.stderr)
-                raise
+                raise ValueError(
+                    f"加载超时 ({error.timeout:g}s); configure CADDIE_PYTHON_LOAD_TIMEOUT"
+                ) from error
             if result.returncode or not output.is_file():
                 reason = f"load probe exited {result.returncode}: {result.stderr.strip()}"
             else:
@@ -121,7 +187,7 @@ def _run_python_load_probe(targets: list[str], repo: Path) -> dict[str, tuple[st
 
 
 def probe_python_targets(targets: Iterable[str], repo: Path) -> dict[str, tuple[str, str]]:
-    """Use one batch, retrying only failures without other modules' side effects."""
+    """Retry failures and path-tainted successes in independent interpreters."""
     targets = list(dict.fromkeys(targets))
     if not targets:
         return {}
