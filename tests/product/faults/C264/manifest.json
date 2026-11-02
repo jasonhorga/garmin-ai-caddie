@@ -28,6 +28,27 @@
       "kind": "native-unit",
       "target": "AICaddieTests/GarminRasterTests/testPreciseRetentionKeepsAuthorityAcrossNeutralDecodeFrame",
       "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C264-initial-observation-wiring",
+      "patch": "tests/product/faults/C264/initial-observation-wiring.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_mounted_precise_page_retains_map_across_selection_and_decode_failure",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C264-S1-retention-assignment-wiring",
+      "patch": "tests/product/faults/C264/S1-retention-assignment-wiring.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_mounted_precise_page_retains_map_across_selection_and_decode_failure",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C264-S4-unconditional-reset-wiring",
+      "patch": "tests/product/faults/C264/S4-unconditional-reset-wiring.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_mounted_precise_page_retains_map_across_selection_and_decode_failure",
+      "promise": "J4.5"
     }
   ]
 }

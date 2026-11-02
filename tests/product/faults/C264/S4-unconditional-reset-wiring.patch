@@ -1,0 +1,19 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+index 1a8b081d..91021fd7 100644
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -1440,13 +1440,7 @@ public struct CurrentHoleView: View {
+             }
+             garminRasterImageRetrying = false
+             garminRasterImageReloadID = 0
+-            if retainedLiveMapHoleNumber != hole.number {
+-                // Only a different hole drops the previous tier. Reseed after installing this
+-                // hole's inputs: an already precise bitmap may produce no subsequent onChange.
+-                retainedLiveMapDisplayState = LiveMapRetentionPolicy.stateAfterHoleChange()
+-                retainedLiveMapDisplayState = liveMapDisplayState
+-                retainedLiveMapHoleNumber = hole.number
+-            }
++            retainedLiveMapDisplayState = LiveMapRetentionPolicy.stateAfterHoleChange()
+             GarminRasterImageStore.resetRetryCursors()
+             garminVersionConflictURL = nil
+             pinSheetMessage = nil
