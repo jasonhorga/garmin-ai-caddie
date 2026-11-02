@@ -1,0 +1,14 @@
+diff --git a/server_v2/readiness.py b/server_v2/readiness.py
+--- a/server_v2/readiness.py
++++ b/server_v2/readiness.py
+@@ -1081,8 +1081,8 @@
+             thread.start()
+             return thread
+
+-    run()
+-    return None
++        run()
++        return None
+
+
+ def _mobile_readiness_status(stats_snapshot: dict[str, Any] | None) -> dict[str, Any]:

@@ -1,0 +1,12 @@
+diff --git a/server_v2/readiness.py b/server_v2/readiness.py
+--- a/server_v2/readiness.py
++++ b/server_v2/readiness.py
+@@ -1093,8 +1093,6 @@
+     with _MOBILE_READINESS_LOCK:
+         status = dict(_MOBILE_READINESS.get("me") or {})
+         existing = _MOBILE_READINESS_THREADS.get("me")
+-        if status.get("state") == "warming" and (existing is None or not existing.is_alive()):
+-            status = {}
+     same_revision = status.get("revision") == revision
+     # A completed package can legitimately be degraded (e.g. missing geometry). Cache that
+     # evidence, but retry a builder exception on the next poll instead of making it permanent.

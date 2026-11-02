@@ -1,0 +1,29 @@
+diff --git a/server_v2/readiness.py b/server_v2/readiness.py
+--- a/server_v2/readiness.py
++++ b/server_v2/readiness.py
+@@ -1061,19 +1061,12 @@
+             if "reason" not in evidence:
+                 evidence["stale"] = bool(stats_snapshot.get("stale"))
+             with _MOBILE_READINESS_LOCK:
+-                registered = _MOBILE_READINESS_THREADS.get("me")
+-                current_status = _MOBILE_READINESS.get("me") or {}
+-                owns_slot = current_status.get("revision") == revision and (
+-                    registered is threading.current_thread() or registered is None
+-                )
+-                if owns_slot:
+-                    _MOBILE_READINESS["me"] = {
+-                        "state": state,
+-                        "revision": revision,
+-                        "evidence": evidence,
+-                    }
+-                    if registered is threading.current_thread():
+-                        _MOBILE_READINESS_THREADS.pop("me", None)
++                _MOBILE_READINESS["me"] = {
++                    "state": state,
++                    "revision": revision,
++                    "evidence": evidence,
++                }
++                _MOBILE_READINESS_THREADS.pop("me", None)
+
+         if not trace:
+             thread = threading.Thread(target=run, name="readiness-mobile-warm", daemon=True)
