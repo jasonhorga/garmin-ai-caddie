@@ -38,7 +38,7 @@ def _text(value: str) -> str:
         return match[1] + match[2] + quote + _REDACTED + quote
 
     value = _IDENTITY.sub(identity, value)
-    value = re.sub(r"(?i)\b(player|round)\s+(?:id\s+)?[^\s,;]+", r"\1=" + _REDACTED, value)
+    value = re.sub(r"(?i)\b(player|round)\s+[pr]_[\w.-]+", r"\1=" + _REDACTED, value)
     value = re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer " + _REDACTED, value)
 
     def path(match):
@@ -180,7 +180,7 @@ def protect_future_handlers() -> None:
         return
 
     def add_handler(logger, handler):
-        if logger.name.startswith(("server_v2", "ai_caddie", "uvicorn")):
+        if logger is logging.getLogger() or logger.name.startswith(("server_v2", "ai_caddie", "uvicorn")):
             protect_handler(handler)
         return original(logger, handler)
 

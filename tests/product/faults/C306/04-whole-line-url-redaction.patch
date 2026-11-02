@@ -1,5 +1,5 @@
 diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
-index 6782f771..643b81c8 100644
+index f9e4b807..0b6092e4 100644
 --- a/server_v2/log_privacy.py
 +++ b/server_v2/log_privacy.py
 @@ -31,7 +31,7 @@ _FRAME = re.compile(r'^(\s*File ")(.+)(", line \d+, in .+)$')
@@ -8,6 +8,6 @@ index 6782f771..643b81c8 100644
      # after a share capability or query parameter.
 -    value = _URL.sub(lambda match: redact_url(match[0]), value)
 +    value = redact_url(value)
-     value = _IDENTITY.sub(lambda match: match[1] + "=" + _REDACTED, value)
-     value = re.sub(r"(?i)\b(player|round)\s+(?:id\s+)?[^\s,;]+", r"\1=" + _REDACTED, value)
-     value = re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer " + _REDACTED, value)
+     def identity(match):
+         original = match[3]
+         quote = original[0] if original[0] in "\"'" else ""

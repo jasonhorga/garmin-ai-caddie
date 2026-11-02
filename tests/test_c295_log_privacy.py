@@ -134,10 +134,10 @@ class J7LogPrivacyTests(unittest.TestCase):
         target = logging.getLogger(main.SERVICE_INFO_LOGGERS[0])
         for path in ("/api/v2/share/PRIVATETOKEN", "https://example.invalid/p/PRIVATETOKEN",
                      "https://example.invalid/api?token=PRIVATETOKEN"):
-            target.info("path=%s player_id=%s status=200 total_ms=12 stages=geometry:3 holes=3/18",
+            target.info("path=%s player_id=%s status=200 total_ms=12 stages=geometry:3 holes=3/18 active round event",
                         path, "PRIVATEPLAYER")
         output = streams[main.SERVICE_INFO_LOGGERS[0]].getvalue()
-        for public in ("status=200", "total_ms=12", "stages=geometry:3", "holes=3/18"):
+        for public in ("status=200", "total_ms=12", "stages=geometry:3", "holes=3/18", "active round event"):
             self.assertEqual(output.count(public), 3, output)
         for private in ("PRIVATETOKEN", "PRIVATEPLAYER"):
             self.assertNotIn(private, output)
@@ -163,13 +163,16 @@ class J7LogPrivacyTests(unittest.TestCase):
 
     def test_J73_handlers_added_after_startup_are_protected(self):
         self.capture_production()
-        stream = io.StringIO()
-        target = logging.getLogger("ai_caddie.privacy_late")
-        target.propagate = False
-        target.addHandler(logging.StreamHandler(stream))
-        target.warning("player_id=%s status=200", "PRIVATEPLAYER")
-        self.assertNotIn("PRIVATEPLAYER", stream.getvalue())
-        self.assertIn("status=200", stream.getvalue())
+        for name in ("ai_caddie.privacy_late", ""):
+            with self.subTest(exit=name or "root"):
+                stream = io.StringIO()
+                exit_logger = logging.getLogger(name)
+                exit_logger.propagate = False
+                exit_logger.addHandler(logging.StreamHandler(stream))
+                target = exit_logger if name else logging.getLogger("server_v2.privacy_late_root")
+                target.warning("player_id=%s status=200", "PRIVATEPLAYER")
+                self.assertNotIn("PRIVATEPLAYER", stream.getvalue())
+                self.assertIn("status=200", stream.getvalue())
 
     def test_J73_real_failure_redacts_extras_arguments_and_chained_exceptions(self):
         from ai_caddie.history import stats_cache
