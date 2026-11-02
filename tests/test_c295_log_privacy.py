@@ -132,6 +132,7 @@ class J7LogPrivacyTests(unittest.TestCase):
             "storage path=data/players/p_deadbeef/events status=503 reason=quota")
         output = streams[main.SERVICE_INFO_LOGGERS[0]].getvalue()
         self.assertNotIn("data/players/p_deadbeef/events", output)
+        self.assertNotIn("data/players", output)
         self.assertNotIn("p_deadbeef", output)
         self.assertIn("status=503", output)
         self.assertIn("reason=quota", output)
