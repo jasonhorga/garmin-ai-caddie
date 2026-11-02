@@ -2522,6 +2522,38 @@ public struct StartRoundView: View {
         let lastError: Error?
     }
 
+    enum NearbySelectionCommand: Equatable {
+        case none
+        case select(MobileCourseOption)
+        case clear
+    }
+
+    struct NearbyDiscoveryState: Equatable {
+        var nearbyOptions: [MobileCourseOption]
+        var lastNearbyOptions: [MobileCourseOption]
+        var selectionCommand: NearbySelectionCommand = .none
+    }
+
+    enum NearbyDiscoveryEvent {
+        case begin
+        case providerResult(NearbyDiscoveryLoopResult, canApply: Bool)
+        case manualSearch
+        case automaticSelection(
+            candidate: MobileCourseOption?,
+            selected: MobileCourseOption?,
+            selectedGlobalIdText: String,
+            availableNearby: [MobileCourseOption],
+            userPickedVenue: Bool
+        )
+    }
+
+    static func reduceNearbyDiscoveryState(
+        _ state: NearbyDiscoveryState,
+        event: NearbyDiscoveryEvent
+    ) -> NearbyDiscoveryState {
+        state
+    }
+
     /// The actual bounded nearby request loop. Keeping the transport loop here lets acceptance tests
     /// drive the same timeout/empty/expanded-radius path as the view. Publish usable rows before
     /// awaiting the next radius; selection is based exclusively on the first (5 km) answer.
