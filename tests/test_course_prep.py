@@ -968,6 +968,72 @@ class PureLogicTests(unittest.TestCase):
         carries = [step['targetCarry_m'] for step in steps]
         self.assertEqual(carries, sorted(carries, reverse=True))
 
+    def test_j4_6_shared_tail_always_finishes_in_the_scoring_window(self) -> None:
+        """J4.6: every non-empty prep continuation ends with a scoring leg."""
+        cases = (
+            ("OWNER Par 4", 4, 268.0, self._OWNER_LADDER),
+            ("GAP Par 4", 4, 300.0, [("Driver", 200), ("3W", 180), ("5I", 150), ("7I", 120), ("SW", 50)]),
+            ("TRIG Par 4", 4, 345.0, [("Driver", 197), ("3W", 160), ("8I", 121), ("Aw", 102), ("58", 68)]),
+            ("TRIG Par 5", 5, 448.0, [("Driver", 197), ("3W", 160), ("8I", 121), ("Aw", 102), ("58", 68)]),
+        )
+        from ai_caddie.caddie.decision import SCORING_WINDOW_MAX_M
+
+        for label, par, route_len, ladder in cases:
+            with self.subTest(label=label):
+                steps, *_ = cp._strategy(par, route_len, self._NO_HAZARDS, ladder)
+                self.assertTrue(steps)
+                self.assertLessEqual(steps[-1]["expectedRemaining_m"], SCORING_WINDOW_MAX_M)
+                self.assertEqual(steps[-1]["role"], "scoring")
+
+    def test_j7_1_member_prep_uses_member_profile_statistics(self) -> None:
+        """J7.1: member CoursePrep must never use the owner's measured profile statistics."""
+        md = {
+            "hole": {
+                "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}],
+                "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 306.0}]}],
+            }
+        }
+        member_ladder = [("Driver", 180), ("5W", 160), ("7I", 130), ("8I", 120),
+                         ("9I", 110), ("PW", 100), ("SW", 80)]
+        member_profiles = {
+            "7I": {"median": 130, "p10": 125, "p90": 135, "sampleSize": 20},
+            "8I": {"median": 120, "p10": 115, "p90": 125, "sampleSize": 20},
+            "9I": {"median": 110, "p10": 105, "p90": 115, "sampleSize": 20},
+            "PW": {"median": 100, "p10": 95, "p90": 105, "sampleSize": 20},
+            "5W": {"median": 160, "p10": 155, "p90": 165, "sampleSize": 20},
+        }
+        owner_profiles = {
+            "7I": {"median": 128, "p10": 100, "p90": 150, "sampleSize": 3},
+            "8I": {"median": 121, "p10": 115, "p90": 127, "sampleSize": 60},
+            "9I": {"median": 109, "p10": 80, "p90": 130, "sampleSize": 2},
+            "PW": {"median": 107, "p10": 104, "p90": 110, "sampleSize": 80},
+            "5W": {"median": 165, "p10": 120, "p90": 190, "sampleSize": 2},
+        }
+        calls = []
+
+        def history(player_id="owner"):
+            calls.append(player_id)
+            return "member-history" if player_id == "member" else "owner-history"
+
+        def profiles(**kwargs):
+            return member_profiles if kwargs.get("history_data") == "member-history" else owner_profiles
+
+        if hasattr(cp._shared_sequence_profiles, "cache_clear"):
+            cp._shared_sequence_profiles.cache_clear()
+        par = CoursePar(global_id=99999, par=[4], par_source="courseview", confidence="high")
+        with patch.object(cp.hole_render, "load_mesh", return_value=(md, {})), \
+                patch.object(cp, "geometry_coverage_for_hole", return_value={"coverage": "ready", "missingData": []}), \
+                patch.object(cp, "_corrected_profile_history", side_effect=history), \
+                patch.object(cp, "build_club_profiles", side_effect=profiles):
+            prep = cp.prep_hole(
+                99999, 1, ladder=member_ladder, player_id="member", par_record=par, render=False,
+            )
+
+        if hasattr(cp._shared_sequence_profiles, "cache_clear"):
+            cp._shared_sequence_profiles.cache_clear()
+        self.assertEqual(calls, ["member"])
+        self.assertEqual([step["club"] for step in prep.steps], ["Driver", "7I"])
+
     def test_in_triangle(self) -> None:
         a, b, c = (0, 0), (10, 0), (0, 10)
         self.assertTrue(cp._in_tri((2, 2), a, b, c))
