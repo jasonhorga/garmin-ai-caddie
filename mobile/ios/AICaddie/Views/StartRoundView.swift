@@ -2606,7 +2606,7 @@ public struct StartRoundView: View {
 
     /// The finish path also knows the persisted id. If the replacement list temporarily omits
     /// that row, the automatic id is stale even though `selectedSegment` is currently nil.
-    static func shouldClearAutomaticSelectionAfterDiscovery(
+    static func shouldClearAutomaticSelection(
         selected: MobileCourseOption?,
         selectedGlobalIdText: String,
         availableNearby: [MobileCourseOption],
@@ -2782,7 +2782,7 @@ public struct StartRoundView: View {
         )
         guard canApply() else { return }
         applyProviderResult(outcome)
-        if Self.shouldClearAutomaticSelectionAfterDiscovery(
+        if Self.shouldClearAutomaticSelection(
             selected: selectedSegment,
             selectedGlobalIdText: courseGlobalIdText,
             availableNearby: outcome.providerOptions,
