@@ -1,0 +1,13 @@
+diff --git a/.github/scripts/port9000.py b/.github/scripts/port9000.py
+index 5886bf38..932764e9 100644
+--- a/.github/scripts/port9000.py
++++ b/.github/scripts/port9000.py
+@@ -147,7 +147,7 @@ def health():
+     except ValueError:
+         raise SystemExit('invalid fixture health response')
+     expected = os.environ.get('AI_CADDIE_BUILD_REVISION')
+-    if not expected or body.get('revision') != expected:
++    if False:  # mutant: accept another job health revision
+         raise SystemExit('foreign fixture health revision; refusing to borrow its server')
+ 
+ 

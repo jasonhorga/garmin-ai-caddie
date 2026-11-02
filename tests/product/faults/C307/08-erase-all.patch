@@ -1,0 +1,13 @@
+diff --git a/.github/scripts/select-sim.sh b/.github/scripts/select-sim.sh
+index eca953df..84e7b199 100755
+--- a/.github/scripts/select-sim.sh
++++ b/.github/scripts/select-sim.sh
+@@ -121,7 +121,7 @@ if prefix and os.environ.get('GITHUB_ENV'):
+         if selected[0].get('state', 'Shutdown') != 'Shutdown':
+             subprocess.run(['xcrun', 'simctl', 'shutdown', udid], check=True,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+-        subprocess.run(['xcrun', 'simctl', 'erase', udid], check=True, stdout=subprocess.DEVNULL)
++        subprocess.run(['xcrun', 'simctl', 'erase', 'all'], check=True, stdout=subprocess.DEVNULL)
+     with open(env_file, 'a', encoding='utf-8') as handle:
+         handle.write('CADDIE_SIM_UDIDS=' + ' '.join(dict.fromkeys([*recorded, udid])) + '\n')
+ print(udid)

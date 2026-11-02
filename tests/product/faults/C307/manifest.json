@@ -28,6 +28,41 @@
       "kind": "python",
       "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_signing_and_testflight_always_stay_hosted",
       "promise": "C307 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-05-no-host-lock",
+      "patch": "tests/product/faults/C307/05-no-host-lock.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_host_lock_waits_for_other_job_and_releases_after_cancellation",
+      "promise": "C307 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-06-foreign-health",
+      "patch": "tests/product/faults/C307/06-foreign-health.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_start_rejects_health_from_another_fixture",
+      "promise": "C307 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-07-no-stop-port-check",
+      "patch": "tests/product/faults/C307/07-no-stop-port-check.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_stop_checks_port_after_terminating_its_own_fixture",
+      "promise": "C307 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-08-erase-all",
+      "patch": "tests/product/faults/C307/08-erase-all.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_selection_erases_only_newly_selected_owned_udids",
+      "promise": "C307 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-09-no-product-port-check",
+      "patch": "tests/product/faults/C307/09-no-product-port-check.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_product_ui_rejects_an_already_listening_port",
+      "promise": "C307 CI infrastructure contract"
     }
   ]
 }
