@@ -296,7 +296,18 @@ class MergedShotHoleMappingTest(unittest.TestCase):
         )[0]
         self.assertEqual((remapped["hole"], remapped["localHole"], remapped["globalId"]), (12, 12, 50001))
 
-    def test_j1_3_nine_hole_and_front_loop_geometry_normalize_display_12(self) -> None:
+    def test_j1_3_m1_canonical_back_shot_without_local_hole_restores_physical_hole(self) -> None:
+        """J1.3: a canonical M1 row without localHole keeps display 12 physical."""
+        first = self._card("m1-front", 50001, range(1, 10), "444444444444444444", "08:00")
+        second = self._card("m1-back", 50001, range(10, 19), "444444444444444444", "10:00")
+        merged = merge_same_day_halves([first, second])[0]
+        remapped = remap_shots_to_merged_rounds(
+            [{"scorecardId": "m1-back", "roundId": merged["id"], "hole": 12, "order": 1}],
+            [merged],
+        )[0]
+        self.assertEqual((remapped["hole"], remapped["localHole"], remapped["globalId"]), (12, 12, 50001))
+
+    def test_j1_3_round_shot_map_nine_hole_and_front_loop_geometry_normalize_display_12(self) -> None:
         """J1.3: nine-hole and front-loop cards use local hole 3 for display hole 12."""
         from ai_caddie.rounds.round_shot_map import _geometry_target
         for half in ("all", "front"):
@@ -309,6 +320,25 @@ class MergedShotHoleMappingTest(unittest.TestCase):
                     ],
                 }
                 self.assertEqual(_geometry_target(row, 12), (50002, 3))
+
+    def test_j1_3_m4_front_display_holes_use_physical_back_loop_geometry(self) -> None:
+        """J1.3: a back-nine card displayed as 1...9 still targets physical holes 10...18."""
+        from ai_caddie.connectors.snapshot import _shot_hole_ref
+        from ai_caddie.history.history_drilldown import _hole_geometry_target as drilldown_target
+        from ai_caddie.history.history_round_detail import _hole_geometry_target as detail_target
+        from ai_caddie.rounds.round_shot_map import _geometry_target
+
+        first = self._card("m4-back", 50001, range(10, 19), "444444444444444444", "08:00")
+        second = self._card("m4-front", 50001, range(1, 10), "444444444444444444", "10:00")
+        row = merge_same_day_halves([first, second])[0]
+        self.assertEqual(row["frontHoleOffset"], -9)
+        for display_hole in (1, 3, 9):
+            expected = (50001, display_hole + 9)
+            with self.subTest(display_hole=display_hole):
+                self.assertEqual(_geometry_target(row, display_hole), expected)
+                self.assertEqual(tuple(detail_target(row, display_hole).values()), expected)
+                self.assertEqual(tuple(drilldown_target(row, display_hole).values()), expected)
+                self.assertEqual(_shot_hole_ref(row, display_hole), expected)
 
 
 if __name__ == '__main__':
