@@ -23,14 +23,14 @@ from urllib.parse import urlsplit
 _NSURLError_RE = re.compile(
     r"(?:NSURLErrorDomain Code=|error code:\s*|finished with error \[)(-\d+)"
 )
+_URL_RE = re.compile(
+    r"(?:NSErrorFailingURL(?:String)?Key=)([A-Za-z][A-Za-z0-9+.-]*://[^,\s}]+)"
+)
 _NETWORK_ERROR_CODES = frozenset({
     -1003, -1004, -1005, -1006, -1009,
     -1200, -1201, -1202, -1203, -1204, -1205, -1206,
 })
 _HOSTNAME_FAILURE_RE = re.compile(r"hostname could not be found", re.IGNORECASE)
-_URL_RE = re.compile(
-    r"(?:NSErrorFailingURL(?:String)?Key=)([A-Za-z][A-Za-z0-9+.-]*://[^,\s}]+)"
-)
 _TASK_RE = re.compile(r"Task <([0-9A-Fa-f-]{36})>\.<(\d+)>")
 _ROUTE_MARKER_RE = re.compile(r"(?<![?\w])route=(?:shared|explicit)(?![\w-])|CaddieTestRoute=")
 
@@ -82,6 +82,8 @@ def _is_shim_route_line(line: str) -> bool:
     same shim message when the route/origin text is split across lines.
     """
 
+    if _is_app_network_summary(line):
+        return True
     if "fixture intentionally offline; DNS disabled" in line or "CaddieTestOrigin=" in line:
         return True
     if not _ROUTE_MARKER_RE.search(line):
@@ -115,8 +117,6 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
             break
     for line_number, line in enumerate(lines, start=1):
         task_ids = {m.groups() for m in _TASK_RE.finditer(line)}
-        if _is_app_network_summary(line):
-            continue
         if _is_shim_route_line(line):
             # A route marker belongs only to this line. Its Task id may close
             # an earlier marker-only error from the same interleaved shim event,
