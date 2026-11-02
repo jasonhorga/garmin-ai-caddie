@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index 7442e0b9..7a719690 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -195,7 +195,7 @@ def _hole_scores(
+             resolution = winner_payload.get("resolution")
+             resolved_event_id = str(winner_payload.get("resolvedEventId") or "") or None
+             if resolution == "garmin":
+-                total = source_strokes
++                total = _safe_int(winner_payload.get("to"))
+                 score_correction_conflict = False
+             elif resolution == "mobile":
+                 from_value = _safe_int(winner_payload.get("from"))

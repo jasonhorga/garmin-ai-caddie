@@ -1428,6 +1428,7 @@ class MobileReconciliationResponse(BaseModel):
     localOnly: list[dict[str, Any]] = Field(default_factory=list)
     garminOnly: list[dict[str, Any]] = Field(default_factory=list)
     conflicts: list[dict[str, Any]] = Field(default_factory=list)
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
     candidateDecisionAudits: list[dict[str, Any]] = Field(default_factory=list)
     annotationSuggestions: list[MobileReconciliationSuggestion] = Field(default_factory=list)
 
@@ -1442,6 +1443,8 @@ class MobileReconciliationApplyResponse(BaseModel):
     skippedCount: int
     missingSuggestionIds: list[str] = Field(default_factory=list)
     skippedSuggestionIds: list[str] = Field(default_factory=list)
+    rejectedSuggestionIds: list[str] = Field(default_factory=list)
+    conflictErrors: list[dict[str, Any]] = Field(default_factory=list)
     annotations: list[AnnotationRecord]
     decisionAudits: list[dict[str, Any]] = Field(default_factory=list)
 

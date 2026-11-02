@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index 8820eea8..1f354491 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -1076,7 +1076,7 @@ def apply_mobile_reconciliation_suggestions(
+     rejected_conflicts: list[dict[str, Any]] = []
+     rejected_ids: set[str] = set()
+     for source_event_id, resolutions in conflict_choices.items():
+-        if resolutions == {"garmin", "mobile"}:
++        if resolutions != {"garmin", "mobile"}:
+             ids = [
+                 str(row.get("id")) for row in selected
+                 if str((row.get("payload") or {}).get("sourceEventId") or "") == source_event_id

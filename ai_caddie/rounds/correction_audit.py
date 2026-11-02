@@ -611,7 +611,13 @@ def _effective_value(
     for position, record in enumerate(annotations):
         if record.get("kind") == kind and record.get("targetType") == "hole" and str(record.get("targetId")) in target_ids:
             payload = record.get("payload") or {}
-            candidates.append((order_key(record, 1, position), _int(payload.get("strokes" if op == "penalty" else "to")), record))
+            value = _int(payload.get("strokes" if op == "penalty" else "to"))
+            # Choosing Garmin means the annotation is a resolution marker, not a new fixed
+            # scorecard value.  Resolve it against the current Garmin card on every projection so
+            # later Garmin syncs flow through corrected history as well as reconciliation.
+            if payload.get("resolution") == "garmin":
+                value = _int(card.get(field))
+            candidates.append((order_key(record, 1, position), value, record))
     if op == "penalty":
         for position, event in enumerate(corrections):
             if _int(event.get("hole")) != hole or not is_penalty_correction(corrections, position):

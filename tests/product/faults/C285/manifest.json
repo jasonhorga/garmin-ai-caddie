@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C285-both-conflict-resolutions-write",
+      "patch": "tests/product/faults/C285/01-both-conflict-resolutions-write.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_conflict_resolutions_are_mutually_exclusive_in_one_apply",
+      "promise": "J3.3 assertion that selecting Garmin and mobile resolutions together raises reconciliation_conflict_mutually_exclusive before an extra write"
+    },
+    {
+      "id": "tests-product-faults-C285-chain-tail-only",
+      "patch": "tests/product/faults/C285/02-chain-tail-only.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_chain_validates_every_prior_correction_from_value",
+      "promise": "J3.3 assertion that a late Garmin value invalidates any earlier link in a 4 to 5 to 6 correction chain"
+    },
+    {
+      "id": "tests-product-faults-C285-garmin-resolution-fixed-value",
+      "patch": "tests/product/faults/C285/03-garmin-resolution-fixed-value.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_garmin_resolution_follows_later_garmin_but_mobile_rechecks_it",
+      "promise": "J3.3 assertion that adopting Garmin follows a later Garmin value"
+    },
+    {
+      "id": "tests-product-faults-C285-putt-no-late-conflict",
+      "patch": "tests/product/faults/C285/04-putt-no-late-conflict.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_putt_and_penalty_late_garmin_changes_are_conflicts",
+      "promise": "J3.3/N6 assertion that a late Garmin putt change is reported as a conflict"
+    },
+    {
+      "id": "tests-product-faults-C285-penalty-no-dedupe",
+      "patch": "tests/product/faults/C285/05-penalty-no-dedupe.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_penalty_latest_event_is_deduped_while_older_is_evidence",
+      "promise": "J3.3/N6 assertion that repeated phone penalty confirmations keep only the latest candidate and retain the older row as evidence"
+    },
+    {
+      "id": "tests-product-faults-C285-legacy-resolution-field-dropped",
+      "patch": "tests/product/faults/C285/06-legacy-resolution-field-dropped.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_restore_then_late_garmin_offers_two_resolutions",
+      "promise": "J3.3/N2 assertion that matched resolution rows retain the legacy resolution boolean alongside resolved"
+    },
+    {
+      "id": "tests-product-faults-C285-om3-convergence-reset",
+      "patch": "tests/product/faults/C285/08-om3-drop-convergence-reset.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_sm3_converged_garmin_then_phone_edit_is_ordinary",
+      "promise": "J3.3/SM3 assertions that Garmin convergence leaves one ordinary 6 to 8 suggestion without conflict resolutions"
+    },
+    {
+      "id": "tests-product-faults-C285-om4-garmin-resolution-rechecked",
+      "patch": "tests/product/faults/C285/09-om4-garmin-resolution-rechecked.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_sm4_garmin_resolution_then_phone_edit_follows_current_garmin",
+      "promise": "J3.3/SM4 assertions that choosing Garmin 7 then applying the ordinary 8 to 9 edit settles at score 9"
+    },
+    {
+      "id": "tests-product-faults-C285-conflict-id-reuses-resolution",
+      "patch": "tests/product/faults/C285/07-conflict-id-reuses-resolution.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_mobile_resolution_a_b_a_gets_new_ids_for_score_putt_penalty",
+      "promise": "J3.3/N6 assertions that A to B to A mobile resolutions get a fresh id, apply once, settle, and retry idempotently skips"
+    }
+  ]
+}

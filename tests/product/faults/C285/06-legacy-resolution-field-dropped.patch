@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index 80f83acf..1a68da10 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -869,7 +869,7 @@ def reconcile_mobile_round_events(
+             if (garmin and garmin.get("resolvedEventId") == event_id
+                     and not garmin.get("scoreCorrectionConflict")):
+                 matched.append({"eventId": event.get("eventId"), "kind": kind, "hole": hole,
+-                                "ref": garmin["ref"], "resolved": True, "resolution": True})
++                                "ref": garmin["ref"], "resolved": True})
+                 continue
+             if garmin_value is None:
+                 local_only.append(

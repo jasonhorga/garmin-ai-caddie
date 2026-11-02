@@ -92,6 +92,73 @@ const applyResponse: MobileReconciliationApplyResponse = {
 }
 
 describe('MobileReconciliationPanel', () => {
+  it('uses mutually exclusive radios for conflict resolutions and leaves them unselected', async () => {
+    const onApply = vi.fn().mockResolvedValue(undefined)
+    const conflictData: MobileReconciliationResponse = {
+      ...reconciliation,
+      annotationSuggestions: [
+        reconciliation.annotationSuggestions[1],
+        {
+          ...reconciliation.annotationSuggestions[0],
+          id: 'score-conflict:score-correction-conflict:garmin:7:6',
+          payload: { from: 6, to: 7, sourceEventId: 'score-conflict', resolution: 'garmin' },
+        },
+        {
+          ...reconciliation.annotationSuggestions[0],
+          id: 'score-conflict:score-correction-conflict:mobile:7:6',
+          payload: { from: 7, to: 6, sourceEventId: 'score-conflict', resolution: 'mobile' },
+        },
+      ],
+    }
+
+    render(
+      <MobileReconciliationPanel
+        state={{ status: 'ready', data: conflictData }}
+        applyState={{ status: 'idle' }}
+        onLoad={vi.fn()}
+        onApply={onApply}
+      />,
+    )
+
+    const garmin = screen.getByLabelText('选择建议 score-conflict:score-correction-conflict:garmin:7:6')
+    const mobile = screen.getByLabelText('选择建议 score-conflict:score-correction-conflict:mobile:7:6')
+    expect(garmin).toHaveAttribute('type', 'radio')
+    expect(mobile).toHaveAttribute('type', 'radio')
+    expect(garmin).not.toBeChecked()
+    expect(mobile).not.toBeChecked()
+    expect(screen.getByLabelText('选择建议 note-local:hole-note')).toBeChecked()
+
+    await userEvent.click(garmin)
+    await userEvent.click(screen.getByRole('button', { name: '应用所选建议' }))
+    expect(onApply).toHaveBeenCalledWith('900001', [
+      'note-local:hole-note',
+      'score-conflict:score-correction-conflict:garmin:7:6',
+    ])
+  })
+
+  it('shows expired suggestions and reloads after an apply reports missing ids', async () => {
+    const onLoad = vi.fn()
+    const onApply = vi.fn().mockResolvedValue({
+      ...applyResponse,
+      appliedCount: 0,
+      missingSuggestionIds: ['score-conflict:score-correction'],
+    })
+
+    render(
+      <MobileReconciliationPanel
+        state={{ status: 'ready', data: reconciliation }}
+        applyState={{ status: 'idle' }}
+        onLoad={onLoad}
+        onApply={onApply}
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: '应用所选建议' }))
+    expect(await screen.findByText('建议已过期')).toBeInTheDocument()
+    expect(onLoad).toHaveBeenCalledWith('900001')
+    expect(screen.queryByText('未找到:score-conflict:score-correction')).not.toBeInTheDocument()
+  })
+
   it('loads a round id from the review form', async () => {
     const onLoad = vi.fn()
 

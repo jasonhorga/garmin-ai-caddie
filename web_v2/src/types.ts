@@ -917,6 +917,7 @@ export interface MobileReconciliationResponse {
   localOnly: Array<Record<string, unknown>>
   garminOnly: Array<Record<string, unknown>>
   conflicts: Array<Record<string, unknown>>
+  evidence?: Array<Record<string, unknown>>
   candidateDecisionAudits: Array<Record<string, unknown>>
   annotationSuggestions: MobileReconciliationSuggestion[]
 }
@@ -929,6 +930,8 @@ export interface MobileReconciliationApplyResponse {
   skippedCount: number
   missingSuggestionIds: string[]
   skippedSuggestionIds: string[]
+  rejectedSuggestionIds?: string[]
+  conflictErrors?: Array<Record<string, unknown>>
   annotations: AnnotationRecord[]
   decisionAudits: Array<Record<string, unknown>>
 }

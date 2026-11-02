@@ -1,15 +1,12 @@
 diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
-index 40e30b46..a4dd5568 100644
+index e390dabe..e4cecd41 100644
 --- a/ai_caddie/caddie/mobile_reconciliation.py
 +++ b/ai_caddie/caddie/mobile_reconciliation.py
-@@ -481,9 +481,7 @@ def _annotation_suggestions(
-                     ("garmin", garmin_value, "Keep the later Garmin score for this hole."),
-                     ("mobile", local_value, "Keep the mobile score for this hole."),
+@@ -629,6 +629,3 @@ def _annotation_suggestions(
                  ):
 -                    suggestion_id = (
 -                        f"{event_id}:score-correction-conflict:{resolution}:{garmin_value}:{local_value}"
+-                        f"{':' + record_key if record_key else ''}"
 -                    )
 +                    suggestion_id = f"{event_id}:score-correction"
                      suggestions.append(
-                         _suggestion(
-                             suggestion_id,

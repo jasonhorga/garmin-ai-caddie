@@ -1,0 +1,9 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index 80f83acf..08b3616a 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -199,3 +199,3 @@ def _hole_scores(
+         )
+-        putt_correction_conflict, putt_winner = correction_chain("putt_correction", source_putts, _safe_int(putts))
++        putt_correction_conflict, putt_winner = (False, None)
+         penalty_correction_conflict, penalty_winner = correction_chain("penalty_correction", source_penalties, _safe_int(penalty))

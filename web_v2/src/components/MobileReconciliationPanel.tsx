@@ -18,8 +18,16 @@ interface MobileReconciliationPanelProps {
   state: MobileReconciliationPanelState
   applyState: MobileReconciliationApplyState
   onLoad: (roundId: string) => void
-  onApply: (roundId: string, suggestionIds: string[]) => void | Promise<void>
+  onApply: (roundId: string, suggestionIds: string[]) => void | Promise<MobileReconciliationApplyResponse | null>
   defaultRoundId?: string
+}
+
+function isConflictSuggestion(suggestion: MobileReconciliationSuggestion) {
+  return suggestion.payload.resolution === 'garmin' || suggestion.payload.resolution === 'mobile'
+}
+
+function conflictKey(suggestion: MobileReconciliationSuggestion) {
+  return String(suggestion.payload.sourceEventId ?? suggestion.targetId)
 }
 
 function formatCount(value: number, unitLabel: string) {
@@ -74,13 +82,21 @@ export function MobileReconciliationPanel({
   const [roundId, setRoundId] = useState(defaultRoundId)
   const [roundIdDirty, setRoundIdDirty] = useState(false)
   const [deselectedKeys, setDeselectedKeys] = useState<string[]>([])
+  const [conflictSelections, setConflictSelections] = useState<Record<string, string>>({})
+  const [expiredMessage, setExpiredMessage] = useState(false)
   const readyData = state.status === 'ready' ? state.data : null
   const isApplying = applyState.status === 'applying'
   const displayRoundId = readyData && !roundIdDirty ? readyData.roundId : roundId
   const selectedIds = readyData
     ? readyData.annotationSuggestions
+        .filter((suggestion) => {
+          const resolution = suggestion.payload.resolution
+          if (resolution === 'garmin' || resolution === 'mobile') {
+            return conflictSelections[conflictKey(suggestion)] === suggestion.id
+          }
+          return !deselectedKeys.includes(`${readyData.roundId}:${suggestion.id}`)
+        })
         .map((suggestion) => suggestion.id)
-        .filter((id) => !deselectedKeys.includes(`${readyData.roundId}:${id}`))
     : []
 
   function handleLoad(event: FormEvent<HTMLFormElement>) {
@@ -97,9 +113,18 @@ export function MobileReconciliationPanel({
     setDeselectedKeys((current) => (current.includes(key) ? current.filter((item) => item !== key) : [...current, key]))
   }
 
-  function handleApply() {
+  function selectConflict(suggestion: MobileReconciliationSuggestion) {
+    setConflictSelections((current) => ({ ...current, [conflictKey(suggestion)]: suggestion.id }))
+  }
+
+  async function handleApply() {
     if (!readyData || selectedIds.length === 0 || isApplying) return
-    void onApply(readyData.roundId, selectedIds)
+    setExpiredMessage(false)
+    const result = await onApply(readyData.roundId, selectedIds)
+    if (result && result.missingSuggestionIds.length > 0) {
+      setExpiredMessage(true)
+      onLoad(readyData.roundId)
+    }
   }
 
   return (
@@ -172,9 +197,10 @@ export function MobileReconciliationPanel({
               <article key={suggestion.id} className="mobile-reconcile-suggestion">
                 <label>
                   <input
-                    type="checkbox"
+                    type={isConflictSuggestion(suggestion) ? 'radio' : 'checkbox'}
+                    name={isConflictSuggestion(suggestion) ? `reconciliation-conflict-${conflictKey(suggestion)}` : undefined}
                     checked={selectedIds.includes(suggestion.id)}
-                    onChange={() => toggleSuggestion(suggestion.id)}
+                    onChange={() => isConflictSuggestion(suggestion) ? selectConflict(suggestion) : toggleSuggestion(suggestion.id)}
                     aria-label={`选择建议 ${suggestion.id}`}
                   />
                   <span>{suggestion.kind}</span>
@@ -191,6 +217,7 @@ export function MobileReconciliationPanel({
 
           <div className="mobile-reconcile-evidence-grid">
             <EvidenceRows title="仅本地移动事件" rows={readyData.localOnly} />
+            <EvidenceRows title="已取代事件证据" rows={readyData.evidence ?? []} />
             <EvidenceRows title="对账冲突" rows={readyData.conflicts} />
             <EvidenceRows title="仅 Garmin 事实" rows={readyData.garminOnly} />
             <EvidenceRows title="候选决策审计" rows={readyData.candidateDecisionAudits} />
@@ -205,13 +232,17 @@ export function MobileReconciliationPanel({
                 {applyStatusText(applyState.data)}
               </span>
             ) : null}
+            {expiredMessage ? <span>建议已过期</span> : null}
+            {applyState.status === 'ready' && (applyState.data.conflictErrors ?? []).length ? (
+              <span>冲突未应用：请选择其中一个处理方式</span>
+            ) : null}
             {applyState.status === 'error' ? <span>{applyState.message}</span> : null}
           </div>
 
           {applyState.status === 'ready' ? (
             <div className="mobile-reconcile-apply-details" aria-label="对账应用明细">
               {applyState.data.skippedSuggestionIds.length ? <span>已跳过:{applyState.data.skippedSuggestionIds.join(', ')}</span> : null}
-              {applyState.data.missingSuggestionIds.length ? <span>未找到:{applyState.data.missingSuggestionIds.join(', ')}</span> : null}
+              {applyState.data.missingSuggestionIds.length && !expiredMessage ? <span>未找到:{applyState.data.missingSuggestionIds.join(', ')}</span> : null}
             </div>
           ) : null}
 
