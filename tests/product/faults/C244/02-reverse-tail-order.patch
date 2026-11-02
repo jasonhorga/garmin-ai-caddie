@@ -1,8 +1,8 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index a1d346c4..055257a5 100644
+index d39fb458..80a0db73 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -1856,7 +1856,7 @@ def _shared_sequence_tail(
+@@ -1862,7 +1862,7 @@ def _shared_sequence_tail(
          ),
          prefer_layup_window=True,
      )
@@ -10,4 +10,4 @@ index a1d346c4..055257a5 100644
 +    return [(str(row.get("clubName") or ""), float(row.get("median_m") or 0.0)) for row in reversed(tail)]
  
  
- # Below this landing-to-green height change the mesh elevation is noise: the flat plan stands.
+ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazards,

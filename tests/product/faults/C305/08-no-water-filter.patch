@@ -1,8 +1,8 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index 11887897..a6184722 100644
+index 22069098..b1b2e931 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -1896,13 +1896,7 @@ def _strategy(
+@@ -1982,13 +1982,7 @@ def _strategy(
      # Preserve the original spans for display and cautions below.
      planning_hazards = {
          **(hazards or {}),
@@ -15,5 +15,5 @@ index 11887897..a6184722 100644
 -        ],
 +        "water_carry": list((hazards or {}).get("water_carry") or []),
      }
-     real_driver_row = next(
-         (
+     # A factual tee carry can pass the pin. Keep entirely post-pin ponds relevant
+     # to that physical carry, even though they cannot obstruct the route to the green.

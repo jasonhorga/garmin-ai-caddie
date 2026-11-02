@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 22069098..2ef0e29b 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2001,7 +2001,7 @@ def _strategy(
+ 
+     def measured_tee_water_safe(carry):
+         return (_strategy_water_safe(carry, planning_hazards)
+-                and all(carry <= front or carry >= back for front, back in post_pin_water))
++                and True)
+ 
+     real_driver_row = next(
+         (

@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C324-ignore-post-pin-tee-water",
+      "patch": "tests/product/faults/C324/ignore-post-pin-tee-water.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_short_par4_uses_a_reachable_measured_tee",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C324-skip-empty-ranking-repair",
+      "patch": "tests/product/faults/C324/skip-empty-ranking-repair.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_replans_earlier_shots_to_avoid_a_large_final_overshoot",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C324-skip-incomplete-tee-repair",
+      "patch": "tests/product/faults/C324/skip-incomplete-tee-repair.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_empty_shared_ranking_still_finds_a_complete_measured_route",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C324-measured-tee-disabled",
+      "patch": "tests/product/faults/C324/measured-tee-disabled.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_short_par4_uses_a_reachable_measured_tee",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C324-skip-route-repair",
+      "patch": "tests/product/faults/C324/skip-route-repair.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_long_hole_advances_with_a_long_club",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C324-forbid-repeated-approach",
+      "patch": "tests/product/faults/C324/forbid-repeated-approach.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_repeated_iron_crossing_does_not_add_a_stroke",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C324-ignore-overshoot-ranking",
+      "patch": "tests/product/faults/C324/ignore-overshoot-ranking.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_replans_earlier_shots_to_avoid_a_large_final_overshoot",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C324-ignore-final-water",
+      "patch": "tests/product/faults/C324/ignore-final-water.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_replans_earlier_shots_to_avoid_a_large_final_overshoot",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C324-ignore-prefix-distribution",
+      "patch": "tests/product/faults/C324/ignore-prefix-distribution.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_replans_earlier_shots_to_avoid_a_large_final_overshoot",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C324-restore-previous-plus15",
+      "patch": "tests/product/faults/C324/restore-previous-plus15.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_water_forced_tee_keeps_advances_descending",
+      "promise": "4.6"
+    }
+  ]
+}
