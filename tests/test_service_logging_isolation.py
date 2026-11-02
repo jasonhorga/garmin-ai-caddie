@@ -64,6 +64,34 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
                     with self.assertRaisesRegex(AssertionError, f"leaked Logger.{method}"):
                         self.assert_module_restores_logging("logging_leak_probe")
 
+    def test_J73_isolation_guard_rejects_logger_state_leaks_and_restores_them(self):
+        """J7.3: module boundaries cover root and named logger state."""
+        with tempfile.TemporaryDirectory() as tmp:
+            module = Path(tmp) / "logging_state_probe.py"
+            module.write_text(
+                "import logging, unittest\n"
+                "class Probe(unittest.TestCase):\n"
+                "    def test_leak(self):\n"
+                "        root = logging.getLogger()\n"
+                "        root.setLevel(logging.DEBUG)\n"
+                "        root.filters[:] = [logging.Filter('leaked')]\n"
+                "        target = logging.getLogger('logging_state_probe.named')\n"
+                "        target.handlers[:] = [logging.StreamHandler()]\n"
+                "        target.setLevel(logging.ERROR)\n"
+                "        target.propagate = False\n"
+            )
+            result = subprocess.run(
+                [sys.executable, "-m", "tests.check_isolation", "logging_state_probe"],
+                env={**os.environ, "PYTHONPATH": os.pathsep.join(
+                    [tmp, str(Path(__file__).resolve().parents[1])])},
+                capture_output=True, text=True, timeout=30,
+            )
+            output = result.stdout + result.stderr
+            self.assertNotEqual(result.returncode, 0, output)
+            self.assertIn("logging_state_probe leaked logger state", output)
+            self.assertIn("root", output)
+            self.assertIn("logging_state_probe.named", output)
+
     def test_J73_pipeline_then_course_prep_preserves_diagnostics(self):
         """J7.3: cron privacy setup must not change a later library log capture.
 

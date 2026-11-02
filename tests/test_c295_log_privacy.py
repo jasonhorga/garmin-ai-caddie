@@ -104,6 +104,8 @@ class J7LogPrivacyTests(unittest.TestCase):
         target = logging.getLogger(main.SERVICE_INFO_LOGGERS[0])
         for value in ("Authorization: Bearer PRIVATEBEARER",
                       "authorization=Bearer PRIVATEBEARER",
+                      "authorization=bearer PRIVATEBEARER",
+                      "Authorization: BEARER PRIVATEBEARER",
                       "api_key: Bearer PRIVATEBEARER",
                       {"Authorization": "Bearer PRIVATEBEARER"},
                       "Bearer PRIVATEBEARER"):
@@ -114,6 +116,41 @@ class J7LogPrivacyTests(unittest.TestCase):
                 output = streams[target.name].getvalue()
                 self.assertNotIn("PRIVATEBEARER", output)
                 self.assertIn("status=200", output)
+
+    def test_J73_bearer_rendering_keeps_header_and_diagnostic_shape(self):
+        """J7.3: bearer headers have one marker and ordinary diagnostics survive."""
+        streams = self.capture_production()
+        target = logging.getLogger(main.SERVICE_INFO_LOGGERS[0])
+        cases = (
+            ("Authorization: Bearer: PRIVATEBEARER", "Authorization: [redacted]"),
+            ("payload={'Authorization': 'Bearer PRIVATEBEARER'}", "payload={'Authorization': '[redacted]'}"),
+            ("invalid bearer header received", "invalid bearer header received"),
+        )
+        for message, expected in cases:
+            with self.subTest(message=message):
+                streams[target.name].seek(0)
+                streams[target.name].truncate()
+                target.warning(message)
+                output = streams[target.name].getvalue()
+                self.assertIn(expected, output)
+                self.assertNotIn("PRIVATEBEARER", output)
+                self.assertEqual(output.count("[redacted]"), 1 if "PRIVATE" in message else 0)
+
+    def test_J73_repeated_cron_guard_expands_existing_service_guard(self):
+        """J7.3: a cron handoff upgrades an existing service guard to all exits."""
+        from ai_caddie import pipeline
+
+        streams = self.capture_production()
+        pipeline._configure_sync_logging()
+        target = logging.getLogger("privacy_cron_vendor_repeated")
+        target.handlers[:] = []
+        target.setLevel(logging.WARNING)
+        target.propagate = True
+        target.warning("cron failed token=PRIVATECRON status=200")
+        output = streams["lastResort"].getvalue()
+        self.assertIn("status=200", output)
+        self.assertNotIn("PRIVATECRON", output)
+        self.assertNotIn("token=PRIVATECRON", output)
 
     def test_J73_cron_other_loggers_redact_root_and_last_resort(self):
         """J7.3: cron protects every ai_caddie exit, including fallback logging."""
