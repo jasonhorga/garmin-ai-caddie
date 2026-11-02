@@ -8,6 +8,7 @@ import logging
 def preserve_service_logging():
     from server_v2.main import SERVICE_INFO_LOGGERS
 
+    add_handler = logging.Logger.addHandler
     snapshots = []
     existing = {name: value for name, value in logging.Logger.manager.loggerDict.items()
                 if isinstance(value, logging.Logger)}
@@ -22,6 +23,7 @@ def preserve_service_logging():
     try:
         yield
     finally:
+        logging.Logger.addHandler = add_handler
         for name, logger in logging.Logger.manager.loggerDict.copy().items():
             if isinstance(logger, logging.Logger) and name not in existing:
                 logger.handlers[:] = []

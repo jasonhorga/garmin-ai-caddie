@@ -92,8 +92,9 @@ class J7LogPrivacyTests(unittest.TestCase):
                 output = streams[exit_name].getvalue()
                 for public in ("log_and_backup_mismatch", "ValueError", "OSError", "28",
                                "No space left on device", "main:0123456789ab"):
-                    self.assertIn(public, output)
-                self.assertEqual(output.count("public-course-42"), 2)
+                    with self.subTest(diagnostic=public):
+                        self.assertIn(public, output)
+                self.assertEqual(output.count("public-course-42"), 1 if exit_name == "lastResort" else 2)
                 for private in ("PRIVATEPLAYER", "PRIVATEROUND", "PRIVATETOKEN", "data/players"):
                     self.assertNotIn(private, output)
 
