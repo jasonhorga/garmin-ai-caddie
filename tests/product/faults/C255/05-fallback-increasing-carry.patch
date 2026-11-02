@@ -1,13 +1,13 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index 11887897..4eae9e3e 100644
+index 2db4a0ec..d62fd34a 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -2131,7 +2131,7 @@ def _strategy(
+@@ -2165,7 +2165,7 @@ def _strategy(
                  (name, distance)
                  for name, distance in approach_ladder
                  if club_bag_service.canonical_club_name(name) not in used_clubs
 -                and float(distance) <= previous_carry
 +                and (float(distance) <= previous_carry or True)
-                 and _strategy_water_safe(route_offset_m + float(distance), planning_hazards)
              ]
-             if not safe_ladder:
+             safe_ladder = [
+                 row for row in eligible_ladder
