@@ -168,14 +168,18 @@ def selected_vector_plan(global_id: int, local_hole: int) -> dict[str, object] |
         ]
         if any(not future.done() for _key, future in matching):
             return {"state": "in_flight", "retryAfterEpoch": None}
+        now = time.monotonic()
+        # Expired retries are not queued work: only a request selecting that Tee can
+        # enqueue them again. An abandoned Tee must not keep a terminal selection pending.
         states = [
             state for key, state in _VECTOR_RETRY_STATE.items()
             if key[0] == root and key[1] == gid and key[2] == hole
+            and (state.get("retryAfter") is None or float(state["retryAfter"]) > now)
         ]
         if not states:
             return None
         retry_after = [
-            time.time() + max(0.0, float(state["retryAfter"]) - time.monotonic())
+            time.time() + max(0.0, float(state["retryAfter"]) - now)
             for state in states
             if state.get("retryAfter") is not None and not state.get("unavailable")
         ]
