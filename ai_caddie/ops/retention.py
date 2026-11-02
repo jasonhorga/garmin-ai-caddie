@@ -48,12 +48,12 @@ def _clean_topo_cache(cache_root: Path, *, remove_empty: bool = False) -> None:
     if not cache_root.is_dir():
         return
     supported = topo_render.SUPPORTED_STYLE_VERSIONS
-    expired_versions: list[Path] = []
     try:
         entries = sorted(cache_root.rglob("*"), key=lambda path: len(path.parts), reverse=True)
     except OSError:
         logger.warning("retention could not inspect topo cache %s", cache_root, exc_info=True)
         return
+    expired_versions: list[Path] = []
     for path in entries:
         try:
             relative = path.relative_to(cache_root)
