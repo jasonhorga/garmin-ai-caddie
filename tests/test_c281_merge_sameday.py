@@ -142,6 +142,52 @@ class C281MergeSameDayTests(unittest.TestCase):
                 self.assertEqual(corrected.rounds[1], late)
                 self.assertEqual((rows, shots), original)
 
+    def test_j1_3_timed_second_lap_start_drops_duplicate_restores(self) -> None:
+        """J1.3: nine pars with displays 1..18 is two laps, starting at display 10.
+
+        Morning 10..18,1..7 has 16 real holes; late 7,8,9 supplies the two
+        restored holes 8,9. Removing both duplicates leaves 16, never 18.
+        """
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            numbers = list(range(10, 19)) + list(range(1, 8))
+            morning = _nine_row("101", "2026-06-01 07:30", numbers)
+            late = _nine_row("102", "2026-06-01 11:40", [7, 8, 9])
+            rows = [morning, late]
+            base = 1_800_000_000_000
+            shots = self._source_shots(root, rows, {
+                "101": {n: base + i * 600_000 for i, n in enumerate(numbers)},
+                "102": {n: base + 14_400_000 + i * 600_000 for i, n in enumerate([7, 8, 9])},
+            })
+            _restore(root, "101", numbers=[8, 9])
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=rows, shots=shots),
+                annotations_root=root, course_root=root,
+            )
+            current = corrected.rounds[0]
+            self.assertEqual(len(current["holes"]), 16)
+            self.assertEqual(current["holesCompleted"], 16)
+            self.assertEqual([h["number"] for h in current["holes"]], numbers)
+            self.assertEqual(corrected.rounds[1], late)
+
+    def test_j1_3_timed_second_lap_start_at_thirteen_covers_three_holes(self) -> None:
+        """J1.3: morning 13..18,1..9 then late 9..12 covers exactly 10,11,12."""
+        from ai_caddie.history.corrected_history import _same_day_matching_boundary_score_holes
+
+        numbers = list(range(13, 19)) + list(range(1, 10))
+        rows = [_nine_row("morning", "2026-06-01 07:30", numbers),
+                _nine_row("late", "2026-06-01 11:40", [9, 10, 11, 12])]
+        shots = [
+            {"roundId": row["id"], "hole": n,
+             "shotTime": 1_800_000_000_000 + offset + i * 600_000}
+            for row, order, offset in ((rows[0], numbers, 0), (rows[1], [9, 10, 11, 12], 14_400_000))
+            for i, n in enumerate(order)
+        ]
+        data = HistoryData(raw_rounds=[], rounds=rows, shots=shots)
+        covered = _same_day_matching_boundary_score_holes(rows, data)
+        self.assertEqual(covered["morning"], {(55555, n) for n in (10, 11, 12)})
+        self.assertEqual(covered["late"], set())
+
     def test_j1_3_shot_loader_preserves_synthetic_millisecond_time(self) -> None:
         """J1.3: player shot files retain the timestamp used to identify the first hole."""
         with TemporaryDirectory() as tmp:
@@ -149,6 +195,22 @@ class C281MergeSameDayTests(unittest.TestCase):
             shots = self._source_shots(Path(tmp), rows, {"101": {1: 1_800_000_000_000}})
             self.assertEqual([s.get("shotTime") for s in shots],
                              [1_800_000_000_000, 1_800_000_000_010])
+
+    def test_j1_3_only_same_day_candidates_load_source_shots(self) -> None:
+        """J1.3: only cards with a same-day peer need shots for boundary matching."""
+        from ai_caddie.history import corrected_history
+
+        rows = [_row("morning", "2026-06-01 07:30", [1, 2]),
+                _row("late", "2026-06-01 11:40", [2, 3]),
+                _row("single", "2026-06-02", [1, 2]),
+                _row("unknown", "", [1, 2])]
+        data = HistoryData(raw_rounds=[], rounds=rows, shots=[])
+        with patch.object(corrected_history, "round_source_shots",
+                          wraps=corrected_history.round_source_shots) as load:
+            covered = corrected_history._same_day_matching_boundary_score_holes(rows, data)
+        self.assertEqual([call.args[1]["id"] for call in load.call_args_list], ["morning", "late"])
+        self.assertEqual(covered["morning"], {(55555, 3)})
+        self.assertEqual(covered["single"], set())
 
     def test_j1_3_first_shot_uses_display_hole_even_without_a_score(self) -> None:
         """J1.3: an unscored display 10 / physical 1 still anchors the combo's start."""
@@ -168,6 +230,8 @@ class C281MergeSameDayTests(unittest.TestCase):
                 {"roundId": "morning", "hole": 12, "localHole": 3, "shotTime": 1_800_000_001_000},
                 {"roundId": "morning", "hole": 10, "localHole": 1, "shotTime": 1_800_000_000_000},
                 {"roundId": "morning", "hole": 7, "shotTime": None},
+                # Zero is missing time, not an earlier start at display 1.
+                {"roundId": "morning", "hole": 1, "shotTime": 0},
             ])
             corrected = corrected_history_data(data, annotations_root=root, course_root=root)
             # Sixteen original rows survive; late 8,9 supersede the two synthetic restores.
@@ -380,16 +444,15 @@ class C281MergeSameDayTests(unittest.TestCase):
 
         Afternoon starts at 6 and wraps to 1,2: the ring boundary alone suggests
         the reverse continuation. Earlier morning shots rule it out. With either
-        card untimed, retain the legacy covered set {3,4,5}.
+        card untimed, retain the legacy removal of restored holes 3,4,5.
         """
-        from ai_caddie.history.corrected_history import _same_day_matching_boundary_score_holes
-
         morning = _nine_row("morning", "2026-06-01 07:30", list(range(1, 6)))
         late = _nine_row("late", "2026-06-01 13:30", [1, 2, 6, 7, 8, 9])
         base = 1_800_000_000_000
         for timed in ("both", "morning", "late", "neither"):
             for reverse in (False, True):
-                with self.subTest(timed=timed, reverse=reverse):
+                with self.subTest(timed=timed, reverse=reverse), TemporaryDirectory() as tmp:
+                    root = Path(tmp)
                     rows = [late, morning] if reverse else [morning, late]
                     shots = []
                     if timed in ("both", "morning"):
@@ -397,10 +460,16 @@ class C281MergeSameDayTests(unittest.TestCase):
                     if timed in ("both", "late"):
                         shots.append({"roundId": "late", "hole": 6, "shotTime": base + 100_000})
                     data = HistoryData(raw_rounds=[], rounds=rows, shots=shots)
-                    covered = _same_day_matching_boundary_score_holes(rows, data)
-                    expected = set() if timed == "both" else {(55555, n) for n in (3, 4, 5)}
-                    self.assertEqual(covered["late"], expected)
-                    self.assertEqual(covered["morning"], set())
+                    _restore(root, "late", numbers=[3, 4, 5])
+                    corrected = corrected_history_data(data, annotations_root=root, course_root=root)
+                    current = next(row for row in corrected.rounds if row["id"] == "late")
+                    # Six afternoon source holes + three independent restores = nine.
+                    # With either card untimed, the legacy reverse match removes all three.
+                    self.assertEqual(len(current["holes"]), 9 if timed == "both" else 6)
+                    self.assertEqual({h["number"] for h in current["holes"]},
+                                     set(range(1, 10)) if timed == "both" else {1, 2, 6, 7, 8, 9})
+                    self.assertEqual(next(row for row in corrected.rounds if row["id"] == "morning"),
+                                     morning)
 
     def test_j1_3_display_ring_uses_display_number_when_local_hole_differs(self) -> None:
         """J1.3: a back loop's localHole 1..9 still follows displayed holes 10..18."""
