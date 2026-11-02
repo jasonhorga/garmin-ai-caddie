@@ -509,7 +509,8 @@ class WatchRootOneAimLineTests(unittest.TestCase):
 
     def test_map_view_draws_route_and_plan_only_on_a_full_map(self) -> None:
         # G1: the D02 rule exists, is `fullMap`, and gates the factual route, the multi-shot plan and
-        # the current-shot continuation; the lightweight fallback stays ungated.
+        # the current-shot continuation. C265 removes the old vector fallback entirely; J4.5 owns
+        # the no-bitmap waiting surface in the native Watch contract.
         sources = self._sources(subprocess.run(GIT_LS_FILES, cwd=REPO_ROOT, capture_output=True, timeout=120, check=False))
         code, _ = sources.read(MAP_VIEW)
 
@@ -562,14 +563,6 @@ class WatchRootOneAimLineTests(unittest.TestCase):
             self.assertTrue(
                 _gated(code, current_shot, index, own_statement=True),
                 "the current-shot continuation is drawn only when drawsRouteAndPlan(fullMap:) holds",
-            )
-
-        fallback = [m.start() for m in re.finditer(r"\bdrawLightweightMapFacts\s*\(", code[: draw_map[1]]) if m.start() > draw_map[0]]
-        self.assertTrue(fallback, "the lightweight map facts remain the not-ready fallback")
-        for index in fallback:
-            self.assertFalse(
-                any("drawsRouteAndPlan" in header for header in _enclosing_headers(code, draw_map[0], index)),
-                "the README §8 fallback is not gated by the root rule",
             )
 
     def test_hole_root_is_built_without_plan_legs(self) -> None:
@@ -770,7 +763,8 @@ class WatchRootOneAimLineTests(unittest.TestCase):
 
     def test_touch_targeting_fallback_and_waiting_state_are_unchanged(self) -> None:
         # G4
-        # pinned: Touch Targeting's two ranges, the README §8 fallback and 999 / 等待定位 stay as today.
+        # pinned: Touch Targeting's two ranges and 999 / 等待定位 stay as today. C265 replaces the
+        # old line-facts fallback with the neutral J4.5 waiting surface.
         sources = self._sources(subprocess.run(GIT_LS_FILES, cwd=REPO_ROOT, capture_output=True, timeout=120, check=False))
         code, text = sources.read(MAP_VIEW)
 
@@ -780,11 +774,6 @@ class WatchRootOneAimLineTests(unittest.TestCase):
         self.assertRegex(drawn, r"\bplayerToTargetYards\b")
         self.assertRegex(drawn, r"\btargetToPinYards\b")
         self.assertRegex(drawn, r"\bdrawMeasurementRoute\s*\(")
-        fallback = [m.start() for m in re.finditer(r"\bdrawLightweightMapFacts\s*\(", code[: draw_map[1]]) if m.start() > draw_map[0]]
-        self.assertTrue(fallback)
-        for index in fallback:
-            self.assertFalse(any("drawsRouteAndPlan" in h for h in _enclosing_headers(code, draw_map[0], index)))
-
         overlay = _required_body(code, r"\benum\s+WatchHoleMapRouteOverlay\b")
         resolve = _required_body(code, r"\bstatic\s+func\s+resolve\b", *overlay)
         self.assertRegex(

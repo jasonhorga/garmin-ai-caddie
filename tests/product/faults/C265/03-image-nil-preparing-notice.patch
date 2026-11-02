@@ -1,0 +1,9 @@
+diff --git a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
+index 5a374d413..c0c456c34 100644
+--- a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
++++ b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
+@@ -1050,3 +1050,3 @@ public struct WatchHoleMapView: View {
+     var mapPreparingAccessibilityIdentifiers: [String] {
+-        mapDisplayState == .waiting ? ["watch-map-preparing"] : []
++        geometry.image == nil ? ["watch-map-preparing"] : []
+     }

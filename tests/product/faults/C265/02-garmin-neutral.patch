@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
+index 5a374d413..bcf42ce1c 100644
+--- a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
++++ b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
+@@ -1480,3 +1480,2 @@ public struct WatchHoleMapView: View {
+         if previous == .precise { return .precise }
+-        if garminImageReady { return .garmin }
+         return .waiting

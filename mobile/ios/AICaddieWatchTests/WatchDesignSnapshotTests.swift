@@ -2512,7 +2512,9 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
-    func testRestingRootWithoutTopoDrawsFallbackFacts() throws {
+    /// J4.5 (C265): without a precise or Garmin bitmap the resting root shows the neutral
+    /// "map preparing" surface; route facts must not be drawn as a line map.
+    func testRestingRootWithoutBitmapIgnoresRouteFacts() throws {
         let base = WatchHoleMapSample.geometry
         let route = [CGPoint(x: 435, y: 981), CGPoint(x: 435, y: 279)]
         let noFacts = WatchHoleMapGeometry(
@@ -2534,11 +2536,39 @@ final class WatchDesignSnapshotTests: XCTestCase {
             return renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: view).cgImage))
         }
 
-        XCTAssertNotEqual(
+        XCTAssertEqual(
             try render(noFacts),
             try render(withFacts),
-            "a bitmapless resting root must retain its fallback route facts"
+            "a bitmapless resting root must stay neutral instead of drawing route facts as lines"
         )
+    }
+
+    /// J4.5: one waiting notice, and none over an already displayed precise bitmap. The retained
+    /// bitmap and the directly supplied bitmap must render the same whole production view.
+    @MainActor
+    func testMapPreparingNoticeAppearsOnceOnlyWhileWaiting() throws {
+        let base = WatchHoleMapSample.geometry
+        let image = try XCTUnwrap(base.image)
+        let withoutBitmap = WatchHoleMapGeometry(
+            image: nil, imageSize: base.imageSize, youPx: base.youPx, pinPx: base.pinPx,
+            layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx
+        )
+        let waiting = WatchHoleMapView(geometry: withoutBitmap)
+        XCTAssertEqual(waiting.mapPreparingAccessibilityIdentifiers, ["watch-map-preparing"],
+                       "J4.5: waiting renders exactly one map-preparing accessibility element")
+
+        let retained = waiting.snapshottingRetainedPreciseImage(image)
+        XCTAssertEqual(retained.mapPreparingAccessibilityIdentifiers, [],
+                       "J4.5: a retained precise bitmap has no map-preparing accessibility element")
+        let precise = WatchHoleMapView(geometry: base)
+        XCTAssertEqual(precise.mapPreparingAccessibilityIdentifiers, [])
+
+        func pixels(_ map: WatchHoleMapView) throws -> [UInt8] {
+            let view = map.watchSnapshotFrame(width: 198, height: 242)
+            return renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: view).cgImage))
+        }
+        XCTAssertEqual(try pixels(retained), try pixels(precise),
+                       "a transient nil image must not paint a preparing notice over the retained map")
     }
 
     @MainActor
@@ -3047,9 +3077,22 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
     }
 
+    /// J4.5: shot overlays are drawn only over a precise bitmap, so the row fixtures carry a plain
+    /// course-green bitmap instead of relying on the removed no-image line map.
+    private static let card438MapImage: UIImage? = {
+        guard let context = CGContext(
+            data: nil, width: 200, height: 240, bitsPerComponent: 8, bytesPerRow: 200 * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        context.setFillColor(red: 0.12, green: 0.28, blue: 0.16, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: 200, height: 240))
+        return context.makeImage().map { UIImage(cgImage: $0) }
+    }()
+
     private var card438Geometry: WatchHoleMapGeometry {
         WatchHoleMapGeometry(
-            image: nil,
+            image: Self.card438MapImage,
             imageSize: CGSize(width: 200, height: 240),
             youPx: CGPoint(x: 100, y: 190),
             pinPx: CGPoint(x: 100, y: 20),

@@ -755,6 +755,10 @@ public struct WatchHoleMapView: View {
     // watch P1: the topo image + overlay anchors (image-px). Defaults to the baked sample (snapshots);
     // the real playing view builds it from the fetched /topo.png + holeImageProjection.
     public let geometry: WatchHoleMapGeometry
+    /// Optional Garmin fallback bitmap. The Watch currently receives the precise topo through
+    /// `geometry.image`; this seam lets a Garmin raster be shown while precise imagery is pending
+    /// without reviving vector line facts.
+    public let garminImage: UIImage?
     public let interactionMode: WatchHoleMapInteractionMode
     /// B6 Crown zoom (1–4×) and drag pan applied on top of the page's own framing.
     public let userZoom: CGFloat
@@ -764,6 +768,8 @@ public struct WatchHoleMapView: View {
     public let measureOriginImagePx: CGPoint?
     /// 选点测距: the last tapped point in IMAGE-px space (crosshair + two small route ranges).
     @State private var liveMeasuredPx: CGPoint?
+    @State private var retainedMapDisplayState: MapDisplayState?
+    @State private var retainedPreciseImage: UIImage?
     /// Transient screen-space focus used only while the Touch Target handle is being dragged.
     @State private var measuredDragLocation: CGPoint?
     @State private var isDraggingMeasuredPoint = false
@@ -807,6 +813,7 @@ public struct WatchHoleMapView: View {
         fullMapFocusImagePx: CGPoint? = nil,
         fullMapFocusCanvasFraction: CGPoint = CGPoint(x: 0.5, y: 0.52),
         geometry: WatchHoleMapGeometry = WatchHoleMapSample.geometry,
+        garminImage: UIImage? = nil,
         pinImagePoint: CGPoint? = nil,
         measuredPxOverride: CGPoint? = nil,
         interactionMode: WatchHoleMapInteractionMode = .passive,
@@ -856,7 +863,10 @@ public struct WatchHoleMapView: View {
         self.fullMapFocusImagePx = fullMapFocusImagePx
         self.fullMapFocusCanvasFraction = fullMapFocusCanvasFraction
         self.geometry = geometry
+        self.garminImage = garminImage
         _liveMeasuredPx = State(initialValue: measuredPxOverride)
+        _retainedMapDisplayState = State(initialValue: nil)
+        _retainedPreciseImage = State(initialValue: geometry.image)
         self.interactionMode = interactionMode
         self.userZoom = WatchHoleZoom.clampedZoom(userZoom)
         self.userPan = userPan
@@ -1023,6 +1033,33 @@ public struct WatchHoleMapView: View {
         restingPlayerAnchorFraction ?? Self.rootPlayerAnchorFraction(forHeight: size.height)
     }
 
+    private var mapDisplayState: MapDisplayState {
+        Self.resolveMapDisplayState(
+            preciseImageReady: geometry.image != nil || retainedPreciseImage != nil,
+            garminImageReady: garminImage != nil,
+            previous: retainedMapDisplayState
+        )
+    }
+
+    private var mapInputKey: String {
+        "\(geometry.image != nil)|\(garminImage != nil)"
+    }
+
+    /// J4.5: this list drives the actual notice views, so the accessibility count follows the
+    /// resolved display state even when the original image input temporarily becomes nil.
+    var mapPreparingAccessibilityIdentifiers: [String] {
+        mapDisplayState == .waiting ? ["watch-map-preparing"] : []
+    }
+
+    #if DEBUG
+    /// Seed the same retained image state used after a transient nil update on this hole.
+    func snapshottingRetainedPreciseImage(_ image: UIImage) -> Self {
+        var snapshot = self
+        snapshot._retainedPreciseImage = State(initialValue: image)
+        return snapshot
+    }
+    #endif
+
     static func rootCaddieChipFrame(in size: CGSize) -> CGRect {
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
         let width: CGFloat = min(50, max(46, safeRect.width * 0.28))
@@ -1046,6 +1083,15 @@ public struct WatchHoleMapView: View {
             ZStack {
                 Canvas { context, size in
                     drawMap(&context, size: size)
+                }
+                ForEach(mapPreparingAccessibilityIdentifiers.indices, id: \.self) { index in
+                    Text(Self.mapPreparingTitle)
+                        .font(.system(size: 14, weight: .black))
+                        .foregroundStyle(.white.opacity(0.88))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(.black.opacity(0.55), in: Capsule())
+                        .accessibilityIdentifier(mapPreparingAccessibilityIdentifiers[index])
                 }
                 if interactionMode == .touchTarget,
                    let focus = measuredDragLocation,
@@ -1092,6 +1138,22 @@ public struct WatchHoleMapView: View {
         }
         .background(Color.black)
         .ignoresSafeArea()
+        .onAppear {
+            retainedPreciseImage = geometry.image ?? retainedPreciseImage
+            retainedMapDisplayState = Self.resolveMapDisplayState(
+                preciseImageReady: geometry.image != nil || retainedPreciseImage != nil,
+                garminImageReady: garminImage != nil,
+                previous: retainedMapDisplayState
+            )
+        }
+        .onChange(of: mapInputKey) { _, _ in
+            retainedPreciseImage = geometry.image ?? retainedPreciseImage
+            retainedMapDisplayState = Self.resolveMapDisplayState(
+                preciseImageReady: geometry.image != nil || retainedPreciseImage != nil,
+                garminImageReady: garminImage != nil,
+                previous: retainedMapDisplayState
+            )
+        }
         .onDisappear {
             measuredDragLocation = nil
             isDraggingMeasuredPoint = false
@@ -1300,19 +1362,6 @@ public struct WatchHoleMapView: View {
                               y: Self.rootCaddieChipFrame(in: size).midY)
                 }
             }
-            if geometry.image == nil {
-                Text("地图准备中")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.82))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(Capsule().fill(.black.opacity(0.68)))
-                    .position(
-                        x: size.width * 0.5,
-                        y: safeRect.maxY - 8
-                    )
-                    .accessibilityIdentifier("watch-map-preparing")
-            }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
     }
@@ -1412,9 +1461,39 @@ public struct WatchHoleMapView: View {
     /// multi-shot plans, landing labels, leader lines and continuations belong to full maps.
     static func drawsRouteAndPlan(fullMap: Bool) -> Bool { fullMap }
 
+    /// J4.5 map degradation policy seam. This is intentionally kept pure so the Watch native
+    /// tests can lock the same three-state decision used by the Canvas renderer.
+    enum MapDisplayState: Equatable {
+        case waiting
+        case garmin
+        case precise
+    }
+
+    static let mapPreparingTitle = "地图准备中"
+
+    static func resolveMapDisplayState(
+        preciseImageReady: Bool,
+        garminImageReady: Bool,
+        previous: MapDisplayState? = nil
+    ) -> MapDisplayState {
+        if preciseImageReady { return .precise }
+        if previous == .precise { return .precise }
+        if garminImageReady { return .garmin }
+        return .waiting
+    }
+
     // MARK: - Canvas drawing
     private func drawMap(_ context: inout GraphicsContext, size: CGSize) {
         context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
+
+        let displayState = mapDisplayState
+        guard displayState != .waiting else {
+            context.fill(
+                Path(CGRect(origin: .zero, size: size)),
+                with: .color(Color(red: 0.08, green: 0.20, blue: 0.12))
+            )
+            return
+        }
 
         let scale = currentScale(size)
         let a = anchors(size)
@@ -1423,7 +1502,8 @@ public struct WatchHoleMapView: View {
 
         var drew = false
         #if canImport(UIKit)
-        if let ui = geometry.image {
+        let mapImage = displayState == .precise ? (geometry.image ?? retainedPreciseImage) : garminImage
+        if let ui = mapImage {
             let o = a.t(.zero)
             let w = geometry.imageSize.width * scale
             let h = geometry.imageSize.height * scale
@@ -1436,12 +1516,16 @@ public struct WatchHoleMapView: View {
         #endif
         if !drew {
             context.fill(Path(CGRect(origin: .zero, size: size)),
-                         with: .color(Color(red: 0.12, green: 0.28, blue: 0.16)))
-            drawLightweightMapFacts(&context, transform: a.t, showsHazards: showsHazards)
-        } else if Self.drawsRouteAndPlan(fullMap: fullMap) {
+                         with: .color(Color(red: 0.08, green: 0.20, blue: 0.12)))
+            return
+        } else if displayState == .precise, Self.drawsRouteAndPlan(fullMap: fullMap) {
             // Full-map instruments keep the tee-to-green route over the factual course art.
             drawFactualRoute(&context, transform: a.t)
         }
+
+        // Garmin imagery has no Watch-side projection contract, so it is shown as a bitmap only.
+        // Geometry facts and line overlays resume only after the precise image is available.
+        guard displayState == .precise else { return }
 
         // Gradient vignette into the black face.
         context.fill(Path(CGRect(origin: .zero, size: size)),
@@ -1646,111 +1730,6 @@ public struct WatchHoleMapView: View {
             with: .color(caddieGreen.opacity(0.88)),
             style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round)
         )
-    }
-
-    private func drawLightweightMapFacts(
-        _ context: inout GraphicsContext,
-        transform: (CGPoint) -> CGPoint,
-        showsHazards: Bool
-    ) {
-        // The hole's real surfaces (#426) come first: with them the map reads like the course, not a
-        // band. Without them the route band stands in for the fairway.
-        let hasFairway = drawLightweightSurfaces(&context, transform: transform)
-        if geometry.routePx.count >= 2, !hasFairway {
-            var route = Path()
-            route.move(to: transform(geometry.routePx[0]))
-            for point in geometry.routePx.dropFirst() {
-                route.addLine(to: transform(point))
-            }
-            context.stroke(
-                route,
-                with: .color(Color(red: 0.21, green: 0.51, blue: 0.26).opacity(0.95)),
-                style: StrokeStyle(lineWidth: 17, lineCap: .round, lineJoin: .round)
-            )
-        }
-
-        guard showsHazards else {
-            drawLightweightGreen(&context, transform: transform)
-            return
-        }
-
-        for hazard in geometry.hazardSpans {
-            var span = Path()
-            span.move(to: transform(hazard.frontPx))
-            span.addLine(to: transform(hazard.backPx))
-            let color = hazard.kind == "water"
-                ? Color(red: 0.18, green: 0.58, blue: 0.88)
-                : Color(red: 0.88, green: 0.76, blue: 0.48)
-            context.stroke(
-                span,
-                with: .color(color.opacity(0.98)),
-                style: StrokeStyle(
-                    lineWidth: hazard.kind == "water" ? 10 : 8,
-                    lineCap: .round
-                )
-            )
-        }
-
-        drawLightweightGreen(&context, transform: transform)
-    }
-
-    /// Fills the hole's surfaces bottom-up (fairway, fringe, tee, lake, bunker, green), leaving
-    /// interior rings open. Returns whether a fairway was drawn.
-    private func drawLightweightSurfaces(
-        _ context: inout GraphicsContext,
-        transform: (CGPoint) -> CGPoint
-    ) -> Bool {
-        let order = ["fairway", "fringe", "teebox", "lake", "bunker", "green"]
-        func colour(_ kind: String) -> Color {
-            switch kind {
-            case "fairway": return Color(red: 0.25, green: 0.56, blue: 0.27)
-            case "fringe": return Color(red: 0.31, green: 0.63, blue: 0.31)
-            case "teebox": return Color(red: 0.34, green: 0.67, blue: 0.33)
-            case "green": return Color(red: 0.42, green: 0.78, blue: 0.38)
-            case "bunker": return Color(red: 0.89, green: 0.80, blue: 0.56)
-            case "lake": return Color(red: 0.19, green: 0.50, blue: 0.82)
-            default: return Color.white.opacity(0.2)
-            }
-        }
-        var drewFairway = false
-        for kind in order {
-            for surface in geometry.surfaces where surface.kind == kind {
-                var path = Path()
-                for ring in [surface.outer] + surface.holes {
-                    path.move(to: transform(ring[0]))
-                    for point in ring.dropFirst() { path.addLine(to: transform(point)) }
-                    path.closeSubpath()
-                }
-                context.fill(path, with: .color(colour(kind)), style: FillStyle(eoFill: true))
-                if kind == "fairway" { drewFairway = true }
-            }
-        }
-        return drewFairway
-    }
-
-    private func drawLightweightGreen(
-        _ context: inout GraphicsContext,
-        transform: (CGPoint) -> CGPoint
-    ) {
-        // A real green surface is already filled; only the legacy outline needs drawing.
-        guard !geometry.surfaces.contains(where: { $0.kind == "green" }) else { return }
-        if geometry.greenOutlinePx.count >= 3 {
-            var green = Path()
-            green.move(to: transform(geometry.greenOutlinePx[0]))
-            for point in geometry.greenOutlinePx.dropFirst() {
-                green.addLine(to: transform(point))
-            }
-            green.closeSubpath()
-            context.fill(
-                green,
-                with: .color(Color(red: 0.36, green: 0.72, blue: 0.35).opacity(0.98))
-            )
-            context.stroke(
-                green,
-                with: .color(.white.opacity(0.35)),
-                style: StrokeStyle(lineWidth: 0.8)
-            )
-        }
     }
 
     /// Driver range and fixed remaining-yard markers are factual map references. They stay visually
