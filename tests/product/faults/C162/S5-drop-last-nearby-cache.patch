@@ -1,12 +1,8 @@
 diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
 --- a/mobile/ios/AICaddie/Views/StartRoundView.swift
 +++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
-@@ -2633,7 +2633,7 @@
-     static func nearbyCacheAfterProviderResult(
-         current: [MobileCourseOption], incoming: [MobileCourseOption]
-     ) -> [MobileCourseOption] {
--        incoming.isEmpty ? current : incoming
-+        current
-     }
- 
-     /// A provider result is applied only for the live request generation. The view owns the side
+@@ -2551,3 +2551,3 @@ public struct StartRoundView: View {
+             next.nearbyOptions = result.providerOptions
+-            if !result.providerOptions.isEmpty {
++            if result.providerOptions.isEmpty {
+                 next.lastNearbyOptions = result.providerOptions

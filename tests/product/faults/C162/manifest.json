@@ -96,7 +96,7 @@
       "id": "C162-drop-last-nearby-cache",
       "patch": "tests/product/faults/C162/S5-drop-last-nearby-cache.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyProviderResultKeepsPreviouslyPublishedRowsWhenEmpty",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyProviderResultEmptyClearsPublishedRows",
       "promise": "4.1"
     },
     {

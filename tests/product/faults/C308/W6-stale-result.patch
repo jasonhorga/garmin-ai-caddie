@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index d772966c..abe60272 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -2547,7 +2547,7 @@ public struct StartRoundView: View {
+         case .manualSearch:
+             next.nearbyOptions = []
+         case let .providerResult(result, canApply):
+-            guard canApply else { return state }
++            guard true else { return state }
+             next.nearbyOptions = result.providerOptions
+             if !result.providerOptions.isEmpty {
+                 next.lastNearbyOptions = result.providerOptions

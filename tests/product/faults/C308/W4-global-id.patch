@@ -1,7 +1,8 @@
 diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index d772966c..7f75a20b 100644
 --- a/mobile/ios/AICaddie/Views/StartRoundView.swift
 +++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
-@@ -2618,7 +2618,7 @@
+@@ -2680,7 +2680,7 @@ public struct StartRoundView: View {
          guard let selected else {
              return selectedGlobalIdText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
          }
@@ -9,4 +10,4 @@ diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddi
 +        return availableNearby.contains { $0.globalId == selected.globalId }
      }
  
-     /// An empty late provider answer must not erase rows already published during expansion.
+     static func shouldReplaceAutomaticSelection(
