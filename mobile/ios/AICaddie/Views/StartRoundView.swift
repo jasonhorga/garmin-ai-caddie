@@ -1079,7 +1079,6 @@ public struct StartRoundView: View {
             isLoading: isLoadingNearby,
             failed: nearbyDiscoveryFailed,
             manualSearchSelected: selectedCourseWasManualSearch,
-            hasNearbyRows: !nearbyCourseOptions.isEmpty,
             hasFix: locationProvider.latestFix != nil
         )
     }
@@ -1097,7 +1096,6 @@ public struct StartRoundView: View {
         isLoading: Bool,
         failed: Bool,
         manualSearchSelected: Bool,
-        hasNearbyRows: Bool,
         hasFix: Bool
     ) -> String? {
         guard isLoading, !failed, !manualSearchSelected else { return nil }
@@ -2537,11 +2535,36 @@ public struct StartRoundView: View {
         requestToken: UUID,
         activeRequestToken: UUID?,
         requestKey: String,
-        currentRequestKey: String
+        currentRequestKey: String,
+        manualSearchSelected: Bool = false
     ) -> Bool {
         !isCancelled
             && activeRequestToken == requestToken
             && currentRequestKey == requestKey
+    }
+
+    /// Whether the automatic nearby choice no longer belongs to the latest provider answer.
+    /// This starts as the old no-op in the red commit and is implemented in the follow-up.
+    static func shouldClearAutomaticSelection(
+        selected: MobileCourseOption?,
+        availableNearby: [MobileCourseOption],
+        userPickedVenue: Bool
+    ) -> Bool {
+        false
+    }
+
+    static func shouldReplaceAutomaticSelection(
+        current: MobileCourseOption?,
+        candidate: MobileCourseOption,
+        userPickedVenue: Bool
+    ) -> Bool {
+        guard !userPickedVenue else { return false }
+        guard let current else { return true }
+        return !samePhysicalVenue(current, candidate)
+    }
+
+    static func resetNearbyOptionsForManualSearch(_ options: [MobileCourseOption]) -> [MobileCourseOption] {
+        []
     }
 
     static func nearbyDiscoveryErrorMessage(_ error: Error) -> String {
@@ -2580,7 +2603,7 @@ public struct StartRoundView: View {
             return
         }
         guard let fix = locationProvider.latestFix else {
-            nearbyCourseOptions = []
+        nearbyCourseOptions = []
             offlineCourseOptions = resolvedOfflineOptions(downloadedCourseOptions)
             nearbyDiscoveryFailed = false
             isLoadingNearby = locationProvider.authorizationStatus == .notDetermined
@@ -2645,6 +2668,13 @@ public struct StartRoundView: View {
         )
         guard canApply() else { return }
         applyProviderResult(outcome)
+        if Self.shouldClearAutomaticSelection(
+            selected: selectedSegment,
+            availableNearby: outcome.providerOptions,
+            userPickedVenue: userPickedVenue
+        ) {
+            clearAutomaticSelection()
+        }
         nearbyDiscoveryFailed = Self.nearbyDiscoveryShouldFail(
             publishedProviderResult: outcome.publishedProviderResult,
             lastError: outcome.lastError,

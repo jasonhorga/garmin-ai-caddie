@@ -875,6 +875,17 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 currentRequestKey: "4006:11656"
             )
         )
+        XCTAssertFalse(
+            StartRoundView.shouldApplyNearbyDiscoveryResult(
+                isCancelled: false,
+                requestToken: current,
+                activeRequestToken: current,
+                requestKey: "4004:11654",
+                currentRequestKey: "4004:11654",
+                manualSearchSelected: true
+            ),
+            "a late nearby answer cannot overwrite an explicit text search"
+        )
     }
 
     func testSelectingASearchResultRetainsOnlyItsSiblingLoops() {
@@ -1661,7 +1672,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         }
         func pendingText() -> String? {
             StartRoundView.nearbyPendingText(isLoading: loading, failed: false,
-                manualSearchSelected: false, hasNearbyRows: !published.isEmpty, hasFix: true)
+                manualSearchSelected: false, hasFix: true)
         }
         let discovery = Task { @MainActor in
             await StartRoundView.performNearbyDiscovery(
@@ -1745,9 +1756,12 @@ final class StartRoundDiscoveryTests: XCTestCase {
         }
     }
 
-    /// J4.1: five physical venues in 5 km need no expansion.
+    /// J4.1: five physical venues in 5 km publish once, select nothing, and need no expansion.
+    @MainActor
     func testNearbyFiveFirstPassVenuesNeedOnlyOneRequest() async {
         var radii: [Int] = []
+        var published: [Int] = []
+        var selectedIDs: [Int?] = []
         let matches = (0..<5).map { index in
             MobileCourseSearchMatch(globalId: 7400 + index, name: "球场 \(index)", holes: 18,
                 city: nil, province: nil, ratio: 1)
@@ -1755,10 +1769,65 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let outcome = await StartRoundView.performNearbyDiscovery(
             latitude: 31, longitude: 121,
             request: { _, _, radius in radii.append(radius); return matches },
+            publish: { published = $0.providerOptions.map(\.globalId) },
+            selectAutomatically: { selectedIDs.append($0?.globalId) },
             resolve: { MobileCourseOption(globalId: $0.globalId, name: $0.name, holes: 18) }
         )
         XCTAssertEqual(radii, [5])
+        XCTAssertEqual(published, Array(7400..<7405))
+        XCTAssertEqual(selectedIDs, [nil])
         XCTAssertEqual(outcome.providerOptions.count, 5)
+    }
+
+    /// J4.1/J4.2: a stale automatic venue is cleared when the new GPS answer is empty or elsewhere;
+    /// an explicit tap and a matching physical venue remain authoritative.
+    func testNearbyInitialFailureOrEmptyAnswerClearsStaleAutomaticSelection() {
+        let stale = MobileCourseOption(globalId: 7501, name: "旧球场", venueName: "旧球场", holes: 18)
+        let replacement = MobileCourseOption(globalId: 7502, name: "新球场", venueName: "新球场", holes: 18)
+        XCTAssertTrue(
+            StartRoundView.shouldClearAutomaticSelection(
+                selected: stale, availableNearby: [], userPickedVenue: false
+            )
+        )
+        XCTAssertTrue(
+            StartRoundView.shouldClearAutomaticSelection(
+                selected: stale, availableNearby: [replacement], userPickedVenue: false
+            )
+        )
+        XCTAssertFalse(
+            StartRoundView.shouldClearAutomaticSelection(
+                selected: stale,
+                availableNearby: [MobileCourseOption(globalId: 7503, name: "旧球场 ~ B", venueName: "旧球场", holes: 9)],
+                userPickedVenue: false
+            )
+        )
+        XCTAssertFalse(
+            StartRoundView.shouldClearAutomaticSelection(
+                selected: stale, availableNearby: [], userPickedVenue: true
+            )
+        )
+    }
+
+    /// J4.1: a nearby result from the same physical venue keeps the current loop selection.
+    func testAutomaticSelectionUsesPhysicalVenueIdentity() {
+        let current = MobileCourseOption(globalId: 7601, name: "同场 A", venueName: "同场", holes: 9)
+        let sibling = MobileCourseOption(globalId: 7602, name: "同场 B", venueName: "同场", holes: 9)
+        let other = MobileCourseOption(globalId: 7603, name: "别场", venueName: "别场", holes: 18)
+        XCTAssertFalse(StartRoundView.shouldReplaceAutomaticSelection(
+            current: current, candidate: sibling, userPickedVenue: false
+        ))
+        XCTAssertTrue(StartRoundView.shouldReplaceAutomaticSelection(
+            current: current, candidate: other, userPickedVenue: false
+        ))
+        XCTAssertFalse(StartRoundView.shouldReplaceAutomaticSelection(
+            current: current, candidate: other, userPickedVenue: true
+        ))
+    }
+
+    /// J4.1: choosing a text-search result removes stale nearby attribution before rendering it.
+    func testManualSearchResetDropsNearbyRows() {
+        let nearby = MobileCourseOption(globalId: 7701, name: "附近", holes: 18)
+        XCTAssertTrue(StartRoundView.resetNearbyOptionsForManualSearch([nearby]).isEmpty)
     }
 
     /// J4.1: a sparse 5 km answer expands to 20 km and retains the first physical venue.
@@ -2311,16 +2380,16 @@ final class StartRoundDiscoveryTests: XCTestCase {
     func testNearbyPendingLineShowsOnlyWhileNearbyIsActuallyBeingLookedFor() {
         func text(
             loading: Bool = true, failed: Bool = false, manual: Bool = false,
-            nearby: Bool = false, fix: Bool
+            fix: Bool
         ) -> String? {
             StartRoundView.nearbyPendingText(
                 isLoading: loading, failed: failed, manualSearchSelected: manual,
-                hasNearbyRows: nearby, hasFix: fix
+                hasFix: fix
             )
         }
         XCTAssertEqual(text(fix: false), "正在等待定位…")
         XCTAssertEqual(text(fix: true), "正在找附近球场…")
-        XCTAssertEqual(text(nearby: true, fix: true), "正在找附近球场…", "usable rows remain pending during expansion")
+        XCTAssertEqual(text(fix: true), "正在找附近球场…", "usable rows remain pending during expansion")
         XCTAssertNil(text(failed: true, fix: true), "the retry icon replaces it")
         XCTAssertNil(text(manual: true, fix: true), "an explicit search pick ends the wait")
         XCTAssertNil(text(loading: false, fix: false), "denied GPS: nothing is being looked for")
