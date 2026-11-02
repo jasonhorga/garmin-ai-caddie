@@ -75,6 +75,7 @@ class FakeHttp
   def open_timeout=(*) end
   def read_timeout=(*) end
   def request(request)
+    Net::HTTP.readiness_requests += 1 if request.path == "/api/v2/readiness"
     body = @responses.fetch(request.path)
     body = body.shift if body.is_a?(Array)
     FakeResponse.new("200", JSON.generate(body))
@@ -85,6 +86,7 @@ module Net
   class HTTP
     class << self
       attr_accessor :responses
+      attr_accessor :readiness_requests
       def new(*)
         FakeHttp.new(responses)
       end
@@ -97,14 +99,15 @@ module Kernel
 end
 
 def run_case(readiness, allow_degraded)
+  Net::HTTP.readiness_requests = 0
   Net::HTTP.responses = {
     "/api/v2/health" => {"schema" => "ai-caddie-health-v2", "revision" => "a" * 40},
     "/api/v2/readiness" => readiness.is_a?(Array) ? readiness : [readiness]
   }
   result = preflight_backend!(allow_degraded_readiness: allow_degraded)
-  puts JSON.generate({"result" => "pass", "revision" => result["revision"]})
+  puts JSON.generate({"result" => "pass", "revision" => result["revision"], "requests" => Net::HTTP.readiness_requests})
 rescue => error
-  puts JSON.generate({"result" => "error", "message" => error.message})
+  puts JSON.generate({"result" => "error", "message" => error.message, "requests" => Net::HTTP.readiness_requests})
 end
 
 origin = {"runtimeStatus" => "ready", "checks" => [{"label" => "history", "state" => "ready"}]}
@@ -115,7 +118,7 @@ error_state = {"runtimeStatus" => "degraded", "checks" => [{"label" => "history"
 ENV["AI_CADDIE_API_BASE_URL"] = "https://api.example.test"
 ENV["AI_CADDIE_ADMIN_TOKEN"] = "fixture-token"
 ENV["EXPECTED_BACKEND_REVISION"] = "a" * 40
-run_case([warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "ready", "serviceStatus" => "ready"), origin.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "ready", "serviceStatus" => "ready")], false)
+run_case([warming.merge("checks" => [{"label" => "mobile_package", "state" => "warming"}], "schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "ready", "serviceStatus" => "ready"), origin.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "ready", "serviceStatus" => "ready")], false)
 run_case(origin.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "ready", "serviceStatus" => "ready"), false)
 run_case(degraded.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "degraded", "serviceStatus" => "degraded"), false)
 run_case(error_state.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "degraded", "serviceStatus" => "degraded"), false)
@@ -133,8 +136,9 @@ run_case(error_state.merge("schema" => "ai-caddie-readiness-v1", "authenticated"
                 cwd=Path.cwd(), env=env, capture_output=True, text=True, timeout=10,
             )
         self.assertEqual(result.returncode, 0, result.stderr)
-        outcomes = [json.loads(line)["result"] for line in result.stdout.splitlines()]
-        self.assertEqual(outcomes, ["pass", "pass", "error", "error"])
+        rows = [json.loads(line) for line in result.stdout.splitlines()]
+        self.assertEqual([row["result"] for row in rows], ["pass", "pass", "error", "error"])
+        self.assertEqual([row["requests"] for row in rows], [2, 1, 1, 1])
 
     def test_native_artifacts_download_only_shards_and_replace_previous_attempt(self) -> None:
         """J3/J4: summary excludes unrelated/combined artifacts and consumes latest uploads."""
