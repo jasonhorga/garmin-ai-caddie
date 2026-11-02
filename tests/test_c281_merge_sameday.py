@@ -238,6 +238,95 @@ class C281MergeSameDayTests(unittest.TestCase):
             self.assertEqual(len(corrected.rounds[0]["holes"]), 16)
             self.assertEqual([h["number"] for h in corrected.rounds[0]["holes"]], numbers)
 
+    def test_j1_3_backtracks_over_scored_holes_without_shots(self) -> None:
+        """J1.3: a late watch start crosses scored holes that have no shot records."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            numbers = list(range(10, 19)) + list(range(1, 8))
+            morning = _row("morning", "2026-06-01 07:30", numbers)
+            late = _row("late", "2026-06-01 11:40", [7, 8, 9])
+            base = 1_800_000_000_000
+            # The first three scored holes were played, but the watch only began recording
+            # shots at 13.  The start is therefore the first hole of that scored/no-shot run: 10.
+            shots = ([{"roundId": "morning", "hole": n,
+                       "shotTime": base + i * 600_000}
+                      for i, n in enumerate(list(range(13, 19)) + list(range(1, 8)))]
+                     + [{"roundId": "late", "hole": n,
+                         "shotTime": base + 20_000_000 + i * 600_000}
+                        for i, n in enumerate([7, 8, 9])])
+            _restore(root, "morning", numbers=[8, 9])
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=shots),
+                annotations_root=root, course_root=root,
+            )
+            current = corrected.rounds[0]
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (16, 16))
+
+    def test_j1_3_early_single_shot_does_not_move_start(self) -> None:
+        """J1.3: one timestamp outlier does not replace the card's continuous start."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            numbers = list(range(1, 17))
+            morning = _row("morning", "2026-06-01 07:30", numbers)
+            late = _row("late", "2026-06-01 11:40", [16, 17, 18])
+            base = 1_800_000_000_000
+            shots = [{"roundId": "morning", "hole": n,
+                      "shotTime": base + i * 600_000}
+                     for i, n in enumerate(numbers)]
+            # Hole 12's device clock is one millisecond early; the rest of the card is continuous.
+            next(item for item in shots if item["hole"] == 12)["shotTime"] = base - 1
+            shots += [{"roundId": "late", "hole": n,
+                       "shotTime": base + 20_000_000 + i * 600_000}
+                      for i, n in enumerate([16, 17, 18])]
+            _restore(root, "morning", numbers=[17, 18])
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=shots),
+                annotations_root=root, course_root=root,
+            )
+            current = corrected.rounds[0]
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (16, 16))
+
+    def test_j1_3_normalizes_mixed_shot_time_units(self) -> None:
+        """J1.3: seconds and milliseconds compare in one normalized unit."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _row("morning", "2026-06-01 07:30", list(range(1, 17)))
+            late = _row("late", "2026-06-01 11:40", [16, 17, 18])
+            base = 1_800_000_000_000
+            shots = [{"roundId": "morning", "hole": n,
+                      "shotTime": (base + i * 600_000) // 1000}
+                     for i, n in enumerate(range(1, 17))]
+            shots += [{"roundId": "late", "hole": n,
+                       "shotTime": base + 20_000_000 + i * 600_000}
+                      for i, n in enumerate([16, 17, 18])]
+            _restore(root, "morning", numbers=[17, 18])
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=shots),
+                annotations_root=root, course_root=root,
+            )
+            self.assertEqual(len(corrected.rounds[0]["holes"]), 16)
+
+    def test_j1_3_invalid_card_chronology_falls_back_to_ring(self) -> None:
+        """J1.3: an earlier later-card clock cannot block a valid ring continuation."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _row("morning", "2026-06-01 07:30", list(range(1, 17)))
+            late = _row("late", "2026-06-01 11:40", [16, 17, 18])
+            base = 1_800_000_000_000
+            shots = [{"roundId": "morning", "hole": n,
+                      "shotTime": base + i * 600_000}
+                     for i, n in enumerate(range(1, 17))]
+            # The later card's clock is earlier than the morning card's clock.
+            shots += [{"roundId": "late", "hole": n,
+                       "shotTime": base - 3_600_000 + i * 600_000}
+                      for i, n in enumerate([16, 17, 18])]
+            _restore(root, "morning", numbers=[17, 18])
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=shots),
+                annotations_root=root, course_root=root,
+            )
+            self.assertEqual(len(corrected.rounds[0]["holes"]), 16)
+
     def test_j1_3_missing_shot_time_keeps_legacy_gap_start(self) -> None:
         """J1.3: absent shots/times keep the old gap decision, including its tied gaps."""
         for start, skipped, completed in ((1, {5, 6, 7}, 15), (10, {13, 14}, 16), (10, {13, 14, 15}, 15)):
