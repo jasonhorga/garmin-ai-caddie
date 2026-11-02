@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index 7442e0b9..46228d5c 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -1074,7 +1074,7 @@ def apply_mobile_reconciliation_suggestions(
+         if resolution in {"garmin", "mobile"} and source_event_id:
+             conflict_choices.setdefault(source_event_id, set()).add(str(resolution))
+     for source_event_id, resolutions in conflict_choices.items():
+-        if resolutions == {"garmin", "mobile"}:
++        if False:
+             raise CorrectionConflict(
+                 f"reconciliation_conflict_mutually_exclusive: choose one resolution for {source_event_id}"
+             )

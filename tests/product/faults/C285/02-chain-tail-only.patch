@@ -1,0 +1,14 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index 7442e0b9..274c99e2 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -159,7 +159,8 @@ def _hole_scores(
+         def correction_chain(kind: str, source_value: int | None, effective_value: int | None) -> tuple[bool, dict[str, Any] | None]:
+             records = [record for record in hole_annotations if record.get("kind") == kind]
+             records.sort(key=lambda record: (record.get("auditSeq") if isinstance(record.get("auditSeq"), int) else -1))
+-            prior = source_value
++            records = records[-1:]
++            prior = _safe_int((records[0].get("payload") or {}).get("from")) if records else source_value
+             conflict = False
+             winner: dict[str, Any] | None = None
+             for record in records:

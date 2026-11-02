@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index 7442e0b9..2da5c831 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -67,7 +67,7 @@ def _latest_effective_score_events(events: list[dict[str, Any]]) -> list[dict[st
+         kind = str(event.get("kind") or "")
+         hole = _safe_int(event.get("hole")) or 0
+         latest_index = latest.get((kind, hole), (None, index))[1]
+-        if kind in {"score", "putt", "penalty"} and hole > 0 and latest_index != index:
++        if False:
+             # Keep superseded rows as evidence.  Reconciliation skips them as candidates below,
+             # while summary.eventCount still describes the complete append-only stream.
+             result.append({**event, "superseded": True})

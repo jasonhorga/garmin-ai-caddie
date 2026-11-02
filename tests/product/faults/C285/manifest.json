@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C285-both-conflict-resolutions-write",
+      "patch": "tests/product/faults/C285/01-both-conflict-resolutions-write.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_conflict_resolutions_are_mutually_exclusive_in_one_apply",
+      "promise": "J3.3 assertion that selecting Garmin and mobile resolutions together raises reconciliation_conflict_mutually_exclusive before an extra write"
+    },
+    {
+      "id": "tests-product-faults-C285-chain-tail-only",
+      "patch": "tests/product/faults/C285/02-chain-tail-only.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_chain_validates_every_prior_correction_from_value",
+      "promise": "J3.3 assertion that a late Garmin value invalidates any earlier link in a 4 to 5 to 6 correction chain"
+    },
+    {
+      "id": "tests-product-faults-C285-garmin-resolution-fixed-value",
+      "patch": "tests/product/faults/C285/03-garmin-resolution-fixed-value.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_garmin_resolution_follows_later_garmin_but_mobile_rechecks_it",
+      "promise": "J3.3 assertion that adopting Garmin follows a later Garmin value"
+    },
+    {
+      "id": "tests-product-faults-C285-putt-no-late-conflict",
+      "patch": "tests/product/faults/C285/04-putt-no-late-conflict.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_putt_and_penalty_late_garmin_changes_are_conflicts",
+      "promise": "J3.3/N6 assertion that a late Garmin putt change is reported as a conflict"
+    },
+    {
+      "id": "tests-product-faults-C285-penalty-no-dedupe",
+      "patch": "tests/product/faults/C285/05-penalty-no-dedupe.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_penalty_latest_event_is_deduped_while_older_is_evidence",
+      "promise": "J3.3/N6 assertion that repeated phone penalty confirmations keep only the latest candidate and retain the older row as evidence"
+    }
+  ]
+}

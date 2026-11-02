@@ -1,13 +1,13 @@
 diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
-index 31b65e7d..2297b2fd 100644
+index 7442e0b9..ed388391 100644
 --- a/ai_caddie/caddie/mobile_reconciliation.py
 +++ b/ai_caddie/caddie/mobile_reconciliation.py
-@@ -59,7 +59,7 @@ def _latest_effective_score_events(events: list[dict[str, Any]]) -> list[dict[st
+@@ -60,7 +60,7 @@ def _latest_effective_score_events(events: list[dict[str, Any]]) -> list[dict[st
          order = sequence if sequence is not None else index
          key = (kind, hole)
          previous = latest.get(key)
 -        if previous is None or (order, index) > previous:
 +        if previous is None or (order, index) < previous:
              latest[key] = (order, index)
-     return [
-         event for index, event in enumerate(events)
+     result: list[dict[str, Any]] = []
+     for index, event in enumerate(events):
