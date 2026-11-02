@@ -1,5 +1,5 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index d15e5d22..64b7aa91 100644
+index 9153623f..04329d48 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
 @@ -1874,7 +1874,7 @@ def _long_short_advances(remaining_m, candidate):

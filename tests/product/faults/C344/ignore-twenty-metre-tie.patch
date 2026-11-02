@@ -1,8 +1,8 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index d15e5d22..63c84e58 100644
+index 9153623f..7753dab4 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -1948,8 +1948,8 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
+@@ -1950,8 +1950,8 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
          return (remaining_m - total > SCORING_WINDOW_MAX_M,
                  costly_miss, extra if behind_water else max(0.0, extra - 30.0) if zones else 0.0,
                  len(candidate), _long_short_advances(remaining_m, candidate),

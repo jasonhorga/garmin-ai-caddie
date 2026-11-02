@@ -1,8 +1,8 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index d15e5d22..3d01c30b 100644
+index 9153623f..d43cf41a 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -1946,10 +1946,10 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
+@@ -1948,10 +1948,10 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
          # larger miss or factual water behind the pin may outrank shot count.
          costly_miss = behind_water or (bool(zones) and extra > 30.0)
          return (remaining_m - total > SCORING_WINDOW_MAX_M,

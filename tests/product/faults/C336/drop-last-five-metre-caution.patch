@@ -1,8 +1,8 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index d15e5d22..c1796206 100644
+index 9153623f..ba1d8152 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -2486,7 +2486,7 @@ def _strategy(
+@@ -2495,7 +2495,7 @@ def _strategy(
                      append_step(club, note, carry,
                                  role="scoring" if scoring else "advance" if index == 0 else "position")
      for w in hazards.get("water_carry") or []:

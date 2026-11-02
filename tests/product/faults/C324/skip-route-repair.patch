@@ -1,5 +1,5 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index d15e5d22..a48e3be3 100644
+index 9153623f..7a24c831 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
 @@ -1901,10 +1901,7 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard

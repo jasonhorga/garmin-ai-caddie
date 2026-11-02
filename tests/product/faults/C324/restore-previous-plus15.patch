@@ -1,8 +1,8 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index d15e5d22..13ac8f86 100644
+index 9153623f..91b61482 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -2212,7 +2212,7 @@ def _strategy(
+@@ -2214,7 +2214,7 @@ def _strategy(
                  start_m=route_offset_m,
                  hazards=planning_hazards,
                  exclude_club_keys=used_clubs,
@@ -11,7 +11,7 @@ index d15e5d22..13ac8f86 100644
                  forbid_repeated_clubs=True,
                  max_overshoot_m=scoring_max_overshoot,
                  sample_size=None,
-@@ -2232,7 +2232,7 @@ def _strategy(
+@@ -2234,7 +2234,7 @@ def _strategy(
                      start_m=route_offset_m,
                      hazards=planning_hazards,
                      exclude_club_keys=used_clubs,
@@ -20,7 +20,7 @@ index d15e5d22..13ac8f86 100644
                      forbid_repeated_clubs=True,
                      max_overshoot_m=scoring_max_overshoot + 15.0,
                      sample_size=None,
-@@ -2252,7 +2252,7 @@ def _strategy(
+@@ -2254,7 +2254,7 @@ def _strategy(
                      start_m=route_offset_m,
                      hazards=planning_hazards,
                      exclude_club_keys=set(),
@@ -29,7 +29,7 @@ index d15e5d22..13ac8f86 100644
                      allow_replan_gap=True,
                      forbid_repeated_clubs=False,
                      max_overshoot_m=scoring_max_overshoot,
-@@ -2267,7 +2267,7 @@ def _strategy(
+@@ -2269,7 +2269,7 @@ def _strategy(
                  shared_tail = _repair_complete_tail(
                      effective, approach_ladder, shared_tail,
                      start_m=route_offset_m, hazards=planning_hazards,
@@ -38,7 +38,7 @@ index d15e5d22..13ac8f86 100644
                      maximum_steps=5 - len(steps), post_pin_water=post_pin_water,
                  )
              if shared_tail:
-@@ -2308,7 +2308,7 @@ def _strategy(
+@@ -2310,7 +2310,7 @@ def _strategy(
                  shared_tail = _repair_complete_tail(
                      effective, approach_ladder, shared_tail,
                      start_m=route_offset_m, hazards=planning_hazards,

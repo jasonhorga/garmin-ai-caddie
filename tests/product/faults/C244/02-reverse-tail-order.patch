@@ -1,5 +1,5 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index d15e5d22..d834393a 100644
+index 9153623f..580ead92 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
 @@ -1863,7 +1863,7 @@ def _shared_sequence_tail(

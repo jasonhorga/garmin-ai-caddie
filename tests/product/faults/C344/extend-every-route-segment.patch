@@ -1,8 +1,8 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index d15e5d22..fef49c42 100644
+index 9153623f..bb3e13c6 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -2568,7 +2568,7 @@ def _route_station(
+@@ -2577,7 +2577,7 @@ def _route_station(
          t = max(
              0.0,
              min(

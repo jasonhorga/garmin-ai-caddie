@@ -1,8 +1,8 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index d15e5d22..ec755018 100644
+index 9153623f..c1f07316 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -2425,7 +2425,7 @@ def _strategy(
+@@ -2434,7 +2434,7 @@ def _strategy(
          float(back) + TEE_WATER_CLEARANCE_BUFFER_M > steps[0]["targetCarry_m"]
          for front, back in planning_hazards.get("water_carry") or []
      )

@@ -1,8 +1,8 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index d15e5d22..d5f0faa9 100644
+index 9153623f..8a2eb1d2 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -1944,9 +1944,9 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
+@@ -1946,9 +1946,9 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
          )
          # One extra swing costs more than a safe <=30 m overshoot. Only a
          # larger miss or factual water behind the pin may outrank shot count.
@@ -14,7 +14,7 @@ index d15e5d22..d5f0faa9 100644
                  len(candidate), _long_short_advances(remaining_m, candidate),
                  extra > TEE_SEQUENCE_MAX_OVERSHOOT_M,
                  max(0.0, extra - TEE_SEQUENCE_MAX_OVERSHOOT_M),
-@@ -2436,8 +2436,8 @@ def _strategy(
+@@ -2445,8 +2445,8 @@ def _strategy(
                  for front, back in post_pin_water
              )
              return (bool(_long_short_advances(route_len_m, candidate)),
