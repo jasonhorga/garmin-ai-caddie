@@ -1,13 +1,9 @@
 diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
-index 7442e0b9..8bef8d92 100644
+index 80f83acf..08b3616a 100644
 --- a/ai_caddie/caddie/mobile_reconciliation.py
 +++ b/ai_caddie/caddie/mobile_reconciliation.py
-@@ -187,7 +187,7 @@ def _hole_scores(
-         score_correction_conflict, score_winner = correction_chain(
-             "score_correction", source_strokes, _safe_int(total)
+@@ -199,3 +199,3 @@ def _hole_scores(
          )
--        putt_correction_conflict, _ = correction_chain("putt_correction", source_putts, _safe_int(putts))
-+        putt_correction_conflict, _ = (False, None)
-         penalty_correction_conflict, _ = correction_chain("penalty_correction", source_penalties, _safe_int(penalty))
- 
-         if score_winner is not None and isinstance(score_winner.get("payload"), dict):
+-        putt_correction_conflict, putt_winner = correction_chain("putt_correction", source_putts, _safe_int(putts))
++        putt_correction_conflict, putt_winner = (False, None)
+         penalty_correction_conflict, penalty_winner = correction_chain("penalty_correction", source_penalties, _safe_int(penalty))

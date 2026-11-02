@@ -1,11 +1,11 @@
 diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
-index 7442e0b9..6b1833ff 100644
+index 80f83acf..ab84a2c5 100644
 --- a/ai_caddie/caddie/mobile_reconciliation.py
 +++ b/ai_caddie/caddie/mobile_reconciliation.py
-@@ -172,7 +172,7 @@ def _hole_scores(
-                 if resolution == "garmin":
-                     # This choice deliberately follows the current Garmin source forever.
-                     prior = source_value
+@@ -180,7 +180,7 @@ def _hole_scores(
+                     # later Garmin change is checked separately against this record's from value.
+                     prior = to_value
+                     conflict = False
 -                elif from_value is not None and prior is not None and from_value != prior:
 +                elif from_value is not None and prior is not None and from_value < prior:
                      conflict = True

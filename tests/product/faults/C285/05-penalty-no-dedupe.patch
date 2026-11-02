@@ -1,5 +1,5 @@
 diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
-index 7442e0b9..2da5c831 100644
+index 80f83acf..ae679182 100644
 --- a/ai_caddie/caddie/mobile_reconciliation.py
 +++ b/ai_caddie/caddie/mobile_reconciliation.py
 @@ -67,7 +67,7 @@ def _latest_effective_score_events(events: list[dict[str, Any]]) -> list[dict[st
