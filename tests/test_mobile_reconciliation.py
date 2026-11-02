@@ -146,10 +146,16 @@ class MobileReconciliationTests(unittest.TestCase):
                     "900001", HistoryData(raw_rounds=[], rounds=[newest_round], shots=data.shots),
                     root=root, annotations_root=root,
                 )
+                projected = corrected_history_data(
+                    HistoryData(raw_rounds=[], rounds=[newest_round], shots=data.shots),
+                    annotations_root=root,
+                ).rounds[0]
+                newest_strokes = next(hole["strokes"] for hole in projected["holes"] if hole.get("number") == 1)
 
             if resolution == "garmin":
                 self.assertEqual(newest["conflicts"], [])
                 self.assertEqual(newest["annotationSuggestions"], [])
+                self.assertEqual(newest_strokes, 8)
             else:
                 self.assertEqual(len(newest["conflicts"]), 1)
                 self.assertEqual({row["payload"].get("resolution") for row in newest["annotationSuggestions"]},
