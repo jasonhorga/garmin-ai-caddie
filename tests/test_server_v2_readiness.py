@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import subprocess
+import sys
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -27,6 +30,19 @@ class ServerV2ReadinessTests(unittest.TestCase):
         authority = fixture_course_authority()
         authority.start()
         self.addCleanup(authority.stop)
+        self.addCleanup(self._reset_mobile_readiness_state)
+
+    @staticmethod
+    def _reset_mobile_readiness_state() -> None:
+        with readiness._MOBILE_READINESS_LOCK:
+            threads = list(readiness._MOBILE_READINESS_THREADS.values())
+            readiness._MOBILE_READINESS.clear()
+            readiness._MOBILE_READINESS_THREADS.clear()
+        for thread in threads:
+            thread.join(timeout=5)
+        with readiness._MOBILE_READINESS_LOCK:
+            readiness._MOBILE_READINESS.clear()
+            readiness._MOBILE_READINESS_THREADS.clear()
 
     def test_G7_readiness_cold_history_returns_warming_without_waiting_for_stats_build(self) -> None:
         """G7: a cold stats build cannot hold the release readiness request open."""
@@ -250,10 +266,168 @@ class ServerV2ReadinessTests(unittest.TestCase):
 
         # G7: the failed attempt and its retry wait; the completed retry and later polls are ready.
         self.assertEqual([row["state"] for row in polls], ["warming", "warming", "ready", "ready"])
+        self.assertIn("reason", polls[1]["evidence"])
         self.assertIn("transient package failure", polls[1]["evidence"]["reason"])
         self.assertNotIn("reason", polls[2]["evidence"])
         self.assertEqual(builder.call_count, 2, "successful mobile evidence must stay cached at the same revision")
         self.assertEqual(len(workers), 2)
+
+    def test_G7_mobile_warm_restarts_after_worker_baseexception(self) -> None:
+        """G7: a worker that exits without publishing a result is restarted on the next poll."""
+        snapshot = {
+            "value": {"summary": {"totalRounds": 1}, "drillDown": {"roundIds": ["900001"]}},
+            "revision": "mobile-worker-died",
+            "stale": False,
+            "dataMode": "fixture",
+            "source": "memory",
+        }
+        package = SimpleNamespace(
+            schema_="ai-caddie-live-round-package-v2", roundId="900001", holes=[],
+            caddieDecisionEndpoint="/api/v2/caddie/decision", offlinePackageStatus={},
+            sourceCoverage={"state": "ready"}, geometryCoverage={"state": "ready"},
+            readinessChecks=[], caddieContextSeeds=[], cachedCaddieRules={}, missingData=[],
+        )
+        calls = 0
+
+        def builder(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise SystemExit("worker stopped")
+            return package
+
+        with patch.object(readiness, "load_history_stats_snapshot", return_value=snapshot), \
+             patch.object(readiness, "build_mobile_round_package_response", side_effect=builder):
+            first = build_readiness_response()
+            first_mobile = next(row for row in first["checks"] if row["label"] == "mobile_package")
+            self.assertEqual(first_mobile["state"], "warming")
+            thread = readiness._MOBILE_READINESS_THREADS["me"]
+            thread.join(timeout=2)
+            self.assertFalse(thread.is_alive())
+            second = build_readiness_response()
+            second_mobile = next(row for row in second["checks"] if row["label"] == "mobile_package")
+            self.assertEqual(second_mobile["state"], "warming")
+            restarted = readiness._MOBILE_READINESS_THREADS["me"]
+            restarted.join(timeout=2)
+            third = build_readiness_response()
+            third_mobile = next(row for row in third["checks"] if row["label"] == "mobile_package")
+        self.assertEqual(third_mobile["state"], "ready")
+        self.assertEqual(calls, 2)
+
+    def test_G7_mobile_warm_old_revision_cannot_overwrite_new_revision(self) -> None:
+        """G7: completion from an old revision cannot replace the newer warm slot."""
+        first_started = threading.Event()
+        second_started = threading.Event()
+        release_first = threading.Event()
+        release_second = threading.Event()
+        calls: list[str] = []
+        package = SimpleNamespace(
+            schema_="ai-caddie-live-round-package-v2", roundId="900001", holes=[],
+            caddieDecisionEndpoint="/api/v2/caddie/decision", offlinePackageStatus={},
+            sourceCoverage={"state": "ready"}, geometryCoverage={"state": "ready"},
+            readinessChecks=[], caddieContextSeeds=[], cachedCaddieRules={}, missingData=[],
+        )
+        snapshots = [
+            {"value": {"summary": {"totalRounds": 1}, "drillDown": {"roundIds": ["900001"]}},
+             "revision": "R1", "stale": False, "dataMode": "fixture", "source": "memory"},
+            {"value": {"summary": {"totalRounds": 1}, "drillDown": {"roundIds": ["900001"]}},
+             "revision": "R2", "stale": False, "dataMode": "fixture", "source": "memory"},
+        ]
+
+        def builder(*args, **kwargs):
+            revision = snapshots[0]["revision"] if len(calls) == 0 else "R2"
+            calls.append(revision)
+            if revision == "R1":
+                first_started.set()
+                self.assertTrue(release_first.wait(timeout=2))
+            else:
+                second_started.set()
+                self.assertTrue(release_second.wait(timeout=2))
+            return package
+
+        snapshot_calls = 0
+        current_snapshot = snapshots[0]
+
+        def load_snapshot(*, window="all"):
+            nonlocal snapshot_calls, current_snapshot
+            if window == "last20":
+                return current_snapshot
+            current_snapshot = snapshots[min(snapshot_calls, 1)]
+            snapshot_calls += 1
+            return current_snapshot
+
+        with patch.object(readiness, "load_history_stats_snapshot", side_effect=load_snapshot), \
+             patch.object(readiness, "build_mobile_round_package_response", side_effect=builder):
+            first = build_readiness_response()
+            self.assertEqual(next(row for row in first["checks"] if row["label"] == "mobile_package")["state"], "warming")
+            self.assertTrue(first_started.wait(timeout=2))
+            second = build_readiness_response()
+            self.assertEqual(next(row for row in second["checks"] if row["label"] == "mobile_package")["state"], "warming")
+            self.assertTrue(second_started.wait(timeout=2))
+            r2_thread = readiness._MOBILE_READINESS_THREADS["me"]
+            r1_thread = [thread for thread in threading.enumerate() if thread.name == "readiness-mobile-warm" and thread is not r2_thread][0]
+            release_second.set()
+            r2_thread.join(timeout=2)
+            release_first.set()
+            r1_thread.join(timeout=2)
+            final = build_readiness_response()
+            final_mobile = next(row for row in final["checks"] if row["label"] == "mobile_package")
+        self.assertEqual(final_mobile["state"], "ready")
+        self.assertEqual(calls.count("R1"), 1)
+        self.assertEqual(calls.count("R2"), 1)
+
+    def test_G7_mobile_warm_trace_mode_does_not_deadlock(self) -> None:
+        """G7: trace mode performs the synchronous diagnostic warm without re-entering its lock."""
+        script = """
+from types import SimpleNamespace
+from server_v2 import readiness
+package = SimpleNamespace(
+    schema_='ai-caddie-live-round-package-v2', roundId='900001', holes=[],
+    caddieDecisionEndpoint='/api/v2/caddie/decision', offlinePackageStatus={},
+    sourceCoverage={'state': 'ready'}, geometryCoverage={'state': 'ready'},
+    readinessChecks=[], caddieContextSeeds=[], cachedCaddieRules={}, missingData=[],
+)
+readiness.build_mobile_round_package_response = lambda *args, **kwargs: package
+readiness.warm_mobile_readiness_in_background({
+    'value': {'summary': {'totalRounds': 1}, 'drillDown': {'roundIds': ['900001']}},
+    'revision': 'mobile-trace', 'stale': False, 'dataMode': 'fixture', 'source': 'memory',
+})
+assert readiness._MOBILE_READINESS['me']['state'] == 'ready'
+"""
+        env = {**os.environ, "AI_CADDIE_DATA_MODE": "fixture", "AI_CADDIE_READINESS_TRACE": "1"}
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", script], cwd=Path.cwd(), env=env,
+                capture_output=True, text=True, timeout=2,
+            )
+        except subprocess.TimeoutExpired:
+            self.fail("trace readiness warm deadlocked")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_G7_mobile_readiness_evidence_reflects_stale_history_snapshot(self) -> None:
+        """G7: mobile evidence carries the stale bit from its history snapshot."""
+        snapshot = {
+            "value": {"summary": {"totalRounds": 1}, "drillDown": {"roundIds": ["900001"]}},
+            "revision": "mobile-stale-history",
+            "stale": True,
+            "dataMode": "fixture",
+            "source": "disk",
+        }
+        package = SimpleNamespace(
+            schema_="ai-caddie-live-round-package-v2", roundId="900001", holes=[],
+            caddieDecisionEndpoint="/api/v2/caddie/decision", offlinePackageStatus={},
+            sourceCoverage={"state": "ready"}, geometryCoverage={"state": "ready"},
+            readinessChecks=[], caddieContextSeeds=[], cachedCaddieRules={}, missingData=[],
+        )
+        with patch.object(readiness, "load_history_stats_snapshot", return_value=snapshot), \
+             patch.object(readiness, "build_mobile_round_package_response", return_value=package):
+            payload = build_readiness_response()
+            thread = readiness._MOBILE_READINESS_THREADS.get("me")
+            if thread is not None:
+                thread.join(timeout=2)
+            payload = build_readiness_response()
+        mobile = next(row for row in payload["checks"] if row["label"] == "mobile_package")
+        self.assertTrue(mobile["evidence"]["stale"])
 
     def _write_backup_manifest(self, path: Path, created_at: datetime) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

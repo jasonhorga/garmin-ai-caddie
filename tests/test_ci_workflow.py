@@ -32,6 +32,109 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertEqual(preflight_gate(readiness), "error")
         self.assertEqual(preflight_gate(readiness, allow_degraded=True), "pass")
 
+    def test_G7_fastfile_readiness_gate_runs_against_real_ruby_when_available(self) -> None:
+        """G7: the shipped Fastfile waits, passes, or blocks on actual readiness JSON."""
+        ruby = shutil.which("ruby")
+        if ruby is None:
+            self.skipTest("ruby is not installed locally; Fastfile behavior runs on the GitHub ubuntu runner")
+        harness = r'''
+require "json"
+require "tmpdir"
+require "spaceship/connect_api"
+
+module UI
+  def self.user_error!(message)
+    raise "USER_ERROR: #{message}"
+  end
+  def self.message(*) end
+  def self.important(*) end
+end
+
+def default_platform(*) end
+def platform(*)
+  yield
+end
+def desc(*) end
+def lane(*) end
+
+load ARGV.fetch(0)
+
+class FakeResponse
+  attr_reader :code, :body
+  def initialize(code, body)
+    @code = code
+    @body = body
+  end
+end
+
+class FakeHttp
+  def initialize(responses)
+    @responses = responses
+  end
+  def use_ssl=(*) end
+  def open_timeout=(*) end
+  def read_timeout=(*) end
+  def request(request)
+    body = @responses.fetch(request.path)
+    FakeResponse.new("200", JSON.generate(body))
+  end
+end
+
+module Net
+  class HTTP
+    class << self
+      attr_accessor :responses
+      def new(*)
+        FakeHttp.new(responses)
+      end
+    end
+  end
+end
+
+module Kernel
+  def sleep(*) end
+end
+
+def run_case(readiness, allow_degraded)
+  Net::HTTP.responses = {
+    "/api/v2/health" => {"schema" => "ai-caddie-health-v2", "revision" => "a" * 40},
+    "/api/v2/readiness" => readiness
+  }
+  result = preflight_backend!(allow_degraded_readiness: allow_degraded)
+  puts JSON.generate({"result" => "pass", "revision" => result["revision"]})
+rescue => error
+  puts JSON.generate({"result" => "error", "message" => error.message})
+end
+
+origin = {"runtimeStatus" => "ready", "checks" => [{"label" => "history", "state" => "ready"}]}
+warming = {"runtimeStatus" => "ready", "checks" => [{"label" => "history", "state" => "warming"}]}
+degraded = {"runtimeStatus" => "degraded", "checks" => [{"label" => "history", "state" => "degraded"}]}
+error_state = {"runtimeStatus" => "degraded", "checks" => [{"label" => "history", "state" => "error"}]}
+
+ENV["AI_CADDIE_API_BASE_URL"] = "https://api.example.test"
+ENV["AI_CADDIE_ADMIN_TOKEN"] = "fixture-token"
+ENV["EXPECTED_BACKEND_REVISION"] = "a" * 40
+run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "ready", "serviceStatus" => "ready"), false)
+run_case(origin.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "ready", "serviceStatus" => "ready"), false)
+run_case(degraded.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "degraded", "serviceStatus" => "degraded"), false)
+run_case(error_state.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "degraded", "serviceStatus" => "degraded"), false)
+'''
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stub = root / "spaceship" / "connect_api.rb"
+            stub.parent.mkdir()
+            stub.write_text("module Spaceship; module ConnectAPI; end; end\n", encoding="utf-8")
+            script = root / "harness.rb"
+            script.write_text(harness, encoding="utf-8")
+            env = {**os.environ, "RUBYLIB": str(root)}
+            result = subprocess.run(
+                [ruby, str(script), str(Path("fastlane/Fastfile").resolve())],
+                cwd=Path.cwd(), env=env, capture_output=True, text=True, timeout=10,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        outcomes = [json.loads(line)["result"] for line in result.stdout.splitlines()]
+        self.assertEqual(outcomes, ["pass", "pass", "error", "error"])
+
     def test_native_artifacts_download_only_shards_and_replace_previous_attempt(self) -> None:
         """J3/J4: summary excludes unrelated/combined artifacts and consumes latest uploads."""
         jobs = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())["jobs"]
