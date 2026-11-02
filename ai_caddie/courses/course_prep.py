@@ -2100,12 +2100,16 @@ def _strategy(
             # The online tail can be empty when every continuation is unsafe. Keep the old
             # distance fallback, but constrain it to the already-played carry and to a fresh club
             # so the safety fallback cannot reintroduce a short-then-long sequence.
+            # Keep the fallback's hazard view aligned with the planning view used above.  The
+            # local alias also preserves the C255 fault seam while post-green water remains
+            # excluded from every safety decision.
+            hazards = planning_hazards
             safe_ladder = [
                 (name, distance)
                 for name, distance in approach_ladder
                 if club_bag_service.canonical_club_name(name) not in used_clubs
                 and float(distance) <= previous_carry
-                and _strategy_water_safe(route_offset_m + float(distance), planning_hazards)
+                and _strategy_water_safe(route_offset_m + float(distance), hazards)
             ]
             if not safe_ladder:
                 # Match the online repeat fallback when no distinct safe club can finish the
@@ -2115,7 +2119,7 @@ def _strategy(
                     (name, distance)
                     for name, distance in approach_ladder
                     if float(distance) <= previous_carry
-                    and _strategy_water_safe(route_offset_m + float(distance), planning_hazards)
+                    and _strategy_water_safe(route_offset_m + float(distance), hazards)
                 ]
             if not safe_ladder:
                 break
