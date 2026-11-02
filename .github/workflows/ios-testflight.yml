@@ -1,8 +1,8 @@
 name: iOS TestFlight (CD)
 
 # Build the AI Caddie iOS app (with embedded watch app) and upload to TestFlight — on a
-# GitHub macos-15 runner, no local Mac. Signing via fastlane match (run the one-time
-# ios-signing-bootstrap workflow first).
+# The self-hosted caddie-mba runner provides Xcode 27. Signing uses fastlane match
+# (run the one-time ios-signing-bootstrap workflow first).
 
 on:
   workflow_dispatch:
@@ -36,23 +36,64 @@ concurrency:
 
 jobs:
   testflight:
-    runs-on: macos-15
-    timeout-minutes: 45
+    runs-on: [self-hosted, caddie-mba]
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select latest Xcode
+      - name: Select Xcode 27
+        shell: bash
         run: |
-          sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
-          xcodebuild -version
+          set -euo pipefail
+          xcode_path=""
+          if [[ -d /Applications/Xcode.app ]]; then
+            xcode_path="/Applications/Xcode.app"
+          else
+            for candidate in /Applications/Xcode_27*.app; do
+              if [[ -d "$candidate" ]]; then
+                xcode_path="$candidate"
+                break
+              fi
+            done
+          fi
+          [[ -n "$xcode_path" ]] || { echo "Xcode 27 installation not found" >&2; exit 1; }
+          developer_dir="$xcode_path/Contents/Developer"
+          export DEVELOPER_DIR="$developer_dir"
+          version="$(xcodebuild -version)"
+          printf '%s\n' "$version"
+          printf '%s\n' "$version" | grep -q '^Xcode 27\.' || {
+            echo "selected Xcode is not major version 27" >&2
+            exit 1
+          }
+          printf 'DEVELOPER_DIR=%s\n' "$developer_dir" >> "$GITHUB_ENV"
 
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.2'
-          bundler-cache: true
+      - name: Verify self-hosted build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v rbenv >/dev/null 2>&1; then
+            eval "$(rbenv init -)"
+          fi
+          command -v ruby
+          command -v bundle
+          ruby --version
+          bundle --version
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          command -v xcodegen
+          bundle install --jobs 4 --retry 3
 
-      - name: Install xcodegen
-        run: brew install xcodegen
+      - name: Prepare temporary signing keychain
+        shell: bash
+        run: |
+          set -euo pipefail
+          keychain_path="$RUNNER_TEMP/aicaddie-signing-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.keychain-db"
+          keychain_snapshot="$RUNNER_TEMP/aicaddie-keychains-before.txt"
+          security list-keychains -d user > "$keychain_snapshot"
+          printf 'MATCH_KEYCHAIN_NAME=%s\n' "$keychain_path" >> "$GITHUB_ENV"
+          printf 'MATCH_KEYCHAIN_DEFAULT=false\n' >> "$GITHUB_ENV"
+          printf 'MATCH_KEYCHAIN_SNAPSHOT=%s\n' "$keychain_snapshot" >> "$GITHUB_ENV"
 
       - name: Generate Xcode project
         run: xcodegen generate --spec mobile/ios/project.yml --project-root .
@@ -125,3 +166,23 @@ jobs:
             build/ios/*.ipa
             build/ios/release-provenance.json
           if-no-files-found: ignore
+
+      - name: Restore signing keychain search list
+        if: always()
+        shell: bash
+        run: |
+          set -u
+          restore_status=0
+          if [[ -f "${MATCH_KEYCHAIN_SNAPSHOT:-}" ]]; then
+            keychains=()
+            while IFS= read -r keychain; do
+              [[ -n "$keychain" ]] && keychains+=("$keychain")
+            done < <(sed -n 's/^[[:space:]]*"\(.*\)"$/\1/p' "$MATCH_KEYCHAIN_SNAPSHOT")
+            if (( ${#keychains[@]} )); then
+              security list-keychains -d user -s "${keychains[@]}" || restore_status=$?
+            fi
+          fi
+          if [[ -n "${MATCH_KEYCHAIN_NAME:-}" ]]; then
+            security delete-keychain "$MATCH_KEYCHAIN_NAME" >/dev/null 2>&1 || true
+          fi
+          exit "$restore_status"
