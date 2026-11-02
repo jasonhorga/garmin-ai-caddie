@@ -208,7 +208,9 @@ def _round_differential(row: dict[str, Any]) -> float | None:
     score = _score18(row)
     rating = _float_field(row, "rating")
     slope = _float_field(row, "slope")
-    if score is None or rating is None or slope is None or slope <= 0:
+    # A nine-hole tee rating can survive a 9+9 merge or a restored back nine. It
+    # cannot price an 18-hole score; every differential consumer shares this guard.
+    if score is None or rating is None or rating < 50 or slope is None or slope <= 0:
         return None
     return round((float(score) - rating) * 113.0 / slope, 1)
 
