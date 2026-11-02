@@ -2759,7 +2759,7 @@ public struct StartRoundView: View {
         }
     }
 
-    private func applyNearbyAutomaticSelection(
+    private func ensureDefaultSelection(
         _ candidate: MobileCourseOption?,
         availableNearby: [MobileCourseOption]? = nil,
         requestToken: UUID? = nil,
@@ -2842,14 +2842,14 @@ public struct StartRoundView: View {
             },
             publish: { applyNearbyProviderResult($0, requestToken: requestToken, requestKey: requestKey, localNearby: localNearby) },
             selectAutomatically: {
-                applyNearbyAutomaticSelection($0, requestToken: requestToken, requestKey: requestKey)
+                ensureDefaultSelection($0, requestToken: requestToken, requestKey: requestKey)
             },
             request: onNearbyCourses,
             resolve: { self.resolvedOption(for: $0) }
         )
         guard canApply() else { return }
         applyNearbyProviderResult(outcome, requestToken: requestToken, requestKey: requestKey, localNearby: localNearby)
-        applyNearbyAutomaticSelection(nil, availableNearby: outcome.providerOptions)
+        ensureDefaultSelection(nil, availableNearby: outcome.providerOptions)
         nearbyDiscoveryFailed = Self.nearbyDiscoveryShouldFail(
             publishedProviderResult: outcome.publishedProviderResult,
             lastError: outcome.lastError,
