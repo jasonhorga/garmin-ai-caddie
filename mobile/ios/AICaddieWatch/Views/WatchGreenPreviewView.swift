@@ -707,15 +707,6 @@ public struct WatchGreenPreviewView: View {
         _rotationDegrees = State(initialValue: WatchRoundModel.wrappedGreenRotation(initialRotationDegrees))
     }
 
-    #if DEBUG
-    /// Seed the same per-hole retained bitmap state used by a transient nil update.
-    func snapshottingRetainedGeometry(_ geometry: WatchHoleMapGeometry) -> Self {
-        var snapshot = self
-        snapshot._retainedGeometry = State(initialValue: geometry)
-        return snapshot
-    }
-    #endif
-
     public var body: some View {
         Group {
             if geometry.hasUsableBitmap || geometry.hasUsableGreenDetail {

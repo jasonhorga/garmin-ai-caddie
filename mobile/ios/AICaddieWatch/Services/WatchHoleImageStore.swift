@@ -6,6 +6,7 @@ import UIKit
 
 public enum WatchHoleImageStoreError: Error, Equatable {
     case invalidImageData
+    case invalidAssetVersion
 }
 
 /// watch P0.4: on-device cache of per-hole topo map images (`/topo.png`) the phone pushes over
@@ -49,6 +50,12 @@ public final class WatchHoleImageStore {
         detail: Bool = false,
         garminAssetVersion: String? = nil
     ) -> URL {
+        if let rawVersion = garminAssetVersion {
+            let version = Self.encodedAssetVersion(rawVersion) ?? "invalid"
+            let assets = directory.deletingLastPathComponent().appendingPathComponent("garmin-raster-v1", isDirectory: true)
+            try? FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+            return assets.appendingPathComponent("\(Self.key(globalId: globalId, hole: hole))_\(version).img")
+        }
         let suffix = Self.normalizedRevision(geometryRevision).map { "_\($0)" } ?? ""
         let assetSuffix = detail
             ? "_green-\(WatchBackendClient.greenDetailStyleVersion)"
@@ -56,6 +63,26 @@ public final class WatchHoleImageStore {
         return directory.appendingPathComponent(
             "\(Self.key(globalId: globalId, hole: hole))\(suffix)\(assetSuffix).img"
         )
+    }
+
+    private func garminCursor(globalId: Int, hole: Int) -> URL {
+        directory.deletingLastPathComponent().appendingPathComponent("garmin-raster-v1", isDirectory: true)
+            .appendingPathComponent("\(Self.key(globalId: globalId, hole: hole)).current")
+    }
+
+    /// The cursor is written only after valid pixels are durable; failed replacements keep the old asset.
+    #if canImport(UIKit)
+    public func garminImage(globalId: Int, hole: Int) -> UIImage? {
+        guard let version = try? String(contentsOf: garminCursor(globalId: globalId, hole: hole), encoding: .utf8),
+              !version.isEmpty else { return nil }
+        return image(globalId: globalId, hole: hole, garminAssetVersion: version)
+    }
+    #endif
+
+    private static func encodedAssetVersion(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed.addingPercentEncoding(withAllowedCharacters: .alphanumerics)
     }
 
     private static func normalizedRevision(_ value: String?) -> String? {
@@ -74,6 +101,9 @@ public final class WatchHoleImageStore {
         detail: Bool = false,
         garminAssetVersion: String? = nil
     ) throws {
+        if let version = garminAssetVersion, Self.encodedAssetVersion(version) == nil {
+            throw WatchHoleImageStoreError.invalidAssetVersion
+        }
         guard Self.isValidImageData(data) else {
             throw WatchHoleImageStoreError.invalidImageData
         }
@@ -81,17 +111,24 @@ public final class WatchHoleImageStore {
             globalId: globalId,
             hole: hole,
             geometryRevision: geometryRevision,
-            detail: detail
+            detail: detail,
+            garminAssetVersion: garminAssetVersion
         )
         // Course downloads persist every progress snapshot, which re-offers all images received so
         // far. Rewriting identical bytes (and re-decoding them) on each batch turned one course into
         // O(n^2) flash writes; an unchanged file is already the authoritative copy.
         if let existing = try? Data(contentsOf: target, options: .mappedIfSafe), existing == data {
+            if let version = garminAssetVersion {
+                try Data(version.utf8).write(to: garminCursor(globalId: globalId, hole: hole), options: .atomic)
+            }
             return
         }
         // Data's atomic write replaces only after the new bytes have been written successfully. Do
         // not remove the old map first: a truncated transfer must leave the last good offline map.
         try data.write(to: target, options: .atomic)
+        if let version = garminAssetVersion {
+            try Data(version.utf8).write(to: garminCursor(globalId: globalId, hole: hole), options: .atomic)
+        }
         #if canImport(UIKit)
         let key = target.path as NSString
         if let image = UIImage(data: data) {
@@ -121,7 +158,8 @@ public final class WatchHoleImageStore {
             globalId: globalId,
             hole: hole,
             geometryRevision: geometryRevision,
-            detail: detail
+            detail: detail,
+            garminAssetVersion: garminAssetVersion
         )
     }
 
@@ -136,7 +174,8 @@ public final class WatchHoleImageStore {
                   globalId: globalId,
                   hole: hole,
                   geometryRevision: geometryRevision,
-                  detail: detail
+                  detail: detail,
+                  garminAssetVersion: garminAssetVersion
               )),
               Self.isValidImageData(data) else { return nil }
         return data
@@ -149,7 +188,7 @@ public final class WatchHoleImageStore {
         detail: Bool = false,
         garminAssetVersion: String? = nil
     ) -> Bool {
-        data(globalId: globalId, hole: hole, geometryRevision: geometryRevision, detail: detail) != nil
+        data(globalId: globalId, hole: hole, geometryRevision: geometryRevision, detail: detail, garminAssetVersion: garminAssetVersion) != nil
     }
 
     /// A non-empty response is not necessarily a map (the previous cache accepted 1–4 bytes and
@@ -194,7 +233,8 @@ public final class WatchHoleImageStore {
             globalId: globalId,
             hole: hole,
             geometryRevision: geometryRevision,
-            detail: detail
+            detail: detail,
+            garminAssetVersion: garminAssetVersion
         )
         let key = target.path as NSString
         if let cached = Self.decodedImageCache.object(forKey: key) {
@@ -204,7 +244,8 @@ public final class WatchHoleImageStore {
             globalId: globalId,
             hole: hole,
             geometryRevision: geometryRevision,
-            detail: detail
+            detail: detail,
+            garminAssetVersion: garminAssetVersion
         ), let decoded = UIImage(data: encoded) else {
             return nil
         }

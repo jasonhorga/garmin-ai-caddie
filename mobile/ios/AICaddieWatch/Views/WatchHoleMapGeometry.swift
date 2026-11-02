@@ -35,6 +35,10 @@ public struct WatchHoleMapSurfaceGeometry {
 /// build them from the fetched `/topo.png` + `holeImageProjection` (project GPS / green / shots →
 /// image px), while snapshots keep using `WatchHoleMapSample.geometry`.
 public struct WatchHoleMapGeometry {
+    /// No projection: display only the Garmin raster until real geometry arrives.
+    static let waiting = WatchHoleMapGeometry(image: nil, imageSize: CGSize(width: 1, height: 1),
+        youPx: .zero, pinPx: .zero, layupPx: .zero, apexPx: .zero, greenCtrlPx: .zero)
+
     public let image: UIImage?
     /// High-resolution green-focused bitmap, rendered in the same full-hole pixel frame as `image`.
     /// It is optional so older course caches continue to render from the whole-hole topo.

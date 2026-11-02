@@ -2706,10 +2706,16 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let missing = WatchHoleMapGeometry(image: nil, imageSize: base.imageSize, youPx: base.youPx,
             pinPx: base.pinPx, layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx)
         let state = WatchRoundState(roundId: "garmin", hole: 1, par: 4, distanceM: 320,
-            suggestedClub: nil, selectedClub: nil, score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline")
+            suggestedClub: nil, selectedClub: nil, globalId: 42, sourceLocalHole: 1, courseHoleNumber: 1, score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline")
         let model = WatchRoundModel(store: WatchRoundStore(directoryURL: directory))
-        model.seedRound([state], activeHole: 1, courseName: "测试球场")
-        let container = WatchRoundContainerView(model: model, holeGeometry: missing, garminImage: received)
+        let states = (1...9).map { number in
+            WatchRoundState(roundId: state.roundId, hole: number, par: 4, distanceM: 320,
+                suggestedClub: nil, selectedClub: nil, globalId: 42, sourceLocalHole: number,
+                courseHoleNumber: number, score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline")
+        }
+        model.seedRound(states, activeHole: 1, courseName: "测试球场", courseGlobalId: 42, loopKey: "42:front")
+        XCTAssertNotNil(model.round, "fixture is a playable canonical round")
+        let container = WatchRoundContainerView(model: model, holeGeometry: missing, holeImageStore: store)
         let actual = container.holeMapView(state, missing)
         XCTAssertEqual(actual.mapPreparingAccessibilityIdentifiers, [], "J4.5: WC Garmin reaches the production root")
         func pixels(_ view: some View) throws -> [UInt8] {
@@ -2717,25 +2723,31 @@ final class WatchDesignSnapshotTests: XCTestCase {
         }
         XCTAssertNotEqual(try pixels(actual), try pixels(WatchRoundContainerView(model: model, holeGeometry: missing).holeMapView(state, missing)),
             "J4.5: root actually displays the received Garmin raster")
+        let noGeometry = WatchRoundContainerView(model: model, holeImageStore: store).snapshottingHoleRoot()
+        try render(noGeometry.watchSnapshotFrame(width: 198, height: 242), named: "watch-garmin-root-no-projection")
+
     }
 
     /// J4.5: an invalid focus transform must not leave a contour over the waiting map.
     @MainActor
     func testHazardWaitingTransformNeverDrawsContour() throws {
         let base = WatchHoleMapSample.geometry
-        func pixels(outline: [[Double]], pan: CGSize) throws -> [UInt8] {
+        func pixels(outline: [[Double]], nonFiniteAnchor: Bool = false) throws -> [UInt8] {
             let hazard = WatchHazard(kind: "water", label: "水障碍", startM: 190, endM: 210,
                 frontPx: [435, 724], backPx: [435, 697], outlinePx: outline)
-            let geometry = WatchHoleMapGeometry(image: base.image, imageSize: CGSize(width: CGFloat.greatestFiniteMagnitude, height: 1000),
-                youPx: base.youPx, pinPx: base.pinPx, layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx)
+            let imageSize = nonFiniteAnchor ? base.imageSize : CGSize(width: CGFloat.greatestFiniteMagnitude, height: 1000)
+            let geometry = WatchHoleMapGeometry(image: base.image, imageSize: imageSize,
+                youPx: nonFiniteAnchor ? CGPoint(x: CGFloat.nan, y: base.youPx.y) : base.youPx, pinPx: base.pinPx, layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx)
             let view = WatchHazardMapView(geometry: geometry, route: [[435, 981, 0], [435, 279, 518.8]],
                 hazards: [hazard], centerGreenYards: 320,
-                initialViewport: WatchHoleViewport(zoom: 2, pan: pan))
+                initialViewport: WatchHoleViewport(zoom: 2))
             return renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: view.frame(width: 198, height: 242)).cgImage))
         }
         let outline = [[410.0, 724.0], [460, 724], [460, 697], [410, 697]]
-        assertPixelsMatch(try pixels(outline: [], pan: .zero), try pixels(outline: outline, pan: .zero),
+        assertPixelsMatch(try pixels(outline: []), try pixels(outline: outline),
             "J4.5: waiting transform has no hazard contour")
+        assertPixelsMatch(try pixels(outline: [], nonFiniteAnchor: true), try pixels(outline: outline, nonFiniteAnchor: true),
+            "J4.5: nonfinite anchor leaves the waiting map free of red contours")
     }
 
     /// J4.5: real SwiftUI updates, with no direct writes to a view's retained @State.
@@ -2745,7 +2757,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let missing = WatchHoleMapGeometry(image: nil, imageSize: base.imageSize, youPx: base.youPx,
             pinPx: base.pinPx, layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx,
             greenOutlinePx: WatchHoleMapSample.greenOutlinePx)
-        let image = try XCTUnwrap(base.image)
+        XCTAssertNotNil(base.image)
         let full = missing.retainingBitmaps(from: base)
         let detailOnly = WatchHoleMapGeometry(image: nil, greenDetailImage: WatchHoleMapSample.greenDetailImage,
             greenDetailRectPx: CGRect(x: 375, y: 225, width: 120, height: 120),
@@ -2761,74 +2773,76 @@ final class WatchDesignSnapshotTests: XCTestCase {
             ("hazard", full, { AnyView(WatchHazardMapView(geometry: $0,
                 route: [[435, 981, 0], [435, 279, 518.8]], hazards: [hazard], centerGreenYards: 320)) })
         ]
-        _ = image
         for (name, full, makeView) in cases {
             let input = LiveBitmapInput(missing)
-            let host = _makeUIHostingView(LiveBitmapHost(input: input, makeView: makeView))
-            let app = try XCTUnwrap((NSClassFromString("UIApplication") as? NSObject.Type)?.perform(NSSelectorFromString("sharedApplication"))?.takeUnretainedValue() as? NSObject)
-            let window = try XCTUnwrap((app.value(forKey: "windows") as? [NSObject])?.first)
-            window.perform(NSSelectorFromString("addSubview:"), with: host)
-            defer { host.perform(NSSelectorFromString("removeFromSuperview")) }
-            host.setValue(NSValue(cgRect: CGRect(x: 0, y: 0, width: 198, height: 242)), forKey: "frame")
-            func pixels() throws -> [UInt8] {
-                host.perform(NSSelectorFromString("setNeedsLayout"))
-                host.perform(NSSelectorFromString("layoutIfNeeded"))
-                RunLoop.main.run(until: Date().addingTimeInterval(0.15))
-                host.perform(NSSelectorFromString("layoutIfNeeded"))
-                let layer = try XCTUnwrap(host.value(forKey: "layer") as? NSObject)
-                let context = try XCTUnwrap(CGContext(data: nil, width: 198, height: 242, bitsPerComponent: 8,
-                    bytesPerRow: 198 * 4, space: CGColorSpaceCreateDeviceRGB(),
-                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-                let selector = NSSelectorFromString("renderInContext:")
-                let render = unsafeBitCast(layer.method(for: selector),
-                    to: (@convention(c) (AnyObject, Selector, CGContext) -> Void).self)
-                render(layer, selector, context)
-                return renderedPixelBytes(try XCTUnwrap(context.makeImage()))
-            }
+            let host = try MountedWatchBitmapView(LiveBitmapHost(input: input, makeView: makeView))
+            func pixels() throws -> [UInt8] { try host.pixels() }
+            defer { host.remove() }
             let waiting = try pixels()
             input.geometry = full
             let displayed = try pixels()
             XCTAssertNotEqual(displayed, waiting, "J4.5: \(name) nil → bitmap actually renders")
             input.geometry = missing
             assertPixelsMatch(try pixels(), displayed, "J4.5: \(name) bitmap → nil retains the displayed raster")
-            withExtendedLifetime(host) {}
+        }
+    }
+
+    /// J4.5: Garmin → precise upgrades on the same mounted root, then nil cannot downgrade it.
+    @MainActor
+    func testLiveGarminRootUpgradesToPreciseAndNeverRegresses() throws {
+        let base = WatchHoleMapSample.geometry
+        let missing = WatchHoleMapGeometry(image: nil, imageSize: base.imageSize, youPx: base.youPx,
+            pinPx: base.pinPx, layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx)
+        let input = LiveBitmapInput(missing)
+        let state = WatchRoundState(roundId: "tiers", hole: 1, par: 4, distanceM: 320,
+            suggestedClub: nil, selectedClub: nil, globalId: 42, sourceLocalHole: 1, courseHoleNumber: 1, score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = WatchRoundModel(store: WatchRoundStore(directoryURL: directory))
+        let states = (1...9).map { number in
+            WatchRoundState(roundId: state.roundId, hole: number, par: 4, distanceM: 320,
+                suggestedClub: nil, selectedClub: nil, globalId: 42, sourceLocalHole: number,
+                courseHoleNumber: number, score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline")
+        }
+        model.seedRound(states, activeHole: 1, courseName: "测试球场", courseGlobalId: 42, loopKey: "42:front")
+        XCTAssertNotNil(model.round, "fixture is a playable canonical round")
+        let host = try MountedWatchBitmapView(LiveBitmapHost(input: input, makeView: { geometry in
+            AnyView(WatchRoundContainerView(model: model, holeGeometry: geometry, garminImage: input.garmin,
+                initialPlanViewport: WatchHoleViewport(zoom: 2, pan: CGSize(width: 7, height: 9)))
+                .snapshottingHoleRoot())
+        }))
+        defer { host.remove() }
+        let waiting = try host.pixels()
+        input.garmin = WatchHoleMapSample.greenDetailImage
+        let garmin = try host.pixels()
+        XCTAssertTrue(garmin != waiting, "J4.5: mounted root displays Garmin before precise")
+        input.garmin = nil
+        assertPixelsMatch(try host.pixels(), garmin, "J4.5: a transient nil cannot remove Garmin")
+        input.geometry = base
+        let precise = try host.pixels()
+        XCTAssertTrue(precise != garmin, "J4.5: precise bitmap upgrades the mounted Garmin root")
+        input.geometry = missing
+        input.garmin = WatchHoleMapSample.greenDetailImage
+        assertPixelsMatch(try host.pixels(), precise, "J4.5: precise cannot regress to Garmin or waiting")
+    }
+
+    /// J4.5: the route notice fits in the free column on every supported face.
+    @MainActor
+    func testGarminRootNoticeAvoidsFactsAndControlRail() {
+        for size in [CGSize(width: 176, height: 215), CGSize(width: 198, height: 242), CGSize(width: 205, height: 251)] {
+            let notice = WatchHoleMapView.rootGarminNoticeFrame(in: size)
+            XCTAssertFalse(notice.intersects(WatchHoleMapView.rootFactsFrame(in: size)), "J4.5: Garmin notice avoids B/C/F facts")
+            XCTAssertLessThan(notice.maxY, WatchHoleMapView.rootRailBottom(in: size) - WatchDisplayGeometry.instrumentControlSize,
+                "J4.5: Garmin notice stays above menu and shot controls")
+            XCTAssertFalse(notice.intersects(WatchHoleMapView.rootCaddieChipFrame(in: size)), "J4.5: Garmin notice avoids the caddie chip")
+            XCTAssertTrue(WatchDisplayGeometry.contentRect(in: size).contains(notice), "J4.5: notice is inside the visible display")
         }
     }
 
     /// J4.5: green/hazard pages retain their displayed rasters on a transient nil input.
     @MainActor
     func testGreenAndHazardRetainDisplayedBitmapsWithoutWaitingOverlay() throws {
-        let base = WatchHoleMapSample.geometry
-        let image = try XCTUnwrap(base.image)
-        let detail = try XCTUnwrap(WatchHoleMapSample.greenDetailImage)
-        func geometry(image: UIImage?, detail: UIImage? = nil) -> WatchHoleMapGeometry {
-            WatchHoleMapGeometry(
-                image: image, greenDetailImage: detail,
-                greenDetailRectPx: CGRect(x: 375, y: 225, width: 120, height: 120),
-                imageSize: base.imageSize, youPx: base.youPx, pinPx: base.pinPx,
-                layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx,
-                greenOutlinePx: WatchHoleMapSample.greenOutlinePx
-            )
-        }
-        func pixels(_ view: some View) throws -> [UInt8] {
-            let framed = view.watchSnapshotFrame(width: 198, height: 242)
-            return renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: framed).cgImage))
-        }
-        let missing = geometry(image: nil)
-        for full in [geometry(image: image), geometry(image: nil, detail: detail)] {
-            let retained = WatchGreenPreviewView(geometry: missing).snapshottingRetainedGeometry(full)
-            assertPixelsMatch(try pixels(retained), try pixels(WatchGreenPreviewView(geometry: full)),
-                              "J4.5: green retains both whole-hole and detail-only imagery")
-        }
-        let route = [[435.0, 981.0, 0.0], [435.0, 279.0, 518.8]]
-        let hazard = WatchHazard(kind: "water", label: "水障碍", startM: 190, endM: 210,
-                                 frontPx: [435, 724], backPx: [435, 697])
-        let full = geometry(image: image)
-        let retained = WatchHazardMapView(geometry: missing, route: route, hazards: [hazard],
-                                          centerGreenYards: 320).snapshottingRetainedGeometry(full)
-        let precise = WatchHazardMapView(geometry: full, route: route, hazards: [hazard], centerGreenYards: 320)
-        XCTAssertEqual(try pixels(retained), try pixels(precise),
-                       "J4.5: retained hazard bitmap keeps contours and has no waiting overlay")
+        try testLiveBitmapUpdatesRetainRootGreenAndHazardImages()
     }
 
     /// J4.5: one waiting notice, and none over an already displayed precise bitmap. The retained
@@ -2845,18 +2859,10 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(waiting.mapPreparingAccessibilityIdentifiers, ["watch-map-preparing"],
                        "J4.5: waiting renders exactly one map-preparing accessibility element")
 
-        let retained = waiting.snapshottingRetainedPreciseImage(image)
-        XCTAssertEqual(retained.mapPreparingAccessibilityIdentifiers, [],
-                       "J4.5: a retained precise bitmap has no map-preparing accessibility element")
         let precise = WatchHoleMapView(geometry: base)
         XCTAssertEqual(precise.mapPreparingAccessibilityIdentifiers, [])
-
-        func pixels(_ map: WatchHoleMapView) throws -> [UInt8] {
-            let view = map.watchSnapshotFrame(width: 198, height: 242)
-            return renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: view).cgImage))
-        }
-        XCTAssertEqual(try pixels(retained), try pixels(precise),
-                       "a transient nil image must not paint a preparing notice over the retained map")
+        _ = image
+        try testLiveBitmapUpdatesRetainRootGreenAndHazardImages()
     }
 
     @MainActor
@@ -3570,6 +3576,7 @@ private extension View {
 
 @MainActor
 private final class LiveBitmapInput: ObservableObject {
+    @Published var garmin: UIImage?
     @Published var geometry: WatchHoleMapGeometry
     init(_ geometry: WatchHoleMapGeometry) { self.geometry = geometry }
 }
@@ -3578,4 +3585,38 @@ private struct LiveBitmapHost: View {
     @ObservedObject var input: LiveBitmapInput
     let makeView: (WatchHoleMapGeometry) -> AnyView
     var body: some View { makeView(input.geometry).frame(width: 198, height: 242) }
+}
+
+/// watchOS exposes SwiftUI's native host as NSObject. Mount it in the test app's window so
+/// .onAppear/.onChange and @State run normally; ImageRenderer alone has no live lifecycle.
+@MainActor
+private final class MountedWatchBitmapView {
+    let host: NSObject
+    init(_ content: some View) throws {
+        host = _makeUIHostingView(content)
+        let app = try XCTUnwrap((NSClassFromString("UIApplication") as? NSObject.Type)?
+            .perform(NSSelectorFromString("sharedApplication"))?.takeUnretainedValue() as? NSObject)
+        let window = try XCTUnwrap((app.value(forKey: "windows") as? [NSObject])?.first)
+        window.perform(NSSelectorFromString("addSubview:"), with: host)
+        host.setValue(NSValue(cgRect: CGRect(x: 0, y: 0, width: 198, height: 242)), forKey: "frame")
+    }
+    func remove() { host.perform(NSSelectorFromString("removeFromSuperview")) }
+    func pixels() throws -> [UInt8] {
+        host.perform(NSSelectorFromString("setNeedsLayout"))
+        host.perform(NSSelectorFromString("layoutIfNeeded"))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        host.perform(NSSelectorFromString("layoutIfNeeded"))
+        let layer = try XCTUnwrap(host.value(forKey: "layer") as? NSObject)
+        let context = try XCTUnwrap(CGContext(data: nil, width: 198, height: 242, bitsPerComponent: 8,
+            bytesPerRow: 198 * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let selector = NSSelectorFromString("renderInContext:")
+        let render = unsafeBitCast(layer.method(for: selector),
+            to: (@convention(c) (AnyObject, Selector, CGContext) -> Void).self)
+        render(layer, selector, context)
+        let image = try XCTUnwrap(context.makeImage())
+        let data = try XCTUnwrap(image.dataProvider?.data)
+        let pointer = try XCTUnwrap(CFDataGetBytePtr(data))
+        return Array(UnsafeBufferPointer(start: pointer, count: CFDataGetLength(data)))
+    }
 }

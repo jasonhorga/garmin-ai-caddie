@@ -222,6 +222,7 @@ public struct WatchRoundContainerView: View {
     /// watch P1b: the active hole's render geometry (topo image + overlay anchors), built by the app from
     /// the pushed WatchHoleMap + cached /topo.png. nil ⇒ no map yet ⇒ the home 「球道图」 entry stays hidden.
     private let holeGeometry: WatchHoleMapGeometry?
+    private let garminImage: UIImage?
     /// watch P1f (spec D1 大字模式): tap the hole view to blow the center distance up for arm's-length /
     /// bright-sun reading. Toggled on the .holeMap screen; the map + the no-geometry hero both honor it.
     @AppStorage("watch.bigTextMode") private var holeMapBigText = false
@@ -276,7 +277,7 @@ public struct WatchRoundContainerView: View {
     /// Review evidence of the production 本洞 pages: the hazard page's starting zoom / pan.
     private let initialHazardViewport: WatchHoleViewport
 
-    public init(model: WatchRoundModel, holeGeometry: WatchHoleMapGeometry? = nil, garminImage: UIImage? = nil,
+    public init(model: WatchRoundModel, holeGeometry: WatchHoleMapGeometry? = nil, garminImage: UIImage? = nil, holeImageStore: WatchHoleImageStore? = nil,
                 watchGreenYards: (front: Int?, center: Int?, back: Int?)? = nil,
                 shotLocation: WatchLocationFix? = nil,
                 latestWatchFix: WatchLocationFix? = nil,
@@ -294,7 +295,11 @@ public struct WatchRoundContainerView: View {
                 initialPlanViewport: WatchHoleViewport = WatchHoleViewport(),
                 initialHazardViewport: WatchHoleViewport = WatchHoleViewport()) {
         self.model = model
-        self.holeGeometry = holeGeometry
+        let cachedGarmin = model.activeHoleState.flatMap { state in
+            state.globalId.flatMap { holeImageStore?.garminImage(globalId: $0, hole: state.hole) }
+        }
+        self.garminImage = garminImage ?? cachedGarmin
+        self.holeGeometry = holeGeometry ?? (self.garminImage != nil ? .waiting : nil)
         self.watchGreenYards = watchGreenYards
         self.shotLocation = shotLocation
         self.latestWatchFix = latestWatchFix
@@ -859,6 +864,7 @@ public struct WatchRoundContainerView: View {
             playerMarker: .chevron,
             lastShotPlacement: .facts,
             geometry: renderedGeometry,
+            garminImage: garminImage,
             pinImagePoint: selectedPin,
             measuredPxOverride: measuredPxOverride,
             interactionMode: .measure,
@@ -1014,6 +1020,7 @@ public struct WatchRoundContainerView: View {
             fullMap: true,
             mapScale: CGFloat(holeMapCrownScale),
             geometry: geometry,
+            garminImage: garminImage,
             pinImagePoint: selectedPin,
             measuredPxOverride: measuredPxOverride,
             interactionMode: .touchTarget,

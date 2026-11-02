@@ -1037,8 +1037,35 @@ public final class WatchEventBridge: NSObject {
         hole: Int,
         imageData: Data,
         geometryRevision: String? = nil,
-        assetKind: String = "topo"
+        assetKind: String = "topo",
+        assetVersion: String? = nil
     ) -> Bool {
+        Self.queueHoleImage(globalId: globalId, hole: hole, imageData: imageData,
+            geometryRevision: geometryRevision, assetKind: assetKind, assetVersion: assetVersion)
+    }
+
+    static func holeImageMetadata(globalId: Int, hole: Int, geometryRevision: String? = nil,
+                                  assetKind: String = "topo", assetVersion: String? = nil) -> [String: Any]? {
+        guard ["topo", "green-detail", "garmin"].contains(assetKind) else { return nil }
+        if assetKind == "garmin", assetVersion?.isEmpty != false { return nil }
+        var metadata: [String: Any] = [
+            "globalId": globalId, "hole": hole, "styleVersion": SyncClient.topoStyleVersion,
+            "assetKind": assetKind,
+            "assetStyleVersion": assetKind == "green-detail" ? SyncClient.greenDetailStyleVersion
+                : (assetKind == "garmin" ? SyncClient.garminRasterStyleVersion : SyncClient.topoStyleVersion),
+        ]
+        if let assetVersion { metadata["assetVersion"] = assetVersion }
+        if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines), !revision.isEmpty {
+            metadata["geometryRevision"] = revision
+        }
+        return metadata
+    }
+
+    @discardableResult
+    static func queueHoleImage(globalId: Int, hole: Int, imageData: Data, geometryRevision: String? = nil,
+                               assetKind: String = "topo", assetVersion: String? = nil) -> Bool {
+        guard let metadata = holeImageMetadata(globalId: globalId, hole: hole, geometryRevision: geometryRevision,
+            assetKind: assetKind, assetVersion: assetVersion) else { return false }
         guard WCSession.isSupported(), WCSession.default.activationState == .activated,
               WCSession.default.isPaired, WCSession.default.isWatchAppInstalled else {
             return false
@@ -1049,19 +1076,6 @@ public final class WatchEventBridge: NSObject {
             .appendingPathComponent("holeimg-\(globalId)-\(hole)-\(UUID().uuidString).img")
         do {
             try imageData.write(to: tmp, options: .atomic)
-            var metadata: [String: Any] = [
-                "globalId": globalId,
-                "hole": hole,
-                "styleVersion": SyncClient.topoStyleVersion,
-                "assetKind": assetKind,
-                "assetStyleVersion": assetKind == "green-detail"
-                    ? SyncClient.greenDetailStyleVersion
-                    : SyncClient.topoStyleVersion,
-            ]
-            if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !revision.isEmpty {
-                metadata["geometryRevision"] = revision
-            }
             WCSession.default.transferFile(tmp, metadata: metadata)
             return true
         } catch {
@@ -1689,7 +1703,7 @@ extension WatchEventBridge: WCSessionDelegate {
         if error != nil,
            let globalId = fileTransfer.file.metadata?["globalId"] as? Int,
            let hole = fileTransfer.file.metadata?["hole"] as? Int,
-           (fileTransfer.file.metadata?["assetKind"] as? String ?? "topo") == "topo" {
+           ["topo", "garmin"].contains(fileTransfer.file.metadata?["assetKind"] as? String ?? "topo") {
             DispatchQueue.main.async { [weak self] in self?.onHoleImageTransferFailed?(globalId, hole) }
         }
         let url = fileTransfer.file.fileURL

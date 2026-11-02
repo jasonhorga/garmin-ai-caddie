@@ -62,6 +62,34 @@ final class WatchTopoSenderTests: XCTestCase {
         XCTAssertEqual(fallbackSent, package.holes.count, "J4.5: fallback is not queued twice")
     }
 
+    /// J4.5: download exports are keyed by physical hole and Garmin version, not topo revision.
+    func testDownloadedGarminExportAndTransferMetadataKeepIndependentIdentity() throws {
+        let cache = WatchGarminAssetCache(directoryURL: directory)
+        let url = try XCTUnwrap(URL(string: "https://caddie.example/api/v2/courses/42/holes/10/garmin-raster.webp?v=release-a"))
+        try cache.store(validOnePixelPNGData(), for: url)
+        XCTAssertNotNil(cache.data(globalId: 42, localHole: 10, assetVersion: "release-a"))
+        XCTAssertNil(cache.data(globalId: 42, localHole: 1, assetVersion: "release-a"))
+        XCTAssertNil(cache.data(globalId: 42, localHole: 10, assetVersion: "release-b"))
+        let metadata = try XCTUnwrap(WatchEventBridge.holeImageMetadata(globalId: 42, hole: 1,
+            assetKind: "garmin", assetVersion: "release-a"))
+        XCTAssertEqual(metadata["assetKind"] as? String, "garmin")
+        XCTAssertEqual(metadata["assetVersion"] as? String, "release-a")
+        XCTAssertEqual(metadata["assetStyleVersion"] as? String, "garmin-raster-v1")
+        XCTAssertEqual(metadata["hole"] as? Int, 1)
+        XCTAssertNil(WatchEventBridge.holeImageMetadata(globalId: 42, hole: 1, assetKind: "garmin"))
+    }
+
+    /// J4.5: use the production default cache loader, not the injected test loader.
+    func testProductionGarminLoaderReadsDownloadedExportByPhysicalHole() async throws {
+        let cache = WatchGarminAssetCache(directoryURL: directory)
+        try cache.store(validOnePixelPNGData(), for: URL(string: "https://caddie.example/api/v2/courses/42/holes/10/garmin-raster.webp?v=release-a")!)
+        let sender = WatchTopoSender(load: { _ in nil }, enqueue: { _, _ in false }, livePackage: { nil }, garminCache: cache)
+        let item = WatchTopoSender.Item(globalId: 42, roundHole: 1, localHole: 10, revision: "precise-b", garminAssetVersion: "release-a")
+        let loaded = await sender.loadGarmin(item)
+        XCTAssertNotNil(loaded?.0, "J4.5: the production loader reaches the downloaded Garmin cache")
+        XCTAssertEqual(loaded?.1, "release-a", "J4.5: Garmin version is independent of precise revision")
+    }
+
     func testThePlanKeysEachHoleAsTheWatchLooksItUp() throws {
         let package = try LiveRoundPackageFixture.package()
         let plan = WatchTopoSender.plan(for: package)

@@ -798,13 +798,18 @@ extension WatchSyncClient: WCSessionDelegate {
         guard meta["styleVersion"] as? String == WatchBackendClient.topoStyleVersion else {
             return false
         }
-        let detail = (meta["assetKind"] as? String) == "green-detail"
+        let kind = meta["assetKind"] as? String ?? "topo"
+        guard ["topo", "green-detail", "garmin"].contains(kind) else { return false }
+        let detail = kind == "green-detail"
+        let garmin = kind == "garmin"
+        let assetVersion = (meta["assetVersion"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if garmin, assetVersion?.isEmpty != false { return false }
         let expectedAssetStyle = detail
             ? WatchBackendClient.greenDetailStyleVersion
-            : WatchBackendClient.topoStyleVersion
+            : (garmin ? "garmin-raster-v1" : WatchBackendClient.topoStyleVersion)
         if let receivedAssetStyle = meta["assetStyleVersion"] as? String {
             guard receivedAssetStyle == expectedAssetStyle else { return false }
-        } else if detail {
+        } else if detail || garmin {
             // A queued green-v1 transfer can arrive after an app upgrade.  It shares topo-v12 but
             // does not contain the enlarged/feathered context, so it must never repopulate v2's
             // versioned file after the new asset has been requested.
@@ -820,7 +825,8 @@ extension WatchSyncClient: WCSessionDelegate {
                 globalId: gid,
                 hole: hole,
                 geometryRevision: meta["geometryRevision"] as? String,
-                detail: detail
+                detail: detail,
+                garminAssetVersion: garmin ? assetVersion : nil
             )
             let key = WatchHoleImageStore.key(globalId: gid, hole: hole)
             DispatchQueue.main.async { self.lastHoleImageKey = key }

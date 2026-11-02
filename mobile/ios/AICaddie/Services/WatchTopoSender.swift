@@ -16,6 +16,7 @@ final class WatchTopoSender {
         let roundHole: Int
         let localHole: Int
         let revision: String?
+        var garminAssetVersion: String? = nil
 
         var key: String { "\(roundHole)|\(globalId)|\(revision ?? "")" }
     }
@@ -29,15 +30,21 @@ final class WatchTopoSender {
                 roundHole: hole.number,
                 localHole: hole.sourceLocalHole,
                 revision: package.coursePrep?.holes.first(where: { $0.hole == hole.number })?.geometryRevision
-                    ?? hole.geometryRevision
+                    ?? hole.geometryRevision,
+                garminAssetVersion: hole.garminRaster.flatMap {
+                    URLComponents(string: $0.imageUrl)?.queryItems?.first(where: { $0.name == "v" })?.value
+                }
             )
         }
     }
 
     /// The bitmap on the phone, or nil. Called off the main actor's critical path.
     var load: (Item) async -> Data?
-    var loadGarmin: (Item) async -> (Data, String)? = { _ in nil }
-    var enqueueGarmin: (Item, Data, String) -> Bool = { _, _, _ in false }
+    var loadGarmin: (Item) async -> (Data, String)?
+    var enqueueGarmin: (Item, Data, String) -> Bool = { item, data, version in
+        WatchEventBridge.queueHoleImage(globalId: item.globalId, hole: item.roundHole, imageData: data,
+            assetKind: "garmin", assetVersion: version)
+    }
     /// Queues one transfer; false when the session cannot take it now.
     var enqueue: (Item, Data) -> Bool
     /// The live round's package, or nil when no round is being played.
@@ -57,11 +64,19 @@ final class WatchTopoSender {
     init(
         load: @escaping (Item) async -> Data?,
         enqueue: @escaping (Item, Data) -> Bool,
-        livePackage: @escaping () -> LiveRoundPackage?
+        livePackage: @escaping () -> LiveRoundPackage?,
+        garminCache: WatchGarminAssetCache = WatchGarminAssetCache()
     ) {
         self.load = load
         self.enqueue = enqueue
         self.livePackage = livePackage
+        self.loadGarmin = { item in
+            guard let version = item.garminAssetVersion else { return nil }
+            return await Task.detached(priority: .utility) {
+                garminCache.data(globalId: item.globalId, localHole: item.localHole, assetVersion: version)
+                    .map { ($0, version) }
+            }.value
+        }
     }
 
     /// Queues every cached, not yet sent hole of the live round. A newer call supersedes a running
@@ -80,6 +95,13 @@ final class WatchTopoSender {
         running = Task { [weak self] in
             for item in items {
                 guard let self, !Task.isCancelled, self.roundId == round else { return }
+                if let (data, version) = await self.loadGarmin(item), !Task.isCancelled, self.roundId == round {
+                    let fallbackKey = "\(item.roundHole)|\(item.globalId)|garmin|\(version)"
+                    if !self.sent.contains(fallbackKey), !self.exhausted.contains(fallbackKey),
+                       self.enqueueGarmin(item, data, version) {
+                        self.sent.insert(fallbackKey)
+                    }
+                }
                 guard !self.sent.contains(item.key), !self.exhausted.contains(item.key) else { continue }
                 guard let data = await self.load(item), !Task.isCancelled, self.roundId == round else { continue }
                 if self.enqueue(item, data) {

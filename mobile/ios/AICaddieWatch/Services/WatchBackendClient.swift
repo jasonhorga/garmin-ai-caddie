@@ -692,6 +692,23 @@ public final class WatchBackendClient {
         return try decodeCoursePrep(data)
     }
 
+    /// Optional download-stage fallback. Preserve the backend's versioned URL and accept only
+    /// this API's canonical asset path; image requests never inherit member credentials.
+    func fetchGarminAsset(_ asset: WatchGarminRasterAsset, globalId: Int, localHole: Int) async throws -> Data {
+        guard let parts = URLComponents(string: asset.imageUrl),
+              parts.path == "/api/v2/courses/\(globalId)/holes/\(localHole)/garmin-raster.webp",
+              parts.host == nil || parts.host == baseURL.host,
+              parts.scheme == nil || parts.scheme == baseURL.scheme,
+              asset.assetVersion?.isEmpty == false,
+              var target = URLComponents(url: endpointURL(parts.path), resolvingAgainstBaseURL: false)
+        else { throw URLError(.badURL) }
+        target.queryItems = parts.queryItems
+        guard let url = target.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        return try await sendForData(request)
+    }
+
     public func fetchCourseTopo(
         globalId: Int,
         localHole: Int,

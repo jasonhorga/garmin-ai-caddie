@@ -1060,7 +1060,7 @@ public struct WatchHoleMapView: View {
     }
 
     /// The notice and Canvas use the exact same drawable-rectangle check.
-    private func mapDisplayState(in size: CGSize) -> MapDisplayState {
+    func mapDisplayState(in size: CGSize) -> MapDisplayState {
         let state = mapDisplayState
         if state == .precise, preciseImageRect(in: size) == nil {
             return availableGarminImage != nil ? .garmin : .waiting
@@ -1088,14 +1088,12 @@ public struct WatchHoleMapView: View {
         mapDisplayState == .waiting ? ["watch-map-preparing"] : []
     }
 
-    #if DEBUG
-    /// Seed the same retained image state used after a transient nil update on this hole.
-    func snapshottingRetainedPreciseImage(_ image: UIImage) -> Self {
-        var snapshot = self
-        snapshot._retainedPreciseImage = State(initialValue: image)
-        return snapshot
+    static func rootGarminNoticeFrame(in size: CGSize) -> CGRect {
+        let safe = WatchDisplayGeometry.contentRect(in: size)
+        let left = rootFactsFrame(in: size).maxX + 4
+        return CGRect(x: left, y: size.height * 0.30,
+            width: max(1, safe.maxX - left), height: 42)
     }
-    #endif
 
     static func rootCaddieChipFrame(in size: CGSize) -> CGRect {
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
@@ -1129,14 +1127,19 @@ public struct WatchHoleMapView: View {
                         .accessibilityIdentifier(preparingIdentifiers[index])
                 }
                 if mapDisplayState(in: geo.size) == .garmin {
+                    let noticeFrame = Self.rootGarminNoticeFrame(in: geo.size)
                     Text("路线等精细地图出来后显示")
                         .font(.system(size: 10, weight: .semibold))
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.white)
                         .padding(6)
                         .background(.black.opacity(0.65), in: Capsule())
-                        .frame(maxHeight: .infinity, alignment: .bottom)
-                        .padding(.bottom, 36)
+                        .frame(width: fullMap ? nil : noticeFrame.width,
+                               height: fullMap ? nil : noticeFrame.height)
+                        .frame(maxHeight: fullMap ? .infinity : nil, alignment: .bottom)
+                        .padding(.bottom, fullMap ? 36 : 0)
+                        .position(x: fullMap ? geo.size.width / 2 : noticeFrame.midX,
+                                  y: fullMap ? geo.size.height / 2 : noticeFrame.midY)
                         .accessibilityIdentifier("watch-map-garmin-pending-route")
                 }
                 if interactionMode == .touchTarget,
@@ -1672,7 +1675,6 @@ public struct WatchHoleMapView: View {
             context.fill(Path(ellipseIn: dotRect), with: .color(youBlue))
             context.stroke(Path(ellipseIn: dotRect), with: .color(.white), style: StrokeStyle(lineWidth: 1.2))
         }
-
 
         // While walking to the ball, S70 keeps the measured previous-shot fact map-bound, under the
         // player. Owner feedback 2026-10-10: at 8.5 pt it was never seen on the wrist.

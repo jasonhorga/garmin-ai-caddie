@@ -19,7 +19,11 @@ final class WatchCourseDownloadTests: XCTestCase {
                     let url = try XCTUnwrap(request.url)
                     let isPackage = url.path.hasSuffix("/package")
                     let isRaster = url.path.hasSuffix("/10/garmin-raster.webp")
-                    if isRaster { rasterRequests += 1 }
+                    if isRaster {
+                        rasterRequests += 1
+                        XCTAssertEqual(url.query, "v=release-a", "J4.5: fetch the package's exact asset version")
+                        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+                    }
                     let data = isPackage ? package : (isRaster ? bytes : Data())
                     return (data, HTTPURLResponse(url: url, statusCode: isPackage || isRaster ? 200 : 503,
                         httpVersion: nil, headerFields: nil)!)
@@ -30,7 +34,9 @@ final class WatchCourseDownloadTests: XCTestCase {
         let prepared = await library.startCourse(selection, config: WatchRoundConfig(baseURL: URL(string: "https://caddie.example")!, adminToken: nil))
         XCTAssertNotNil(prepared)
         await library.waitForWholeCourseTemplateInstalls()
-        XCTAssertGreaterThan(rasterRequests, 0, "J4.5: the download requests the independent Garmin asset")
+        _ = await library.upgradeCourseWhenReady(selection, roundId: "fallback",
+            config: WatchRoundConfig(baseURL: URL(string: "https://caddie.example")!, adminToken: nil), onProgress: { _ in })
+        XCTAssertEqual(rasterRequests, 1, "J4.5: the download caches Garmin independently across precise retries")
         XCTAssertNotNil(images.image(globalId: 42, hole: 1, garminAssetVersion: "release-a"),
             "J4.5: physical hole 10 caches as round hole 1 even when prep fails")
         XCTAssertNil(images.image(globalId: 42, hole: 1), "J4.5: fallback never becomes precise")

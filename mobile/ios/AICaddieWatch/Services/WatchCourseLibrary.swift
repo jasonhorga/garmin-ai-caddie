@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import UIKit
 import AICaddieDomain
 
 /// Explicit nearby-discovery lifecycle. A missing config is a provisioning/auth boundary, not a
@@ -46,6 +47,7 @@ public final class WatchCourseLibrary: ObservableObject {
     /// Changes when an on-demand View Green asset lands so the app shell can rebuild its shared image
     /// geometry without making green.png part of the all-hole startup critical path.
     @Published public private(set) var lastGreenDetailKey: String?
+    @Published public private(set) var lastGarminImageKey: String?
     public private(set) var diagnosticErrorMessage: String?
     /// The active round's precise-map upgrade gave up its retries; the app restarts it when it comes
     /// back to the front.
@@ -1240,6 +1242,36 @@ public final class WatchCourseLibrary: ObservableObject {
         return template
     }
 
+    private func cacheGarminAssets(
+        package: WatchCoursePackage,
+        client: WatchBackendClient,
+        beforeEachRequest: (() async -> Void)?
+    ) async {
+        let holes = package.holes.filter { $0.garminRaster?.assetVersion?.isEmpty == false }
+        for start in stride(from: 0, to: holes.count, by: Self.courseAssetConcurrency) {
+            let batch = Array(holes[start..<min(start + Self.courseAssetConcurrency, holes.count)])
+            await withTaskGroup(of: (WatchCoursePackageHole, Data?).self) { group in
+                for hole in batch {
+                    guard let asset = hole.garminRaster, let version = asset.assetVersion else { continue }
+                    if imageStore.image(globalId: hole.sourceGlobalId, hole: hole.number, garminAssetVersion: version) != nil { continue }
+                    group.addTask {
+                        await beforeEachRequest?()
+                        let data = try? await client.fetchGarminAsset(asset, globalId: hole.sourceGlobalId, localHole: hole.sourceLocalHole)
+                        // WC/cache keeps one validated PNG/JPEG contract; Garmin's WebP alpha is preserved.
+                        return (hole, data.flatMap { UIImage(data: $0)?.pngData() })
+                    }
+                }
+                for await (hole, data) in group {
+                    guard let data, let version = hole.garminRaster?.assetVersion else { continue }
+                    do {
+                        try imageStore.store(data: data, globalId: hole.sourceGlobalId, hole: hole.number, garminAssetVersion: version)
+                        lastGarminImageKey = WatchHoleImageStore.key(globalId: hole.sourceGlobalId, hole: hole.number)
+                    } catch { /* Optional: precise downloads and the factual package continue. */ }
+                }
+            }
+        }
+    }
+
     private func fetchCourseDownload(
         _ selection: WatchCourseSelection,
         roundId: String,
@@ -1292,6 +1324,8 @@ public final class WatchCourseLibrary: ObservableObject {
             }
             return lightweight
         }
+
+        await cacheGarminAssets(package: package, client: client, beforeEachRequest: beforeEachRequest)
 
         var requestedByGlobalId: [Int: Set<Int>] = [:]
         var displayHoleByGlobalId: [Int: [Int: Int]] = [:]

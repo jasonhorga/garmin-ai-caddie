@@ -5,6 +5,34 @@ import WatchConnectivity
 @testable import AICaddieWatch
 
 final class WatchSyncClientTests: XCTestCase {
+    /// J4.5: asset types/versions cannot alias a precise map or erase a usable fallback.
+    func testGarminTransferValidatesIdentityAndKeepsPreviousOfflineBitmap() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = WatchHoleImageStore(directoryURL: directory)
+        let client = WatchSyncClient(queueURL: directory.appendingPathComponent("queue.json"), holeImageStore: store)
+        let data = try XCTUnwrap(Data(base64Encoded: WatchHoleMapSample.jpegBase64))
+        let file = directory.appendingPathComponent("received.img")
+        try data.write(to: file)
+        var metadata: [String: Any] = ["globalId": 42, "hole": 1, "assetKind": "garmin",
+            "styleVersion": WatchBackendClient.topoStyleVersion, "assetStyleVersion": "garmin-raster-v1"]
+        XCTAssertFalse(client.receiveHoleImage(fileURL: file, metadata: metadata), "J4.5: unversioned fallback is rejected")
+        metadata["assetVersion"] = "release-a"
+        XCTAssertTrue(client.receiveHoleImage(fileURL: file, metadata: metadata))
+        XCTAssertNotNil(store.garminImage(globalId: 42, hole: 1))
+        XCTAssertNil(store.image(globalId: 42, hole: 1))
+        metadata["assetKind"] = "unknown"
+        XCTAssertFalse(client.receiveHoleImage(fileURL: file, metadata: metadata))
+        metadata["assetKind"] = "garmin"
+        metadata["assetVersion"] = "release-b"
+        try Data("broken replacement".utf8).write(to: file)
+        XCTAssertFalse(client.receiveHoleImage(fileURL: file, metadata: metadata))
+        XCTAssertNotNil(store.garminImage(globalId: 42, hole: 1), "J4.5: corrupt replacement keeps last good Garmin")
+        XCTAssertNil(store.image(globalId: 42, hole: 1, garminAssetVersion: "release-b"))
+        XCTAssertThrowsError(try store.store(data: data, globalId: 42, hole: 1, garminAssetVersion: ""))
+        XCTAssertNil(store.image(globalId: 42, hole: 1), "J4.5: even invalid Garmin keys cannot write topo")
+    }
+
     func testHoleImageTransferRejectsMissingOrStaleRendererVersion() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
