@@ -307,6 +307,7 @@ public struct AICaddieWatchApp: App {
                 WatchRoundContainerView(
                     model: roundModel,
                     holeGeometry: activeHoleGeometry,
+                    holeImageStore: syncClient.holeImageStore,
                     watchGreenYards: watchGreenYards,
                     shotLocation: qualifiedWatchFix,
                     latestWatchFix: watchLocation.latestFix,
@@ -588,8 +589,7 @@ public struct AICaddieWatchApp: App {
         }
     }
 
-    /// The active hole uses a cached precise bitmap when present and otherwise keeps the factual
-    /// CourseView vectors visible while the same course/hole upgrades in place.
+    /// Precise geometry is independent of the Garmin bitmap fallback supplied by the image store.
     private var activeHoleGeometry: WatchHoleMapGeometry? {
         guard let s = roundModel.activeHoleState, let hm = s.holeMap else { return nil }
         let img = s.globalId.flatMap { gid in

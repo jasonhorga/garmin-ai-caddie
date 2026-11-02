@@ -574,7 +574,17 @@ public struct WatchCoursePackageCourse: Decodable, Equatable {
     }
 }
 
+/// The package supplies a versioned Garmin URL even before precise geometry is ready.
+public struct WatchGarminRasterAsset: Decodable, Equatable {
+    public let imageUrl: String
+
+    var assetVersion: String? {
+        URLComponents(string: imageUrl)?.queryItems?.first(where: { $0.name == "v" })?.value
+    }
+}
+
 public struct WatchCoursePackageHole: Decodable, Equatable {
+    public let garminRaster: WatchGarminRasterAsset?
     public let number: Int
     public let par: Int
     public let yards: Int?

@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddieWatch/Views/WatchGreenPreviewView.swift b/mobile/ios/AICaddieWatch/Views/WatchGreenPreviewView.swift
+index 781b9f0a..94c33479 100644
+--- a/mobile/ios/AICaddieWatch/Views/WatchGreenPreviewView.swift
++++ b/mobile/ios/AICaddieWatch/Views/WatchGreenPreviewView.swift
+@@ -739,8 +739,6 @@ public struct WatchGreenPreviewView: View {
+             including: edgeBackEnabled ? .all : .subviews
+         )
+         .accessibilityAction(named: Text("返回菜单"), onBack)
+-        .onChange(of: sourceGeometry.image) { _, _ in retainedGeometry = geometry }
+-        .onChange(of: sourceGeometry.greenDetailImage) { _, _ in retainedGeometry = geometry }
+     }
+ 
+     @ViewBuilder

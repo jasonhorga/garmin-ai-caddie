@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
+index 3f2bdcb5..08f9c6c5 100644
+--- a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
++++ b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
+@@ -996,7 +996,7 @@ public final class WatchRoundModel: ObservableObject {
+                 hole: merged.hole,
+                 sourceLocalHole: merged.sourceLocalHole ?? previous.sourceLocalHole,
+                 courseHoleNumber: merged.courseHoleNumber ?? previous.courseHoleNumber,
+-                garminAssetVersion: merged.garminAssetVersion ?? previous.garminAssetVersion
++                garminAssetVersion: merged.garminAssetVersion
+             )
+         }
+         guard var persisted = try? store.upsertHoleState(merged, makeActive: false) else {

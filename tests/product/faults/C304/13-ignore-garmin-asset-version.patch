@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddieWatch/Services/WatchHoleImageStore.swift b/mobile/ios/AICaddieWatch/Services/WatchHoleImageStore.swift
+index a498d967..9c5b55c1 100644
+--- a/mobile/ios/AICaddieWatch/Services/WatchHoleImageStore.swift
++++ b/mobile/ios/AICaddieWatch/Services/WatchHoleImageStore.swift
+@@ -77,7 +77,7 @@ public final class WatchHoleImageStore {
+     #if canImport(UIKit)
+     /// Versioned Garmin lookup keyed by the physical course hole and the package's exact release.
+     public func garminImage(globalId: Int, localHole: Int, assetVersion: String) -> UIImage? {
+-        image(globalId: globalId, hole: localHole, garminAssetVersion: assetVersion)
++        garminImage(globalId: globalId, hole: localHole)
+     }
+ 
+     public func garminImage(globalId: Int, hole: Int) -> UIImage? {

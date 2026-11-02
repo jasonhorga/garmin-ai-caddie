@@ -1,0 +1,110 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C304-01-reject-garmin-transfer",
+      "patch": "tests/product/faults/C304/01-reject-garmin-transfer.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testReceivedGarminBitmapReachesRootWithoutReplacingPreciseCache",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-02-disconnect-root-garmin",
+      "patch": "tests/product/faults/C304/02-disconnect-root-garmin.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testReceivedGarminBitmapReachesRootWithoutReplacingPreciseCache",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-03-skip-download-fallback",
+      "patch": "tests/product/faults/C304/03-skip-download-fallback.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchCourseDownloadTests/testDownloadCachesVersionedGarminBeforePreciseGeometryExists",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-04-phone-skips-fallback",
+      "patch": "tests/product/faults/C304/04-phone-skips-fallback.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/WatchTopoSenderTests/testGarminTransfersIndependentlyOfMissingTopoAndPreciseArrivesLater",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-05-remove-root-onchange",
+      "patch": "tests/product/faults/C304/05-remove-root-onchange.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testLiveBitmapUpdatesRetainRootGreenAndHazardImages",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-06-remove-green-onchange",
+      "patch": "tests/product/faults/C304/06-remove-green-onchange.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testLiveBitmapUpdatesRetainRootGreenAndHazardImages",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-07-remove-hazard-onchange",
+      "patch": "tests/product/faults/C304/07-remove-hazard-onchange.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testLiveBitmapUpdatesRetainRootGreenAndHazardImages",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-08-contour-over-waiting-map",
+      "patch": "tests/product/faults/C304/08-contour-over-waiting-map.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testHazardWaitingTransformNeverDrawsContour",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-09-notice-overlaps-facts",
+      "patch": "tests/product/faults/C304/09-notice-overlaps-facts.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testGarminRootNoticeAvoidsFactsAndControlRail",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-10-collapse-garmin-versions",
+      "patch": "tests/product/faults/C304/10-collapse-garmin-versions.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchCourseDownloadTests/testDownloadCachesVersionedGarminBeforePreciseGeometryExists",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-11-disconnect-production-cache-loader",
+      "patch": "tests/product/faults/C304/11-disconnect-production-cache-loader.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/WatchTopoSenderTests/testProductionGarminLoaderReadsDownloadedExportByPhysicalHole",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-12-round-hole-garmin-cache",
+      "patch": "tests/product/faults/C304/12-round-hole-garmin-cache.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchCourseDownloadTests/testDownloadCachesVersionedGarminBeforePreciseGeometryExists",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-13-ignore-garmin-asset-version",
+      "patch": "tests/product/faults/C304/13-ignore-garmin-asset-version.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchCourseDownloadTests/testDownloadCachesVersionedGarminBeforePreciseGeometryExists",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-14-seed-omits-garmin-version",
+      "patch": "tests/product/faults/C304/14-seed-omits-garmin-version.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/WatchEventBridgeTests/testGarminVersionTravelsInPhoneSeedAndEveryHoleSnapshot",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-15-snapshot-erases-garmin-version",
+      "patch": "tests/product/faults/C304/15-snapshot-erases-garmin-version.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testReceivedGarminBitmapReachesRootWithoutReplacingPreciseCache",
+      "promise": "J4.5"
+    }
+  ]
+}

@@ -266,6 +266,7 @@ public enum WatchCourseTemplateBuilder {
                 holeImageProjection: projection,
                 globalId: globalId,
                 sourceLocalHole: localHole,
+                garminAssetVersion: hole.garminRaster?.assetVersion,
                 courseHoleNumber: hole.courseHoleNumber,
                 holeMap: holeMap,
                 fairwayOutline: prep?.fairwayOutline,

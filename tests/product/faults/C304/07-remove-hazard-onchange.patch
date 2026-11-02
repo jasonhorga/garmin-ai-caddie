@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddieWatch/Views/WatchHazardMapView.swift b/mobile/ios/AICaddieWatch/Views/WatchHazardMapView.swift
+index cbf52d58..b25c787f 100644
+--- a/mobile/ios/AICaddieWatch/Views/WatchHazardMapView.swift
++++ b/mobile/ios/AICaddieWatch/Views/WatchHazardMapView.swift
+@@ -314,7 +314,6 @@ public struct WatchHazardMapView: View {
+         }
+         .background(Color.black)
+         .task(id: display) { displayReporter?(display) }
+-        .onChange(of: sourceGeometry.image) { _, _ in retainedGeometry = geometry }
+         .onChange(of: viewport.isZoomed) { _, zoomed in
+             frozenFrame = zoomed && !upcoming.isEmpty ? frame(for: upcoming[selectedIndex]) : nil
+         }

@@ -298,15 +298,6 @@ public struct WatchHazardMapView: View {
         selection = (selectedIndex + 1) % upcoming.count
     }
 
-    #if DEBUG
-    /// Seed the same per-hole retained bitmap state used by a transient nil update.
-    func snapshottingRetainedGeometry(_ geometry: WatchHoleMapGeometry) -> Self {
-        var snapshot = self
-        snapshot._retainedGeometry = State(initialValue: geometry)
-        return snapshot
-    }
-    #endif
-
     public var body: some View {
         GeometryReader { geo in
             switch display {
@@ -357,29 +348,16 @@ public struct WatchHazardMapView: View {
         let focusPoint = base.focus
         let scale = base.scale
 
+        let map = backgroundMap(focusPoint: focusPoint, scale: scale)
         return ZStack {
-            WatchHoleMapView(
-                frontGreen: nil,
-                centerGreen: centerGreenYards,
-                backGreen: nil,
-                lastShot: 0,
-                ringPips: [],
-                showTextOverlay: false,
-                showHoleIdentity: false,
-                fullMap: true,
-                mapScale: scale,
-                fullMapFocusImagePx: focusPoint,
-                fullMapFocusCanvasFraction: CGPoint(x: 0.52, y: 0.52),
-                geometry: geometry,
-                userZoom: viewport.zoom,
-                userPan: viewport.pan
-            )
-            .allowsHitTesting(false)
+            map
+                .allowsHitTesting(false)
 
             Canvas { context, canvasSize in
                 drawHazard(
                     &context,
                     size: canvasSize,
+                    displayState: map.mapDisplayState(in: canvasSize),
                     hazard: hazard,
                     startMetres: startMetres,
                     endMetres: endMetres,
@@ -393,16 +371,36 @@ public struct WatchHazardMapView: View {
         }
     }
 
+    private func backgroundMap(focusPoint: CGPoint, scale: CGFloat) -> WatchHoleMapView {
+        return WatchHoleMapView(
+            frontGreen: nil,
+            centerGreen: centerGreenYards,
+            backGreen: nil,
+            lastShot: 0,
+            ringPips: [],
+            showTextOverlay: false,
+            showHoleIdentity: false,
+            fullMap: true,
+            mapScale: scale,
+            fullMapFocusImagePx: focusPoint,
+            fullMapFocusCanvasFraction: CGPoint(x: 0.52, y: 0.52),
+            geometry: geometry,
+            userZoom: viewport.zoom,
+            userPan: viewport.pan
+        )
+    }
+
     private func drawHazard(
         _ context: inout GraphicsContext,
         size: CGSize,
+        displayState: WatchHoleMapView.MapDisplayState,
         hazard: WatchHazard,
         startMetres: Double,
         endMetres: Double,
         scale: CGFloat,
         focusPoint: CGPoint
     ) {
-        guard geometry.hasUsableBitmap else { return }
+        guard displayState == .precise else { return }
         let focusCanvas = CGPoint(x: size.width * 0.52 + viewport.pan.width,
                                   y: size.height * 0.52 + viewport.pan.height)
         func canvas(_ point: CGPoint) -> CGPoint {

@@ -285,8 +285,12 @@ final class GarminRasterImageStore: ObservableObject {
 
     private static func image(for url: URL) async -> LoadResult {
         let key = url as NSURL
-        if let cached = imageCache.object(forKey: key) { return LoadResult(image: cached, versionConflict: false) }
+        if let cached = imageCache.object(forKey: key) {
+            try? WatchGarminAssetCache().store(cached, for: url)
+            return LoadResult(image: cached, versionConflict: false)
+        }
         if let disk = diskImage(for: url) {
+            try? WatchGarminAssetCache().store(disk, for: url)
             imageCache.setObject(disk, forKey: key, cost: cost(of: disk))
             return LoadResult(image: disk, versionConflict: false)
         }
@@ -339,6 +343,7 @@ final class GarminRasterImageStore: ObservableObject {
     }
 
     private static func save(_ data: Data, for url: URL) {
+        try? WatchGarminAssetCache().store(data, for: url)
         let destination = diskURL(for: url)
         do {
             try FileManager.default.createDirectory(

@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddieWatch/Services/WatchSyncClient.swift b/mobile/ios/AICaddieWatch/Services/WatchSyncClient.swift
+index 111c59cc..628a6e6f 100644
+--- a/mobile/ios/AICaddieWatch/Services/WatchSyncClient.swift
++++ b/mobile/ios/AICaddieWatch/Services/WatchSyncClient.swift
+@@ -799,7 +799,7 @@ extension WatchSyncClient: WCSessionDelegate {
+             return false
+         }
+         let kind = meta["assetKind"] as? String ?? "topo"
+-        guard ["topo", "green-detail", "garmin"].contains(kind) else { return false }
++        guard ["topo", "green-detail"].contains(kind) else { return false }
+         let detail = kind == "green-detail"
+         let garmin = kind == "garmin"
+         let assetVersion = (meta["assetVersion"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)

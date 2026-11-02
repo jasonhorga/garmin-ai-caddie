@@ -369,6 +369,7 @@ public struct WatchRoundSeedHole: Codable, Equatable {
     /// Physical hole and the course's printed number (B4b-2); `hole` stays the round hole.
     public let localHole: Int?
     public let courseHoleNumber: Int?
+    public let garminAssetVersion: String?
 
     public init(
         hole: Int,
@@ -378,7 +379,8 @@ public struct WatchRoundSeedHole: Codable, Equatable {
         teeLongitude: Double? = nil,
         globalId: Int? = nil,
         localHole: Int? = nil,
-        courseHoleNumber: Int? = nil
+        courseHoleNumber: Int? = nil,
+        garminAssetVersion: String? = nil
     ) {
         self.hole = hole
         self.par = par
@@ -388,6 +390,7 @@ public struct WatchRoundSeedHole: Codable, Equatable {
         self.globalId = globalId
         self.localHole = localHole
         self.courseHoleNumber = courseHoleNumber
+        self.garminAssetVersion = garminAssetVersion
     }
 }
 
@@ -594,6 +597,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     /// Composite rounds display holes 10...18 while their source request uses local holes 1...9.
     /// Retaining that source key lets on-demand focused assets use the correct backend endpoint.
     public let sourceLocalHole: Int?
+    /// Exact Garmin release for this physical hole. A missing version means no Garmin fallback is
+    /// authoritative for this round row; the renderer must stay on neutral waiting.
+    public let garminAssetVersion: String?
     /// The course's printed hole number (B4b-2 §2): the physical hole for a half of an 18-hole course
     /// (`G:back` round hole 1 → 10), the round number for a nine-hole loop. Every hole number the
     /// Watch shows uses ``displayHoleNumber``; `hole` stays the round coordinate for events,
@@ -655,6 +661,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case holeImageProjection
         case globalId
         case sourceLocalHole
+        case garminAssetVersion
         case courseHoleNumber
         case holeMap
         case fairwayOutline
@@ -718,6 +725,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         holeImageProjection: WatchHoleImageProjection? = nil,
         globalId: Int? = nil,
         sourceLocalHole: Int? = nil,
+        garminAssetVersion: String? = nil,
         courseHoleNumber: Int? = nil,
         holeMap: WatchHoleMap? = nil,
         fairwayOutline: FairwayOutline? = nil,
@@ -779,6 +787,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.holeImageProjection = holeImageProjection
         self.globalId = globalId
         self.sourceLocalHole = sourceLocalHole
+        self.garminAssetVersion = garminAssetVersion
         self.courseHoleNumber = courseHoleNumber
         self.holeMap = holeMap
         self.fairwayOutline = fairwayOutline
@@ -841,6 +850,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.holeImageProjection = try container.decodeIfPresent(WatchHoleImageProjection.self, forKey: .holeImageProjection)
         self.globalId = try container.decodeIfPresent(Int.self, forKey: .globalId)
         self.sourceLocalHole = try container.decodeIfPresent(Int.self, forKey: .sourceLocalHole)
+        self.garminAssetVersion = try container.decodeIfPresent(String.self, forKey: .garminAssetVersion)
         // Absent in rounds/templates written before B4b-2 §2. Decoding stays exact (no invented
         // value); the model fills it from the round's loop key and `displayHoleNumber` derives
         // only what the hole alone proves.
@@ -901,7 +911,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         _ newRoundId: String,
         hole newHole: Int,
         sourceLocalHole newSourceLocalHole: Int?,
-        courseHoleNumber newCourseHoleNumber: Int?
+        courseHoleNumber newCourseHoleNumber: Int?,
+        garminAssetVersion newGarminAssetVersion: String? = nil
     ) -> WatchRoundState {
         WatchRoundState(
             roundId: newRoundId,
@@ -939,6 +950,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             holeImageProjection: holeImageProjection,
             globalId: globalId,
             sourceLocalHole: newSourceLocalHole,
+            garminAssetVersion: newGarminAssetVersion ?? garminAssetVersion,
             courseHoleNumber: newCourseHoleNumber,
             holeMap: holeMap,
             fairwayOutline: fairwayOutline,
@@ -1025,6 +1037,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             holeImageProjection: replacesGeometryAuthority ? upgraded.holeImageProjection : (upgraded.holeImageProjection ?? holeImageProjection),
             globalId: upgraded.globalId ?? globalId,
             sourceLocalHole: upgraded.sourceLocalHole ?? sourceLocalHole,
+            garminAssetVersion: upgraded.garminAssetVersion ?? garminAssetVersion,
             courseHoleNumber: upgraded.courseHoleNumber ?? courseHoleNumber,
             holeMap: replacesGeometryAuthority ? upgraded.holeMap : (upgraded.holeMap ?? holeMap),
             fairwayOutline: replacesGeometryAuthority ? upgraded.fairwayOutline : (upgraded.fairwayOutline ?? fairwayOutline),
@@ -1118,6 +1131,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             holeImageProjection: holeImageProjection,
             globalId: globalId,
             sourceLocalHole: sourceLocalHole,
+            garminAssetVersion: garminAssetVersion,
             courseHoleNumber: courseHoleNumber,
             holeMap: holeMap,
             fairwayOutline: fairwayOutline,

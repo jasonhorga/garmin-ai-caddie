@@ -50,6 +50,41 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(seed.holes.first?.distanceM), 374.904, accuracy: 0.001)
     }
 
+    /// J4.5: phone seed, per-hole snapshots and WC transfer use the same Garmin release.
+    @MainActor
+    func testGarminVersionTravelsInPhoneSeedAndEveryHoleSnapshot() throws {
+        let base = try fixturePackage()
+        var object = try XCTUnwrap(try Self.jsonObject(from: base) as? [String: Any])
+        var holes = try XCTUnwrap(object["holes"] as? [[String: Any]])
+        // Distinct releases per physical hole catch accidentally using the active/first hole.
+        for index in holes.indices {
+            holes[index]["garminRaster"] = [
+                "imageUrl": "/api/v2/courses/31795/holes/\(index + 1)/garmin-raster.webp?v=release-\(index + 1)",
+                "metadataUrl": "/garmin-metadata.json"
+            ]
+        }
+        object["holes"] = holes
+        let package = try JSONDecoder().decode(LiveRoundPackage.self,
+            from: JSONSerialization.data(withJSONObject: object))
+        let bridge = WatchEventBridge()
+        let seed = bridge.makeWatchRoundSeedPayload(package: package, activeHole: 1)
+        let seedObject = try XCTUnwrap(try Self.jsonObject(from: seed) as? [String: Any])
+        let seedHoles = try XCTUnwrap(seedObject["holes"] as? [[String: Any]])
+        let transfers = WatchTopoSender.plan(for: package)
+        for (index, hole) in package.holes.enumerated() {
+            let expected = "release-\(index + 1)"
+            XCTAssertEqual(seedHoles[index]["garminAssetVersion"] as? String, expected,
+                "J4.5: phone seed carries this physical hole's Garmin release")
+            let snapshot = bridge.makeWatchRoundStatePayload(package: package, hole: hole,
+                score: 0, putts: 0, penaltyCount: 0, selectedClub: nil, decision: nil)
+            let snapshotObject = try XCTUnwrap(try Self.jsonObject(from: snapshot) as? [String: Any])
+            XCTAssertEqual(snapshotObject["garminAssetVersion"] as? String, expected,
+                "J4.5: every phone snapshot carries this hole's Garmin release")
+            XCTAssertEqual(transfers[index].garminAssetVersion, expected,
+                "J4.5: WC transfer and state use the identical release")
+        }
+    }
+
     func testWatchRoundClosurePublishesTypedDisposition() throws {
         let bridge = WatchEventBridge()
         var received: WatchRoundClosurePayload?

@@ -1,0 +1,20 @@
+diff --git a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
+index 3b2043d1..9ce1f9c4 100644
+--- a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
++++ b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
+@@ -1196,15 +1196,6 @@ public struct WatchHoleMapView: View {
+                 previous: retainedMapDisplayState
+             )
+         }
+-        .onChange(of: mapInputKey) { _, _ in
+-            retainedPreciseImage = availablePreciseImage
+-            retainedGarminImage = availableGarminImage
+-            retainedMapDisplayState = Self.resolveMapDisplayState(
+-                preciseImageReady: availablePreciseImage != nil,
+-                garminImageReady: availableGarminImage != nil,
+-                previous: retainedMapDisplayState
+-            )
+-        }
+         .onDisappear {
+             measuredDragLocation = nil
+             isDraggingMeasuredPoint = false

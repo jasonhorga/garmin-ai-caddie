@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
+index 3b2043d1..4c344f34 100644
+--- a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
++++ b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
+@@ -1090,7 +1090,7 @@ public struct WatchHoleMapView: View {
+ 
+     static func rootGarminNoticeFrame(in size: CGSize) -> CGRect {
+         let safe = WatchDisplayGeometry.contentRect(in: size)
+-        let left = rootFactsFrame(in: size).maxX + 4
++        let left: CGFloat = 0
+         return CGRect(x: left, y: size.height * 0.30,
+             width: max(1, safe.maxX - left), height: 42)
+     }

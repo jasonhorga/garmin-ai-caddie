@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Services/WatchEventBridge.swift b/mobile/ios/AICaddie/Services/WatchEventBridge.swift
+index 2a636df5..426d71d7 100644
+--- a/mobile/ios/AICaddie/Services/WatchEventBridge.swift
++++ b/mobile/ios/AICaddie/Services/WatchEventBridge.swift
+@@ -759,7 +759,7 @@ public final class WatchEventBridge: NSObject {
+                         globalId: hole.sourceGlobalId,
+                         localHole: hole.sourceLocalHole,
+                         courseHoleNumber: hole.courseHoleNumber,
+-                        garminAssetVersion: Self.garminAssetVersion(for: hole)
++                        garminAssetVersion: nil
+                     )
+                 },
+             globalId: package.course.globalId,

@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddieWatch/Services/WatchCourseLibrary.swift b/mobile/ios/AICaddieWatch/Services/WatchCourseLibrary.swift
+index 21f9f2f4..f49a4bd5 100644
+--- a/mobile/ios/AICaddieWatch/Services/WatchCourseLibrary.swift
++++ b/mobile/ios/AICaddieWatch/Services/WatchCourseLibrary.swift
+@@ -1325,7 +1325,6 @@ public final class WatchCourseLibrary: ObservableObject {
+             return lightweight
+         }
+ 
+-        await cacheGarminAssets(package: package, client: client, beforeEachRequest: beforeEachRequest)
+ 
+         var requestedByGlobalId: [Int: Set<Int>] = [:]
+         var displayHoleByGlobalId: [Int: [Int: Int]] = [:]

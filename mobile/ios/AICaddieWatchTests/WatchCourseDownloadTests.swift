@@ -4,6 +4,59 @@ import AICaddieDomain
 
 @MainActor
 final class WatchCourseDownloadTests: XCTestCase {
+    /// J4.5/J4.2: downloading a Garmin fallback does not depend on precise prep succeeding.
+    func testDownloadCachesVersionedGarminBeforePreciseGeometryExists() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let images = WatchHoleImageStore(directoryURL: directory)
+        let bytes = try XCTUnwrap(WatchHoleMapSample.geometry.image?.pngData())
+        let package = WatchPackageFixture.packageData(roundId: "fallback", course: #"{"globalId":42,"name":"测试球场","teeBox":"Blue"}"#,
+            loops: [.init(42, "back")], overrides: [1: #"{"number":1,"par":4,"sourceGlobalId":42,"sourceLocalHole":10,"courseHoleNumber":10,"garminRaster":{"imageUrl":"/api/v2/courses/42/holes/10/garmin-raster.webp?v=release-a","metadataUrl":"/api/v2/courses/42/holes/10/garmin-raster"}}"#])
+        var rasterRequests = 0
+        let library = WatchCourseLibrary(store: WatchCourseStore(directoryURL: directory), imageStore: images,
+            makeRoundId: { "fallback" }, clientFactory: { config in
+                WatchBackendClient(baseURL: config.baseURL, dataLoader: { request in
+                    let url = try XCTUnwrap(request.url)
+                    let isPackage = url.path.hasSuffix("/package")
+                    let isRaster = url.path.hasSuffix("/10/garmin-raster.webp")
+                    if isRaster {
+                        rasterRequests += 1
+                        XCTAssertEqual(url.query, "v=release-a", "J4.5: fetch the package's exact asset version")
+                        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+                    }
+                    let data = isPackage ? package : (isRaster ? bytes : Data())
+                    return (data, HTTPURLResponse(url: url, statusCode: isPackage || isRaster ? 200 : 503,
+                        httpVersion: nil, headerFields: nil)!)
+                }, retrySleep: { _ in })
+            }, retrySleep: { _ in })
+        let selection = WatchCourseSelection(front: WatchCourseOption(globalId: 42, name: "测试球场", holes: 18, teeBox: "Blue"),
+            teeBox: "Blue", firstHalf: "back")
+        let prepared = await library.startCourse(selection, config: WatchRoundConfig(baseURL: URL(string: "https://caddie.example")!, adminToken: nil))
+        XCTAssertNotNil(prepared)
+        await library.waitForWholeCourseTemplateInstalls()
+        _ = await library.upgradeCourseWhenReady(selection, roundId: "fallback",
+            config: WatchRoundConfig(baseURL: URL(string: "https://caddie.example")!, adminToken: nil), onProgress: { _ in })
+        XCTAssertEqual(rasterRequests, 1, "J4.5: the download caches Garmin independently across precise retries")
+        XCTAssertNotNil(images.image(globalId: 42, hole: 10, garminAssetVersion: "release-a"),
+            "B1: physical hole 10 is cached under its physical identity")
+        XCTAssertNil(images.image(globalId: 42, hole: 1, garminAssetVersion: "release-a"),
+            "B1: a back-nine round hole must not alias physical hole 1")
+        XCTAssertNil(images.image(globalId: 42, hole: 1), "J4.5: fallback never becomes precise")
+        XCTAssertNil(images.image(globalId: 42, hole: 1, garminAssetVersion: "release-b"), "J4.5: versions remain independent")
+        XCTAssertNotNil(images.garminImage(globalId: 42, localHole: 10, assetVersion: "release-a"),
+            "B1: exact physical hole and version resolve the Garmin asset")
+        XCTAssertNil(images.garminImage(globalId: 42, localHole: 10, assetVersion: "release-b"),
+            "B1: a different asset version cannot reuse the old Garmin pixels")
+
+        // Garmin asset versions can repeat across physical holes. Each physical key must remain
+        // independent even when both holes use the same release string.
+        try images.store(data: bytes, globalId: 42, hole: 1, garminAssetVersion: "release-a")
+        XCTAssertNotNil(images.image(globalId: 42, hole: 10, garminAssetVersion: "release-a"))
+        XCTAssertNotNil(images.image(globalId: 42, hole: 1, garminAssetVersion: "release-a"))
+        XCTAssertNotNil(prepared?.holeStates.first?.garminAssetVersion,
+            "B1: the round package carries the current hole's Garmin version")
+    }
+
     func testBackendGarminVenueIsSharedBySearchAndWatchOption() {
         let match = WatchCourseSearchMatch(
             globalId: 42_004,
