@@ -480,7 +480,8 @@ class StartRoundPagesAcceptanceTests(unittest.TestCase):
         )
         for modifier in (
             r'\.navigationTitle\(\s*"开始一场"\s*\)',
-            r"\.task\(\s*id:\s*courseGlobalIdText\s*\)",
+            # C162 r3: tee lookup is keyed by page + course id so it reruns when setup opens.
+            r"\.task\(\s*id:\s*Self\.teeLookupKey\(\s*page:\s*page\s*,\s*globalIdText:\s*courseGlobalIdText\s*\)\s*\)",
             r"\.task\(\s*id:\s*nearbyDiscoveryTaskKey\s*\)",
             r"\.sheet\(\s*isPresented:\s*\$showingCourseSearch\s*\)",
         ):

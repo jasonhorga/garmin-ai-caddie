@@ -1,0 +1,9 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 9bdf3bdc..d64e9aa9 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -236,3 +236,3 @@ public struct StartRoundView: View {
+     static func nearbyDelayMilliseconds(_ delay: UInt64, radiusKm: Int) -> UInt64 {
+-        radiusKm <= nearbyInitialRadiusKm ? delay : 0
++        delay
+     }

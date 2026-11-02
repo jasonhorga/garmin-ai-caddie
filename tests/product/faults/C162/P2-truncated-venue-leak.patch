@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_live.py b/ai_caddie/caddie/mobile_live.py
+index 34088d19..b98695c4 100644
+--- a/ai_caddie/caddie/mobile_live.py
++++ b/ai_caddie/caddie/mobile_live.py
+@@ -696,7 +696,7 @@ def build_mobile_course_options(
+     retained: list[dict[str, Any]] = []
+     for course in courses:
+         key = str(course["venueName"]).casefold()
+-        if key not in retained_venues and len(retained_venues) >= COURSE_OPTION_LIMIT:
++        if False:
+             continue
+         retained_venues.add(key)
+         retained.append(course)

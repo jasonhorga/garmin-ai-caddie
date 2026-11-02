@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -1490,6 +1490,3 @@
+         if recent?.globalId == selected.globalId {
+-            return firstNonEmptyList([
+-                catalogue.first { $0.globalId == selected.globalId }?.tees,
+-                downloaded.first { $0.globalId == selected.globalId }?.tees,
+-            ]) ?? []
++            return selected.tees ?? []
+         }

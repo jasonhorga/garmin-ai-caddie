@@ -1,0 +1,9 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 9bdf3bdc..02c7e6ae 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -586,3 +586,3 @@ public struct StartRoundView: View {
+         // A remembered Tee is a default selection, not a completed catalogue lookup.
+-        setLoading(true)
++        setLoading(false)
+         setFailed(false)

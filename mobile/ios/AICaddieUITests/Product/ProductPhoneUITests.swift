@@ -21,7 +21,13 @@ final class ProductPhoneUITests: XCTestCase {
 
     private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
 
-    private func launch(reset: Bool = true, latitude: String? = nil) {
+    private func launch(
+        reset: Bool = true,
+        latitude: String? = nil,
+        teeDelayMS: String? = nil,
+        forceNetworkFailure: Bool = false,
+        forceCourseTeesFailure: Bool = false
+    ) {
         app.launchEnvironment = [
             "UITEST_MODE": "1", "AI_CADDIE_FIXTURE_MODE": "1", "AI_CADDIE_DATA_MODE": "fixture",
             "AI_CADDIE_ADMIN_TOKEN": "synthetic-ui-only", "AI_CADDIE_API_BASE_URL": server.baseURL.absoluteString,
@@ -36,6 +42,9 @@ final class ProductPhoneUITests: XCTestCase {
             app.launchEnvironment["UITEST_GPS_LAT"] = latitude
             app.launchEnvironment["UITEST_GPS_LON"] = "0"
         } else { app.launchEnvironment["UITEST_LOCATION_AUTHORIZATION"] = "denied" }
+        if let teeDelayMS { app.launchEnvironment["UITEST_COURSE_TEES_DELAY_MS"] = teeDelayMS }
+        if forceNetworkFailure { app.launchEnvironment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] = "1" }
+        if forceCourseTeesFailure { app.launchEnvironment["UITEST_FORCE_COURSE_TEES_FAILURE"] = "1" }
         launchedWithFix = latitude != nil
         app.launch()
         XCTAssertTrue(
@@ -43,6 +52,36 @@ final class ProductPhoneUITests: XCTestCase {
                 || element("home-in-progress-round").waitForExistence(timeout: 15),
             "synthetic home bootstrapped"
         )
+    }
+
+    /// J4.2: a delayed or failed /tees request keeps the known Tee chip beside its status action.
+    func test_j4_2_teeLoadingAndRetryKeepKnownRowsVisible() {
+        launch(latitude: "0", teeDelayMS: "1500")
+        XCTAssertTrue(UITapHelpers.tapAndWaitForElements(
+            element("home-new-round"), app: app,
+            destinations: [app.navigationBars["开始一场"]], timeout: 30,
+            diagnosticName: "home-new-round-tee-loading"
+        ))
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "start-round-venue-")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        row.tap()
+        XCTAssertTrue(element("start-round-loading-course-tees").waitForExistence(timeout: 2))
+        XCTAssertTrue(element("start-round-tee-blue").waitForExistence(timeout: 5), "known Tee stays visible while loading")
+        app.terminate()
+
+        launch(reset: false, latitude: "0", forceCourseTeesFailure: true)
+        XCTAssertTrue(UITapHelpers.tapAndWaitForElements(
+            element("home-new-round"), app: app,
+            destinations: [app.navigationBars["开始一场"]], timeout: 30,
+            diagnosticName: "home-new-round-tee-retry"
+        ))
+        let retryRow = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "start-round-venue-")).firstMatch
+        XCTAssertTrue(retryRow.waitForExistence(timeout: 15))
+        retryRow.tap()
+        XCTAssertTrue(element("start-round-retry-course-tees").waitForExistence(timeout: 15))
+        XCTAssertTrue(element("start-round-tee-blue").waitForExistence(timeout: 5), "known Tee stays visible after failure")
+        XCTAssertEqual(element("start-round-tee-blue").value as? String, "已选择")
+        XCTAssertTrue(element("start-round-primary-action").isEnabled, "known Tee remains startable after failure")
     }
 
     private func reveal(_ target: XCUIElement) {

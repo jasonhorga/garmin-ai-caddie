@@ -1,0 +1,7 @@
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -1416,3 +1416,3 @@
+     ) -> Bool {
+-        teeLoadFailed && fetchedTees.isEmpty
++        requiresRemoteTees && teeLoadFailed && fetchedTees.isEmpty && courseTees.isEmpty
+     }
