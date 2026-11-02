@@ -48,6 +48,38 @@ def _save_course_par(root: Path, global_id: int, pars: str) -> None:
 
 
 class MobileReconciliationTests(unittest.TestCase):
+    def test_j1_3_late_unmerged_card_invalidates_restore_for_loop_statistics(self) -> None:
+        """J1.3: a later real card wins even when it is too short to merge with the restore."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = {
+                "id": "restore-first", "globalId": 55555, "frontNineGlobalCourseId": 55555,
+                "holesCompleted": 9,
+                "strokes": 45, "par": 36, "holePars": "4" * 18,
+                "holes": [{"number": n, "strokes": 5, "par": 4} for n in range(1, 10)],
+            }
+            late = {
+                "id": "late-eight", "globalId": 55555, "frontNineGlobalCourseId": 55555,
+                "holesCompleted": 8,
+                "strokes": 40, "par": 32, "holePars": "4" * 18,
+                "holes": [{"number": n, "strokes": 5, "par": 4} for n in range(10, 18)],
+            }
+            for number in range(10, 19):
+                add_annotation(
+                    "hole", f"restore-first:{number}", "score_correction",
+                    {"to": 5, "restore": True, "restoreGlobalId": 55555,
+                     "restoreLocalHole": number}, root=root,
+                )
+            data = HistoryData(raw_rounds=[], rounds=[first, late], shots=[])
+            corrected = corrected_history_data(data, annotations_root=root, course_root=root)
+            loops = _round_breakdowns(corrected)
+            back = next(loop for loop in loops["loops"] if loop["loopKey"] == "gid:55555:10-18")
+            samples = {hole["hole"]: hole["samples"] for hole in back["holes"]}
+            # The late eight-hole Garmin card is authoritative for 10..17; the restore must
+            # not leave a second sample in the same physical loop.
+            self.assertEqual(samples[10], 1)
+            self.assertEqual(samples[18], 1)
+
     def test_j1_3_missing_garmin_card_restores_scores_end_to_end(self) -> None:
         # J1.3: a saved physical identity lets missing Garmin holes be restored from mobile scores.
         # The hand-written oracle is 18 holes of five strokes; the Garmin card contains only 1..9.

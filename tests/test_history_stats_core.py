@@ -543,6 +543,30 @@ def player_profile_history_data() -> HistoryData:
 
 
 class HistoryStatsCoreTests(unittest.TestCase):
+    def test_j2_1_restore_round_with_nine_hole_rating_is_excluded_from_differential(self) -> None:
+        # J2.1: a restored 18-hole row carrying a 9-hole rating is not a priced differential.
+        row = {
+            "id": "restore-differential", "date": "2026-06-01", "course": "Restore",
+            "courseKey": "restore", "holesCompleted": 18, "strokes": 90, "par": 72,
+            "rating": 35.2, "slope": 113, "_scoreCorrected": True, "holes": [],
+        }
+        stats = build_history_stats(HistoryData(raw_rounds=[row], rounds=[row], shots=[]), data_mode="fixture")
+        difficulty = stats["summary"]["difficultyAdjusted"]
+        self.assertEqual(difficulty["ratedRoundCount"], 0)
+        self.assertIsNone(difficulty["averageDifferential"])
+
+    def test_j2_1_merged_round_with_nine_hole_rating_is_excluded_from_differential(self) -> None:
+        # J2.1: the same rating guard applies to a Garmin merged 9+9 round.
+        row = {
+            "id": "merged-differential", "date": "2026-06-02", "course": "Merged",
+            "courseKey": "merged", "holesCompleted": 18, "strokes": 90, "par": 72,
+            "rating": 35.2, "slope": 113, "merged": True, "holes": [],
+        }
+        stats = build_history_stats(HistoryData(raw_rounds=[row], rounds=[row], shots=[]), data_mode="fixture")
+        difficulty = stats["summary"]["difficultyAdjusted"]
+        self.assertEqual(difficulty["ratedRoundCount"], 0)
+        self.assertIsNone(difficulty["averageDifferential"])
+
     def test_stats_cover_required_dimensions(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")
 

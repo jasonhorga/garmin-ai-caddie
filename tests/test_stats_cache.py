@@ -12,6 +12,7 @@ which ignores pytest fixtures/conftest.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import tempfile
@@ -87,6 +88,17 @@ class StatsCacheTests(unittest.TestCase):
             second = stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
             self.assertEqual(second, first)
             self.assertEqual(calls["n"], 1)
+
+    def test_persistent_cache_rejects_previous_schema_version(self) -> None:
+        """A stats formula change must not read a projection written by the prior schema."""
+        path = self.tmp / "old-stats.json"
+        fingerprint = ("source", 1)
+        path.write_text(json.dumps({
+            "schema": "ai-caddie-history-stats-cache-v5",
+            "fingerprint": stats_cache._cache_digest(fingerprint),
+            "value": {"averageDifferential": 50.8},
+        }))
+        self.assertIsNone(stats_cache._read_persistent_value(path, fingerprint))
 
     def test_cache_recomputes_when_a_new_score_lands(self) -> None:
         calls = {"n": 0}
