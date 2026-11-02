@@ -463,6 +463,39 @@ final class CoursePrepTests: XCTestCase {
         )
     }
 
+    /// J4.4: CourseView water stations retain their real position past the pin.
+    /// The phone hides a whole interval beyond +12 m in both its list and live ranges.
+    func test_j4_4_courseViewWaterPastPinIsHiddenFromPhoneListAndReadout() throws {
+        for (front, visible) in [(312.0, true), (312.1, false), (320.0, false)] {
+            let back = front + 20
+            let payload = """
+            {"water_carry":[[\(front),\(back)]],"bunkers":[],"details":[
+              {"kind":"water","frontM":\(front),"backM":\(back),
+               "frontRouteM":\(front),"backRouteM":\(back),
+               "frontPx":[\(front),0],"backPx":[\(back),0],"outlinePx":[]}]}
+            """
+            let hazards = try JSONDecoder().decode(CoursePrepHazards.self, from: Data(payload.utf8))
+            let hole = CoursePrepHole(
+                hole: 1, par: 4, parSource: "courseview", blueYards: 328,
+                routeLenM: 300, route: straightRoute(), hazards: hazards
+            )
+            let readouts = try XCTUnwrap(CoursePrepLiveHazardReadout.upcoming(
+                hazards: hazards, route: straightRoute(), projectionRefs: affineProjectionRefs(),
+                playerLatitude: 0, playerLongitude: 0
+            ))
+            XCTAssertEqual(readouts.count, visible ? 1 : 0, "J4.4 live ranges at \(front)")
+            XCTAssertEqual(LiveHazardDisplayItem.rows(for: hole, liveReadouts: nil).count,
+                           visible ? 1 : 0, "J4.4 detailed list at \(front)")
+            let legacyHole = CoursePrepHole(
+                hole: 1, par: 4, parSource: "courseview", blueYards: 328,
+                routeLenM: 300, route: straightRoute(),
+                hazards: CoursePrepHazards(waterCarry: [[front, back]])
+            )
+            XCTAssertEqual(LiveHazardDisplayItem.rows(for: legacyHole, liveReadouts: nil).count,
+                           visible ? 1 : 0, "J4.4 interval list at \(front)")
+        }
+    }
+
     func testHazardRelevanceDropsGeometryBehindTheGreen() {
         XCTAssertFalse(
             CoursePrepHazardRelevance.isRelevant(
