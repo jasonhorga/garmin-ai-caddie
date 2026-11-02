@@ -80,8 +80,22 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
                 "        target.setLevel(logging.ERROR)\n"
                 "        target.propagate = False\n"
             )
+            observer = Path(tmp) / "logging_state_observer.py"
+            observer.write_text(
+                "import logging, unittest\n"
+                "class Observer(unittest.TestCase):\n"
+                "    def test_restored(self):\n"
+                "        root = logging.getLogger()\n"
+                "        self.assertEqual(root.level, logging.WARNING)\n"
+                "        self.assertEqual(root.filters, [])\n"
+                "        target = logging.getLogger('logging_state_probe.named')\n"
+                "        self.assertEqual(target.handlers, [])\n"
+                "        self.assertEqual(target.level, logging.NOTSET)\n"
+                "        self.assertTrue(target.propagate)\n"
+            )
             result = subprocess.run(
-                [sys.executable, "-m", "tests.check_isolation", "logging_state_probe"],
+                [sys.executable, "-m", "tests.check_isolation",
+                 "logging_state_probe", "logging_state_observer"],
                 env={**os.environ, "PYTHONPATH": os.pathsep.join(
                     [tmp, str(Path(__file__).resolve().parents[1])])},
                 capture_output=True, text=True, timeout=30,
@@ -91,6 +105,8 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
             self.assertIn("logging_state_probe leaked logger state", output)
             self.assertIn("root", output)
             self.assertIn("logging_state_probe.named", output)
+            self.assertNotIn("logging_state_observer leaked", output)
+            self.assertNotIn("FAIL: test_restored", output)
 
     def test_J73_import_time_leak_names_the_importing_module(self):
         """J7.3: discover reports the module that leaked while being imported."""
@@ -114,6 +130,37 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, output)
             self.assertIn("logging_import_probe leaked logger state at import", output)
             self.assertNotIn("tests.check_isolation leaked", output)
+
+    def test_J73_import_time_leak_names_second_module_after_clean_module(self):
+        """J7.3: an import leak is attributed to the later module in a run."""
+        with tempfile.TemporaryDirectory() as tmp:
+            clean = Path(tmp) / "logging_clean_probe.py"
+            clean.write_text(
+                "import unittest\n"
+                "class Probe(unittest.TestCase):\n"
+                "    def test_clean(self):\n"
+                "        pass\n"
+            )
+            leaking = Path(tmp) / "logging_import_probe.py"
+            leaking.write_text(
+                "import logging\n"
+                "logging.getLogger('logging_import_probe.named').setLevel(logging.ERROR)\n"
+                "import unittest\n"
+                "class Probe(unittest.TestCase):\n"
+                "    def test_imported(self):\n"
+                "        pass\n"
+            )
+            result = subprocess.run(
+                [sys.executable, "-m", "tests.check_isolation",
+                 "logging_clean_probe", "logging_import_probe"],
+                env={**os.environ, "PYTHONPATH": os.pathsep.join(
+                    [tmp, str(Path(__file__).resolve().parents[1])])},
+                capture_output=True, text=True, timeout=30,
+            )
+            output = result.stdout + result.stderr
+            self.assertNotEqual(result.returncode, 0, output)
+            self.assertIn("logging_import_probe leaked logger state at import", output)
+            self.assertNotIn("logging_clean_probe leaked", output)
 
     def test_J73_pipeline_then_course_prep_preserves_diagnostics(self):
         """J7.3: cron privacy setup must not change a later library log capture.

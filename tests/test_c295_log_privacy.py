@@ -106,6 +106,9 @@ class J7LogPrivacyTests(unittest.TestCase):
                       "authorization=Bearer PRIVATEBEARER",
                       "authorization=bearer PRIVATEBEARER",
                       "Authorization: BEARER PRIVATEBEARER",
+                      "invalid Bearer PRIVATEBEARER",
+                      "invalid bearer PRIVATEBEARER",
+                      "INVALID Bearer PRIVATEBEARER",
                       "api_key: Bearer PRIVATEBEARER",
                       {"Authorization": "Bearer PRIVATEBEARER"},
                       "Bearer PRIVATEBEARER"):
@@ -125,6 +128,10 @@ class J7LogPrivacyTests(unittest.TestCase):
             ("Authorization: Bearer: PRIVATEBEARER", "Authorization: [redacted]", 1),
             ("payload={'Authorization': 'Bearer PRIVATEBEARER'}", "payload={'Authorization': '[redacted]'}", 1),
             ("Authorization: [redacted]", "Authorization: [redacted]", 1),
+            ("Authorization: 'Bearer PRIVATEBEARER", "Authorization: [redacted]", 1),
+            ('Authorization: Bearer abc\\"PRIVATEBEARER', "Authorization: [redacted]", 1),
+            ("invalid Bearer PRIVATEBEARER", "invalid Bearer [redacted]", 1),
+            ("INVALID Bearer PRIVATEBEARER", "INVALID Bearer [redacted]", 1),
             ("invalid bearer header received", "invalid bearer header received", 0),
         )
         for message, expected, marker_count in cases:

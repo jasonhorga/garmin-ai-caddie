@@ -1,0 +1,11 @@
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -31,7 +31,7 @@
+ _AUTHORIZATION_BEARER = re.compile(
+     r"(?i)(\bAuthorization[\"']?\s*[:=]\s*)"
+     r"(?:"
+-    r"(?P<quote>[\"'])(?:Bearer\s*:?\s*)?(?:\\.|(?!(?P=quote)).)*(?P=quote)?"
++    r"(?P<quote>[\"'])(?:Bearer\s*:?\s*)?(?:\\.|(?!(?P=quote)).)*(?P=quote)"
+     r"|(?:Bearer\s*:?\s*)?(?:\[redacted\]|[^\s,;}\]]+)"
+     r")"
+ )
