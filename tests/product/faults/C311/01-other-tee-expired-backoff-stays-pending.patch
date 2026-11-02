@@ -1,0 +1,8 @@
+diff --git a/ai_caddie/courses/vector_prep.py b/ai_caddie/courses/vector_prep.py
+index e5aa8c47..713db6d0 100644
+--- a/ai_caddie/courses/vector_prep.py
++++ b/ai_caddie/courses/vector_prep.py
+@@ -176,3 +176,2 @@ def selected_vector_plan(global_id: int, local_hole: int) -> dict[str, object] |
+             if key[0] == root and key[1] == gid and key[2] == hole
+-            and (state.get("retryAfter") is None or float(state["retryAfter"]) > now)
+         ]

@@ -1,0 +1,9 @@
+diff --git a/ai_caddie/courses/vector_prep.py b/ai_caddie/courses/vector_prep.py
+index e5aa8c47..3d3ff8fd 100644
+--- a/ai_caddie/courses/vector_prep.py
++++ b/ai_caddie/courses/vector_prep.py
+@@ -188,3 +188,3 @@ def selected_vector_plan(global_id: int, local_hole: int) -> dict[str, object] |
+         if all(bool(state.get("unavailable")) for state in states):
+-            return {"state": "unavailable", "retryAfterEpoch": None}
++            return None
+     return None
