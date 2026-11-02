@@ -1,5 +1,5 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index 650db9e5..6eb43c19 100644
+index 05cbddd4..9a45aba4 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
 @@ -317,28 +317,22 @@ def _same_day_matching_boundary_score_holes(
@@ -46,4 +46,4 @@ index 650db9e5..6eb43c19 100644
 +        return ordered
  
      by_day: dict[str, list[tuple[str, dict[tuple[int, int], set[int]], list[tuple[int, int]]]]] = {}
-     for row in rounds:
+     start_times: dict[str, int] = {}

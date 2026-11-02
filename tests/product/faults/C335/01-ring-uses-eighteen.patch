@@ -1,8 +1,8 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index 650db9e5..e9cb6538 100644
+index 05cbddd4..d7163cb3 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -368,7 +368,7 @@ def _same_day_matching_boundary_score_holes(
+@@ -369,7 +369,7 @@ def _same_day_matching_boundary_score_holes(
                  key = (gid, local)
                  scores.setdefault(key, set()).add(strokes)
                  display_by_key.setdefault(key, display)

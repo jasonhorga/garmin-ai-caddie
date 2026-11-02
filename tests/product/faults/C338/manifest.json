@@ -24,6 +24,14 @@
       "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_earliest_shot_time_bridges_unscored_middle_holes",
       "promise": "1.3",
       "kills": "Ordering every hole by timestamp moves the boundary hole away from the tail despite a valid sequential continuation."
+    },
+    {
+      "id": "tests-product-faults-C338-04-ignore-card-chronology",
+      "patch": "tests/product/faults/C338/04-ignore-card-chronology.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_later_nine_hole_card_cannot_precede_morning_card",
+      "promise": "1.3",
+      "kills": "Without the shot-time chronology guard, earlier morning holes incorrectly supersede afternoon restores 3,4,5."
     }
   ]
 }

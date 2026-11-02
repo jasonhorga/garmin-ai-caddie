@@ -341,6 +341,7 @@ def _same_day_matching_boundary_score_holes(
         return ordered + sorted(set(scores) - set(ordered))
 
     by_day: dict[str, list[tuple[str, dict[tuple[int, int], set[int]], list[tuple[int, int]]]]] = {}
+    start_times: dict[str, int] = {}
     for row in rounds:
         day = str(row.get("date") or "")[:10]
         if not day:
@@ -377,6 +378,8 @@ def _same_day_matching_boundary_score_holes(
                     and display is not None and 1 <= display <= ring_size):
                 timed_holes.append((time, display))
         start_display = min(timed_holes)[1] if timed_holes else None
+        if timed_holes:
+            start_times[str(row.get("id"))] = min(timed_holes)[0]
         by_day.setdefault(day, []).append((
             str(row.get("id")), scores, ring_order(scores, display_by_key, ring_size, start_display)
         ))
@@ -386,6 +389,11 @@ def _same_day_matching_boundary_score_holes(
             covered = candidates.setdefault(round_id, set())
             for other_id, other, other_order in cards:
                 if other_id == round_id:
+                    continue
+                # A geometrically matching boundary cannot reverse known shot chronology.
+                # If either card is untimed, preserve the legacy ring-only decision.
+                if (round_id in start_times and other_id in start_times
+                        and start_times[other_id] < start_times[round_id]):
                     continue
                 overlap = own.keys() & other.keys()
                 own_boundary = set(own_order[-len(overlap):]) if overlap else set()

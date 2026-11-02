@@ -1,10 +1,10 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index 650db9e5..7a4bd4fc 100644
+index 05cbddd4..5fae8db5 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -378,7 +378,7 @@ def _same_day_matching_boundary_score_holes(
-                 timed_holes.append((time, display))
-         start_display = min(timed_holes)[1] if timed_holes else None
+@@ -381,7 +381,7 @@ def _same_day_matching_boundary_score_holes(
+         if timed_holes:
+             start_times[str(row.get("id"))] = min(timed_holes)[0]
          by_day.setdefault(day, []).append((
 -            str(row.get("id")), scores, ring_order(scores, display_by_key, ring_size, start_display)
 +            str(row.get("id")), scores, (sorted(scores, key=lambda key: min((time for time, display in timed_holes if display == display_by_key[key]), default=float("inf"))) if timed_holes else ring_order(scores, display_by_key, ring_size, start_display))

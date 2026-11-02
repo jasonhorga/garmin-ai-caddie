@@ -1,5 +1,5 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index 650db9e5..2b36bba7 100644
+index 05cbddd4..88642506 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
 @@ -315,7 +315,7 @@ def _same_day_matching_boundary_score_holes(
