@@ -50,9 +50,25 @@ name = prefix + '-' + suffix if prefix else models[0]
 devices = inventory('devices')
 runtime_prefix = 'com.apple.CoreSimulator.SimRuntime.' + platform + '-'
 fixed_runtime = os.environ.get('WATCH_RUNTIME', '') if profile in ('compact', 'ultra') else ''
+
+# Hosted jobs must stay within the SDK installed by the runner's Xcode. A
+# hosted job may have several runtimes for the same device model, including
+# newer runtimes that the selected Xcode cannot build for.
+sdk_limit = None
+if not prefix:
+    sdk_name = 'iphonesimulator' if platform == 'iOS' else 'watchsimulator'
+    sdk_limit = version(subprocess.check_output(
+        ['xcrun', '--sdk', sdk_name, '--show-sdk-version'], text=True).strip())
+
+def supported(runtime_version):
+    return sdk_limit is None or runtime_version <= sdk_limit
+
 candidates = []
 for runtime, entries in devices.items():
     if not runtime.startswith(runtime_prefix) or (fixed_runtime and runtime != fixed_runtime):
+        continue
+    runtime_version = version(runtime[len(runtime_prefix):])
+    if not supported(runtime_version):
         continue
     for device in entries:
         wanted = device.get('name') == name if prefix else device.get('name') in (
@@ -63,7 +79,8 @@ for runtime, entries in devices.items():
 if prefix or (profile and (not candidates or profile == 'cold')):
     runtimes = [r for r in inventory('runtimes') if r.get('isAvailable') is True
                 and r['identifier'].startswith(runtime_prefix)
-                and (not fixed_runtime or r['identifier'] == fixed_runtime)]
+                and (not fixed_runtime or r['identifier'] == fixed_runtime)
+                and supported(version(r['version']))]
     if not runtimes:
         raise SystemExit('No available runtime: ' + platform)
     types = inventory('devicetypes')
@@ -96,7 +113,15 @@ if prefix or (profile and (not candidates or profile == 'cold')):
 else:
     if not candidates:
         raise SystemExit('No available simulator: ' + name)
-    choose = min if profile == 'visual' else max
+    # These jobs replaced main's `grep ... | head -1` selection. The unit-watch
+    # job (and the quick job, which does not call this script) replaced main's
+    # OS=latest selection and therefore keeps the newest available runtime.
+    oldest_ios_jobs = {'native-live', 'native-real-flow', 'native-screenshots',
+                       'native-product-ui'}
+    choose = (min if platform == 'iOS' and os.environ.get('GITHUB_JOB') in oldest_ios_jobs
+              else max)
+    if profile == 'visual':
+        choose = min
     udid = candidates[0][1] if profile in ('compact', 'ultra') else choose(candidates)[1]
 
 # Record immediately, before boot/build, so always() also cleans up failed jobs.
