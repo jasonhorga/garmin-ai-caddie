@@ -2523,6 +2523,7 @@ public struct StartRoundView: View {
 
     enum NearbyDiscoveryEvent {
         case begin
+        case locationUnavailable
         case providerResult(NearbyDiscoveryLoopResult, canApply: Bool)
         case manualSearch
         case automaticSelection(
@@ -2543,6 +2544,9 @@ public struct StartRoundView: View {
         next.selectionCommand = .none
         switch event {
         case .begin:
+            // A GPS bucket change or retry keeps the selected row and its Tee setup usable.
+            break
+        case .locationUnavailable:
             next.nearbyOptions = []
         case .manualSearch:
             next.nearbyOptions = []
@@ -2641,33 +2645,6 @@ public struct StartRoundView: View {
             && activeRequestToken == requestToken
             && currentRequestKey == requestKey
             && !manualSearchSelected
-    }
-
-    /// Whether the automatic nearby choice no longer belongs to the latest provider answer.
-    static func shouldClearAutomaticSelection(
-        selected: MobileCourseOption?,
-        availableNearby: [MobileCourseOption],
-        userPickedVenue: Bool
-    ) -> Bool {
-        guard let selected, !userPickedVenue else { return false }
-        return !availableNearby.contains { samePhysicalVenue(selected, $0) }
-    }
-
-    /// The finish path also knows the persisted id. If the replacement list temporarily omits
-    /// that row, the automatic id is stale even though `selectedSegment` is currently nil.
-    static func shouldClearAutomaticSelection(
-        selected: MobileCourseOption?,
-        selectedGlobalIdText: String,
-        availableNearby: [MobileCourseOption],
-        userPickedVenue: Bool
-    ) -> Bool {
-        guard !userPickedVenue else { return false }
-        guard let selected else {
-            return !selectedGlobalIdText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-        return shouldClearAutomaticSelection(
-            selected: selected, availableNearby: availableNearby, userPickedVenue: userPickedVenue
-        )
     }
 
     /// Nearby selection must compare physical venues, because one venue can expose several global
@@ -2799,7 +2776,7 @@ public struct StartRoundView: View {
             return
         }
         guard let fix = locationProvider.latestFix else {
-            reduceNearbyDiscoveryState(.begin)
+            reduceNearbyDiscoveryState(.locationUnavailable)
             offlineCourseOptions = resolvedOfflineOptions(downloadedCourseOptions)
             nearbyDiscoveryFailed = false
             isLoadingNearby = locationProvider.authorizationStatus == .notDetermined

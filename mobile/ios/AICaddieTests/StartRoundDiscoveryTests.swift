@@ -903,6 +903,9 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let started = StartRoundView.reduceNearbyDiscoveryState(state, event: .begin)
         XCTAssertEqual(started.nearbyOptions, [old], "a refresh keeps published rows before provider work")
         XCTAssertEqual(started.lastNearbyOptions, [old], "the successful cache remains available")
+        let unavailable = StartRoundView.reduceNearbyDiscoveryState(state, event: .locationUnavailable)
+        XCTAssertTrue(unavailable.nearbyOptions.isEmpty, "without a location there are no live nearby rows")
+        XCTAssertEqual(unavailable.lastNearbyOptions, [old], "losing location retains the successful cache")
 
         let result = StartRoundView.NearbyDiscoveryLoopResult(
             providerOptions: [sibling], carriedTees: [:], publishedProviderResult: true, lastError: nil
@@ -1888,45 +1891,28 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let state = StartRoundView.NearbyDiscoveryState(
             nearbyOptions: [stale], lastNearbyOptions: [stale]
         )
-        XCTAssertEqual(
-            StartRoundView.reduceNearbyDiscoveryState(
-                state,
-                event: .automaticSelection(
-                    candidate: nil, selected: stale, selectedGlobalIdText: String(stale.globalId),
-                    availableNearby: [replacement], userPickedVenue: false, canApply: true
-                )
-            ).selectionCommand,
-            .clear
-        )
-        XCTAssertTrue(
-            StartRoundView.shouldClearAutomaticSelection(
-                selected: nil, selectedGlobalIdText: String(stale.globalId),
-                availableNearby: [replacement], userPickedVenue: false
-            ),
-            "a replaced nearby list must clear an automatic id even while its row is temporarily absent"
-        )
-        XCTAssertTrue(
-            StartRoundView.shouldClearAutomaticSelection(
-                selected: stale, availableNearby: [], userPickedVenue: false
+        let sibling = MobileCourseOption(globalId: 7503, name: "旧球场 ~ B", holes: 9, venueName: "旧球场")
+        let cases: [(selected: MobileCourseOption?, id: String, nearby: [MobileCourseOption],
+                     manual: Bool, expected: StartRoundView.NearbySelectionCommand, reason: String)] = [
+            (nil, "7501", [replacement], false, .clear, "an omitted automatic id is cleared"),
+            (stale, "7501", [], false, .clear, "an empty answer clears the automatic venue"),
+            (stale, "7501", [replacement], false, .clear, "a different venue clears the automatic venue"),
+            (stale, "7501", [sibling], false, .none, "a sibling loop keeps the automatic venue"),
+            (stale, "7501", [], true, .none, "an explicit venue choice is retained"),
+            (nil, "  ", [], false, .none, "no automatic id means nothing to clear")
+        ]
+        for item in cases {
+            XCTAssertEqual(
+                StartRoundView.reduceNearbyDiscoveryState(
+                    state,
+                    event: .automaticSelection(
+                        candidate: nil, selected: item.selected, selectedGlobalIdText: item.id,
+                        availableNearby: item.nearby, userPickedVenue: item.manual, canApply: true
+                    )
+                ).selectionCommand,
+                item.expected, item.reason
             )
-        )
-        XCTAssertTrue(
-            StartRoundView.shouldClearAutomaticSelection(
-                selected: stale, availableNearby: [replacement], userPickedVenue: false
-            )
-        )
-        XCTAssertFalse(
-            StartRoundView.shouldClearAutomaticSelection(
-                selected: stale,
-                availableNearby: [MobileCourseOption(globalId: 7503, name: "旧球场 ~ B", holes: 9, venueName: "旧球场")],
-                userPickedVenue: false
-            )
-        )
-        XCTAssertFalse(
-            StartRoundView.shouldClearAutomaticSelection(
-                selected: stale, availableNearby: [], userPickedVenue: true
-            )
-        )
+        }
     }
 
     /// J4.1: a nearby result from the same physical venue keeps the current loop selection.
