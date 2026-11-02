@@ -2090,6 +2090,40 @@ def _strategy(
                 ) <= SCORING_WINDOW_MAX_M:
                     shared_tail = replanned_tail
             if shared_tail:
+                # The shared scorer can spend the GIR overshoot allowance on top of
+                # its distribution/clearance margin. For a water-crossing finish, use
+                # the farther of the original green target and the buffered water
+                # edge, rather than adding the GIR allowance to that edge. Keep the
+                # prefix and its shot count; the factual median must still be water-safe.
+                prefix_carry = sum(distance for _club, distance in shared_tail[:-1])
+                final_start = route_offset_m + prefix_carry
+                final_target = effective - prefix_carry
+                crossing_edges = [
+                    float(back) + TEE_WATER_CLEARANCE_BUFFER_M - final_start
+                    for front, back in planning_hazards.get("water_carry") or []
+                    if final_start < float(back)
+                    and float(front) <= final_start + final_target
+                ]
+                if (
+                    crossing_edges
+                    and sum(distance for _club, distance in shared_tail) - effective
+                    > TEE_SEQUENCE_MAX_OVERSHOOT_M
+                ):
+                    target = max(final_target, *crossing_edges)
+                    prefix_clubs = used_clubs | {
+                        club_bag_service.canonical_club_name(name)
+                        for name, _distance in shared_tail[:-1]
+                    }
+                    final_limit = shared_tail[-2][1] if len(shared_tail) > 1 else previous_carry
+                    shorter_finishes = [
+                        (name, distance) for name, distance in approach_ladder
+                        if club_bag_service.canonical_club_name(name) not in prefix_clubs
+                        and distance <= min(final_limit, shared_tail[-1][1])
+                        and distance >= target
+                        and _strategy_water_safe(final_start + distance, planning_hazards)
+                    ]
+                    if shorter_finishes:
+                        shared_tail = [*shared_tail[:-1], min(shorter_finishes, key=lambda row: row[1])]
                 candidate_remaining = effective - sum(
                     tail_distance for _tail_club, tail_distance in shared_tail
                 )
@@ -2188,8 +2222,9 @@ def _strategy(
                 # On the green by its plays-like distance: no extra chip for the flat shortfall.
                 break
     for w in hazards.get("water_carry") or []:
-        if w[0] < route_len_m - 5:
-            cautions.append(f"水障碍：进水前约 {yd(w[0])}y，过水需 {yd(w[1])}y")
+        if _water_span_affects_scoring_route(w, route_len_m):
+            front, back = sorted((float(w[0]), float(w[1])))
+            cautions.append(f"水障碍：进水前约 {yd(front)}y，过水需 {yd(back)}y")
     green_side_bunkers = [
         (cum, side)
         for cum, side in hazards.get("bunkers") or []
@@ -2253,12 +2288,14 @@ def _course_data_route(hole: dict) -> tuple[list[tuple[float, float]], float, fl
 def _route_station(
     point: tuple[float, float],
     route: list[tuple[float, float]],
+    *,
+    extend_end: bool = False,
 ) -> tuple[float, float]:
     """Nearest cumulative route metre and lateral gap for one factual point."""
     best_station = 0.0
     best_gap = math.inf
     cumulative = 0.0
-    for start, end in zip(route, route[1:]):
+    for index, (start, end) in enumerate(zip(route, route[1:])):
         dx, dy = end[0] - start[0], end[1] - start[1]
         length_squared = dx * dx + dy * dy
         if length_squared <= 0:
@@ -2267,7 +2304,7 @@ def _route_station(
         t = max(
             0.0,
             min(
-                1.0,
+                math.inf if extend_end and index == len(route) - 2 else 1.0,
                 ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy)
                 / length_squared,
             ),
@@ -2355,8 +2392,10 @@ def _course_data_hazards(
         second_distance = math.hypot(second[0] - tee[0], second[1] - tee[1])
         front, back = (first, second) if first_distance <= second_distance else (second, first)
         front_m, back_m = sorted((first_distance, second_distance))
-        front_route, front_side = _route_station(front, route)
-        back_route, back_side = _route_station(back, route)
+        # Water's factual far edge may lie past the flag. Only the planning
+        # copy in _strategy is clipped; cautions retain the measured route station.
+        front_route, front_side = _route_station(front, route, extend_end=kind == "water")
+        back_route, back_side = _route_station(back, route, extend_end=kind == "water")
         if kind == "water":
             water.append([round(min(front_route, back_route), 1), round(max(front_route, back_route), 1)])
         else:
