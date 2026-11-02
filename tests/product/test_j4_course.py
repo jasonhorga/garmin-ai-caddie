@@ -132,7 +132,7 @@ class PrepRouteQualityTests(unittest.TestCase):
         # J4.6: without the back pond 197+160=357 is a safe +29 m finish.
         # Water [350,375] covers that landing; 197+68+68=333 stops before
         # its 342 m buffered front, so the extra swing is justified.
-        for back_pond in ((350, 375), (341, 375)):
+        for back_pond in ((350, 375), (341, 375), (365, 385)):
             with self.subTest(back_pond=back_pond):
                 row = self.prep("TRIG", 4, 328, ((303, 323), back_pond))
                 self.assert_complete(row)
@@ -152,12 +152,15 @@ class PrepRouteQualityTests(unittest.TestCase):
                 self.assertTrue(physical <= length - 3 or physical >= length + 38)
 
     def test_j4_6_same_stroke_count_prefers_twenty_metre_overshoot(self):
-        # 197+121+102+68=488 is +12, while 197+160+68+68=493 is +17.
-        # Both beat longer four-shot finishes; the <=20 m tier wins first.
-        row = self.prep("TRIG", 4, 476, ((436, 476),))
-        self.assert_complete(row)
-        self.assertLessEqual(len(row["steps"]), 4)
-        self.assertLessEqual(sum(s["targetCarry_m"] for s in row["steps"]) - 476, 20)
+        # J4.6: at L364, 197+102+84=383 (+19) and 197+109+84=390
+        # (+26) both use three safe shots. Prefer the <=20 m finish even
+        # though the other route advances farther with its second shot.
+        for length, water in ((364, ((324, 364),)), (372, ((352, 370),))):
+            with self.subTest(length=length):
+                row = self.prep("OWNER", 4, length, water)
+                self.assert_complete(row)
+                self.assertEqual(len(row["steps"]), 3)
+                self.assertLessEqual(sum(s["targetCarry_m"] for s in row["steps"]) - length, 20)
 
     def test_j4_6_overshoot_above_thirty_can_cost_an_extra_stroke(self):
         # Driver197+3W160=357 overshoots 326 by 31. The safe three-shot

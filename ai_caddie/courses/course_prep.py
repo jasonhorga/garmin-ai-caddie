@@ -1945,15 +1945,19 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
         # One extra swing costs more than a safe <=30 m overshoot. Only a
         # larger miss or factual water behind the pin may outrank shot count.
         costly_miss = behind_water or (bool(zones) and extra > 30.0)
-        return (remaining_m - total > SCORING_WINDOW_MAX_M
-                or not _strategy_water_safe(start_m + total, tail_hazards),
+        return (remaining_m - total > SCORING_WINDOW_MAX_M,
                 costly_miss, extra if behind_water else max(0.0, extra - 30.0) if zones else 0.0,
                 len(candidate), _long_short_advances(remaining_m, candidate),
                 extra > TEE_SEQUENCE_MAX_OVERSHOOT_M,
                 max(0.0, extra - TEE_SEQUENCE_MAX_OVERSHOOT_M),
                 tuple(-distance for _, distance in candidate[:-1]), extra)
 
-    best, best_key = tail, key(tail)
+    # The shared scorer uses planning water only. Discard an incumbent that
+    # would land in factual post-pin water before comparing safe candidates.
+    best = tail if _strategy_water_safe(
+        start_m + sum(distance for _, distance in tail), tail_hazards,
+    ) else []
+    best_key = key(best)
     long_advances_only = False
 
     def visit(prefix, total, first_index):
