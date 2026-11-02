@@ -42,7 +42,10 @@ def _geometry_target(row: dict[str, Any], hole: int) -> tuple[int | None, int]:
     18 plays its back nine from a second loop's gid)."""
     if hole <= 9:
         gid = _int(row.get("frontNineGlobalCourseId")) or _int(row.get("globalId")) or _int(row.get("courseId"))
-        return gid, merged_front_local_hole(row, hole)
+        local_hole = merged_front_local_hole(row, hole)
+        if local_hole != hole:
+            return gid, local_hole
+        return gid, hole
     back = _int(row.get("backNineGlobalCourseId"))
     if back is not None:
         return back, hole if round_loop_half(row, "back") == "back" else hole - 9
