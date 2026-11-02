@@ -277,6 +277,204 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertIsNone(result["annotationSuggestions"][0]["payload"].get("resolution"))
         self.assertEqual(result["annotationSuggestions"][0]["payload"].get("to"), 8)
 
+    def test_j3_3_sm3_converged_garmin_then_phone_edit_is_ordinary(self) -> None:
+        # J3.3/SM3: when Garmin converges to the selected correction, a later phone edit is
+        # one ordinary 6 -> 8 suggestion, with no resolution choice or conflict suggestion.
+        for chain in (False, True):
+            with self.subTest(chain=chain), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                data = fixture_history_data()
+                values = ((5, "sm3-chain-5"), (6, "sm3-chain-6")) if chain else ((6, "sm3-single-6"),)
+                for value, event_id in values:
+                    append_event_batch(
+                        "900001", [{"eventId": event_id, "roundId": "900001", "hole": 1,
+                                    "kind": "score", "payload": {"strokes": value}}],
+                        idempotency_key=event_id, root=root,
+                    )
+                    current = reconcile_mobile_round_events("900001", data, root=root)
+                    ids = [row["id"] for row in current["annotationSuggestions"]
+                           if row["kind"] == "score_correction"]
+                    self.assertEqual(len(ids), 1)
+                    apply_mobile_reconciliation_suggestions(
+                        "900001", data, suggestion_ids=ids, root=root, annotations_root=root,
+                        data_loader=lambda: data,
+                    )
+                late_round = deepcopy(data.rounds[0])
+                late_round["holes"] = [
+                    {**hole, "strokes": 6} if hole.get("number") == 1 else hole
+                    for hole in late_round["holes"]
+                ]
+                append_event_batch(
+                    "900001", [{"eventId": f"sm3-phone-8-{chain}", "roundId": "900001", "hole": 1,
+                                "kind": "score", "payload": {"strokes": 8}}],
+                    idempotency_key=f"sm3-phone-8-{chain}", root=root,
+                )
+                result = reconcile_mobile_round_events(
+                    "900001", HistoryData(raw_rounds=[], rounds=[late_round], shots=data.shots),
+                    root=root, annotations_root=root,
+                )
+
+            self.assertEqual(len(result["conflicts"]), 1)
+            self.assertFalse(result["conflicts"][0].get("correctionConflict"))
+            suggestions = result["annotationSuggestions"]
+            self.assertEqual(len(suggestions), 1)
+            self.assertEqual(suggestions[0]["kind"], "score_correction")
+            self.assertEqual(suggestions[0]["payload"].get("from"), 6)
+            self.assertEqual(suggestions[0]["payload"].get("to"), 8)
+            self.assertIsNone(suggestions[0]["payload"].get("resolution"))
+            self.assertNotIn("conflict", suggestions[0]["id"])
+
+    def test_j3_3_sm4_garmin_resolution_then_phone_edit_follows_current_garmin(self) -> None:
+        # J3.3/SM4: after choosing Garmin 7, Garmin 8 is the from value for a later phone 9 edit;
+        # applying 8 -> 9 leaves both reconciliation and the corrected score settled at 9.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data = fixture_history_data()
+            append_event_batch(
+                "900001", [{"eventId": "sm4-phone-6", "roundId": "900001", "hole": 1,
+                            "kind": "score", "payload": {"strokes": 6}}],
+                idempotency_key="sm4-phone-6", root=root,
+            )
+            initial = reconcile_mobile_round_events("900001", data, root=root)
+            apply_mobile_reconciliation_suggestions(
+                "900001", data,
+                suggestion_ids=[row["id"] for row in initial["annotationSuggestions"]],
+                root=root, annotations_root=root, data_loader=lambda: data,
+            )
+            garmin7 = deepcopy(data.rounds[0])
+            garmin7["holes"] = [
+                {**hole, "strokes": 7} if hole.get("number") == 1 else hole
+                for hole in garmin7["holes"]
+            ]
+            conflict = reconcile_mobile_round_events(
+                "900001", HistoryData(raw_rounds=[], rounds=[garmin7], shots=data.shots),
+                root=root, annotations_root=root,
+            )
+            garmin_choice = next(
+                row for row in conflict["annotationSuggestions"]
+                if row["payload"].get("resolution") == "garmin"
+            )
+            apply_mobile_reconciliation_suggestions(
+                "900001", HistoryData(raw_rounds=[], rounds=[garmin7], shots=data.shots),
+                suggestion_ids=[garmin_choice["id"]], root=root, annotations_root=root,
+                data_loader=lambda: HistoryData(raw_rounds=[], rounds=[garmin7], shots=data.shots),
+            )
+            garmin8 = deepcopy(garmin7)
+            garmin8["holes"] = [
+                {**hole, "strokes": 8} if hole.get("number") == 1 else hole
+                for hole in garmin8["holes"]
+            ]
+            append_event_batch(
+                "900001", [{"eventId": "sm4-phone-9", "roundId": "900001", "hole": 1,
+                            "kind": "score", "payload": {"strokes": 9}}],
+                idempotency_key="sm4-phone-9", root=root,
+            )
+            before = reconcile_mobile_round_events(
+                "900001", HistoryData(raw_rounds=[], rounds=[garmin8], shots=data.shots),
+                root=root, annotations_root=root,
+            )
+            ordinary = next(row for row in before["annotationSuggestions"]
+                            if row["kind"] == "score_correction")
+            applied = apply_mobile_reconciliation_suggestions(
+                "900001", HistoryData(raw_rounds=[], rounds=[garmin8], shots=data.shots),
+                suggestion_ids=[ordinary["id"]], root=root, annotations_root=root,
+                data_loader=lambda: HistoryData(raw_rounds=[], rounds=[garmin8], shots=data.shots),
+            )
+            after = reconcile_mobile_round_events(
+                "900001", HistoryData(raw_rounds=[], rounds=[garmin8], shots=data.shots),
+                root=root, annotations_root=root,
+            )
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[garmin8], shots=data.shots),
+                annotations_root=root,
+            ).rounds[0]
+
+        self.assertIsNone(ordinary["payload"].get("resolution"))
+        self.assertEqual(ordinary["payload"].get("from"), 8)
+        self.assertEqual(ordinary["payload"].get("to"), 9)
+        self.assertEqual(applied["appliedCount"], 1)
+        self.assertEqual(after["conflicts"], [])
+        self.assertEqual(after["annotationSuggestions"], [])
+        self.assertEqual(corrected["holes"][0]["strokes"], 9)
+
+    def test_j3_3_mobile_resolution_a_b_a_gets_new_ids_for_score_putt_penalty(self) -> None:
+        # J3.3/N6: every A -> B -> A mobile resolution gets a fresh conflict id; retrying the
+        # same applied id remains idempotently skipped.
+        for kind, field, phone_value, first_garmin, second_garmin in (
+            ("score", "strokes", 6, 7, 8),
+            ("putt", "putts", 3, 4, 5),
+            ("penalty", "penalties", 1, 2, 3),
+        ):
+            with self.subTest(kind=kind), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                data = fixture_history_data()
+                if kind != "score":
+                    data.rounds[0]["holes"] = [
+                        {**hole, "strokes": 7} if hole.get("number") == 1 else hole
+                        for hole in data.rounds[0]["holes"]
+                    ]
+                append_event_batch(
+                    "900001", [{"eventId": f"{kind}-a", "roundId": "900001", "hole": 1,
+                                "kind": kind, "payload": {field: phone_value}}],
+                    idempotency_key=f"{kind}-a", root=root,
+                )
+                first = reconcile_mobile_round_events("900001", data, root=root)
+                apply_mobile_reconciliation_suggestions(
+                    "900001", data,
+                    suggestion_ids=[row["id"] for row in first["annotationSuggestions"]],
+                    root=root, annotations_root=root, data_loader=lambda: data,
+                )
+                def round_with(value: int) -> HistoryData:
+                    row = deepcopy(data.rounds[0])
+                    row["holes"] = [
+                        {**hole, "strokes": 7, field: value} if hole.get("number") == 1 else hole
+                        for hole in row["holes"]
+                    ]
+                    return HistoryData(raw_rounds=[], rounds=[row], shots=data.shots)
+
+                for value in (first_garmin, second_garmin):
+                    current = round_with(value)
+                    conflict = reconcile_mobile_round_events(
+                        "900001", current, root=root, annotations_root=root,
+                    )
+                    choice = next(
+                        row for row in conflict["annotationSuggestions"]
+                        if row["payload"].get("resolution") == "mobile"
+                    )
+                    applied = apply_mobile_reconciliation_suggestions(
+                        "900001", current, suggestion_ids=[choice["id"]], root=root,
+                        annotations_root=root, data_loader=lambda current=current: current,
+                    )
+                    self.assertEqual(applied["appliedCount"], 1)
+
+                final = round_with(first_garmin)
+                conflict = reconcile_mobile_round_events(
+                    "900001", final, root=root, annotations_root=root,
+                )
+                choices = [
+                    row for row in conflict["annotationSuggestions"]
+                    if row["payload"].get("resolution") == "mobile"
+                ]
+                self.assertEqual(len(choices), 1)
+                final_id = choices[0]["id"]
+                applied = apply_mobile_reconciliation_suggestions(
+                    "900001", final, suggestion_ids=[final_id], root=root,
+                    annotations_root=root, data_loader=lambda: final,
+                )
+                after = reconcile_mobile_round_events(
+                    "900001", final, root=root, annotations_root=root,
+                )
+                retry = apply_mobile_reconciliation_suggestions(
+                    "900001", final, suggestion_ids=[final_id], root=root,
+                    annotations_root=root, data_loader=lambda: final,
+                )
+
+            self.assertEqual(applied["appliedCount"], 1)
+            self.assertEqual(after["conflicts"], [])
+            self.assertEqual(after["annotationSuggestions"], [])
+            self.assertEqual(retry["appliedCount"], 0)
+            self.assertEqual(retry["skippedSuggestionIds"], [final_id])
+
     def test_j3_3_putt_and_penalty_late_garmin_changes_are_conflicts(self) -> None:
         # J3.3/N6: putt and penalty corrections use the same late-Garmin conflict rule as total score.
         for kind, payload_key, late_key, first_value, late_value in (
