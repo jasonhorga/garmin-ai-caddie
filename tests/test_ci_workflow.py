@@ -1877,8 +1877,11 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
         self.assertIn("MATCH_KEYCHAIN_NAME", workflow_text)
         self.assertIn("MATCH_KEYCHAIN_DEFAULT=false", workflow_text)
         self.assertIn("security list-keychains -d user", workflow_text)
-        self.assertIn("if: always()", workflow_text)
-        self.assertIn("security delete-keychain", workflow_text)
+        cleanup = next(
+            step for step in job["steps"] if step.get("name") == "Restore signing keychain search list"
+        )
+        self.assertEqual("always()", cleanup.get("if"))
+        self.assertIn("security delete-keychain", cleanup["run"])
 
         fastfile = Path("fastlane/Fastfile").read_text(encoding="utf-8")
         self.assertIn('ENV.fetch("MATCH_KEYCHAIN_NAME"', fastfile)
