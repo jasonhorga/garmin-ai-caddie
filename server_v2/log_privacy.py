@@ -30,7 +30,7 @@ _PRIVATE_PATH = re.compile(r"https?://[^\s\"'<>;,\)]+|(?<![\w/])(?:[A-Za-z]:[\\/
 _FRAME = re.compile(r'^(\s*File ")(.+)(", line \d+, in .+)$')
 _AUTHORIZATION_BEARER = re.compile(
     r"(?i)(\bAuthorization[\"']?\s*[:=]\s*)([\"']?)"
-    r"(?:Bearer\s*:?\s*)?([^\s,;}\]\\\"']+)(\2)"
+    r"(?:Bearer\s*:?\s*)?(?:\[redacted\]|([^\s,;}\]\\\"']+))(\2)"
 )
 _BARE_BEARER = re.compile(r"(?i)(?<!invalid )\bBearer\s*:?\s+[^\s,;}\]]+")
 

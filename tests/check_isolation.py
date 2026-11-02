@@ -45,11 +45,13 @@ class LoggingIsolationSuite(unittest.TestSuite):
     _module_snapshots = {}
     _import_leaks = []
     _tracking_import = False
+    _track_imports_enabled = True
 
     @classmethod
     def reset_tracking(cls):
         cls._module_snapshots = {}
         cls._import_leaks = []
+        cls._track_imports_enabled = True
 
     @staticmethod
     def _snapshot_logging():
@@ -103,7 +105,7 @@ class LoggingIsolationSuite(unittest.TestSuite):
         original = builtins.__import__
 
         def tracked(name, globals=None, locals=None, fromlist=(), level=0):
-            if cls._tracking_import:
+            if not cls._track_imports_enabled or cls._tracking_import:
                 return original(name, globals, locals, fromlist, level)
             cls._tracking_import = True
             before = cls._snapshot_logging()
@@ -150,6 +152,10 @@ class LoggingIsolationSuite(unittest.TestSuite):
                 self._restore_logging(snapshot)
 
     def _handleModuleFixture(self, test, result):
+        # Imports during suite loading are the module-import boundary under
+        # inspection. Once the first test starts, imports belong to test code
+        # and dependency setup, so they must not be reported as import leaks.
+        type(self)._track_imports_enabled = False
         module = getattr(test.__class__, "__module__", None)
         if module and module not in self._module_snapshots:
             self._module_snapshots[module] = self._snapshot_logging()

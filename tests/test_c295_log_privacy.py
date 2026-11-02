@@ -122,11 +122,12 @@ class J7LogPrivacyTests(unittest.TestCase):
         streams = self.capture_production()
         target = logging.getLogger(main.SERVICE_INFO_LOGGERS[0])
         cases = (
-            ("Authorization: Bearer: PRIVATEBEARER", "Authorization: [redacted]"),
-            ("payload={'Authorization': 'Bearer PRIVATEBEARER'}", "payload={'Authorization': '[redacted]'}"),
-            ("invalid bearer header received", "invalid bearer header received"),
+            ("Authorization: Bearer: PRIVATEBEARER", "Authorization: [redacted]", 1),
+            ("payload={'Authorization': 'Bearer PRIVATEBEARER'}", "payload={'Authorization': '[redacted]'}", 1),
+            ("Authorization: [redacted]", "Authorization: [redacted]", 1),
+            ("invalid bearer header received", "invalid bearer header received", 0),
         )
-        for message, expected in cases:
+        for message, expected, marker_count in cases:
             with self.subTest(message=message):
                 streams[target.name].seek(0)
                 streams[target.name].truncate()
@@ -134,7 +135,7 @@ class J7LogPrivacyTests(unittest.TestCase):
                 output = streams[target.name].getvalue()
                 self.assertIn(expected, output)
                 self.assertNotIn("PRIVATEBEARER", output)
-                self.assertEqual(output.count("[redacted]"), 1 if "PRIVATE" in message else 0)
+                self.assertEqual(output.count("[redacted]"), marker_count)
 
     def test_J73_repeated_cron_guard_expands_existing_service_guard(self):
         """J7.3: a cron handoff upgrades an existing service guard to all exits."""
