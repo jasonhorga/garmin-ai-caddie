@@ -1865,6 +1865,92 @@ def _shared_sequence_tail(
     return [(str(row.get("clubName") or ""), float(row.get("median_m") or 0.0)) for row in tail]
 
 
+def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazards,
+                          maximum_carry_m, player_id, maximum_steps):
+    """Find a complete continuation when shared ranking wastes shots or stops short.
+
+    Distinct-club ranking can hide a shorter repeated-club route. Likewise, changing only
+    the final club cannot fix a bad prefix. Search at most four descending approach shots;
+    prefixes use the online distribution check, and the scoring shot uses the same median
+    clearance as the existing final-club correction. Never relax the preceding carry bound.
+    """
+    from ai_caddie.caddie.decision import (
+        SCORING_WINDOW_MAX_M, TEE_SEQUENCE_MAX_OVERSHOOT_M,
+        _club_hard_hazard_safe, _shift_hazard_zones,
+    )
+
+    if not hazards.get("water_carry") and any(
+        LAYUP_LEAVE_MIN_M <= float(distance) <= LAYUP_LEAVE_MAX_M
+        for _, distance in approach_ladder
+    ):
+        # With a full wedge and no crossing, preserve the shared online lay-up
+        # ranking. Repair water-constrained routes and bags lacking that leave club.
+        return tail
+    rows = sorted([
+        (name, float(distance)) for name, distance in approach_ladder
+        if 0 < float(distance) <= maximum_carry_m
+    ], key=lambda row: -row[1])
+    if not rows:
+        return tail
+    overshoot = sum(distance for _, distance in tail) - remaining_m
+    minimum_steps = max(1, math.ceil((remaining_m - SCORING_WINDOW_MAX_M) / rows[0][1]))
+    if (tail and remaining_m - sum(distance for _, distance in tail) <= SCORING_WINDOW_MAX_M
+            and (not hazards.get("water_carry") or overshoot <= TEE_SEQUENCE_MAX_OVERSHOOT_M)
+            and len(tail) <= minimum_steps):
+        return tail
+
+    profiles = _shared_sequence_profiles(player_id)
+    zones = [{"kind": "water", "carryToFront_m": front, "carryToClear_m": back}
+             for front, back in hazards.get("water_carry") or []]
+    distributions = []
+    for name, distance in rows:
+        profile = profiles.get(club_bag_service.canonical_club_name(name), {})
+        distributions.append({
+            "median_m": distance,
+            "p10_m": float(profile.get("p10") or profile.get("p10_m") or distance - 8),
+            "p90_m": float(profile.get("p90") or profile.get("p90_m") or distance + 8),
+        })
+
+    def key(candidate):
+        extra = max(0.0, sum(distance for _, distance in candidate) - remaining_m)
+        return (remaining_m - sum(distance for _, distance in candidate) > SCORING_WINDOW_MAX_M,
+                extra > TEE_SEQUENCE_MAX_OVERSHOOT_M if zones else False,
+                max(0.0, extra - TEE_SEQUENCE_MAX_OVERSHOOT_M) if zones else 0.0,
+                len(candidate), tuple(-distance for _, distance in candidate[:-1]), extra)
+
+    best, best_key = tail, key(tail)
+
+    def visit(prefix, total, first_index):
+        nonlocal best, best_key
+        if len(prefix) >= maximum_steps:
+            return
+        for index in range(first_index, len(rows)):
+            name, distance = rows[index]
+            carry = total + distance
+            candidate = [*prefix, (name, distance)]
+            leave = remaining_m - carry
+            if leave <= SCORING_WINDOW_MAX_M:
+                # Scoring medians keep the existing eight-metre clearance. Prefixes below
+                # still require their complete p10--p90 band to avoid the water.
+                if _strategy_water_safe(start_m + carry, hazards):
+                    candidate_key = key(candidate)
+                    if candidate_key < best_key:
+                        best, best_key = candidate, candidate_key
+                continue
+            if len(candidate) >= maximum_steps:
+                continue
+            # A safe, in-window incumbent cannot be beaten by a longer chain.
+            if not best_key[0] and not best_key[1] and len(candidate) >= len(best):
+                continue
+            if _club_hard_hazard_safe(
+                distributions[index], _shift_hazard_zones(zones, start_m + total),
+            ):
+                visit(candidate, carry, index)
+
+    visit([], 0.0, 0)
+    return best
+
+
 # Below this landing-to-green height change the mesh elevation is noise: the flat plan stands.
 PLAYS_LIKE_MIN_SLOPE_M = 3.0
 
@@ -1904,6 +1990,19 @@ def _strategy(
             and _water_span_affects_scoring_route(interval, route_len_m)
         ],
     }
+    # A factual tee carry can pass the pin. Keep entirely post-pin ponds relevant
+    # to that physical carry, even though they cannot obstruct the route to the green.
+    post_pin_water = [
+        sorted((float(interval[0]), float(interval[1])))
+        for interval in (hazards or {}).get("water_carry") or []
+        if _water_span_affects_scoring_route(interval, math.inf)
+        and not _water_span_affects_scoring_route(interval, route_len_m)
+    ]
+
+    def measured_tee_water_safe(carry):
+        return (_strategy_water_safe(carry, planning_hazards)
+                and all(carry <= front or carry >= back for front, back in post_pin_water))
+
     real_driver_row = next(
         (
             (name, distance)
@@ -1914,6 +2013,17 @@ def _strategy(
     )
     selected_tee_row = _strategy_tee_row(usable_ladder, planning_hazards)
     driver_row = selected_tee_row or real_driver_row or (usable_ladder[0] if usable_ladder else (None, 200))
+    # On a reachable short hole use a measured scoring tee shot, rather than a
+    # fictitious 55% Driver that a sparse bag cannot follow with a shorter club.
+    if par != 3 and usable_ladder and route_len_m <= max(float(d) for _, d in usable_ladder):
+        scoring_tees = [
+            (name, distance) for name, distance in usable_ladder
+            if route_len_m - SCORING_WINDOW_MAX_M <= float(distance)
+            <= route_len_m + TEE_SEQUENCE_MAX_OVERSHOOT_M
+            and measured_tee_water_safe(float(distance))
+        ]
+        if scoring_tees:
+            driver_row = min(scoring_tees, key=lambda row: abs(float(row[1]) - route_len_m))
     driver_name, driver = driver_row
     landing = None
 
@@ -1971,24 +2081,29 @@ def _strategy(
             route_landing_m=route_len_m,
         )
     else:
-        landing = min(driver, route_len_m - 8) if route_len_m > driver else route_len_m * 0.55
+        measured_scoring_tee = (
+            route_len_m - SCORING_WINDOW_MAX_M <= driver
+            <= route_len_m + TEE_SEQUENCE_MAX_OVERSHOOT_M
+            and measured_tee_water_safe(float(driver))
+        )
+        landing = min(float(driver), route_len_m) if measured_scoring_tee else (
+            min(driver, route_len_m - 8) if route_len_m > driver else route_len_m * 0.55
+        )
         # The factual Driver row owns the tee carry. Looking it up again by a free-form display name
         # was the source of Driver -> Driver: production calls it ``Driver``, while the old exclusion
         # only recognised ``1W``.
-        # A Par 4/5 opening shot should expose the player's actual Driver/1W whenever it exists.
-        # The previous distance-only branch silently swapped to a hybrid on short holes, making the
-        # caddie appear to forbid the club the golfer normally tees with.  Keep the landing target
-        # conservative for a short hole, but keep the physical tee club honest.
+        # Keep Driver on normal Par 4/5 openings. A reachable short hole may instead
+        # use the measured scoring tee selected above; its carry must stay factual.
         tee_club = driver_name
         tee_role = "scoring" if route_len_m - landing <= SCORING_WINDOW_MAX_M else "advance"
         append_step(
             tee_club,
             f"开球落点约 {yd(landing)}y",
-            landing,
+            float(driver) if measured_scoring_tee else landing,
             role=tee_role,
             route_landing_m=landing,
         )
-        remaining = route_len_m - landing
+        remaining = max(0.0, route_len_m - landing)
         approach_ladder = [
             (name, distance)
             for name, distance in usable_ladder
@@ -2089,6 +2204,13 @@ def _strategy(
                     distance for _club, distance in replanned_tail
                 ) <= SCORING_WINDOW_MAX_M:
                     shared_tail = replanned_tail
+            if not shared_tail:
+                shared_tail = _repair_complete_tail(
+                    effective, approach_ladder, shared_tail,
+                    start_m=route_offset_m, hazards=planning_hazards,
+                    maximum_carry_m=previous_carry, player_id=player_id,
+                    maximum_steps=5 - len(steps),
+                )
             if shared_tail:
                 # The shared scorer can spend the GIR overshoot allowance on top of
                 # its distribution/clearance margin. For a water-crossing finish, use
@@ -2124,6 +2246,12 @@ def _strategy(
                     ]
                     if shorter_finishes:
                         shared_tail = [*shared_tail[:-1], min(shorter_finishes, key=lambda row: row[1])]
+                shared_tail = _repair_complete_tail(
+                    effective, approach_ladder, shared_tail,
+                    start_m=route_offset_m, hazards=planning_hazards,
+                    maximum_carry_m=previous_carry, player_id=player_id,
+                    maximum_steps=5 - len(steps),
+                )
                 candidate_remaining = effective - sum(
                     tail_distance for _tail_club, tail_distance in shared_tail
                 )
@@ -2227,6 +2355,48 @@ def _strategy(
             if landing_override is not None:
                 # On the green by its plays-like distance: no extra chip for the flat shortfall.
                 break
+    if par != 3 and steps and steps[-1]["role"] != "scoring":
+        # An incomplete route cannot justify keeping its original tee. Try safe measured
+        # tees before returning a half-route; a non-driver tee remains usable from the fairway.
+        # Keep slope-sensitive openings with the existing plays-like planner.
+        alternate_routes = []
+        repair_ladder = [row for row in usable_ladder
+                         if club_bag_service.canonical_club_name(row[0]) != "driver"]
+        for tee_name, tee_carry in usable_ladder:
+            if not _strategy_water_safe(float(tee_carry), planning_hazards):
+                continue
+            if elevation_at is not None:
+                try:
+                    here, green = elevation_at(tee_carry), elevation_at(route_len_m)
+                    if (here is not None and green is not None and math.isfinite(here)
+                            and math.isfinite(green) and abs(green - here) >= PLAYS_LIKE_MIN_SLOPE_M):
+                        continue
+                except Exception:
+                    pass
+            tail = _repair_complete_tail(
+                route_len_m - tee_carry, repair_ladder, [], start_m=tee_carry,
+                hazards=planning_hazards, maximum_carry_m=tee_carry,
+                player_id=player_id, maximum_steps=4,
+            )
+            if tail and route_len_m - tee_carry - sum(carry for _, carry in tail) <= SCORING_WINDOW_MAX_M:
+                candidate = [(tee_name, tee_carry), *tail]
+                extra = max(0.0, sum(carry for _, carry in candidate) - route_len_m)
+                rank = (extra > TEE_SEQUENCE_MAX_OVERSHOOT_M,
+                        max(0.0, extra - TEE_SEQUENCE_MAX_OVERSHOOT_M),
+                        len(candidate), -float(tee_carry))
+                alternate_routes.append((rank, candidate))
+        if alternate_routes:
+            candidate = min(alternate_routes, key=lambda row: row[0])[1]
+            steps.clear()
+            route_offset_m = 0.0
+            landing = min(float(candidate[0][1]), route_len_m)
+            for index, (club, carry) in enumerate(candidate):
+                scoring = index == len(candidate) - 1
+                note = (f"开球落点约 {yd(landing)}y" if index == 0 else
+                        f"剩约 {yd(max(0.0, route_len_m - route_offset_m))}y 上果岭" if scoring else
+                        f"推进约 {yd(carry)}y")
+                append_step(club, note, carry,
+                            role="scoring" if scoring else "advance" if index == 0 else "position")
     for w in hazards.get("water_carry") or []:
         if _water_span_affects_scoring_route(w, route_len_m):
             front, back = sorted((float(w[0]), float(w[1])))
