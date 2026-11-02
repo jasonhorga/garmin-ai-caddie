@@ -283,42 +283,27 @@ def _same_day_matching_boundary_score_holes(
     Compare source scores, never restored/corrected scores: manual edits cannot
     manufacture evidence that two Garmin cards describe the same outing.
     """
-    def ring_length(row: dict[str, Any]) -> int:
-        """Return the displayed hole ring for this source card.
-
-        A standalone Garmin nine-hole course has a nine-entry ``holePars`` and no back loop;
-        its displayed 9 -> 1 wrap must therefore use a nine-hole ring. Cards with a back loop,
-        merged rows, or any other shape retain the normal 18-hole display ring.
-        """
-        if row.get("merged") or row.get("backNineGlobalCourseId") is not None:
-            return 18
-        pars = row.get("holePars")
-        par_count = len(pars) if isinstance(pars, (str, list, tuple)) else 0
-        return 9 if par_count == 9 else 18
-
     def ring_order(
         scores: dict[tuple[int, int], set[int]],
         display_by_key: dict[tuple[int, int], int],
-        ring_size: int,
     ) -> list[tuple[int, int]]:
         """Return each card's holes in play order inferred from physical ring gaps.
 
         Garmin scorecards use a fixed hole-number layout, so ``holes`` list order is not a
-        reliable play sequence. A combo card's front and back loops share one displayed 1..18
-        ring even when their physical global ids differ; a standalone nine-hole card uses a
-        1..9 ring. The largest missing run is where play started; the first displayed hole after
-        that run is therefore the sequence origin.
+        reliable play sequence.  A combo card's front and back loops share one displayed 1..18
+        ring even when their physical global ids differ.  The largest missing run is where play
+        started; the first displayed hole after that run is therefore the sequence origin.
         """
         by_display: dict[int, list[tuple[int, int]]] = {}
         for key in scores:
             display = display_by_key.get(key)
-            if display is not None and 1 <= display <= ring_size:
+            if display is not None and 1 <= display <= 18:
                 by_display.setdefault(display, []).append(key)
         displays = sorted(by_display)
         if not displays:
             return sorted(scores)
         gaps = [
-            ((displays[(index + 1) % len(displays)] - display - 1) % ring_size, index)
+            ((displays[(index + 1) % len(displays)] - display - 1) % 18, index)
             for index, display in enumerate(displays)
         ]
         start = (max(gaps)[1] + 1) % len(displays)
@@ -340,11 +325,20 @@ def _same_day_matching_boundary_score_holes(
             for hole, display, physical, side in hole_sides(row)
         }
         display_by_key: dict[tuple[int, int], int] = {}
+        pars = row.get("holePars")
+        par_count = len(pars) if isinstance(pars, (str, list, tuple)) else 0
+        ring_size = (
+            9 if not row.get("merged") and row.get("backNineGlobalCourseId") is None and par_count == 9 else 18
+        )
         for hole in row.get("holes") or []:
             physical_side = physical_by_hole.get(id(hole))
             if physical_side is None:
                 continue
             display, physical, side = physical_side
+            if ring_size == 9:
+                # Scale a nine-hole display onto the existing 18-slot arithmetic. Even slots
+                # preserve every gap ordering and tie while making 9 -> 1 the physical wrap.
+                display *= 2
             strokes = _int(hole.get("strokes"))
             if strokes is None:
                 continue
@@ -357,9 +351,7 @@ def _same_day_matching_boundary_score_holes(
                 key = (gid, local)
                 scores.setdefault(key, set()).add(strokes)
                 display_by_key.setdefault(key, display)
-        by_day.setdefault(day, []).append((
-            str(row.get("id")), scores, ring_order(scores, display_by_key, ring_length(row))
-        ))
+        by_day.setdefault(day, []).append((str(row.get("id")), scores, ring_order(scores, display_by_key)))
     candidates: dict[str, set[tuple[int, int]]] = {}
     for cards in by_day.values():
         for round_id, own, own_order in cards:

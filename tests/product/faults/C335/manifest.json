@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C335-01-ring-uses-eighteen",
+      "patch": "tests/product/faults/C335/01-ring-uses-eighteen.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_nine_hole_ring_wrap_uses_course_hole_count",
+      "promise": "1.3",
+      "kills": "Forcing every card onto an 18-hole ring rejects the 9 -> 1 shotgun continuation and materializes restores that the later card actually covers."
+    },
+    {
+      "id": "tests-product-faults-C335-02-tie-chooses-lowest-index",
+      "patch": "tests/product/faults/C335/02-tie-chooses-lowest-index.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_tied_ring_gaps_keep_current_max_index_rule",
+      "promise": "1.3",
+      "kills": "Choosing the lowest index on tied largest gaps changes the 10-start card boundary and incorrectly supersedes its restored holes."
+    },
+    {
+      "id": "tests-product-faults-C335-03-ring-uses-local-hole",
+      "patch": "tests/product/faults/C335/03-ring-uses-local-hole.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_display_ring_uses_display_number_when_local_hole_differs",
+      "promise": "1.3",
+      "kills": "Using source localHole as the ring display number rejects a valid combo continuation whose back loop is displayed as holes 10..18."
+    }
+  ]
+}
