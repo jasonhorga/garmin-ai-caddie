@@ -262,16 +262,20 @@ final class CoursePrepTests: XCTestCase {
             authoritativeRevision: "garmin-current"
         ))
 
-        let currentBunkers = (0..<4).map { index in
-            CoursePrepHazardDetail(
+        // Explicit types: Xcode 27's type checker times out on the inferred closure.
+        let currentBunkers: [CoursePrepHazardDetail] = (0..<4).map { (index: Int) -> CoursePrepHazardDetail in
+            let distance: Double = Double(index * 10)
+            let offset: Double = Double(index * 8)
+            let outline: [[Double]] = [[88, 122], [98, 122], [98, 108], [88, 108]]
+            return CoursePrepHazardDetail(
                 kind: index < 2 ? "water" : "bunker",
-                frontM: 300 + Double(index * 10),
-                backM: 306 + Double(index * 10),
-                frontRouteM: 300 + Double(index * 10),
-                backRouteM: 306 + Double(index * 10),
-                frontPx: [90 + Double(index * 8), 120 - Double(index * 8)],
-                backPx: [94 + Double(index * 8), 112 - Double(index * 8)],
-                outlinePx: [[88, 122], [98, 122], [98, 108], [88, 108]],
+                frontM: 300 + distance,
+                backM: 306 + distance,
+                frontRouteM: 300 + distance,
+                backRouteM: 306 + distance,
+                frontPx: [90 + offset, 120 - offset],
+                backPx: [94 + offset, 112 - offset],
+                outlinePx: outline,
                 sideM: Double(index - 2) * 10
             )
         }
