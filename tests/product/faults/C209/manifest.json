@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C209-01-nearby-reserves-cpu",
+      "patch": "tests/product/faults/C209/01-nearby-reserves-cpu.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.CpuPhaseAdmissionTests.test_J42_nearby_network_leaves_background_cpu_available",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C209-02-install-reserves-cpu",
+      "patch": "tests/product/faults/C209/02-install-reserves-cpu.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.CpuPhaseAdmissionTests.test_J42_install_network_leaves_background_cpu_available",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C209-03-raster-reserves-cpu",
+      "patch": "tests/product/faults/C209/03-raster-reserves-cpu.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.CpuPhaseAdmissionTests.test_J42_raster_network_leaves_background_cpu_available",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C209-04-backfill-reserves-cpu",
+      "patch": "tests/product/faults/C209/04-backfill-reserves-cpu.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.CpuPhaseAdmissionTests.test_J42_backfill_network_leaves_background_cpu_available",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C209-05-matte-skips-cpu-admission",
+      "patch": "tests/product/faults/C209/05-matte-skips-cpu-admission.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.CpuPhaseAdmissionTests.test_J42_raster_cpu_stays_serial_and_yields_after_download",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C209-06-registration-skips-cpu-admission",
+      "patch": "tests/product/faults/C209/06-registration-skips-cpu-admission.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.CpuPhaseAdmissionTests.test_J42_registration_admits_after_network_before_publishing_leader",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C209-07-install-vector-skips-admission",
+      "patch": "tests/product/faults/C209/07-install-vector-skips-admission.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.CpuPhaseAdmissionTests.test_J42_install_cpu_callbacks_admit_on_their_own_threads",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C209-08-install-topo-skips-admission",
+      "patch": "tests/product/faults/C209/08-install-topo-skips-admission.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.CpuPhaseAdmissionTests.test_J42_install_cpu_callbacks_admit_on_their_own_threads",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C209-09-coordinator-skips-checkpoints",
+      "patch": "tests/product/faults/C209/09-coordinator-skips-checkpoints.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.SingleUnitAdmissionTests.test_J42_nearby_prefetch_pauses_between_courses_while_package_is_live",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C209-10-backfill-matte-skips-admission",
+      "patch": "tests/product/faults/C209/10-backfill-matte-skips-admission.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.CpuPhaseAdmissionTests.test_J42_backfill_network_leaves_background_cpu_available",
+      "promise": "4.2"
+    }
+  ]
+}

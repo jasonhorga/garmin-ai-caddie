@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
+index f747d9a1..ad69f6e3 100644
+--- a/ai_caddie/core/priority_work.py
++++ b/ai_caddie/core/priority_work.py
+@@ -284,7 +284,7 @@ def yield_to_foreground(*, while_waiting: Callable[[], None] | None = None) -> N
+     Call it only where the unit holds no single-flight or lock a package could need: a paused
+     holder would make that package wait for the whole stale-package deadline.
+     """
+-    gate = _BACKGROUND_ADMISSION.get() or _BACKGROUND_CONTEXT.get()
++    gate = _BACKGROUND_ADMISSION.get()
+     if gate is not None:
+         gate.yield_to_foreground(while_waiting=while_waiting)
+ 

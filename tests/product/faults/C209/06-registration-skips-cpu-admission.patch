@@ -1,0 +1,13 @@
+diff --git a/server_v2/garmin_raster.py b/server_v2/garmin_raster.py
+index 8a1255d6..125c347c 100644
+--- a/server_v2/garmin_raster.py
++++ b/server_v2/garmin_raster.py
+@@ -297,7 +297,7 @@ def course_hole_garmin_raster(
+         return cached
+     if in_background():
+         fetched = garmin_raster.fetch_raster(global_id, hole)
+-        with background_work(unit_type="raster-registration"):
++        with background_work(unit_type="raster-registration", cpu=False):
+             return _describe_raster(global_id, hole, version, fetched=fetched)
+     return _describe_raster(global_id, hole, version)
+ 

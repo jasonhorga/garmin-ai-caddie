@@ -1,0 +1,13 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index f09ad929..9b7ff400 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -525,7 +525,7 @@ class RenderBackfill:
+         if not source:
+             raise RuntimeError("garmin download failed: empty local JPEG")
+         try:
+-            with background_work(unit_type="backfill-matte"), self._render_slot():
++            with self._render_slot():
+                 data = self._render_in_pool(processes, garmin_raster.matte_sky_webp, source)
+         except (_RetryRender, _ShutdownRender, _RenderTimedOut):
+             raise
