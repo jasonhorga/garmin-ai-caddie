@@ -1,0 +1,27 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index d15e5d22..d5f0faa9 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -1944,9 +1944,9 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
+         )
+         # One extra swing costs more than a safe <=30 m overshoot. Only a
+         # larger miss or factual water behind the pin may outrank shot count.
+-        costly_miss = behind_water or (bool(zones) and extra > 30.0)
++        costly_miss = behind_water or (bool(zones) and extra > 20.0)
+         return (remaining_m - total > SCORING_WINDOW_MAX_M,
+-                costly_miss, extra if behind_water else max(0.0, extra - 30.0) if zones else 0.0,
++                costly_miss, extra if behind_water else max(0.0, extra - 20.0) if zones else 0.0,
+                 len(candidate), _long_short_advances(remaining_m, candidate),
+                 extra > TEE_SEQUENCE_MAX_OVERSHOOT_M,
+                 max(0.0, extra - TEE_SEQUENCE_MAX_OVERSHOOT_M),
+@@ -2436,8 +2436,8 @@ def _strategy(
+                 for front, back in post_pin_water
+             )
+             return (bool(_long_short_advances(route_len_m, candidate)),
+-                    extra > 30.0 or behind_water,
+-                    extra if behind_water else max(0.0, extra - 30.0),
++                    extra > 20.0 or behind_water,
++                    extra if behind_water else max(0.0, extra - 20.0),
+                     len(candidate), extra > TEE_SEQUENCE_MAX_OVERSHOOT_M,
+                     max(0.0, extra - TEE_SEQUENCE_MAX_OVERSHOOT_M),
+                     tuple(-float(carry) for _, carry in candidate[:-1]), extra)

@@ -1,10 +1,10 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index d39fb458..4b92ce72 100644
+index d15e5d22..120c4cf8 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -2239,7 +2239,7 @@ def _strategy(
+@@ -2311,7 +2311,7 @@ def _strategy(
                      maximum_carry_m=previous_carry, player_id=player_id,
-                     maximum_steps=5 - len(steps),
+                     maximum_steps=5 - len(steps), post_pin_water=post_pin_water,
                  )
 -                candidate_remaining = effective - sum(
 +                candidate_remaining = remaining - sum(

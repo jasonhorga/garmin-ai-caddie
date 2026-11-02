@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C344-passed-water-ranks-tail",
+      "patch": "tests/product/faults/C344/passed-water-ranks-tail.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_passed_tee_water_does_not_change_the_finish",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C344-twenty-metre-stroke-cost",
+      "patch": "tests/product/faults/C344/twenty-metre-stroke-cost.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_safe_thirty_metre_overshoot_keeps_the_shorter_route",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C344-ignore-twenty-metre-tie",
+      "patch": "tests/product/faults/C344/ignore-twenty-metre-tie.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_same_stroke_count_prefers_twenty_metre_overshoot",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C344-short-advance-is-free",
+      "patch": "tests/product/faults/C344/short-advance-is-free.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_long_remaining_prefers_an_available_long_advance",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C344-skip-shorter-tee",
+      "patch": "tests/product/faults/C344/skip-shorter-tee.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_a_different_tee_can_preserve_the_safe_shorter_route",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C344-ignore-post-pin-water",
+      "patch": "tests/product/faults/C344/ignore-post-pin-water.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_post_pin_water_can_justify_an_extra_stroke",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C344-reverse-water-caution",
+      "patch": "tests/product/faults/C344/reverse-water-caution.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_4_reversed_water_caution_orders_near_and_far_edges",
+      "promise": "4.4"
+    },
+    {
+      "id": "tests-product-faults-C344-extend-every-route-segment",
+      "patch": "tests/product/faults/C344/extend-every-route-segment.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_4_dogleg_water_extends_only_the_final_route_segment",
+      "promise": "4.4"
+    },
+    {
+      "id": "tests-product-faults-C344-clip-past-pin-public-prep",
+      "patch": "tests/product/faults/C305/08-no-water-filter.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_public_prep_clips_covering_water_before_planning",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C344-clip-factual-phone-stations",
+      "patch": "tests/product/faults/C336/clip-factual-water-distance.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_4_course_data_preserves_post_pin_stations_for_phone_filter",
+      "promise": "4.4"
+    },
+    {
+      "id": "tests-product-faults-C344-phone-keeps-water-past-twelve",
+      "patch": "tests/product/faults/C344/phone-keeps-water-past-twelve.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/CoursePrepTests/test_j4_4_courseViewWaterPastPinIsHiddenFromPhoneListAndReadout",
+      "promise": "J4.4"
+    }
+  ]
+}
