@@ -8,6 +8,7 @@ import fcntl
 import os
 from pathlib import Path
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
@@ -116,6 +117,7 @@ class MacRunnerJobsTests(unittest.TestCase):
         lock = self.root / 'port.lock'
         env = dict(CADDIE_PORT9000_LOCK=str(lock), CADDIE_PORT9000_WAIT_SECONDS='0.2',
                    RUNNER_ENVIRONMENT='self-hosted', GITHUB_JOB='waiting-job')
+        self.addCleanup(lambda: self.shell('python3 .github/scripts/port9000.py release', **env))
         with lock.open('w+') as holder:
             fcntl.flock(holder, fcntl.LOCK_EX)
             holder.write('other-job'); holder.flush()
@@ -135,6 +137,28 @@ class MacRunnerJobsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         with lock.open() as probe:
             fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def test_lock_holder_process_exit_releases_kernel_lock(self):
+        env = dict(CADDIE_PORT9000_LOCK=str(self.root / 'port.lock'),
+                   RUNNER_ENVIRONMENT='self-hosted')
+        self.addCleanup(lambda: self.shell('python3 .github/scripts/port9000.py release', **env))
+        result = self.shell(self.mobile_step('Acquire host port 9000 lock')['run'], **env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        pid = json.loads((self.root / 'port.lock').read_text())['pid']
+        os.kill(pid, signal.SIGTERM)  # The runner's cancellation cleanup kills tracked children.
+        result = self.shell(self.mobile_step('Release host port 9000 lock')['run'], **env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with (self.root / 'port.lock').open() as probe:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def test_hosted_acquire_skips_host_lock(self):
+        lock = self.root / 'port.lock'
+        with lock.open('w+') as holder:
+            fcntl.flock(holder, fcntl.LOCK_EX)
+            result = self.shell(self.mobile_step('Acquire host port 9000 lock')['run'],
+                                CADDIE_PORT9000_LOCK=str(lock), RUNNER_ENVIRONMENT='github-hosted')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / 'caddie-port9000-state').exists())
 
     def test_all_port_consumers_hold_lock_until_stop_and_release_always(self):
         consumers = [('native-mobile.yml', job) for job in
@@ -159,10 +183,12 @@ class MacRunnerJobsTests(unittest.TestCase):
     def test_start_rejects_health_from_another_fixture(self):
         # A bind failure followed by someone else's HTTP 200 must never be healthy.
         self.fake_tool('uv', 'exit 0')
+        self.fake_tool('lsof', 'exit 1')
         self.fake_tool('curl', "echo " + shlex.quote(json.dumps(dict(status='ok', revision='other-job'))))
         self.fake_tool('sleep', 'exit 0')
         result = self.shell(self.mobile_step('Start isolated CI fixture')['run'])
         self.assertNotEqual(result.returncode, 0, 'foreign health token must not satisfy fixture startup')
+        self.assertIn('foreign fixture health revision', result.stderr)
 
     def test_product_ui_rejects_an_already_listening_port(self):
         self.fake_tool('lsof', 'echo 54321; exit 0')
@@ -178,15 +204,41 @@ class MacRunnerJobsTests(unittest.TestCase):
                             AI_CADDIE_BUILD_REVISION='our-job')
         self.assertNotEqual(result.returncode, 0, 'stop must report a foreign listener still owning the port')
 
+    def test_stop_checks_port_after_terminating_its_own_fixture(self):
+        self.fake_tool('curl', 'echo ' + shlex.quote(json.dumps(dict(revision='our-job'))))
+        self.fake_tool('lsof', 'echo 54321; exit 0')
+        self.fake_tool('sleep', 'exit 0')
+        (self.root / 'ai-caddie-fixture.pid').write_text('99999999')
+        result = self.shell(self.mobile_step('Stop isolated CI fixture')['run'],
+                            AI_CADDIE_BUILD_REVISION='our-job')
+        self.assertNotEqual(result.returncode, 0, 'stop must check the port after terminating its own fixture')
+        self.assertIn('fixture port still serving', result.stderr)
+
+    def test_start_accepts_its_own_health_revision(self):
+        self.fake_tool('uv', 'exit 0')
+        self.fake_tool('lsof', 'exit 1')
+        self.fake_tool('curl', 'printf \'{"revision":"%s"}\\n\' "$AI_CADDIE_BUILD_REVISION"')
+        result = self.shell(self.mobile_step('Start isolated CI fixture')['run'])
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_product_ui_passes_single_value_options_once(self):
+        self.fake_tool('xcodebuild', 'exec ' + shlex.quote(sys.executable) +
+                       ' -c ' + shlex.quote('import sys; sys.exit(0 if sys.argv.count("-parallel-testing-enabled") == 1 else 1)') + ' "$@"')
+        result = self.shell(self.mobile_step('Test Product UI tests', 'native-product-ui')['run'],
+                            NATIVE_DERIVED_DATA=str(self.root / 'derived'), PRODUCT_UI_UDID='owned')
+        self.assertEqual(result.returncode, 0, 'xcodebuild must receive parallel-testing-enabled once: ' + result.stderr)
+
     def test_selection_erases_only_newly_selected_owned_udids(self):
         runtime = 'com.apple.CoreSimulator.SimRuntime.iOS-27-2'
-        self.state['devices'][runtime] += [dict(name='runner-two-iphone', udid='owned', isAvailable=True),
+        self.state['devices'][runtime] += [dict(name='runner-two-iphone', udid='owned', isAvailable=True, state='Booted'),
                                            dict(name='runner-three-iphone', udid='foreign', isAvailable=True)]
         self.save()
         self.assertEqual(self.select('ios', CADDIE_SIM_PREFIX='runner-two'), 'owned')
         self.assertEqual(self.select('ios', CADDIE_SIM_PREFIX='runner-two'), 'owned')
         self.select('watch', CADDIE_SIM_PREFIX='runner-two')
         self.select('ios')  # Hosted devices retain their original state policy.
+        self.assertEqual([c for c in self.calls() if c[:2] == ['simctl', 'shutdown']],
+                         [['simctl', 'shutdown', 'owned']])
         erases = [c for c in self.calls() if c[:2] == ['simctl', 'erase']]
         self.assertEqual(erases, [['simctl', 'erase', 'owned'],
                                   ['simctl', 'erase', 'created-runner-two-watch']],

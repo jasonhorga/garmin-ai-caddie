@@ -245,6 +245,12 @@ jobs:
         name: Install uv for isolated CI fixture
         if: ${{ inputs.fixture_mode }}
         run: command -v uv >/dev/null 2>&1 || brew install uv
+      - &acquire_fixture_port_lock
+        name: Acquire host port 9000 lock
+        if: ${{ inputs.fixture_mode }}
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: python3 .github/scripts/port9000.py acquire
       - &start_isolated_ci_fixture
         name: Start isolated CI fixture
         id: start_fixture
@@ -272,13 +278,16 @@ jobs:
             printf 'SIMCTL_CHILD_AI_CADDIE_API_BASE_URL=http://127.0.0.1:9000\n'
           } >> "$GITHUB_ENV"
           export CI=true AI_CADDIE_FIXTURE_PORT=9000
+          export AI_CADDIE_BUILD_REVISION="ci-fixture-$(openssl rand -hex 16)"
+          printf 'AI_CADDIE_BUILD_REVISION=%s\n' "$AI_CADDIE_BUILD_REVISION" >> "$GITHUB_ENV"
+          python3 .github/scripts/port9000.py free
           command -v uv >/dev/null 2>&1 || { echo "uv is required for fixture startup" >&2; exit 1; }
           uv --version
           python3 --version
           nohup bash ops/run_ci_fixture.sh > "$RUNNER_TEMP/ai-caddie-fixture.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/ai-caddie-fixture.pid"
           for _ in {1..30}; do
-            if curl --fail --silent --show-error http://127.0.0.1:9000/api/v2/health > /dev/null; then
+            if python3 .github/scripts/port9000.py health; then
               exit 0
             fi
             sleep 2
@@ -819,12 +828,19 @@ jobs:
         run: |
           if [ -f "$RUNNER_TEMP/ai-caddie-fixture.pid" ]; then
             pid="$(cat "$RUNNER_TEMP/ai-caddie-fixture.pid")"
+            if ! python3 .github/scripts/port9000.py free; then
+              python3 .github/scripts/port9000.py health || exit 1
+            fi
             kill "$pid" 2>/dev/null || true
             for _ in {1..20}; do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
             if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
-            ! curl --silent --show-error http://127.0.0.1:9000/api/v2/health >/dev/null 2>&1 || { echo "fixture port still serving" >&2; exit 1; }
+            python3 .github/scripts/port9000.py free
             rm -f "$RUNNER_TEMP/ai-caddie-fixture.pid"
           fi
+      - &release_fixture_port_lock
+        name: Release host port 9000 lock
+        if: ${{ always() && inputs.fixture_mode }}
+        run: python3 .github/scripts/port9000.py release
       - &resolve_and_boot_watch_test_simulator
         name: Resolve and boot Watch test simulator
         if: ${{ always() && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
@@ -1044,7 +1060,8 @@ jobs:
   native-unit-watch:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
     runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
-    timeout-minutes: 45
+    # Up to 90 minutes waiting for the host port, plus the original work budget.
+    timeout-minutes: 135
     env:
       NATIVE_CAPTURE_SHARD: unit-watch
       NATIVE_ARTIFACT_SUFFIX: -unit-watch
@@ -1056,6 +1073,7 @@ jobs:
       - *select_job_simulators
       - *show_simulator_inventory
       - *install_uv_for_isolated_ci_fixture
+      - *acquire_fixture_port_lock
       - *start_isolated_ci_fixture
       - *upload_fixture_startup_diagnostics
       - *upload_fixture_startup_diagnostics_artifact
@@ -1093,12 +1111,14 @@ jobs:
       - *scan_native_build_evidence_for_secret_bytes
       - *upload_native_build_evidence
       - *stop_isolated_ci_fixture
+      - *release_fixture_port_lock
       - *shutdown_owned_simulators
 
   native-real-flow:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
     runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
-    timeout-minutes: 55
+    # Up to 90 minutes waiting for the host port, plus the original work budget.
+    timeout-minutes: 145
     env:
       NATIVE_CAPTURE_SHARD: real-flow
       NATIVE_ARTIFACT_SUFFIX: -real-flow
@@ -1110,6 +1130,7 @@ jobs:
       - *select_job_simulators
       - *show_simulator_inventory
       - *install_uv_for_isolated_ci_fixture
+      - *acquire_fixture_port_lock
       - *start_isolated_ci_fixture
       - *upload_fixture_startup_diagnostics
       - *upload_fixture_startup_diagnostics_artifact
@@ -1126,12 +1147,14 @@ jobs:
       - *upload_real_video
       - *remove_ui_test_app_data
       - *stop_isolated_ci_fixture
+      - *release_fixture_port_lock
       - *shutdown_owned_simulators
 
   native-screenshots:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
     runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
-    timeout-minutes: 45
+    # Up to 90 minutes waiting for the host port, plus the original work budget.
+    timeout-minutes: 135
     env:
       NATIVE_CAPTURE_SHARD: screenshots
       NATIVE_ARTIFACT_SUFFIX: -screenshots
@@ -1143,6 +1166,7 @@ jobs:
       - *select_job_simulators
       - *show_simulator_inventory
       - *install_uv_for_isolated_ci_fixture
+      - *acquire_fixture_port_lock
       - *start_isolated_ci_fixture
       - *upload_fixture_startup_diagnostics
       - *upload_fixture_startup_diagnostics_artifact
@@ -1159,6 +1183,7 @@ jobs:
       - *upload_real_video
       - *remove_ui_test_app_data
       - *stop_isolated_ci_fixture
+      - *release_fixture_port_lock
       - *shutdown_owned_simulators
 
   # C16e ProductPhoneUITests on its own runner. ProductFixtureServer binds the only fixture origin the
@@ -1171,7 +1196,8 @@ jobs:
     # "Test iOS app target" (build + unit tests) took 12 min on run 40187234659. This scheme also
     # builds the UI-test bundle and then runs 13 serial tests with about 20 app launches, so about
     # 25 min is expected; 45 stops a hung simulator at roughly twice that.
-    timeout-minutes: 45
+    # Up to 90 minutes waiting for the host port, plus the original work budget.
+    timeout-minutes: 135
     steps:
       - uses: actions/checkout@v4
       - name: Install XcodeGen
@@ -1181,6 +1207,10 @@ jobs:
       - *select_job_simulators
       - name: Show simulator inventory
         run: xcrun simctl list devices available
+      - name: Acquire host port 9000 lock
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: python3 .github/scripts/port9000.py acquire
       - name: Check Product UI fixture port is free
         run: |
           if lsof -nP -iTCP:9000 -sTCP:LISTEN; then
@@ -1211,7 +1241,6 @@ jobs:
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieUITests \
             -destination "platform=iOS Simulator,id=$PRODUCT_UI_UDID" \
-            -parallel-testing-enabled NO \
             -resultBundlePath product-ui-results/ProductPhoneUITests.xcresult \
             -only-testing:AICaddieUITests/ProductPhoneUITests \
             2>&1 | tee product-ui-results/xcodebuild.log
@@ -1301,6 +1330,13 @@ jobs:
           if-no-files-found: warn
 
       - *shutdown_owned_simulators
+
+      - name: Check Product UI fixture stopped
+        if: ${{ always() }}
+        run: python3 .github/scripts/port9000.py free
+      - name: Release host port 9000 lock
+        if: ${{ always() }}
+        run: python3 .github/scripts/port9000.py release
 
   # Keep the public job conclusion and artifact names consumed by the project console.
   # This runner only combines already secret-scanned evidence; it never starts a simulator.

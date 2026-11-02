@@ -111,6 +111,17 @@ if prefix and os.environ.get('GITHUB_ENV'):
                     recorded = line.partition('=')[2].split()
     except FileNotFoundError:
         pass
+    if udid not in recorded:
+        # Selection can run again later in the same job; never erase a device
+        # that this job has already booted/installed. Recheck exact ownership.
+        selected = [d for entries in inventory('devices').values() for d in entries
+                    if d['udid'] == udid and d.get('name') == prefix + '-' + suffix]
+        if len(selected) != 1:
+            raise SystemExit('refusing to erase simulator without exact runner ownership')
+        if selected[0].get('state', 'Shutdown') != 'Shutdown':
+            subprocess.run(['xcrun', 'simctl', 'shutdown', udid], check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(['xcrun', 'simctl', 'erase', udid], check=True, stdout=subprocess.DEVNULL)
     with open(env_file, 'a', encoding='utf-8') as handle:
         handle.write('CADDIE_SIM_UDIDS=' + ' '.join(dict.fromkeys([*recorded, udid])) + '\n')
 print(udid)
