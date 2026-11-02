@@ -587,13 +587,11 @@ class ManifestFragmentTests(unittest.TestCase):
         self.assertEqual(runner.probe_python_targets(["test_a", target], self.root)[target], ("ok", ""))
         # Exercise the real --run preflight and nonzero postflight; this patch
         # changes the independent witness assertion, not its import behaviour.
-        self.record = lambda identifier: {"id": identifier, "patch": "change.patch",
-            "kind": "python", "target": target, "promise": "fault-runner infrastructure"}
         path = self.root / "test_b.py"
         path.write_text(path.read_text().replace("def test_loads(self): pass",
             "def test_loads(self): self.assertEqual(__import__('pathlib').Path('subject.txt').read_text(), 'before\\n')"))
         self.init_repo()
-        code, rows, _ = self.invoke_main("--run", [self.record("own-path")])
+        code, rows, _ = self.invoke_main("--run", [{**self.record("own-path"), "target": target}])
         self.assertEqual(rows[0]["status"], "killed")
         self.assertEqual(code, 0)
         self.assertIn("AssertionError", rows[0]["detail"])
@@ -625,9 +623,10 @@ class ManifestFragmentTests(unittest.TestCase):
             "test_a.py": "import sys\nsys.path.insert(0,'extra')\nimport namespace_only\n",
             "test_b.py": "import namespace_only\n"})
         # Inspect the batch itself so independent retries cannot mask M2.
-        result = runner._run_python_load_probe(["test_a", "test_b"], self.root)
+        observations = {}
+        result = runner._run_python_load_probe(["test_a", "test_b"], self.root, observations=observations)
         self.assertEqual([result[t][0] for t in ["test_a", "test_b"]], ["ok", "unavailable"])
-        self.assertIn('ModuleNotFoundError', result['test_b'][1])
+        self.assertTrue(observations["test_b"]["load_failed"])
 
     def test_batch_resolves_symlink_module_locations_before_cleanup(self):
         """验收方式: symlink and real module locations identify one directory."""
@@ -635,9 +634,10 @@ class ManifestFragmentTests(unittest.TestCase):
             "test_a.py": "import sys\nsys.path.insert(0,'link')\nimport helper\n",
             "test_b.py": "import helper\n"})
         (self.root / 'link').symlink_to(self.root / 'real', target_is_directory=True)
-        result = runner._run_python_load_probe(["test_a", "test_b"], self.root)
+        observations = {}
+        result = runner._run_python_load_probe(["test_a", "test_b"], self.root, observations=observations)
         self.assertEqual([result[t][0] for t in ["test_a", "test_b"]], ["ok", "unavailable"])
-        self.assertIn('ModuleNotFoundError', result['test_b'][1])
+        self.assertTrue(observations["test_b"]["load_failed"])
 
     def test_check_directory_aliases_and_root_keep_single_initialization_cached(self):
         """验收方式: harmless path spellings require one batch, no retry."""
@@ -718,14 +718,15 @@ class ManifestFragmentTests(unittest.TestCase):
             "    def test_loads(self): pass\n", encoding="utf-8",
         )
         self.init_repo()
+        observations = {}
         batch = runner._run_python_load_probe(
-            ["test_adds_path", "test_needs_clean_path"], self.root
+            ["test_adds_path", "test_needs_clean_path"], self.root, observations=observations
         )
         # 批量探测本身必须观察到 helper 不再可见；外层 probe_python_targets
         # 的独立复核不能把 sys.path/模块清理故障救回。
         self.assertEqual(batch["test_adds_path"][0], "ok")
         self.assertEqual(batch["test_needs_clean_path"][0], "unavailable")
-        self.assertIn("ModuleNotFoundError", batch["test_needs_clean_path"][1])
+        self.assertTrue(observations["test_needs_clean_path"]["load_failed"])
         records = [{**self.record(str(index)), "target": target}
                    for index, target in enumerate(("test_adds_path", "test_needs_clean_path"))]
         code, rows, _ = self.invoke_main("--check", records)
