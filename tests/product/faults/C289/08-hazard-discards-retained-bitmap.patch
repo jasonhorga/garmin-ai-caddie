@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddieWatch/Views/WatchHazardMapView.swift b/mobile/ios/AICaddieWatch/Views/WatchHazardMapView.swift
+index 43c2d65c..dd333373 100644
+--- a/mobile/ios/AICaddieWatch/Views/WatchHazardMapView.swift
++++ b/mobile/ios/AICaddieWatch/Views/WatchHazardMapView.swift
+@@ -207,7 +207,7 @@ extension EnvironmentValues {
+ public struct WatchHazardMapView: View {
+     private let sourceGeometry: WatchHoleMapGeometry
+     @State private var retainedGeometry: WatchHoleMapGeometry?
+-    public var geometry: WatchHoleMapGeometry { sourceGeometry.retainingBitmaps(from: retainedGeometry) }
++    public var geometry: WatchHoleMapGeometry { sourceGeometry }
+     public let route: [[Double]]
+     public let hazards: [WatchHazard]
+     public let centerGreenYards: Int?

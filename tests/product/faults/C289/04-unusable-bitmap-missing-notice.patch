@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
+index 2519bcff..c791e200 100644
+--- a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
++++ b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
+@@ -1124,7 +1124,7 @@ public struct WatchHoleMapView: View {
+                 let preparingIdentifiers = mapPreparingAccessibilityIdentifiers.isEmpty
+                     && mapDisplayState(in: geo.size) == .waiting
+                     ? ["watch-map-preparing"] : mapPreparingAccessibilityIdentifiers
+-                ForEach(preparingIdentifiers.indices, id: \.self) { index in
++                ForEach(preparingIdentifiers.indices.filter { _ in geometry.image == nil }, id: \.self) { index in
+                     WatchMapPreparingNotice()
+                         .accessibilityIdentifier(preparingIdentifiers[index])
+                 }
