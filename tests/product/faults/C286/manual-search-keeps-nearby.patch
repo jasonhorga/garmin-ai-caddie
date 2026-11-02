@@ -2,13 +2,9 @@ diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddi
 index 40787de6..dcec202d 100644
 --- a/mobile/ios/AICaddie/Views/StartRoundView.swift
 +++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
-@@ -2567,8 +2567,7 @@ public struct StartRoundView: View {
-     }
- 
+@@ -2569,4 +2569,3 @@ public struct StartRoundView: View {
      static func resetNearbyOptionsForManualSearch(_ options: [MobileCourseOption]) -> [MobileCourseOption] {
 -        _ = options
 -        return []
 +        return options
      }
- 
-     static func nearbyDiscoveryErrorMessage(_ error: Error) -> String {

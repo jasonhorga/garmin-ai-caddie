@@ -2,11 +2,7 @@ diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddi
 index 40787de6..78fbf3b3 100644
 --- a/mobile/ios/AICaddie/Views/StartRoundView.swift
 +++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
-@@ -2543,7 +2543,6 @@ public struct StartRoundView: View {
-         !isCancelled
-             && activeRequestToken == requestToken
+@@ -2545,3 +2545,2 @@ public struct StartRoundView: View {
              && currentRequestKey == requestKey
 -            && !manualSearchSelected
      }
- 
-     /// Whether the automatic nearby choice no longer belongs to the latest provider answer.
