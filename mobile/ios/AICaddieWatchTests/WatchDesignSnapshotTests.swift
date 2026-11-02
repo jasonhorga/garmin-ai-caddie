@@ -3047,9 +3047,22 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
     }
 
+    /// J4.5: shot overlays are drawn only over a precise bitmap, so the row fixtures carry a plain
+    /// course-green bitmap instead of relying on the removed no-image line map.
+    private static let card438MapImage: UIImage? = {
+        guard let context = CGContext(
+            data: nil, width: 200, height: 240, bitsPerComponent: 8, bytesPerRow: 200 * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        context.setFillColor(red: 0.12, green: 0.28, blue: 0.16, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: 200, height: 240))
+        return context.makeImage().map { UIImage(cgImage: $0) }
+    }()
+
     private var card438Geometry: WatchHoleMapGeometry {
         WatchHoleMapGeometry(
-            image: nil,
+            image: Self.card438MapImage,
             imageSize: CGSize(width: 200, height: 240),
             youPx: CGPoint(x: 100, y: 190),
             pinPx: CGPoint(x: 100, y: 20),
