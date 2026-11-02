@@ -26,6 +26,7 @@ final class WatchHolePagesUITests: XCTestCase {
         app.terminate()
     }
 
+    /// J5.12: ordinary vertical finger drags visit all three production hole pages.
     func testVerticalSwipesWalkTheThreeHolePagesAndBack() {
         seedTheCourseImage()
         app.launchArguments = ["-uitest-screen", "standalone-course-page-plan"]
@@ -62,11 +63,14 @@ final class WatchHolePagesUITests: XCTestCase {
         XCTAssertTrue(instrument.waitForExistence(timeout: 10), "the club tag opens the caddie page")
     }
 
-    /// A flick on the system page view (the vertical TabView), the way a wrist swipe reaches it.
+    /// A finger drag with explicit interior endpoints and velocity. watchOS 27's generic
+    /// collection-view swipe does not commit this system pager; the same real drag does.
     private func swipe(up: Bool) {
         let pager = app.collectionViews["PUICPageViewController_collectionView"]
         XCTAssertTrue(pager.waitForExistence(timeout: 5), "the 本洞 pager is on screen")
-        if up { pager.swipeUp() } else { pager.swipeDown() }
+        let start = pager.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.8 : 0.2))
+        let end = pager.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.2 : 0.8))
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0)
     }
 
     private func assertPage(_ name: String, _ marker: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {

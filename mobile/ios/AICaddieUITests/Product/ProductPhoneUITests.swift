@@ -504,6 +504,25 @@ final class ProductPhoneUITests: XCTestCase {
         assertRanges([122, 243, 365], row: "after-tee restart")
     }
 
+    /// J5.4: finger input and the accessible button both reach flag placement.
+    func test_j5_4_green_entry_accepts_a_coordinate_tap() {
+        launch(latitude: "0")
+        startRound()
+        recordFirstShot()
+        let green = app.buttons["live-open-green-from-hero"]
+        XCTAssertTrue(green.waitForExistence(timeout: 10))
+        let accessibleHitTarget = green.isHittable
+        // The synthetic green's lower edge meets the floating 洞位图 control; use an
+        // unobscured interior point, without consulting isHittable or a tap fallback.
+        green.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        XCTAssertTrue(element("live-green-edge-front").waitForExistence(timeout: 5), "a finger tap on the green opens flag placement")
+        app.buttons["关闭果岭地图"].tap()
+        XCTAssertTrue(accessibleHitTarget, "the green entry is an accessible hit target")
+        XCTAssertEqual(green.label, "调整旗位")
+        green.tap()
+        XCTAssertTrue(element("live-green-edge-front").waitForExistence(timeout: 5), "the accessible green button opens flag placement")
+    }
+
     private func startRound() {
         if launchedWithFix {
             // C99 routes every new round through the shared course finder. A nearby course is
