@@ -217,11 +217,20 @@ def restore_hole_par(
         return None
 
 
-def _real_score_hole_keys(rounds: list[dict[str, Any]]) -> dict[str, set[tuple[int, int]]]:
-    """Physical scorecard holes that can supersede a restore in another round."""
-    keys_by_round: dict[str, set[tuple[int, int]]] = {}
+def _real_score_hole_keys(
+    rounds: list[dict[str, Any]],
+) -> dict[str, tuple[str, set[tuple[int, int]]]]:
+    """Physical scorecard holes grouped by Garmin outing date and round id.
+
+    Garmin's normalized ``date`` comes from ``formattedStartTime``/``startTime``.  The history
+    merger defines one outing as the same calendar date and course; before a merge, scorecard ids
+    are separate, so the date day is the stable relationship available to corrected history.
+    """
+    keys_by_round: dict[str, tuple[str, set[tuple[int, int]]]] = {}
     for row in rounds:
-        keys = keys_by_round.setdefault(str(row.get("id")), set())
+        round_id = str(row.get("id"))
+        day = str(row.get("date") or "")[:10]
+        keys = keys_by_round.setdefault(round_id, (day, set()))[1]
         for hole, _display, physical, side in hole_sides(row):
             if _int(hole.get("strokes")) is None:
                 continue
@@ -281,10 +290,12 @@ def corrected_rounds(
     real_score_holes = _real_score_hole_keys(rounds)
     out: list[dict[str, Any]] = []
     for row in rounds:
+        row_id = str(row.get("id"))
+        row_day = str(row.get("date") or "")[:10]
         other_real_score_holes = {
             key
-            for round_id, keys in real_score_holes.items()
-            if round_id != str(row.get("id"))
+            for round_id, (other_day, keys) in real_score_holes.items()
+            if round_id != row_id and (not row_day or not other_day or row_day == other_day)
             for key in keys
         }
         refs = _round_refs(row)
