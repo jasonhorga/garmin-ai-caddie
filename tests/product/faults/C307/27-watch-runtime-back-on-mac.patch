@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/watch-runtime.yml b/.github/workflows/watch-runtime.yml
+index 9f93cbd2..29da6b0e 100644
+--- a/.github/workflows/watch-runtime.yml
++++ b/.github/workflows/watch-runtime.yml
+@@ -54,7 +54,7 @@ jobs:
+     if: github.event_name != 'workflow_dispatch' || github.event.inputs.runtime_scope != 'web-only'
+     # Keep on GitHub until C332 fixes watchOS 27 SDK vertical paging (full
+     # AICaddieWatch scheme incl. WatchHolePagesUITests); then move back to Mac.
+-    runs-on: macos-15
++    runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
+     steps:
+       - uses: actions/checkout@v4
+ 

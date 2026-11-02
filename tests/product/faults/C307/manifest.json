@@ -147,6 +147,20 @@
       "kind": "python",
       "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_watch_screenshot_resets_restore_english_before_boot",
       "promise": "C307 r4 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-26-native-live-back-on-mac",
+      "patch": "tests/product/faults/C307/26-native-live-back-on-mac.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_sdk_affected_jobs_stay_hosted_even_when_mac_is_online",
+      "promise": "C307 r5 full Watch scheme jobs stay hosted until C332"
+    },
+    {
+      "id": "tests-product-faults-C307-27-watch-runtime-back-on-mac",
+      "patch": "tests/product/faults/C307/27-watch-runtime-back-on-mac.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_sdk_affected_jobs_stay_hosted_even_when_mac_is_online",
+      "promise": "C307 r5 full Watch scheme jobs stay hosted until C332"
     }
   ]
 }
