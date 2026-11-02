@@ -10,4 +10,3 @@ index c761ecd4..f0d41a9b 100644
 +                        and all(own[key] == other[key] for key in overlap)):
                      covered.update(other.keys() - own.keys())
      return candidates
- 
