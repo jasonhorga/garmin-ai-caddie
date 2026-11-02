@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/rounds/round_shot_map.py b/ai_caddie/rounds/round_shot_map.py
+index c171caba..db1627a1 100644
+--- a/ai_caddie/rounds/round_shot_map.py
++++ b/ai_caddie/rounds/round_shot_map.py
+@@ -42,7 +42,7 @@ def _geometry_target(row: dict[str, Any], hole: int) -> tuple[int | None, int]:
+     18 plays its back nine from a second loop's gid)."""
+     if hole <= 9:
+         gid = _int(row.get("frontNineGlobalCourseId")) or _int(row.get("globalId")) or _int(row.get("courseId"))
+-        local_hole = merged_front_local_hole(row, hole)
++        local_hole = hole
+         if local_hole != hole:
+             return gid, local_hole
+         return gid, hole

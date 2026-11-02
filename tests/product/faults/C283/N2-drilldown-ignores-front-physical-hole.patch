@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/history_drilldown.py b/ai_caddie/history/history_drilldown.py
+index 512fafec..c6e70aba 100644
+--- a/ai_caddie/history/history_drilldown.py
++++ b/ai_caddie/history/history_drilldown.py
+@@ -676,7 +676,7 @@ def _hole_geometry_target(row: dict[str, Any], hole_number: int) -> dict[str, in
+         return {"globalId": _round_global_id(row), "localHole": None}
+     if hole_number <= 9:
+         global_id = _int_field(row, "frontNineGlobalCourseId") or _int_field(row, "globalId") or _int_field(row, "courseId")
+-        return {"globalId": global_id, "localHole": merged_front_local_hole(row, hole_number)}
++        return {"globalId": global_id, "localHole": hole_number}
+     back_global_id = _int_field(row, "backNineGlobalCourseId")
+     if back_global_id is not None:
+         local_hole = hole_number if round_loop_half(row, "back") == "back" else hole_number - 9
