@@ -309,6 +309,25 @@ class ManifestFragmentTests(unittest.TestCase):
                 self.assertEqual(rows[0]["detail"], "目标测试被跳过：optional tool missing")
                 self.assertEqual(code, 0)
 
+    def test_run_skipped_record_does_not_mask_other_record_failures(self):
+        record = self.skip_fixture(
+            "import unittest\nclass Witness(unittest.TestCase):\n"
+            "    @unittest.skip('optional tool missing')\n"
+            "    def test_skipped(self): pass\n"
+            "    def test_green(self): pass\n"
+        )
+        skipped = {**record, "target": "test_skip_policy.Witness.test_skipped"}
+        for target, status, expected_code in (
+            ("test_witness", "killed", 0),
+            ("test_skip_policy.Witness.test_green", "leaked", 1),
+            ("missing_module", "unavailable", 1),
+        ):
+            with self.subTest(target=target):
+                sibling = {**self.record("sibling"), "target": target}
+                code, rows, _ = self.invoke_main("--run", [skipped, sibling])
+                self.assertEqual([row["status"] for row in rows], ["unavailable", status])
+                self.assertEqual(code, expected_code)
+
     def test_run_partial_skip_uses_the_executed_test_verdict(self):
         record = self.skip_fixture(
             "import unittest\nfrom pathlib import Path\n"

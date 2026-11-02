@@ -414,9 +414,25 @@ def native_include_ui(record: dict[str, Any]) -> bool:
 
 def run_target(record: dict[str, Any], repo: Path) -> tuple[str, str, list[str]]:
     """Return (status, detail, command) for an already patched worktree."""
+    if record["kind"] == "python":
+        with tempfile.TemporaryDirectory(prefix="fault-run-") as directory:
+            return _run_target(record, repo, Path(directory))
+    return _run_target(record, repo)
+
+
+def _run_target(record: dict[str, Any], repo: Path,
+                report_directory: Path | None = None) -> tuple[str, str, list[str]]:
     kind = record["kind"]
     target = record["target"]
     env = {**os.environ, "AI_CADDIE_DATA_MODE": "fixture", "PYTHONDONTWRITEBYTECODE": "1"}
+    if kind == "python":
+        assert report_directory is not None
+        reporter = "_caddie_fault_reporter"
+        (report_directory / (reporter + ".py")).write_text(PYTHON_RUN_REPORTER, encoding="utf-8")
+        report_path = report_directory / "result.json"
+        env.update(CADDIE_FAULT_TARGET=target, CADDIE_FAULT_REPORT=str(report_path),
+                   PYTHONPATH=os.pathsep.join([str(report_directory), env.get("PYTHONPATH", "")]))
+        target = reporter
     if kind == "python-script":
         script = shlex.split(target)
         if script and script[0] in {"python", "python3"}:
@@ -424,22 +440,16 @@ def run_target(record: dict[str, Any], repo: Path) -> tuple[str, str, list[str]]
         command = [str(SHARED_PYTHON), *script]
         result = subprocess.run(command, cwd=repo, env=env, text=True, capture_output=True)
     elif kind == "python":
-        with tempfile.TemporaryDirectory(prefix="fault-run-") as directory:
-            reporter = "_caddie_fault_reporter"
-            (Path(directory) / (reporter + ".py")).write_text(PYTHON_RUN_REPORTER, encoding="utf-8")
-            report_path = Path(directory) / "result.json"
-            env.update(CADDIE_FAULT_TARGET=target, CADDIE_FAULT_REPORT=str(report_path),
-                       PYTHONPATH=os.pathsep.join([directory, env.get("PYTHONPATH", "")]))
-            if RUN_TESTS:
-                command = ["bash", RUN_TESTS, str(repo), reporter]
-            else:
-                command = [str(SHARED_PYTHON), "-m", "unittest", reporter]
-            result = subprocess.run(command, cwd=repo, env=env, text=True, capture_output=True)
-            if result.returncode == 0 and report_path.is_file():
-                report = json.loads(report_path.read_text(encoding="utf-8"))
-                if report["all_skipped"]:
-                    reason = (report["skip_reason"].splitlines() or [""])[0]
-                    return "unavailable", SKIPPED_DETAIL_PREFIX + reason, command
+        if RUN_TESTS:
+            command = ["bash", RUN_TESTS, str(repo), target]
+        else:
+            command = [str(SHARED_PYTHON), "-m", "unittest", target]
+        result = subprocess.run(command, cwd=repo, env=env, text=True, capture_output=True)
+        if result.returncode == 0 and report_path.is_file():
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            if report["all_skipped"]:
+                reason = (report["skip_reason"].splitlines() or [""])[0]
+                return "unavailable", SKIPPED_DETAIL_PREFIX + reason, command
     elif kind == "web-vitest":
         executable = repo / "web_v2/node_modules/.bin/vitest"
         if not executable.exists():
@@ -465,7 +475,7 @@ def run_target(record: dict[str, Any], repo: Path) -> tuple[str, str, list[str]]
         return "native-pending", "native tests are dispatched by the project console", []
     if kind == "python" and result.returncode:
         # A non-zero test process may be a mutant assertion or a load failure.
-        # Probe only this path; a zero exit needs no repeat loading check.
+        # Probe only this path so a zero exit is recorded as survived directly.
         status, detail = target_check(record, repo)
         if status != "ok":
             return status, detail, command
@@ -584,15 +594,24 @@ def main() -> int:
         result = check(records)
     elif args.run:
         result = run_mutants(records)
+        rows = result["results"]
+        # Skip-only unavailability is an environment limitation. Keep the rows
+        # and summary intact, and retain the normal failure exit below for
+        # load errors, bad patches or genuinely surviving mutants.
+        if any(row["detail"].startswith(SKIPPED_DETAIL_PREFIX) for row in rows) and not any(
+            row["status"] in {"unappliable", "leaked"}
+            or (row["status"] == "unavailable" and not row["detail"].startswith(SKIPPED_DETAIL_PREFIX))
+            for row in rows
+        ):
+            if args.out:
+                args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            return 0
     else:
         result = dispatch_native(records)
     if args.out:
         args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return int(no_match or any(
-        row["status"] in {"unappliable", "unavailable", "leaked"}
-        and not (args.run and row["status"] == "unavailable"
-                 and row.get("detail", "").startswith(SKIPPED_DETAIL_PREFIX))
-        for row in result.get("results", [])))
+    return int(no_match or any(row["status"] in {"unappliable", "unavailable", "leaked"}
+                   for row in result.get("results", [])))
 
 
 if __name__ == "__main__":

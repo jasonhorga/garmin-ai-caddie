@@ -1,5 +1,5 @@
 diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
-index 90b838bb..8222a3e8 100644
+index d7a8d7c6..2d0877c9 100644
 --- a/tests/product/faults/run_faults.py
 +++ b/tests/product/faults/run_faults.py
 @@ -62,7 +62,7 @@ class ReportingSuite(unittest.TestSuite):
