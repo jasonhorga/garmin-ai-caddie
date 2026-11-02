@@ -4,11 +4,14 @@ Discovered once with the J7 product tests; assertions exercise rendered output.
 """
 from collections import namedtuple
 from decimal import Decimal
+import base64
 import hashlib
 import io
 import logging.config
 import logging
 import sys
+import subprocess
+import textwrap
 from pathlib import Path
 import tempfile
 import unittest
@@ -24,7 +27,11 @@ from ai_caddie.caddie.mobile_event_store import FileEventStore
 from ai_caddie.core import request_timing, revisions
 from ai_caddie.courses import course_prep
 from ai_caddie.ops import retention
-from server_v2 import main
+from server_v2 import main, pin_sheet, render_backfill
+from server_v2.models import PinSheetImageIn, PinSheetRequest
+from fastapi import HTTPException
+from ai_caddie.llm.llm_providers import ProviderConfigurationError
+from ai_caddie.llm.pin_sheet_vision import PinSheetReadError
 from tests.service_logging import preserve_service_logging
 from tests.test_c90_timing import _routes_prepended
 
@@ -117,13 +124,42 @@ class J7LogPrivacyTests(unittest.TestCase):
     def test_J73_real_course_prep_failure_redacts_bare_player_id(self):
         """J7.3: the production course-prep warning never emits a member id."""
         streams = self.capture_production()
-        with patch("ai_caddie.history.stats_cache.cached_load_history_data",
-                   side_effect=RuntimeError("history unavailable")):
-            self.assertIsNone(course_prep._corrected_profile_history("p_deadbeef"))
+        for player_id in ("p_deadbeef", "p_0123456789abcdef"):
+            with self.subTest(player_id=player_id), patch(
+                "ai_caddie.history.stats_cache.cached_load_history_data",
+                side_effect=RuntimeError("history unavailable"),
+            ):
+                self.assertIsNone(course_prep._corrected_profile_history(player_id))
         output = streams["lastResort"].getvalue()
         self.assertIn("failed to load corrected profile history", output)
-        self.assertNotIn("p_deadbeef", output)
+        for player_id in ("p_deadbeef", "p_0123456789abcdef"):
+            self.assertNotIn(player_id, output)
         self.assertIn("RuntimeError", output)
+
+    def test_J73_cron_warning_redacts_bare_player_id(self):
+        """J7.3: invoke cron main in a fresh interpreter without API startup."""
+        script = textwrap.dedent('''
+            from contextlib import nullcontext
+            from unittest.mock import patch
+            import logging
+            from ai_caddie import pipeline
+            def sync(**kwargs):
+                logging.getLogger("ai_caddie.garmin.fetch").warning(
+                    "cron failed for p_0123456789abcdef")
+                return pipeline.SyncResult(auth_ok=True)
+            with patch.object(pipeline, "sync", side_effect=sync), \\
+                 patch.object(pipeline, "_persist_sync_observability"), \\
+                 patch("ai_caddie.connectors.sync_lock.acquire_sync_lock", return_value=nullcontext()), \\
+                 patch("ai_caddie.connectors.snapshot.write_connector_status"):
+                raise SystemExit(pipeline.main([]))
+        ''')
+        result = subprocess.run([sys.executable, "-c", script],
+                                cwd=Path(__file__).resolve().parents[1],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = result.stderr
+        self.assertNotIn("p_0123456789abcdef", output)
+        self.assertIn("cron failed for [redacted]", output)
 
     def test_J73_relative_player_path_is_redacted_without_swallowing_fields(self):
         """J7.3: relative player partitions are private while adjacent fields survive."""
@@ -136,6 +172,16 @@ class J7LogPrivacyTests(unittest.TestCase):
         self.assertNotIn("p_deadbeef", output)
         self.assertIn("status=503", output)
         self.assertIn("reason=quota", output)
+
+    def test_J73_player_path_without_data_prefix_has_clean_shape(self):
+        """J7.3: a relative player path keeps its separators after redaction."""
+        streams = self.capture_production()
+        logging.getLogger(main.SERVICE_INFO_LOGGERS[0]).warning(
+            "storage path=players/p_deadbeef/events status=503 reason=quota")
+        output = streams[main.SERVICE_INFO_LOGGERS[0]].getvalue()
+        self.assertIn("path=players/[redacted]/events", output)
+        self.assertNotIn("p_deadbeef", output)
+        self.assertIn("status=503", output)
 
     def test_J73_oserror_strerror_redacts_private_payload(self):
         """J7.3: retained OSError diagnostics still pass through text redaction."""
@@ -212,6 +258,101 @@ class J7LogPrivacyTests(unittest.TestCase):
                 target.warning("player_id=%s status=200", "PRIVATEPLAYER")
                 self.assertNotIn("PRIVATEPLAYER", stream.getvalue())
                 self.assertIn("status=200", stream.getvalue())
+
+    def test_J73_direct_handlers_list_mutation_is_protected(self):
+        """J7.3: appending directly to handlers cannot bypass the exit filter."""
+        self.capture_production()
+        for name in ("server_v2.direct_handlers", "ai_caddie.direct_handlers", ""):
+            for mode in ("append", "extend", "replace", "slice"):
+                with self.subTest(logger=name, mode=mode):
+                    stream = io.StringIO()
+                    target = logging.getLogger(name)
+                    target.propagate = False
+                    handler = logging.StreamHandler(stream)
+                    if mode == "append":
+                        target.handlers.append(handler)
+                    elif mode == "extend":
+                        target.handlers.extend([handler])
+                    elif mode == "replace":
+                        target.handlers = [handler]
+                    else:
+                        target.handlers[:] = [handler]
+                    source = target if name else logging.getLogger("server_v2.direct_root_child")
+                    source.warning("player_id=%s status=200", "PRIVATEPLAYER")
+                    self.assertNotIn("PRIVATEPLAYER", stream.getvalue())
+                    self.assertIn("status=200", stream.getvalue())
+
+    def test_J73_pin_sheet_failure_keeps_exception_payload_private(self):
+        """J7.3: real failure branches retain types, never arbitrary exception text."""
+        request = PinSheetRequest(images=[PinSheetImageIn(
+            contentBase64=base64.b64encode(b"\xff\xd8\xff\xe0" + b"\0" * 64).decode())])
+        for error, status in ((ProviderConfigurationError("PRIVATEPAYLOAD"), 503),
+                              (RuntimeError("PRIVATEPAYLOAD"), 502),
+                              (PinSheetReadError("PRIVATEPAYLOAD"), 422)):
+            with self.subTest(error=type(error).__name__):
+                streams = self.capture_production()
+                with patch.object(pin_sheet, "build_media_vision_provider", side_effect=error):
+                    with self.assertRaises(HTTPException) as caught:
+                        pin_sheet.read_pin_sheet_response(request)
+                self.assertEqual(caught.exception.status_code, status)
+                output = streams["lastResort"].getvalue()
+                self.assertNotIn("PRIVATEPAYLOAD", output)
+                self.assertIn(type(error).__name__, output)
+
+    def test_J73_backfill_failure_keeps_exception_payload_private(self):
+        """J7.3: terminal retries and ordinary render errors reach privacy as exceptions."""
+        for retry in (False, True):
+            with self.subTest(retry=retry), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                meshes = root / "meshes"
+                meshes.mkdir()
+                (meshes / "gid1_h01_meshes.json").write_text("{}")
+                failure = (render_backfill._RetryRender("PRIVATEPAYLOAD") if retry
+                           else RuntimeError("PRIVATEPAYLOAD"))
+                def draw(*args):
+                    raise failure
+                streams = self.capture_production()
+                worker = render_backfill.RenderBackfill(
+                    state_path=root / "state.json", mesh_root=meshes,
+                    topo_ready=lambda *args: False, raster_version=lambda *args: None,
+                    render_topo=draw)
+                try:
+                    with patch.object(worker, "_wait_for_foreground"), \
+                         patch.object(render_backfill.time, "sleep"):
+                        worker.enqueue_all(recent=set(), downloaded=set())
+                        for _ in range(3 if retry else 1):
+                            self.assertTrue(worker.run_once())
+                    self.assertEqual(worker.status()["failed"], 1)
+                finally:
+                    worker.close()
+                output = streams["lastResort"].getvalue()
+                self.assertIn("asset=failed", output)
+                self.assertIn(type(failure).__name__, output)
+                self.assertIn("gid=1 hole=1", output)
+                self.assertNotIn("PRIVATEPAYLOAD", output)
+
+    def test_J73_extras_strings_use_shape_redaction_without_sensitive_key(self):
+        """J7.3: non-sensitive extra keys still redact player-shaped values."""
+        streams = self.capture_production()
+        logging.getLogger(main.SERVICE_INFO_LOGGERS[0]).warning(
+            "diagnostic reason=%s", "prep_deadbeef", extra={
+                "context": "p_deadbeef",
+                "operation": "op_deadbeef",
+                "cache": "p_cache",
+                "request": "req-0123456789abcdef0123456789abcdef",
+                "partition": "main:0123456789ab",
+                "job": "garmin-sync-0123456789abcdef",
+                "reason": "log_and_backup_mismatch",
+                "error_type": "TimeoutError",
+                "gid": "public-course-42",
+                "hole": 7,
+            })
+        output = streams[main.SERVICE_INFO_LOGGERS[0]].getvalue()
+        self.assertNotIn("'context': 'p_deadbeef'", output)
+        for public in ("prep_deadbeef", "op_deadbeef", "p_cache", "req-0123456789abcdef0123456789abcdef",
+                       "main:0123456789ab", "garmin-sync-0123456789abcdef",
+                       "log_and_backup_mismatch", "TimeoutError", "public-course-42", "'hole': 7"):
+            self.assertIn(public, output)
 
     def test_J73_real_failure_redacts_extras_arguments_and_chained_exceptions(self):
         from ai_caddie.history import stats_cache
