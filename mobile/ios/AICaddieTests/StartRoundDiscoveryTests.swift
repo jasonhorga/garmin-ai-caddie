@@ -1642,14 +1642,14 @@ final class StartRoundDiscoveryTests: XCTestCase {
     @MainActor
     func testNearbyFirstVenuePublishesAndSelectsWhileExpansionIsSuspended() async {
         let gate = NearbyExpansionGate()
-        let first = MobileCourseSearchMatch(globalId: 7101, name: "虹桥", holes: 18,
-            city: nil, province: nil, ratio: 1)
+        let first = MobileCourseSearchMatch(globalId: 7101, name: "虹桥", holes: 9,
+            city: nil, province: nil, ratio: 1, segmentLabel: "A")
         let expanded = (0..<4).map { index in
             MobileCourseSearchMatch(globalId: 7200 + index, name: "大都会 \(index)", holes: 18,
                 city: nil, province: nil, ratio: 1)
         }
         let sibling = MobileCourseSearchMatch(globalId: 7102, name: "虹桥", holes: 9,
-            city: nil, province: nil, ratio: 1)
+            city: nil, province: nil, ratio: 1, segmentLabel: "B")
         var radii: [Int] = []
         var published: [MobileCourseOption] = []
         var loading = false
@@ -1682,8 +1682,9 @@ final class StartRoundDiscoveryTests: XCTestCase {
                     return expanded + [sibling, expanded[0]]
                 },
                 resolve: { match in
-                    MobileCourseOption(globalId: match.globalId, name: match.name, holes: 18,
-                        teeBox: "blue", latitude: match.globalId == 7101 ? 31.01 : 31.001,
+                    MobileCourseOption(globalId: match.globalId, name: match.name, holes: match.holes ?? 18,
+                        teeBox: "blue", segmentLabel: match.segmentLabel,
+                        latitude: match.globalId == 7101 ? 31.01 : 31.001,
                         longitude: 121)
                 }
             )
