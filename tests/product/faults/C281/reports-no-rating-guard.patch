@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/history_stats.py b/ai_caddie/history/history_stats.py
+index 00c5d198..b3342260 100644
+--- a/ai_caddie/history/history_stats.py
++++ b/ai_caddie/history/history_stats.py
+@@ -210,7 +210,7 @@ def _round_differential(row: dict[str, Any]) -> float | None:
+     slope = _float_field(row, "slope")
+     # A nine-hole tee rating can survive a 9+9 merge or a restored back nine. It
+     # cannot price an 18-hole score; every differential consumer shares this guard.
+-    if score is None or rating is None or rating < 50 or slope is None or slope <= 0:
++    if score is None or rating is None or slope is None or slope <= 0:
+         return None
+     return round((float(score) - rating) * 113.0 / slope, 1)
+ 
