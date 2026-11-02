@@ -231,13 +231,13 @@ class MobileReconciliationTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             first = {
-                "id": "restore-first", "globalId": 55555, "frontNineGlobalCourseId": 55555,
+                "id": "restore-first", "date": "2026-06-01 08:00", "globalId": 55555, "frontNineGlobalCourseId": 55555,
                 "holesCompleted": 9,
                 "strokes": 45, "par": 36, "holePars": "4" * 18,
                 "holes": [{"number": n, "strokes": 5, "par": 4} for n in range(1, 10)],
             }
             late = {
-                "id": "late-eight", "globalId": 55555, "frontNineGlobalCourseId": 55555,
+                "id": "late-eight", "date": "2026-06-01 11:00", "globalId": 55555, "frontNineGlobalCourseId": 55555,
                 "holesCompleted": 8,
                 "strokes": 40, "par": 32, "holePars": "4" * 18,
                 "holes": [{"number": n, "strokes": 5, "par": 4} for n in range(10, 18)],
