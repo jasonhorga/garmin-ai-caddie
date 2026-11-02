@@ -1,8 +1,8 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index c913df5e..0c624157 100644
+index 05cbddd4..4b11b07a 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -290,7 +290,7 @@ def _same_day_matching_boundary_score_holes(
+@@ -291,7 +291,7 @@ def _same_day_matching_boundary_score_holes(
          its displayed 9 -> 1 wrap must therefore use a nine-hole ring. Cards with a back loop,
          merged rows, or any other shape retain the normal 18-hole display ring.
          """

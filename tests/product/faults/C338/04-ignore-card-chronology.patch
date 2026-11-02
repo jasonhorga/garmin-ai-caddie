@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index 05cbddd4..b9219d9b 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -393,7 +393,7 @@ def _same_day_matching_boundary_score_holes(
+                 # A geometrically matching boundary cannot reverse known shot chronology.
+                 # If either card is untimed, preserve the legacy ring-only decision.
+                 if (round_id in start_times and other_id in start_times
+-                        and start_times[other_id] < start_times[round_id]):
++                        and False):
+                     continue
+                 overlap = own.keys() & other.keys()
+                 own_boundary = set(own_order[-len(overlap):]) if overlap else set()

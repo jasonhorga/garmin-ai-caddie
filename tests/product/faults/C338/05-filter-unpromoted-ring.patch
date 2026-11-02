@@ -1,0 +1,14 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index bd4343ae..d39551c1 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -375,9 +375,6 @@ def _same_day_matching_boundary_score_holes(
+                 scores.setdefault(key, set()).add(strokes)
+                 display_by_key.setdefault(key, display)
+         ring_size = ring_length(row)
+-        # Match ring_order's second-lap promotion before filtering source shot displays.
+-        if ring_size == 9 and any(display > 9 for display in display_by_key.values()):
+-            ring_size = 18
+         timed_holes = []
+         # A lone card cannot match a same-day boundary; avoid copying its source shots.
+         source_shots = (

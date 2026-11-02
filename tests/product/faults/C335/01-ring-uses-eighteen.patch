@@ -1,13 +1,13 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index 9470999c..74ffa24d 100644
+index bd4343ae..092d5381 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -358,7 +358,7 @@ def _same_day_matching_boundary_score_holes(
+@@ -374,7 +374,7 @@ def _same_day_matching_boundary_score_holes(
+                 key = (gid, local)
                  scores.setdefault(key, set()).add(strokes)
                  display_by_key.setdefault(key, display)
-         by_day.setdefault(day, []).append((
--            str(row.get("id")), scores, ring_order(scores, display_by_key, ring_length(row))
-+            str(row.get("id")), scores, ring_order(scores, display_by_key, 18)
-         ))
-     candidates: dict[str, set[tuple[int, int]]] = {}
-     for cards in by_day.values():
+-        ring_size = ring_length(row)
++        ring_size = 18
+         # Match ring_order's second-lap promotion before filtering source shot displays.
+         if ring_size == 9 and any(display > 9 for display in display_by_key.values()):
+             ring_size = 18

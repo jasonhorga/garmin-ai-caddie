@@ -1,8 +1,8 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index c913df5e..2d80d1cf 100644
+index 05cbddd4..9a45aba4 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -314,25 +314,22 @@ def _same_day_matching_boundary_score_holes(
+@@ -317,28 +317,22 @@ def _same_day_matching_boundary_score_holes(
          # appended after the inferred tail and boundary matching counts restored holes twice.
          if ring_size == 9 and any(display > 9 for display in display_by_key.values()):
              ring_size = 18
@@ -19,6 +19,9 @@ index c913df5e..2d80d1cf 100644
 -            for index, display in enumerate(displays)
 -        ]
 -        start = (max(gaps)[1] + 1) % len(displays)
+-        if start_display is not None:
+-            # The first shot may be on an unscored hole: begin at the next scored display.
+-            start = min(range(len(displays)), key=lambda i: (displays[i] - start_display) % ring_size)
 -        ordered = [
 -            key
 -            for display in displays[start:] + displays[:start]
@@ -43,4 +46,4 @@ index c913df5e..2d80d1cf 100644
 +        return ordered
  
      by_day: dict[str, list[tuple[str, dict[tuple[int, int], set[int]], list[tuple[int, int]]]]] = {}
-     for row in rounds:
+     start_times: dict[str, int] = {}

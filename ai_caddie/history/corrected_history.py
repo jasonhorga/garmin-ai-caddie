@@ -274,6 +274,7 @@ def _same_day_non_overlapping_score_holes(
 
 def _same_day_matching_boundary_score_holes(
     rounds: list[dict[str, Any]],
+    source_data: HistoryData | None = None,
 ) -> dict[str, set[tuple[int, int]]]:
     """Recognize a late half-card that repeats one or two scored boundary holes.
 
@@ -300,14 +301,16 @@ def _same_day_matching_boundary_score_holes(
         scores: dict[tuple[int, int], set[int]],
         display_by_key: dict[tuple[int, int], int],
         ring_size: int,
+        start_display: int | None,
     ) -> list[tuple[int, int]]:
         """Return each card's holes in play order inferred from physical ring gaps.
 
         Garmin scorecards use a fixed hole-number layout, so ``holes`` list order is not a
         reliable play sequence. A combo card's front and back loops share one displayed 1..18
         ring even when their physical global ids differ; a standalone nine-hole card uses a
-        1..9 ring. The largest missing run is where play started; the first displayed hole after
-        that run is therefore the sequence origin.
+        1..9 ring. The earliest source shot identifies the start when available; otherwise
+        use the first displayed hole after the largest missing run. Timestamps never reorder
+        the remaining holes: late entries and missing shots need not follow play order.
         """
         # A nine-hole course can be played twice and Garmin then displays 1..18 on one card.
         # Those display numbers require the full ring; otherwise the out-of-ring second lap is
@@ -327,6 +330,9 @@ def _same_day_matching_boundary_score_holes(
             for index, display in enumerate(displays)
         ]
         start = (max(gaps)[1] + 1) % len(displays)
+        if start_display is not None:
+            # The first shot may be on an unscored hole: begin at the next scored display.
+            start = min(range(len(displays)), key=lambda i: (displays[i] - start_display) % ring_size)
         ordered = [
             key
             for display in displays[start:] + displays[:start]
@@ -335,6 +341,12 @@ def _same_day_matching_boundary_score_holes(
         return ordered + sorted(set(scores) - set(ordered))
 
     by_day: dict[str, list[tuple[str, dict[tuple[int, int], set[int]], list[tuple[int, int]]]]] = {}
+    start_times: dict[str, int] = {}
+    cards_by_day: dict[str, int] = {}
+    for row in rounds:
+        day = str(row.get("date") or "")[:10]
+        if day:
+            cards_by_day[day] = cards_by_day.get(day, 0) + 1
     for row in rounds:
         day = str(row.get("date") or "")[:10]
         if not day:
@@ -362,8 +374,27 @@ def _same_day_matching_boundary_score_holes(
                 key = (gid, local)
                 scores.setdefault(key, set()).add(strokes)
                 display_by_key.setdefault(key, display)
+        ring_size = ring_length(row)
+        # Match ring_order's second-lap promotion before filtering source shot displays.
+        if ring_size == 9 and any(display > 9 for display in display_by_key.values()):
+            ring_size = 18
+        timed_holes = []
+        # A lone card cannot match a same-day boundary; avoid copying its source shots.
+        source_shots = (
+            round_source_shots(source_data, row)
+            if source_data is not None and cards_by_day[day] >= 2 else []
+        )
+        for _position, shot in source_shots:
+            time = shot.get("shotTime")
+            display = _int(shot.get("hole"))
+            if (isinstance(time, int) and not isinstance(time, bool) and time > 0
+                    and display is not None and 1 <= display <= ring_size):
+                timed_holes.append((time, display))
+        start_display = min(timed_holes)[1] if timed_holes else None
+        if timed_holes:
+            start_times[str(row.get("id"))] = min(timed_holes)[0]
         by_day.setdefault(day, []).append((
-            str(row.get("id")), scores, ring_order(scores, display_by_key, ring_length(row))
+            str(row.get("id")), scores, ring_order(scores, display_by_key, ring_size, start_display)
         ))
     candidates: dict[str, set[tuple[int, int]]] = {}
     for cards in by_day.values():
@@ -371,6 +402,11 @@ def _same_day_matching_boundary_score_holes(
             covered = candidates.setdefault(round_id, set())
             for other_id, other, other_order in cards:
                 if other_id == round_id:
+                    continue
+                # A geometrically matching boundary cannot reverse known shot chronology.
+                # If either card is untimed, preserve the legacy ring-only decision.
+                if (round_id in start_times and other_id in start_times
+                        and start_times[other_id] < start_times[round_id]):
                     continue
                 overlap = own.keys() & other.keys()
                 own_boundary = set(own_order[-len(overlap):]) if overlap else set()
@@ -412,6 +448,7 @@ def corrected_rounds(
     *,
     fields: tuple[str, ...] = ALL_HOLE_FIELDS,
     restore_root: Path | str | None = None,
+    source_data: HistoryData | None = None,
 ) -> list[dict[str, Any]]:
     """Rounds with every corrected hole fact applied (copies; untouched rows are returned as is).
 
@@ -426,7 +463,7 @@ def corrected_rounds(
         if record.get("targetType") == "hole" and record.get("kind") in wanted:
             hole_annotations.setdefault(str(record.get("targetId") or ""), []).append(record)
     matching_boundary = (
-        _same_day_matching_boundary_score_holes(rounds) if hole_annotations or events_by_round else {}
+        _same_day_matching_boundary_score_holes(rounds, source_data) if hole_annotations or events_by_round else {}
     )
     if not hole_annotations and not events_by_round:
         return rounds
@@ -775,7 +812,7 @@ def _build_corrected_history_data(
         return data
     annotations = list_annotation_records(root=annotations_root, player_id=player_id)
     events_by_round = round_correction_events(data, player_id=player_id, root=corrections_root, round_refs=round_refs)
-    rounds = corrected_rounds(data.rounds, annotations, events_by_round, restore_root=course_root)
+    rounds = corrected_rounds(data.rounds, annotations, events_by_round, restore_root=course_root, source_data=data)
     shot_data = HistoryData(raw_rounds=data.raw_rounds, rounds=data.rounds, shots=_annotated_shots(data.shots, annotations))
     shots = _corrected_shots(shot_data, events_by_round, holes_by_round, ladder=ladder)
     correction_fingerprint = history_data_fingerprint(

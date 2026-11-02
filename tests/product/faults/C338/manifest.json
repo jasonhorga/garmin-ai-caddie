@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C338-01-ignore-shot-time",
+      "patch": "tests/product/faults/C338/01-ignore-shot-time.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_earliest_shot_time_bridges_unscored_middle_holes",
+      "promise": "1.3",
+      "kills": "Ignoring shotTime mistakes the unscored middle gap for the start and retains two duplicate restores."
+    },
+    {
+      "id": "tests-product-faults-C338-02-latest-shot-time",
+      "patch": "tests/product/faults/C338/02-latest-shot-time.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_earliest_shot_time_bridges_unscored_middle_holes",
+      "promise": "1.3",
+      "kills": "Using the latest timestamp rotates the ring away from its actual start and retains two duplicate restores."
+    },
+    {
+      "id": "tests-product-faults-C338-03-sort-all-by-shot-time",
+      "patch": "tests/product/faults/C338/03-sort-all-by-shot-time.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_earliest_shot_time_bridges_unscored_middle_holes",
+      "promise": "1.3",
+      "kills": "Ordering every hole by timestamp moves the boundary hole away from the tail despite a valid sequential continuation."
+    },
+    {
+      "id": "tests-product-faults-C338-04-ignore-card-chronology",
+      "patch": "tests/product/faults/C338/04-ignore-card-chronology.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_later_nine_hole_card_cannot_precede_morning_card",
+      "promise": "1.3",
+      "kills": "Without the shot-time chronology guard, earlier morning holes incorrectly supersede afternoon restores 3,4,5."
+    },
+    {
+      "id": "tests-product-faults-C338-05-filter-unpromoted-ring",
+      "patch": "tests/product/faults/C338/05-filter-unpromoted-ring.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_timed_second_lap_start_drops_duplicate_restores",
+      "promise": "1.3",
+      "kills": "Filtering shots against nine holes before promoting the display ring loses the display-10 start and retains two duplicate restores."
+    },
+    {
+      "id": "tests-product-faults-C338-06-accept-zero-time",
+      "patch": "tests/product/faults/C338/06-accept-zero-time.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_first_shot_uses_display_hole_even_without_a_score",
+      "promise": "1.3",
+      "kills": "Treating zero as an earlier timestamp anchors the card at display 1 and retains two duplicate restores."
+    }
+  ]
+}

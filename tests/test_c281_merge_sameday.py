@@ -6,6 +6,8 @@ round; a second complete round on the same date must not consume that restore.
 """
 from __future__ import annotations
 
+from copy import deepcopy
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -14,7 +16,7 @@ from unittest.mock import patch
 from ai_caddie.caddie.mobile_live import append_event_batch
 from ai_caddie.caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 from ai_caddie.history.corrected_history import corrected_history_data
-from ai_caddie.history.history import HistoryData
+from ai_caddie.history.history import HistoryData, load_shot_history
 from ai_caddie.history.history_stats import build_history_stats
 from ai_caddie.reports.annotations import add_annotation
 from ai_caddie.reports.reports import build_round_report_facts
@@ -80,6 +82,195 @@ def _scorecard(stats: dict, data: HistoryData, round_id: str) -> dict:
 
 
 class C281MergeSameDayTests(unittest.TestCase):
+    def _source_shots(self, root: Path, rows: list[dict], times: dict) -> list[dict]:
+        """Read synthetic Garmin envelopes through the player-scoped production loader."""
+        shots_dir = root / "players" / "fixture-member" / "shots"
+        shots_dir.mkdir(parents=True, exist_ok=True)
+        for round_id, holes in times.items():
+            payload = {"holeShots": [
+                {"holeNumber": number, "shots": [
+                    {"shotOrder": 2, "shotTime": time + 10} if time is not None else {"shotOrder": 2},
+                    {"shotOrder": 1, "shotTime": time} if time is not None else {"shotOrder": 1},
+                ]}
+                for number, time in reversed(list(holes.items()))
+            ]}
+            (shots_dir / f"{round_id}.json").write_text(json.dumps(payload))
+        source_rows = [{**row, "courseCanonical": "Fixture Course"} for row in rows]
+        with patch("ai_caddie.history.history._player_shot_sources",
+                   return_value=[(root / "scorecards", shots_dir)]):
+            return load_shot_history(source_rows, player_id="fixture-member")
+
+    def test_j1_3_earliest_shot_time_bridges_unscored_middle_holes(self) -> None:
+        """J1.3: real entry shapes keep 16 source rows, dropping two covered restores.
+
+        Start at 1 with 5..7 unscored, or at 10 with 13..15 unscored. The late
+        card repeats the final hole and supplies the next two; 16 + 2 - 2 = 16.
+        Synthetic timestamps deliberately put the final hole second in time: time
+        identifies the start only, and cannot reorder the remainder of the ring.
+        """
+        for numbers, skipped, restored, late_numbers, start in (
+            (list(range(1, 17)), {5, 6, 7}, [17, 18], [16, 17, 18], 1),
+            (list(range(10, 19)) + list(range(1, 8)), {13, 14, 15}, [8, 9], [7, 8, 9], 10),
+        ):
+            with self.subTest(start=start), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                morning = _row("101", "2026-06-01 07:30", numbers)
+                for hole in morning["holes"]:
+                    if hole["number"] in skipped:
+                        hole["strokes"] = None
+                late = _row("102", "2026-06-01 11:40", late_numbers)
+                rows = [morning, late]
+                base = 1_800_000_000_000
+                times = {n: base + 1000 + n for n in numbers}
+                times[start] = base
+                times[late_numbers[0]] = base + 100
+                shots = self._source_shots(root, rows, {
+                    "101": times,
+                    "102": {n: base + 10_000 + i * 100 for i, n in enumerate(late_numbers)},
+                })
+                original = deepcopy((rows, shots))
+                _restore(root, "101", numbers=restored)
+                corrected = corrected_history_data(
+                    HistoryData(raw_rounds=[], rounds=rows, shots=shots),
+                    annotations_root=root, course_root=root,
+                )
+                current = corrected.rounds[0]
+                self.assertEqual(len(current["holes"]), 16)
+                self.assertEqual(current["holesCompleted"], 16)
+                self.assertEqual([h["number"] for h in current["holes"]], numbers)
+                self.assertFalse(any(h.get("_scoreCorrected") for h in current["holes"]))
+                self.assertEqual(corrected.rounds[1], late)
+                self.assertEqual((rows, shots), original)
+
+    def test_j1_3_timed_second_lap_start_drops_duplicate_restores(self) -> None:
+        """J1.3: nine pars with displays 1..18 is two laps, starting at display 10.
+
+        Morning 10..18,1..7 has 16 real holes; late 7,8,9 supplies the two
+        restored holes 8,9. Removing both duplicates leaves 16, never 18.
+        """
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            numbers = list(range(10, 19)) + list(range(1, 8))
+            morning = _nine_row("101", "2026-06-01 07:30", numbers)
+            late = _nine_row("102", "2026-06-01 11:40", [7, 8, 9])
+            rows = [morning, late]
+            base = 1_800_000_000_000
+            shots = self._source_shots(root, rows, {
+                "101": {n: base + i * 600_000 for i, n in enumerate(numbers)},
+                "102": {n: base + 14_400_000 + i * 600_000 for i, n in enumerate([7, 8, 9])},
+            })
+            _restore(root, "101", numbers=[8, 9])
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=rows, shots=shots),
+                annotations_root=root, course_root=root,
+            )
+            current = corrected.rounds[0]
+            self.assertEqual(len(current["holes"]), 16)
+            self.assertEqual(current["holesCompleted"], 16)
+            self.assertEqual([h["number"] for h in current["holes"]], numbers)
+            self.assertEqual(corrected.rounds[1], late)
+
+    def test_j1_3_timed_second_lap_start_at_thirteen_covers_three_holes(self) -> None:
+        """J1.3: morning 13..18,1..9 then late 9..12 covers exactly 10,11,12."""
+        from ai_caddie.history.corrected_history import _same_day_matching_boundary_score_holes
+
+        numbers = list(range(13, 19)) + list(range(1, 10))
+        rows = [_nine_row("morning", "2026-06-01 07:30", numbers),
+                _nine_row("late", "2026-06-01 11:40", [9, 10, 11, 12])]
+        shots = [
+            {"roundId": row["id"], "hole": n,
+             "shotTime": 1_800_000_000_000 + offset + i * 600_000}
+            for row, order, offset in ((rows[0], numbers, 0), (rows[1], [9, 10, 11, 12], 14_400_000))
+            for i, n in enumerate(order)
+        ]
+        data = HistoryData(raw_rounds=[], rounds=rows, shots=shots)
+        covered = _same_day_matching_boundary_score_holes(rows, data)
+        self.assertEqual(covered["morning"], {(55555, n) for n in (10, 11, 12)})
+        self.assertEqual(covered["late"], set())
+
+    def test_j1_3_shot_loader_preserves_synthetic_millisecond_time(self) -> None:
+        """J1.3: player shot files retain the timestamp used to identify the first hole."""
+        with TemporaryDirectory() as tmp:
+            rows = [_row("101", "2026-06-01", [1])]
+            shots = self._source_shots(Path(tmp), rows, {"101": {1: 1_800_000_000_000}})
+            self.assertEqual([s.get("shotTime") for s in shots],
+                             [1_800_000_000_000, 1_800_000_000_010])
+
+    def test_j1_3_only_same_day_candidates_load_source_shots(self) -> None:
+        """J1.3: only cards with a same-day peer need shots for boundary matching."""
+        from ai_caddie.history import corrected_history
+
+        rows = [_row("morning", "2026-06-01 07:30", [1, 2]),
+                _row("late", "2026-06-01 11:40", [2, 3]),
+                _row("single", "2026-06-02", [1, 2]),
+                _row("unknown", "", [1, 2])]
+        data = HistoryData(raw_rounds=[], rounds=rows, shots=[])
+        with patch.object(corrected_history, "round_source_shots",
+                          wraps=corrected_history.round_source_shots) as load:
+            covered = corrected_history._same_day_matching_boundary_score_holes(rows, data)
+        self.assertEqual([call.args[1]["id"] for call in load.call_args_list], ["morning", "late"])
+        self.assertEqual(covered["morning"], {(55555, 3)})
+        self.assertEqual(covered["single"], set())
+
+    def test_j1_3_first_shot_uses_display_hole_even_without_a_score(self) -> None:
+        """J1.3: an unscored display 10 / physical 1 still anchors the combo's start."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            numbers = list(range(10, 19)) + list(range(1, 8))
+            morning = _combo_row("morning", "2026-06-01 07:30", numbers, 55555, 66666)
+            for hole in morning["holes"]:
+                if hole["number"] >= 10:
+                    hole["sourceGlobalId"] = 66666
+                    hole["sourceLocalHole"] = hole["number"] - 9
+                if hole["number"] in {10, 13, 14, 15}:
+                    hole["strokes"] = None
+            late = _row("late", "2026-06-01 11:40", [7, 8, 9])
+            _restore(root, "morning", numbers=[8, 9])
+            data = HistoryData(raw_rounds=[], rounds=[morning, late], shots=[
+                {"roundId": "morning", "hole": 12, "localHole": 3, "shotTime": 1_800_000_001_000},
+                {"roundId": "morning", "hole": 10, "localHole": 1, "shotTime": 1_800_000_000_000},
+                {"roundId": "morning", "hole": 7, "shotTime": None},
+                # Zero is missing time, not an earlier start at display 1.
+                {"roundId": "morning", "hole": 1, "shotTime": 0},
+            ])
+            corrected = corrected_history_data(data, annotations_root=root, course_root=root)
+            # Sixteen original rows survive; late 8,9 supersede the two synthetic restores.
+            self.assertEqual(len(corrected.rounds[0]["holes"]), 16)
+            self.assertEqual([h["number"] for h in corrected.rounds[0]["holes"]], numbers)
+
+    def test_j1_3_missing_shot_time_keeps_legacy_gap_start(self) -> None:
+        """J1.3: absent shots/times keep the old gap decision, including its tied gaps."""
+        for start, skipped, completed in ((1, {5, 6, 7}, 15), (10, {13, 14}, 16), (10, {13, 14, 15}, 15)):
+            for shot_mode in ("none", "untimed", "other-card-only"):
+                with self.subTest(start=start, shots=shot_mode, skipped=skipped), TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    numbers = list(range(1, 17)) if start == 1 else list(range(10, 19)) + list(range(1, 8))
+                    restored = [17, 18] if start == 1 else [8, 9]
+                    late_numbers = [16, 17, 18] if start == 1 else [7, 8, 9]
+                    morning = _row("101", "2026-06-01 07:30", numbers)
+                    for hole in morning["holes"]:
+                        if hole["number"] in skipped:
+                            hole["strokes"] = None
+                    late = _row("102", "2026-06-01 11:40", late_numbers)
+                    shots = []
+                    if shot_mode == "untimed":
+                        shots = self._source_shots(root, [morning, late], {"101": {start: None}})
+                    elif shot_mode == "other-card-only":
+                        shots = self._source_shots(root, [morning, late], {
+                            "102": {late_numbers[0]: 1_800_000_000_000},
+                        })
+                    _restore(root, "101", numbers=restored)
+                    corrected = corrected_history_data(
+                        HistoryData(raw_rounds=[], rounds=[morning, late], shots=shots),
+                        annotations_root=root, course_root=root,
+                    )
+                    # The largest internal gap still wins without this card's shotTime;
+                    # its 16 original rows plus two restores remain the legacy 18 rows.
+                    # Completed scores are 16 minus 3 (or 2) unscored + 2 restores.
+                    current = corrected.rounds[0]
+                    self.assertEqual((current["holesCompleted"], len(current["holes"])), (completed, 18))
+                    self.assertEqual({h["number"] for h in current["holes"]}, set(range(1, 19)))
+
     def test_j1_3_same_day_second_round_does_not_consume_restore(self) -> None:
         """J1.3: two same-day outings at one course remain two 18-hole rounds."""
         with TemporaryDirectory() as tmp:
@@ -228,7 +419,11 @@ class C281MergeSameDayTests(unittest.TestCase):
             self.assertEqual(covered["morning"], set())
 
     def test_j1_3_tied_ring_gaps_keep_current_max_index_rule(self) -> None:
-        """J1.3: tied largest gaps keep the existing max-index tie rule, including a 10-start card."""
+        """J1.3: 无 shotTime 时仍按最大空档，16 是已知局限。
+
+        Tied gaps retain the max-index rule; without a timestamp the actual 10-start
+        cannot be established, so restores 8,9 still produce 16 instead of 14 holes.
+        """
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             morning = _row("morning", "2026-06-01 07:30", list(range(10, 19)) + list(range(1, 8)))
@@ -243,6 +438,38 @@ class C281MergeSameDayTests(unittest.TestCase):
             # Gaps 8..9 and 13..14 tie. The current max-index rule starts after 14,
             # so overlap 7 is not the morning tail and restores 8,9 remain materialized.
             self.assertEqual((current["holesCompleted"], len(current["holes"])), (16, 16))
+
+    def test_j1_3_later_nine_hole_card_cannot_precede_morning_card(self) -> None:
+        """J1.3: morning 1..5 cannot replace afternoon restores 3..5 with shot times.
+
+        Afternoon starts at 6 and wraps to 1,2: the ring boundary alone suggests
+        the reverse continuation. Earlier morning shots rule it out. With either
+        card untimed, retain the legacy removal of restored holes 3,4,5.
+        """
+        morning = _nine_row("morning", "2026-06-01 07:30", list(range(1, 6)))
+        late = _nine_row("late", "2026-06-01 13:30", [1, 2, 6, 7, 8, 9])
+        base = 1_800_000_000_000
+        for timed in ("both", "morning", "late", "neither"):
+            for reverse in (False, True):
+                with self.subTest(timed=timed, reverse=reverse), TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    rows = [late, morning] if reverse else [morning, late]
+                    shots = []
+                    if timed in ("both", "morning"):
+                        shots.append({"roundId": "morning", "hole": 1, "shotTime": base})
+                    if timed in ("both", "late"):
+                        shots.append({"roundId": "late", "hole": 6, "shotTime": base + 100_000})
+                    data = HistoryData(raw_rounds=[], rounds=rows, shots=shots)
+                    _restore(root, "late", numbers=[3, 4, 5])
+                    corrected = corrected_history_data(data, annotations_root=root, course_root=root)
+                    current = next(row for row in corrected.rounds if row["id"] == "late")
+                    # Six afternoon source holes + three independent restores = nine.
+                    # With either card untimed, the legacy reverse match removes all three.
+                    self.assertEqual(len(current["holes"]), 9 if timed == "both" else 6)
+                    self.assertEqual({h["number"] for h in current["holes"]},
+                                     set(range(1, 10)) if timed == "both" else {1, 2, 6, 7, 8, 9})
+                    self.assertEqual(next(row for row in corrected.rounds if row["id"] == "morning"),
+                                     morning)
 
     def test_j1_3_display_ring_uses_display_number_when_local_hole_differs(self) -> None:
         """J1.3: a back loop's localHole 1..9 still follows displayed holes 10..18."""
