@@ -1,0 +1,12 @@
+diff --git a/.github/workflows/ios-testflight.yml b/.github/workflows/ios-testflight.yml
+index c5d2b0c2..037e5b4b 100644
+--- a/.github/workflows/ios-testflight.yml
++++ b/.github/workflows/ios-testflight.yml
+@@ -168,7 +168,6 @@ jobs:
+           if-no-files-found: ignore
+
+       - name: Restore signing keychain search list
+-        if: always()
+         shell: bash
+         run: |
+           set -u

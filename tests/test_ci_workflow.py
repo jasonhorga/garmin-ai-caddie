@@ -1861,6 +1861,42 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
         self.assertIn('UI.success("Signed IPA built; TestFlight upload was not requested.")', text)
         self.assertIn("def next_testflight_build_number!(api_key:)", text)
 
+    def test_testflight_uses_xcode27_self_hosted_runner_and_ephemeral_keychain(self) -> None:
+        """G7 (C343): TestFlight release builds use the self-hosted Xcode 27 runner safely."""
+        workflow = yaml.safe_load(Path(".github/workflows/ios-testflight.yml").read_text(encoding="utf-8"))
+        job = workflow["jobs"]["testflight"]
+        self.assertEqual(["self-hosted", "caddie-mba"], job["runs-on"])
+        self.assertGreaterEqual(job["timeout-minutes"], 60)
+
+        workflow_text = Path(".github/workflows/ios-testflight.yml").read_text(encoding="utf-8")
+        self.assertIn("DEVELOPER_DIR", workflow_text)
+        self.assertIn("Xcode_27*.app", workflow_text)
+        self.assertIn('xcodebuild -version', workflow_text)
+        self.assertIn('grep -q \'^Xcode 27\\.\'', workflow_text)
+        self.assertNotIn("sudo xcode-select", workflow_text)
+        self.assertIn("MATCH_KEYCHAIN_NAME", workflow_text)
+        self.assertIn("MATCH_KEYCHAIN_DEFAULT=false", workflow_text)
+        self.assertIn("security list-keychains -d user", workflow_text)
+        cleanup = next(
+            step for step in job["steps"] if step.get("name") == "Restore signing keychain search list"
+        )
+        self.assertEqual("always()", cleanup.get("if"))
+        self.assertIn("security delete-keychain", cleanup["run"])
+
+        fastfile = Path("fastlane/Fastfile").read_text(encoding="utf-8")
+        self.assertIn('ENV.fetch("MATCH_KEYCHAIN_NAME"', fastfile)
+        self.assertIn("default_keychain: false", fastfile)
+        self.assertNotIn("default_keychain: true", fastfile)
+
+    def test_testflight_does_not_require_hosted_toolcache_dependencies(self) -> None:
+        """G7 (C343): the self-hosted Mac checks its installed Ruby and XcodeGen."""
+        workflow_text = Path(".github/workflows/ios-testflight.yml").read_text(encoding="utf-8")
+        self.assertIn("command -v ruby", workflow_text)
+        self.assertIn("command -v bundle", workflow_text)
+        self.assertIn("command -v xcodegen", workflow_text)
+        self.assertIn("brew install xcodegen", workflow_text)
+        self.assertNotIn("ruby/setup-ruby@v1", workflow_text)
+
     def test_G7_fastlane_preflights_before_build_and_retries_warming_with_budget(self) -> None:
         """G7: backend failure is found before IPA work; warming retries are bounded."""
         text = Path("fastlane/Fastfile").read_text(encoding="utf-8")
