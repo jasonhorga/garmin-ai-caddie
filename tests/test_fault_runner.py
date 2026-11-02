@@ -634,6 +634,14 @@ class ManifestFragmentTests(unittest.TestCase):
             "    def test_loads(self): pass\n", encoding="utf-8",
         )
         self.init_repo()
+        batch = runner._run_python_load_probe(
+            ["test_adds_path", "test_needs_clean_path"], self.root
+        )
+        # 批量探测本身必须观察到 helper 不再可见；外层 probe_python_targets
+        # 的独立复核不能把 sys.path/模块清理故障救回。
+        self.assertEqual(batch["test_adds_path"][0], "ok")
+        self.assertEqual(batch["test_needs_clean_path"][0], "unavailable")
+        self.assertIn("ModuleNotFoundError", batch["test_needs_clean_path"][1])
         records = [{**self.record(str(index)), "target": target}
                    for index, target in enumerate(("test_adds_path", "test_needs_clean_path"))]
         code, rows, _ = self.invoke_main("--check", records)
