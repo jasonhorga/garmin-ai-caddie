@@ -7,7 +7,6 @@ import itertools
 import json
 import os
 from pathlib import Path
-import re
 import shlex
 import subprocess
 import sys
@@ -131,6 +130,8 @@ class NativeQuickRunnerTests(unittest.TestCase):
                                  [args[args.index('-destination') + 1] for args in builds])
                 self.assertCountEqual([['simctl', 'boot', ios], ['simctl', 'boot', watch]],
                                       [args for args in self.calls('xcrun') if args[:2] == ['simctl', 'boot']])
+                self.assertEqual(ios, self.env.get('NATIVE_QUICK_IOS_UDID'))
+                self.assertEqual(watch, self.env.get('NATIVE_QUICK_WATCH_UDID'))
 
     def test_missing_exact_models_fail_before_build_or_boot(self):
         similar = {runtime: [d for d in entries if d['name'] not in

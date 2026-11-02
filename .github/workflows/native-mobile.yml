@@ -57,13 +57,11 @@ concurrency:
 jobs:
   native-quick:
     if: github.event_name == 'pull_request'
-    runs-on: macos-15
+    runs-on: ${{ vars.MAC_RUNNER == 'online' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
     timeout-minutes: 25
     concurrency:
       group: native-quick-${{ github.head_ref }}
       cancel-in-progress: true
-    env:
-      IOS_DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -82,7 +80,7 @@ jobs:
             echo 'needed=false' >> "$GITHUB_OUTPUT"
           fi
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
       - name: Generate native project
         run: xcodegen generate --spec mobile/ios/project.yml --project-root .
       - name: Build iOS tests while prebooting simulator
@@ -91,13 +89,16 @@ jobs:
           set -euo pipefail
           mkdir -p native-quick-results
           IOS_UDID=$(xcrun simctl list devices available -j | jq -r '
-            [.devices | to_entries[]
+            . as $inventory
+            | [["iPhone 16", "iPhone 17"] | to_entries[] as $preferred
+              | $inventory.devices | to_entries[]
               | select(.key | contains("SimRuntime.iOS-"))
               | .key as $runtime
               | .value[]
-              | select(.isAvailable == true and .name == "iPhone 16")
-              | {udid: .udid, version: ($runtime | split("-")[1:] | map(tonumber))}]
-            | sort_by(.version) | last | .udid // empty')
+              | select(.isAvailable == true and .name == $preferred.value)
+              | {udid: .udid, priority: $preferred.key,
+                 version: ($runtime | split("-")[1:] | map(tonumber))}]
+            | sort_by([-.priority, .version]) | last | .udid // empty')
           test -n "$IOS_UDID"
           echo "NATIVE_QUICK_IOS_UDID=$IOS_UDID" >> "$GITHUB_ENV"
           # Do not wait for boot/data migration until compilation has finished.
@@ -105,7 +106,7 @@ jobs:
           xcodebuild build-for-testing \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddie \
-            -destination "$IOS_DESTINATION" \
+            -destination "platform=iOS Simulator,id=$IOS_UDID" \
             -derivedDataPath "$RUNNER_TEMP/NativeQuickDerivedData" \
             2>&1 | tee native-quick-results/ios-build-xcodebuild.log
       - name: Test iOS app target without rebuilding
@@ -141,14 +142,18 @@ jobs:
         run: |
           set -euo pipefail
           WATCH_UDID=$(xcrun simctl list devices available -j | jq -r '
-            [.devices | to_entries[]
+            . as $inventory
+            | [["Apple Watch Series 10 (46mm)", "Apple Watch Series 12 (46mm)"] | to_entries[] as $preferred
+              | $inventory.devices | to_entries[]
               | select(.key | contains("SimRuntime.watchOS-"))
               | .key as $runtime
               | .value[]
-              | select(.isAvailable == true and .name == "Apple Watch Series 10 (46mm)")
-              | {udid: .udid, version: ($runtime | split("-")[1:] | map(tonumber))}]
-            | sort_by(.version) | last | .udid // empty')
+              | select(.isAvailable == true and .name == $preferred.value)
+              | {udid: .udid, priority: $preferred.key,
+                 version: ($runtime | split("-")[1:] | map(tonumber))}]
+            | sort_by([-.priority, .version]) | last | .udid // empty')
           test -n "$WATCH_UDID"
+          echo "NATIVE_QUICK_WATCH_UDID=$WATCH_UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$WATCH_UDID" > native-quick-results/watch-boot.log 2>&1 &
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
@@ -188,6 +193,14 @@ jobs:
           name: native-quick-failure-diagnostics
           path: native-quick-results/
           if-no-files-found: warn
+      - name: Shut down quick simulators on self-hosted runner
+        if: ${{ always() && runner.environment == 'self-hosted' }}
+        run: |
+          for udid in "${NATIVE_QUICK_IOS_UDID:-}" "${NATIVE_QUICK_WATCH_UDID:-}"; do
+            if [ -n "$udid" ]; then
+              xcrun simctl shutdown "$udid" || true
+            fi
+          done
 
   # Live dispatch retains serial execution; fixture runners reuse the same launch and scan gates.
   native-live:
