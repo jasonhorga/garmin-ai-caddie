@@ -676,6 +676,7 @@ class ReleaseRecoveryTests(unittest.TestCase):
 
     def test_J42_busy_background_slot_does_not_block_monitor_or_duplicate_recovery(self):
         """J4.2: a warmer owns the slot; ticks return and share one waiting backfill worker."""
+        from ai_caddie.core import priority_work
         from ai_caddie.core.priority_work import ForegroundGate
         from server_v2 import main, render_backfill as rb
 
@@ -691,7 +692,7 @@ class ReleaseRecoveryTests(unittest.TestCase):
 
         @contextmanager
         def admitted(**kwargs):
-            with gate.background(while_waiting=waiting.set, **kwargs):
+            with priority_work.background_work(while_waiting=waiting.set, **kwargs):
                 yield
 
         with TemporaryDirectory() as directory:
@@ -706,6 +707,7 @@ class ReleaseRecoveryTests(unittest.TestCase):
                 patch.object(rb, "_BACKGROUND", worker), patch.object(rb, "_BACKGROUND_THREAD", None),
                 patch.object(rb, "_RESCAN", False), patch.object(rb, "_FORCE", False),
                 patch.object(rb, "_automatic_enabled", return_value=True),
+                patch.object(priority_work, "FOREGROUND_GATE", gate),
                 patch.object(rb, "background_work", side_effect=admitted),
                 patch.object(worker, "enqueue_all", wraps=worker.enqueue_all) as full_scan,
                 patch.object(main, "_history_input_signature", return_value=("unchanged",)),
