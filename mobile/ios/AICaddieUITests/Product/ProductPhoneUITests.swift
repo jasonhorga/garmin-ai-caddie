@@ -559,6 +559,16 @@ final class ProductPhoneUITests: XCTestCase {
         let visibleGreenFrame = greenAfterLaunch.frame
         print("PROBE pan reposition before=\(beforeReposition) after=\(visibleGreenFrame) moved=\(beforeReposition.origin != visibleGreenFrame.origin)")
         XCTAssertTrue(greenAfterLaunch.isHittable, "J5.4 the zoomed green remains an accessible hit target")
+        let beforeGreenPinch = greenAfterLaunch.frame
+        greenAfterLaunch.pinch(withScale: 0.8, velocity: -1.5)
+        Thread.sleep(forTimeInterval: 1)
+        let afterGreenPinch = greenAfterLaunch.frame
+        print("PROBE pinch-from-green before=\(beforeGreenPinch) after=\(afterGreenPinch) changed=\(beforeGreenPinch.size != afterGreenPinch.size)")
+        XCTAssertGreaterThan(
+            abs(beforeGreenPinch.width - afterGreenPinch.width) + abs(beforeGreenPinch.height - afterGreenPinch.height),
+            1,
+            "J5.4 a pinch starting on the green changes map zoom"
+        )
         let panStart = greenAfterLaunch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         print("PROBE pan start point=\(panStart.screenPoint) frame=\(visibleGreenFrame)")
         let beforeGreenPan = greenAfterLaunch.frame
