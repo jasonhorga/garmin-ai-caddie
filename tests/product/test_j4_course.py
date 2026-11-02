@@ -207,6 +207,14 @@ class PrepRouteQualityTests(unittest.TestCase):
                 self.assertLessEqual(len(row["steps"]), 4)
                 self.assertGreater(row["steps"][1]["targetCarry_m"], 140)
 
+    def test_j4_6_second_search_rechecks_long_advance_at_three_hundred_metres(self):
+        # J4.6: after the 190 m tee, the 390 m leave must rerun the bounded
+        # tail search without a short (<140 m) advance while >=300 m remains.
+        row = self.prep("NOWEDGE", 5, 580, ((200, 225), (565, 575)))
+        self.assert_complete(row)
+        self.assertEqual([s["club"] for s in row["steps"]], ["3W", "6I", "8I", "8I"])
+        self.assertEqual(row["steps"][1]["targetCarry_m"], 155)
+
     def test_j4_6_a_different_tee_can_preserve_the_safe_shorter_route(self):
         # J4.6: initial Driver prefix cannot safely finish these lengths within
         # +30. Alternative witnesses: 180+120+120=420 and
