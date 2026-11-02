@@ -121,7 +121,7 @@ def _int_or_none(value: Any) -> int | None:
 
 def _effective_score_data(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> HistoryData:
     """Score-correction totals only (the live-round overlay); statistics read the full corrected history."""
-    rounds = corrected_rounds(data.rounds, annotations, fields=("total",))
+    rounds = corrected_rounds(data.rounds, annotations, fields=("total",), source_data=data)
     if rounds is data.rounds:
         return data
     return HistoryData(

@@ -1,8 +1,8 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index c913df5e..58ec3b85 100644
+index 650db9e5..9dc8e492 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -294,7 +294,7 @@ def _same_day_matching_boundary_score_holes(
+@@ -295,7 +295,7 @@ def _same_day_matching_boundary_score_holes(
              return 18
          pars = row.get("holePars")
          par_count = len(pars) if isinstance(pars, (str, list, tuple)) else 0

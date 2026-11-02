@@ -150,6 +150,30 @@ class C281MergeSameDayTests(unittest.TestCase):
             self.assertEqual([s.get("shotTime") for s in shots],
                              [1_800_000_000_000, 1_800_000_000_010])
 
+    def test_j1_3_first_shot_uses_display_hole_even_without_a_score(self) -> None:
+        """J1.3: an unscored display 10 / physical 1 still anchors the combo's start."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            numbers = list(range(10, 19)) + list(range(1, 8))
+            morning = _combo_row("morning", "2026-06-01 07:30", numbers, 55555, 66666)
+            for hole in morning["holes"]:
+                if hole["number"] >= 10:
+                    hole["sourceGlobalId"] = 66666
+                    hole["sourceLocalHole"] = hole["number"] - 9
+                if hole["number"] in {10, 13, 14, 15}:
+                    hole["strokes"] = None
+            late = _row("late", "2026-06-01 11:40", [7, 8, 9])
+            _restore(root, "morning", numbers=[8, 9])
+            data = HistoryData(raw_rounds=[], rounds=[morning, late], shots=[
+                {"roundId": "morning", "hole": 12, "localHole": 3, "shotTime": 1_800_000_001_000},
+                {"roundId": "morning", "hole": 10, "localHole": 1, "shotTime": 1_800_000_000_000},
+                {"roundId": "morning", "hole": 7, "shotTime": None},
+            ])
+            corrected = corrected_history_data(data, annotations_root=root, course_root=root)
+            # Sixteen original rows survive; late 8,9 supersede the two synthetic restores.
+            self.assertEqual(len(corrected.rounds[0]["holes"]), 16)
+            self.assertEqual([h["number"] for h in corrected.rounds[0]["holes"]], numbers)
+
     def test_j1_3_missing_shot_time_keeps_legacy_gap_start(self) -> None:
         """J1.3: absent shots/times keep the old gap decision, including its tied gaps."""
         for start, skipped, completed in ((1, {5, 6, 7}, 15), (10, {13, 14}, 16), (10, {13, 14, 15}, 15)):

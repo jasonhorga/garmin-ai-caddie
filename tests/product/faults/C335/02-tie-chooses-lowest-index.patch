@@ -1,13 +1,13 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index 9470999c..a53af66a 100644
+index 650db9e5..3e8e566a 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -321,7 +321,7 @@ def _same_day_matching_boundary_score_holes(
+@@ -329,7 +329,7 @@ def _same_day_matching_boundary_score_holes(
              ((displays[(index + 1) % len(displays)] - display - 1) % ring_size, index)
              for index, display in enumerate(displays)
          ]
 -        start = (max(gaps)[1] + 1) % len(displays)
 +        start = (max(gaps, key=lambda gap: (gap[0], -gap[1]))[1] + 1) % len(displays)
-         ordered = [
-             key
-             for display in displays[start:] + displays[:start]
+         if start_display is not None:
+             # The first shot may be on an unscored hole: begin at the next scored display.
+             start = min(range(len(displays)), key=lambda i: (displays[i] - start_display) % ring_size)

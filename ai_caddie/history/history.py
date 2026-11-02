@@ -1030,6 +1030,7 @@ def load_shot_history(
                         "globalId": ref.global_id if ref else None,
                         "localHole": ref.local_hole if ref else None,
                         "order": shot.get("shotOrder"),
+                        "shotTime": shot.get("shotTime"),
                         "clubId": cid,
                         "clubName": club_map.get(cid) or club_name_from_details(
                             cid, shot_data, apply_overrides=player_id == OWNER_ID,
