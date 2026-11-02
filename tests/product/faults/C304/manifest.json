@@ -91,6 +91,20 @@
       "kind": "native-unit",
       "target": "AICaddieWatchTests/WatchCourseDownloadTests/testDownloadCachesVersionedGarminBeforePreciseGeometryExists",
       "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-14-seed-omits-garmin-version",
+      "patch": "tests/product/faults/C304/14-seed-omits-garmin-version.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/WatchEventBridgeTests/testGarminVersionTravelsInPhoneSeedAndEveryHoleSnapshot",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-15-snapshot-erases-garmin-version",
+      "patch": "tests/product/faults/C304/15-snapshot-erases-garmin-version.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testReceivedGarminBitmapReachesRootWithoutReplacingPreciseCache",
+      "promise": "J4.5"
     }
   ]
 }
