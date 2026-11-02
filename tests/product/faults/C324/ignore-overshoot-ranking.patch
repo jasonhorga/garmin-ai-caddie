@@ -1,0 +1,15 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 22069098..0166e389 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -1914,8 +1914,8 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
+     def key(candidate):
+         extra = max(0.0, sum(distance for _, distance in candidate) - remaining_m)
+         return (remaining_m - sum(distance for _, distance in candidate) > SCORING_WINDOW_MAX_M,
+-                extra > TEE_SEQUENCE_MAX_OVERSHOOT_M if zones else False,
+-                max(0.0, extra - TEE_SEQUENCE_MAX_OVERSHOOT_M) if zones else 0.0,
++                False,
++                0.0,
+                 len(candidate), tuple(-distance for _, distance in candidate[:-1]), extra)
+ 
+     best, best_key = tail, key(tail)

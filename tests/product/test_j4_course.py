@@ -41,6 +41,9 @@ class PrepRouteQualityTests(unittest.TestCase):
     """J4.6: complete, descending measured routes without unnecessary full swings."""
 
     BAGS = {
+        "OWNER": [("Driver", 197), ("3W", 170), ("3H", 157), ("5I", 142),
+                  ("6I", 132), ("7I", 128), ("8I", 121), ("9I", 109),
+                  ("Pw", 107), ("Aw", 102), ("50", 84), ("54", 48), ("58", 35)],
         "TRIG": [("Driver", 197), ("3W", 160), ("8I", 121), ("Aw", 102), ("58", 68)],
         "PAR5BAG": [("Driver", 196), ("3W", 160), ("5I", 140), ("7I", 120),
                     ("9I", 105), ("PW", 95), ("SW", 80)],
@@ -68,6 +71,32 @@ class PrepRouteQualityTests(unittest.TestCase):
         self.assertTrue(row["steps"])
         self.assertEqual(row["steps"][-1]["role"], "scoring")
         self.assertLessEqual(row["steps"][-1]["expectedRemaining_m"], 20)
+        length = row["route_len_m"]
+        for front, back in row["hazards"].get("water_carry") or []:
+            if min(front, back) < length:
+                self.assertTrue(any("水障碍" in caution for caution in row["cautions"]))
+            for step in row["steps"]:
+                if step["routeOffset_m"] < length - 1:
+                    self.assertFalse(min(front, back) < step["routeOffset_m"] < max(front, back))
+        position = 0.0
+        for step in row["steps"]:
+            position += step["targetCarry_m"]
+            for front, back in row["hazards"].get("water_carry") or []:
+                front, back = sorted((front, back))
+                if front < length:
+                    self.assertTrue(position <= front - 8 or position >= min(back, length) + 8,
+                                    f"{step['club']}@{position} violates buffered water [{front}, {back}]")
+        position = row["steps"][0]["targetCarry_m"]
+        for step in row["steps"][1:-1]:
+            position += step["targetCarry_m"]
+            for front, back in row["hazards"].get("water_carry") or []:
+                front, back = sorted((front, back))
+                if front < length:
+                    self.assertTrue(position + 8 <= front - 8 or position - 8 >= min(back, length) + 8,
+                                    f"{step['club']} band at {position} violates water [{front}, {back}]")
+        carries = [step["targetCarry_m"] for step in row["steps"]]
+        self.assertEqual(carries, sorted(carries, reverse=True))
+        self.assertLessEqual(len(carries), 5)
 
     def test_j4_6_short_par4_uses_a_reachable_measured_tee(self):
         # 196--208 m is within 20 m of Driver 200/210. A forced 55% Driver
@@ -81,6 +110,10 @@ class PrepRouteQualityTests(unittest.TestCase):
                         measured = dict(self.BAGS[bag])
                         self.assertEqual(row["steps"][0]["targetCarry_m"],
                                          measured[row["steps"][0]["club"]])
+                        for front, back in water:
+                            if front >= length:
+                                self.assertFalse(front < row["steps"][0]["targetCarry_m"] < back,
+                                                 "measured tee must not land in water behind the pin")
 
     def test_j4_6_repeated_iron_crossing_does_not_add_a_stroke(self):
         # Witnesses: 196+160+140+140=636 (water 580--620), and
@@ -94,11 +127,17 @@ class PrepRouteQualityTests(unittest.TestCase):
 
     def test_j4_6_replans_earlier_shots_to_avoid_a_large_final_overshoot(self):
         # A safe alternative prefix exists: 197+121+102+68=488, within 12 m
-        # of 476, and 197+121+121+68=507, within 27 m of 480. In the latter
-        # case 197+121+102+68=488 also clears the clipped far edge +8 exactly.
-        for length in (476, 480):
-            with self.subTest(length=length):
-                row = self.prep("TRIG", 4, length, ((length - 40, length),))
+        # of 476 and 8 m of 480. Its final median clears the clipped far edge
+        # +8; earlier p10--p90 bands stop before the buffered water front.
+        # Empty initial rankings must also replan before fixing a greedy prefix:
+        # GAP 180+120+120+120=540; TRIG 160+121+121+102+68=572.
+        for bag, par, length, water in (
+            ("TRIG", 4, 476, ((436, 476),)), ("TRIG", 4, 480, ((440, 480),)),
+            ("GAP", 5, 530, ((200, 225), (515, 525))),
+            ("TRIG", 5, 565, ((200, 225), (550, 560))),
+        ):
+            with self.subTest(bag=bag, length=length):
+                row = self.prep(bag, par, length, water)
                 self.assert_complete(row)
                 self.assertLessEqual(sum(s["targetCarry_m"] for s in row["steps"]) - length, 20)
 
@@ -115,12 +154,29 @@ class PrepRouteQualityTests(unittest.TestCase):
     def test_j4_6_water_forced_tee_keeps_advances_descending(self):
         # J4.6 explicitly forbids a shorter advance followed by a longer one.
         # Restoring previous_carry+15 would admit 3H 157 -> 3W 170.
-        for length in (288, 328, 428, 476):
-            with self.subTest(length=length):
-                row = self.prep("PAR5BAG", 4, length, ((170, 190),))
+        for bag, length in (("OWNER", 328), ("PAR5BAG", 288), ("PAR5BAG", 328),
+                            ("PAR5BAG", 428), ("PAR5BAG", 476)):
+            with self.subTest(bag=bag, length=length):
+                row = self.prep(bag, 4, length, ((170, 190),))
                 self.assert_complete(row)
                 carries = [s["targetCarry_m"] for s in row["steps"]]
                 self.assertEqual(carries, sorted(carries, reverse=True))
+
+    def test_j4_6_empty_shared_ranking_still_finds_a_complete_measured_route(self):
+        # J4.6: a ranking with no fully safe distribution candidate is not proof
+        # that the measured scoring median cannot finish. Witnesses are:
+        # 197+121+102=420; 160+121+102+102+68=553;
+        # 160+121+121+121+68=591; 160+121+121+102+102=606;
+        # 160+121+121+121+102=625. Every route fits the five-shot bound.
+        # If the initial tee cannot complete, 3W160+Aw102+Aw102=364 reaches
+        # 352 m. 8I121+8I121+58=310 clears both crossings at 280/284 m.
+        for length in (280, 284, 352, 408, 545, 585, 600, 615):
+            water = ((length - 40, length),) if length in (352, 408) else (
+                (200, 225), (length - 15, length - 5),
+            )
+            with self.subTest(length=length):
+                row = self.prep("TRIG", 4 if length == 408 else 5, length, water)
+                self.assert_complete(row)
 
     def test_j4_6_pin_in_water_keeps_a_bounded_complete_finish(self):
         # 197+68+68=333 clears the clipped 312/316 m pin plus 8 m.
@@ -238,7 +294,9 @@ class PrepWaterRouteTests(unittest.TestCase):
     def test_j4_6_distance_fallback_clips_water_past_pin(self):
         # J4.6: a missing shared-tail candidate must not restore raw [160, 300]
         # constraints. The same physical 142+84 m finish remains available.
-        with patch.object(course_prep, "_shared_sequence_tail", return_value=[]):
+        # Both ranking passes are unavailable: exercise the factual distance fallback.
+        with patch.object(course_prep, "_shared_sequence_tail", return_value=[]), \
+                patch.object(course_prep, "_repair_complete_tail", return_value=[]):
             steps, *_ = course_prep._strategy(
                 4, 200, {"water_carry": [[160, 300]]}, self.BAGS["OWNER"],
             )

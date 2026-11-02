@@ -54,7 +54,7 @@
       "id": "tests-product-faults-C305-08-no-water-filter",
       "patch": "tests/product/faults/C305/08-no-water-filter.patch",
       "kind": "python",
-      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_water_routes_keep_safe_landings_and_finish",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_distance_fallback_clips_water_past_pin",
       "promise": "4.6"
     },
     {

@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 22069098..3b238302 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -1926,6 +1926,8 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
+             return
+         for index in range(first_index, len(rows)):
+             name, distance = rows[index]
++            if any(club == name for club, _ in prefix):
++                continue
+             carry = total + distance
+             candidate = [*prefix, (name, distance)]
+             leave = remaining_m - carry

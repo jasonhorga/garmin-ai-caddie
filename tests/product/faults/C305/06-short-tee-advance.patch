@@ -1,10 +1,10 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index c739b06a..63636ab6 100644
+index d39fb458..8f668388 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -1979,7 +1979,7 @@ def _strategy(
-         # caddie appear to forbid the club the golfer normally tees with.  Keep the landing target
-         # conservative for a short hole, but keep the physical tee club honest.
+@@ -2082,7 +2082,7 @@ def _strategy(
+         # Keep Driver on normal Par 4/5 openings. A reachable short hole may instead
+         # use the measured scoring tee selected above; its carry must stay factual.
          tee_club = driver_name
 -        tee_role = "scoring" if route_len_m - landing <= SCORING_WINDOW_MAX_M else "advance"
 +        tee_role = "advance"

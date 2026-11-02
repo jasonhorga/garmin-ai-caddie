@@ -1,11 +1,11 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index c2209fe9..68b2ea5e 100644
+index d39fb458..4b92ce72 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -2124,7 +2124,7 @@ def _strategy(
-                     ]
-                     if shorter_finishes:
-                         shared_tail = [*shared_tail[:-1], min(shorter_finishes, key=lambda row: row[1])]
+@@ -2239,7 +2239,7 @@ def _strategy(
+                     maximum_carry_m=previous_carry, player_id=player_id,
+                     maximum_steps=5 - len(steps),
+                 )
 -                candidate_remaining = effective - sum(
 +                candidate_remaining = remaining - sum(
                      tail_distance for _tail_club, tail_distance in shared_tail

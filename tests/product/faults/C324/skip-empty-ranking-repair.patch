@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 22069098..2212ed78 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2204,7 +2204,7 @@ def _strategy(
+                     distance for _club, distance in replanned_tail
+                 ) <= SCORING_WINDOW_MAX_M:
+                     shared_tail = replanned_tail
+-            if not shared_tail:
++            if False:
+                 shared_tail = _repair_complete_tail(
+                     effective, approach_ladder, shared_tail,
+                     start_m=route_offset_m, hazards=planning_hazards,

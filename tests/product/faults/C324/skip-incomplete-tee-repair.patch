@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 22069098..80ec93a0 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2355,7 +2355,7 @@ def _strategy(
+             if landing_override is not None:
+                 # On the green by its plays-like distance: no extra chip for the flat shortfall.
+                 break
+-    if par != 3 and steps and steps[-1]["role"] != "scoring":
++    if False:
+         # An incomplete route cannot justify keeping its original tee. Try safe measured
+         # tees before returning a half-route; a non-driver tee remains usable from the fairway.
+         # Keep slope-sensitive openings with the existing plays-like planner.

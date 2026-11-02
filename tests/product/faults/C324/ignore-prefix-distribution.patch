@@ -1,0 +1,15 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 22069098..2590492f 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -1942,9 +1942,7 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
+             # A safe, in-window incumbent cannot be beaten by a longer chain.
+             if not best_key[0] and not best_key[1] and len(candidate) >= len(best):
+                 continue
+-            if _club_hard_hazard_safe(
+-                distributions[index], _shift_hazard_zones(zones, start_m + total),
+-            ):
++            if True:
+                 visit(candidate, carry, index)
+ 
+     visit([], 0.0, 0)
