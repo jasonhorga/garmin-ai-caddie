@@ -321,9 +321,10 @@ def _same_day_matching_boundary_score_holes(
                 overlap = own.keys() & other.keys()
                 own_boundary = set(own_order[-len(overlap):]) if overlap else set()
                 other_boundary = set(other_order[:len(overlap)]) if overlap else set()
+                if overlap != own_boundary or overlap != other_boundary:
+                    continue
                 if (1 <= len(overlap) <= 2
                         and len(overlap) < min(len(own), len(other))
-                        and overlap == own_boundary == other_boundary
                         and all(len(own[key]) == 1 and own[key] == other[key] for key in overlap)):
                     covered.update(other.keys() - own.keys())
     return candidates
