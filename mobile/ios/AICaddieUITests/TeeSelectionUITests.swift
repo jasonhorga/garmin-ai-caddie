@@ -307,12 +307,16 @@ final class TeeSelectionUITests: XCTestCase {
             palace.label.contains("公里"),
             "real Core Location must reach the provider result (nearby rows carry their distance)"
         )
-        // C134: nearby starts with a 5 km pass and only widens to 50 km when that pass is empty or
-        // fails, so the live Beijing fix may list just the Palace. The live catalogue decides the
-        // count; the selection rule follows it (one nearby venue is the default, several are not).
+        // C262: the 5 km pass is published first and decides the automatic selection (one venue in
+        // that pass is the default, several are not); 20/50 km results are appended afterwards and
+        // never change it. The live catalogue decides the counts, so judge by rows within 5 km.
         let nearbyCount = nearbyDistanceRows().count
         XCTAssertGreaterThanOrEqual(nearbyCount, 1, "real Core Location must list the provider's nearby venues")
-        if nearbyCount == 1 {
+        let firstRingCount = nearbyDistanceRows().allElementsBoundByIndex
+            .compactMap { kilometres(in: $0.label) }
+            .filter { $0 <= 5.0 }
+            .count
+        if firstRingCount == 1 {
             XCTAssertTrue(
                 waitForValue("已选择", on: palace, timeout: 8),
                 "a single nearby venue is the default selection"
@@ -321,7 +325,7 @@ final class TeeSelectionUITests: XCTestCase {
             XCTAssertEqual(
                 palace.value as? String,
                 "未选择",
-                "real GPS with several nearby venues must not silently select a historical course"
+                "real GPS with several venues in the first 5 km pass must not silently select one"
             )
         }
         save("real-core-location-01-nearby")
@@ -1089,6 +1093,14 @@ final class TeeSelectionUITests: XCTestCase {
                 file: file, line: line
             )
         }
+    }
+
+    /// Distance from a nearby row label such as "沙河 · 1.2 公里 · 27 洞".
+    private func kilometres(in label: String) -> Double? {
+        guard let range = label.range(of: #"[0-9]+(\.[0-9]+)?(?= 公里)"#, options: .regularExpression) else {
+            return nil
+        }
+        return Double(label[range])
     }
 
     private func nearbyDistanceRows() -> XCUIElementQuery {
