@@ -1045,7 +1045,8 @@ public final class WatchEventBridge: NSObject {
     }
 
     static func holeImageMetadata(globalId: Int, hole: Int, geometryRevision: String? = nil,
-                                  assetKind: String = "topo", assetVersion: String? = nil) -> [String: Any]? {
+                                  assetKind: String = "topo", assetVersion: String? = nil,
+                                  physicalHole: Int? = nil) -> [String: Any]? {
         guard ["topo", "green-detail", "garmin"].contains(assetKind) else { return nil }
         if assetKind == "garmin", assetVersion?.isEmpty != false { return nil }
         var metadata: [String: Any] = [
@@ -1055,6 +1056,7 @@ public final class WatchEventBridge: NSObject {
                 : (assetKind == "garmin" ? SyncClient.garminRasterStyleVersion : SyncClient.topoStyleVersion),
         ]
         if let assetVersion { metadata["assetVersion"] = assetVersion }
+        if assetKind == "garmin", let physicalHole { metadata["localHole"] = physicalHole }
         if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines), !revision.isEmpty {
             metadata["geometryRevision"] = revision
         }
@@ -1063,9 +1065,10 @@ public final class WatchEventBridge: NSObject {
 
     @discardableResult
     static func queueHoleImage(globalId: Int, hole: Int, imageData: Data, geometryRevision: String? = nil,
-                               assetKind: String = "topo", assetVersion: String? = nil) -> Bool {
+                               assetKind: String = "topo", assetVersion: String? = nil,
+                               physicalHole: Int? = nil) -> Bool {
         guard let metadata = holeImageMetadata(globalId: globalId, hole: hole, geometryRevision: geometryRevision,
-            assetKind: assetKind, assetVersion: assetVersion) else { return false }
+            assetKind: assetKind, assetVersion: assetVersion, physicalHole: physicalHole) else { return false }
         guard WCSession.isSupported(), WCSession.default.activationState == .activated,
               WCSession.default.isPaired, WCSession.default.isWatchAppInstalled else {
             return false

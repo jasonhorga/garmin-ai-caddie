@@ -14,6 +14,9 @@ public enum WatchHoleImageStoreError: Error, Equatable {
 /// playing — offline-first, never fetching over the air mid-round. The style-versioned directory
 /// prevents an installed app from silently reusing pixels produced by an older renderer.
 public final class WatchHoleImageStore {
+    /// v1 used the round hole in the Garmin filename. Bumping the on-device namespace makes old
+    /// cursors and files unreachable after the physical-hole key fix.
+    private static let garminStorageStyleVersion = "garmin-raster-v2"
     private let directory: URL
     #if canImport(UIKit)
     /// Course downloads and WatchConnectivity intentionally own separate store facades over the
@@ -52,7 +55,7 @@ public final class WatchHoleImageStore {
     ) -> URL {
         if let rawVersion = garminAssetVersion {
             let version = Self.encodedAssetVersion(rawVersion) ?? "invalid"
-            let assets = directory.deletingLastPathComponent().appendingPathComponent("garmin-raster-v1", isDirectory: true)
+            let assets = directory.deletingLastPathComponent().appendingPathComponent(Self.garminStorageStyleVersion, isDirectory: true)
             try? FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
             return assets.appendingPathComponent("\(Self.key(globalId: globalId, hole: hole))_\(version).img")
         }
@@ -66,14 +69,13 @@ public final class WatchHoleImageStore {
     }
 
     private func garminCursor(globalId: Int, hole: Int) -> URL {
-        directory.deletingLastPathComponent().appendingPathComponent("garmin-raster-v1", isDirectory: true)
+        directory.deletingLastPathComponent().appendingPathComponent(Self.garminStorageStyleVersion, isDirectory: true)
             .appendingPathComponent("\(Self.key(globalId: globalId, hole: hole)).current")
     }
 
     /// The cursor is written only after valid pixels are durable; failed replacements keep the old asset.
     #if canImport(UIKit)
-    /// Versioned Garmin lookup keyed by the physical course hole. The implementation is replaced
-    /// in the B1 fix; this compatibility seam initially preserves the old round-hole lookup.
+    /// Versioned Garmin lookup keyed by the physical course hole and the package's exact release.
     public func garminImage(globalId: Int, localHole: Int, assetVersion: String) -> UIImage? {
         image(globalId: globalId, hole: localHole, garminAssetVersion: assetVersion)
     }

@@ -1253,7 +1253,7 @@ public final class WatchCourseLibrary: ObservableObject {
             await withTaskGroup(of: (WatchCoursePackageHole, Data?).self) { group in
                 for hole in batch {
                     guard let asset = hole.garminRaster, let version = asset.assetVersion else { continue }
-                    if imageStore.image(globalId: hole.sourceGlobalId, hole: hole.number, garminAssetVersion: version) != nil { continue }
+                    if imageStore.image(globalId: hole.sourceGlobalId, hole: hole.sourceLocalHole, garminAssetVersion: version) != nil { continue }
                     group.addTask {
                         await beforeEachRequest?()
                         let data = try? await client.fetchGarminAsset(asset, globalId: hole.sourceGlobalId, localHole: hole.sourceLocalHole)
@@ -1264,8 +1264,8 @@ public final class WatchCourseLibrary: ObservableObject {
                 for await (hole, data) in group {
                     guard let data, let version = hole.garminRaster?.assetVersion else { continue }
                     do {
-                        try imageStore.store(data: data, globalId: hole.sourceGlobalId, hole: hole.number, garminAssetVersion: version)
-                        lastGarminImageKey = WatchHoleImageStore.key(globalId: hole.sourceGlobalId, hole: hole.number)
+                        try imageStore.store(data: data, globalId: hole.sourceGlobalId, hole: hole.sourceLocalHole, garminAssetVersion: version)
+                        lastGarminImageKey = WatchHoleImageStore.key(globalId: hole.sourceGlobalId, hole: hole.sourceLocalHole)
                     } catch { /* Optional: precise downloads and the factual package continue. */ }
                 }
             }

@@ -816,19 +816,30 @@ extension WatchSyncClient: WCSessionDelegate {
             return false
         }
         guard let gid = (meta["globalId"] as? Int) ?? (meta["globalId"] as? NSNumber)?.intValue,
-              let hole = (meta["hole"] as? Int) ?? (meta["hole"] as? NSNumber)?.intValue else {
+              let roundHole = (meta["hole"] as? Int) ?? (meta["hole"] as? NSNumber)?.intValue else {
             return false
+        }
+        let physicalHole: Int
+        if garmin {
+            guard let localHole = (meta["localHole"] as? Int)
+                    ?? (meta["localHole"] as? NSNumber)?.intValue else {
+                // A Garmin fallback without its physical identity can alias another round order.
+                return false
+            }
+            physicalHole = localHole
+        } else {
+            physicalHole = roundHole
         }
         do {
             try holeImageStore.store(
                 fileURL: fileURL,
                 globalId: gid,
-                hole: hole,
+                hole: physicalHole,
                 geometryRevision: meta["geometryRevision"] as? String,
                 detail: detail,
                 garminAssetVersion: garmin ? assetVersion : nil
             )
-            let key = WatchHoleImageStore.key(globalId: gid, hole: hole)
+            let key = WatchHoleImageStore.key(globalId: gid, hole: physicalHole)
             DispatchQueue.main.async { self.lastHoleImageKey = key }
             return true
         } catch {

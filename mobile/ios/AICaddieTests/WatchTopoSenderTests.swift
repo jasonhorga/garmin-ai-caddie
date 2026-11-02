@@ -71,11 +71,12 @@ final class WatchTopoSenderTests: XCTestCase {
         XCTAssertNil(cache.data(globalId: 42, localHole: 1, assetVersion: "release-a"))
         XCTAssertNil(cache.data(globalId: 42, localHole: 10, assetVersion: "release-b"))
         let metadata = try XCTUnwrap(WatchEventBridge.holeImageMetadata(globalId: 42, hole: 1,
-            assetKind: "garmin", assetVersion: "release-a"))
+            assetKind: "garmin", assetVersion: "release-a", physicalHole: 10))
         XCTAssertEqual(metadata["assetKind"] as? String, "garmin")
         XCTAssertEqual(metadata["assetVersion"] as? String, "release-a")
         XCTAssertEqual(metadata["assetStyleVersion"] as? String, "garmin-raster-v1")
         XCTAssertEqual(metadata["hole"] as? Int, 1)
+        XCTAssertEqual(metadata["localHole"] as? Int, 10)
         XCTAssertNil(WatchEventBridge.holeImageMetadata(globalId: 42, hole: 1, assetKind: "garmin"))
     }
 

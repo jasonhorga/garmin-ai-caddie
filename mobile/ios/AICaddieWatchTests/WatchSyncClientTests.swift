@@ -18,8 +18,11 @@ final class WatchSyncClientTests: XCTestCase {
             "styleVersion": WatchBackendClient.topoStyleVersion, "assetStyleVersion": "garmin-raster-v1"]
         XCTAssertFalse(client.receiveHoleImage(fileURL: file, metadata: metadata), "J4.5: unversioned fallback is rejected")
         metadata["assetVersion"] = "release-a"
+        XCTAssertFalse(client.receiveHoleImage(fileURL: file, metadata: metadata), "B1: Garmin fallback without physical identity is rejected")
+        metadata["localHole"] = 10
         XCTAssertTrue(client.receiveHoleImage(fileURL: file, metadata: metadata))
-        XCTAssertNotNil(store.garminImage(globalId: 42, hole: 1))
+        XCTAssertNotNil(store.garminImage(globalId: 42, localHole: 10, assetVersion: "release-a"))
+        XCTAssertNil(store.garminImage(globalId: 42, localHole: 1, assetVersion: "release-a"))
         XCTAssertNil(store.image(globalId: 42, hole: 1))
         metadata["assetKind"] = "unknown"
         XCTAssertFalse(client.receiveHoleImage(fileURL: file, metadata: metadata))
@@ -27,7 +30,7 @@ final class WatchSyncClientTests: XCTestCase {
         metadata["assetVersion"] = "release-b"
         try Data("broken replacement".utf8).write(to: file)
         XCTAssertFalse(client.receiveHoleImage(fileURL: file, metadata: metadata))
-        XCTAssertNotNil(store.garminImage(globalId: 42, hole: 1), "J4.5: corrupt replacement keeps last good Garmin")
+        XCTAssertNotNil(store.garminImage(globalId: 42, localHole: 10, assetVersion: "release-a"), "J4.5: corrupt replacement keeps last good Garmin")
         XCTAssertNil(store.image(globalId: 42, hole: 1, garminAssetVersion: "release-b"))
         XCTAssertThrowsError(try store.store(data: data, globalId: 42, hole: 1, garminAssetVersion: ""))
         XCTAssertNil(store.image(globalId: 42, hole: 1), "J4.5: even invalid Garmin keys cannot write topo")

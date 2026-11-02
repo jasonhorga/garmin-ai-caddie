@@ -2695,7 +2695,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let data = try XCTUnwrap(image.pngData())
         let file = directory.appendingPathComponent("garmin.img")
         try data.write(to: file)
-        let metadata: [String: Any] = ["globalId": 42, "hole": 1, "assetKind": "garmin",
+        let metadata: [String: Any] = ["globalId": 42, "hole": 1, "localHole": 1, "assetKind": "garmin",
             "styleVersion": WatchBackendClient.topoStyleVersion,
             "assetStyleVersion": "garmin-raster-v1", "assetVersion": "release-a"]
         XCTAssertTrue(client.receiveHoleImage(fileURL: file, metadata: metadata), "J4.5: accept Garmin asset transfer")
@@ -2706,11 +2706,12 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let missing = WatchHoleMapGeometry(image: nil, imageSize: base.imageSize, youPx: base.youPx,
             pinPx: base.pinPx, layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx)
         let state = WatchRoundState(roundId: "garmin", hole: 1, par: 4, distanceM: 320,
-            suggestedClub: nil, selectedClub: nil, globalId: 42, sourceLocalHole: 1, courseHoleNumber: 1, score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline")
+            suggestedClub: nil, selectedClub: nil, globalId: 42, sourceLocalHole: 1, garminAssetVersion: "release-a", courseHoleNumber: 1, score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline")
         let model = WatchRoundModel(store: WatchRoundStore(directoryURL: directory))
         let states = (1...9).map { number in
             WatchRoundState(roundId: state.roundId, hole: number, par: 4, distanceM: 320,
                 suggestedClub: nil, selectedClub: nil, globalId: 42, sourceLocalHole: number,
+                garminAssetVersion: "release-a",
                 courseHoleNumber: number, score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline")
         }
         model.seedRound(states, activeHole: 1, courseName: "测试球场", courseGlobalId: 42, loopKey: "42:front")
@@ -2841,7 +2842,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     /// B1/N1: the full-map Garmin notice must leave Touch Target's Back and target controls usable.
     @MainActor
-    func testTouchTargetGarminNoticeAvoidsBottomControlsOnSupportedFaces() {
+    func testTouchTargetGarminNoticeAvoidsBottomControlsOnSupportedFaces() throws {
         for size in [CGSize(width: 176, height: 215), CGSize(width: 198, height: 242), CGSize(width: 205, height: 251)] {
             let safe = WatchDisplayGeometry.contentRect(in: size)
             let notice = WatchHoleMapView.touchTargetGarminNoticeFrame(in: size)
@@ -2856,6 +2857,25 @@ final class WatchDesignSnapshotTests: XCTestCase {
             XCTAssertTrue(safe.contains(notice), "N1: Garmin Touch Target notice stays in the display at \(size)")
             _ = controlHalf
         }
+        let image = try XCTUnwrap(WatchHoleMapSample.geometry.image)
+        let garminGeometry = WatchHoleMapGeometry(
+            image: nil,
+            imageSize: WatchHoleMapSample.geometry.imageSize,
+            youPx: WatchHoleMapSample.geometry.youPx,
+            pinPx: WatchHoleMapSample.geometry.pinPx,
+            layupPx: WatchHoleMapSample.geometry.layupPx,
+            apexPx: WatchHoleMapSample.geometry.apexPx,
+            greenCtrlPx: WatchHoleMapSample.geometry.greenCtrlPx
+        )
+        let map = WatchHoleMapView(
+            showTextOverlay: false,
+            showHoleIdentity: false,
+            fullMap: true,
+            geometry: garminGeometry,
+            garminImage: image,
+            interactionMode: .touchTarget
+        )
+        try render(map.watchSnapshotFrame(width: 176, height: 215), named: "c304-touch-target-garmin")
     }
 
     /// J4.5: green/hazard pages retain their displayed rasters on a transient nil input.

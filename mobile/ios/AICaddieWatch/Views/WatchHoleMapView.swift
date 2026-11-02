@@ -1100,7 +1100,7 @@ public struct WatchHoleMapView: View {
     static func touchTargetGarminNoticeFrame(in size: CGSize) -> CGRect {
         let safe = WatchDisplayGeometry.contentRect(in: size)
         let width = min(150, max(120, safe.width - 20))
-        return CGRect(x: safe.midX - width / 2, y: safe.maxY - 72, width: width, height: 36)
+        return CGRect(x: safe.midX - width / 2, y: safe.minY + 28, width: width, height: 36)
     }
 
     static func rootCaddieChipFrame(in size: CGSize) -> CGRect {
@@ -1135,20 +1135,34 @@ public struct WatchHoleMapView: View {
                         .accessibilityIdentifier(preparingIdentifiers[index])
                 }
                 if mapDisplayState(in: geo.size) == .garmin {
-                    let noticeFrame = Self.rootGarminNoticeFrame(in: geo.size)
-                    Text("路线等精细地图出来后显示")
-                        .font(.system(size: 10, weight: .semibold))
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.white)
-                        .padding(6)
-                        .background(.black.opacity(0.65), in: Capsule())
-                        .frame(width: fullMap ? nil : noticeFrame.width,
-                               height: fullMap ? nil : noticeFrame.height)
-                        .frame(maxHeight: fullMap ? .infinity : nil, alignment: .bottom)
-                        .padding(.bottom, fullMap ? 36 : 0)
-                        .position(x: fullMap ? geo.size.width / 2 : noticeFrame.midX,
-                                  y: fullMap ? geo.size.height / 2 : noticeFrame.midY)
-                        .accessibilityIdentifier("watch-map-garmin-pending-route")
+                    let touchTargetNotice = fullMap && interactionMode == .touchTarget
+                        ? Self.touchTargetGarminNoticeFrame(in: geo.size) : nil
+                    if let touchTargetNotice {
+                        Text("路线等精细地图出来后显示")
+                            .font(.system(size: 10, weight: .semibold))
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.white)
+                            .padding(6)
+                            .background(.black.opacity(0.65), in: Capsule())
+                            .frame(width: touchTargetNotice.width, height: touchTargetNotice.height)
+                            .position(x: touchTargetNotice.midX, y: touchTargetNotice.midY)
+                            .accessibilityIdentifier("watch-map-garmin-pending-route")
+                    } else {
+                        let noticeFrame = Self.rootGarminNoticeFrame(in: geo.size)
+                        Text("路线等精细地图出来后显示")
+                            .font(.system(size: 10, weight: .semibold))
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.white)
+                            .padding(6)
+                            .background(.black.opacity(0.65), in: Capsule())
+                            .frame(width: fullMap ? nil : noticeFrame.width,
+                                   height: fullMap ? nil : noticeFrame.height)
+                            .frame(maxHeight: fullMap ? .infinity : nil, alignment: .bottom)
+                            .padding(.bottom, fullMap ? 36 : 0)
+                            .position(x: fullMap ? geo.size.width / 2 : noticeFrame.midX,
+                                      y: fullMap ? geo.size.height / 2 : noticeFrame.midY)
+                            .accessibilityIdentifier("watch-map-garmin-pending-route")
+                    }
                 }
                 if interactionMode == .touchTarget,
                    let focus = measuredDragLocation,

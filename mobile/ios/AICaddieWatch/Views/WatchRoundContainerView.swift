@@ -295,8 +295,16 @@ public struct WatchRoundContainerView: View {
                 initialPlanViewport: WatchHoleViewport = WatchHoleViewport(),
                 initialHazardViewport: WatchHoleViewport = WatchHoleViewport()) {
         self.model = model
-        let cachedGarmin = model.activeHoleState.flatMap { state in
-            state.globalId.flatMap { holeImageStore?.garminImage(globalId: $0, hole: state.hole) }
+        let cachedGarmin: UIImage?
+        if let state = model.activeHoleState,
+           let globalId = state.globalId,
+           let localHole = state.sourceLocalHole,
+           let version = state.garminAssetVersion {
+            cachedGarmin = holeImageStore?.garminImage(
+                globalId: globalId, localHole: localHole, assetVersion: version
+            )
+        } else {
+            cachedGarmin = nil
         }
         self.garminImage = garminImage ?? cachedGarmin
         self.holeGeometry = holeGeometry ?? (self.garminImage != nil ? .waiting : nil)

@@ -43,7 +43,7 @@ final class WatchTopoSender {
     var loadGarmin: (Item) async -> (Data, String)?
     var enqueueGarmin: (Item, Data, String) -> Bool = { item, data, version in
         WatchEventBridge.queueHoleImage(globalId: item.globalId, hole: item.roundHole, imageData: data,
-            assetKind: "garmin", assetVersion: version)
+            assetKind: "garmin", assetVersion: version, physicalHole: item.localHole)
     }
     /// Queues one transfer; false when the session cannot take it now.
     var enqueue: (Item, Data) -> Bool
