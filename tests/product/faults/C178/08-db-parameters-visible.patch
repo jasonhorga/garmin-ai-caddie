@@ -1,0 +1,12 @@
+diff --git a/server_v2/db.py b/server_v2/db.py
+index 4b37b2bb..d64b0919 100644
+--- a/server_v2/db.py
++++ b/server_v2/db.py
+@@ -63,7 +63,6 @@ def get_engine() -> Engine:
+             future=True,
+             pool_pre_ping=True,
+             connect_args=connect_args,
+-            hide_parameters=True,
+         )
+         _SESSION_FACTORY = sessionmaker(bind=_ENGINE, expire_on_commit=False, future=True)
+     return _ENGINE

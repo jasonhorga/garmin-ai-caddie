@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/core/request_timing.py b/ai_caddie/core/request_timing.py
+index 7a4ff654..7f83e1c9 100644
+--- a/ai_caddie/core/request_timing.py
++++ b/ai_caddie/core/request_timing.py
+@@ -76,7 +76,7 @@ def route_template(path: str, method: str | None = None) -> str | None:
+     Routing never reads the query, so it is dropped before the bounded cache, whose keys are a
+     digest of the remaining path: the process keeps no raw ids or tokens for diagnostics.
+     """
+-    route_path = str(path or "").partition("?")[0].partition("#")[0] or "/"
++    route_path = str(path or "").partition("?")[0] or "/"
+     route_method = str(method or "GET").upper()
+     key = (hashlib.blake2b(route_path.encode("utf-8", "surrogatepass"), digest_size=16).digest(), route_method)
+     with _ROUTE_TEMPLATE_LOCK:

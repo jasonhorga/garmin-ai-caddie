@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/core/request_timing.py b/ai_caddie/core/request_timing.py
+index 7a4ff654..10accb81 100644
+--- a/ai_caddie/core/request_timing.py
++++ b/ai_caddie/core/request_timing.py
+@@ -86,8 +86,6 @@ def route_template(path: str, method: str | None = None) -> str | None:
+     template = _match_route_template(route_path, route_method)
+     with _ROUTE_TEMPLATE_LOCK:
+         _ROUTE_TEMPLATE_CACHE[key] = template
+-        if len(_ROUTE_TEMPLATE_CACHE) > _ROUTE_TEMPLATE_CACHE_SIZE:
+-            _ROUTE_TEMPLATE_CACHE.popitem(last=False)
+     return template
+ 
+ 

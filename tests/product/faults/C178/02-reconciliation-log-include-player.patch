@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index b155097b..7466a0cf 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -1730,7 +1730,7 @@ def _load_player_course_history_rows(player_id: str) -> list:
+         rows = getattr(data, "rounds", ())
+         return list(rows or ())
+     except Exception:
+-        logger.warning("course reconciliation history load failed", exc_info=True)
++        logger.warning("course reconciliation history load failed for player %s", player_id, exc_info=True)
+         return []
+ 
+ 

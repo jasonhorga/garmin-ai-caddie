@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C178-01-main-logs-include-identifiers",
+      "patch": "tests/product/faults/C178/01-main-logs-include-identifiers.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_history_warm_error_logs_do_not_include_player_id",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C178-02-reconciliation-log-include-player",
+      "patch": "tests/product/faults/C178/02-reconciliation-log-include-player.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_application_error_logs_do_not_include_player_or_round_ids",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C178-03-mobile-log-include-round",
+      "patch": "tests/product/faults/C178/03-mobile-log-include-round.patch",
+      "kind": "python",
+      "target": "tests.test_round_ingest_api.RoundIngestApiTests.test_post_commit_refresh_failure_does_not_reject_the_accepted_event",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C178-04-cache-no-eviction",
+      "patch": "tests/product/faults/C178/04-cache-no-eviction.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_route_cache_has_bounded_lru_capacity",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C178-05-cache-no-lock",
+      "patch": "tests/product/faults/C178/05-cache-no-lock.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_route_cache_lock_serializes_lookup_and_write",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C178-06-route-keeps-fragment",
+      "patch": "tests/product/faults/C178/06-route-keeps-fragment.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_route_template_discards_fragment_before_matching",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C178-07-websocket-warning-kept",
+      "patch": "tests/product/faults/C178/07-websocket-warning-kept.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_websocket_dependency_warning_is_filtered",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C178-08-db-parameters-visible",
+      "patch": "tests/product/faults/C178/08-db-parameters-visible.patch",
+      "kind": "python",
+      "target": "tests.test_db_engine.DatabaseUrlTests.test_sqlalchemy_errors_hide_bound_parameters",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C178-09-cache-clear-noop",
+      "patch": "tests/product/faults/C178/09-cache-clear-noop.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_route_cache_clear_helper_resets_fixture_state",
+      "promise": "J7.3"
+    }
+  ]
+}
