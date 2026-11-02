@@ -320,15 +320,6 @@ def corrected_rounds(
     out: list[dict[str, Any]] = []
     for row in rounds:
         row_id = str(row.get("id"))
-        row_day = str(row.get("date") or "")[:10]
-        # Legacy shape retained so the earlier C235 fault patch remains applicable;
-        # the indexed outing candidates below are the active implementation.
-        other_real_score_holes = {
-            key
-            for round_id, (other_day, keys) in real_score_holes.items()
-            if round_id != row_id and (not row_day or not other_day or row_day == other_day)
-            for key in keys
-        }
         refs = _round_refs(row)
         other_real_score_holes = same_day_non_overlapping.get(row_id, set())
         events = events_by_round.get(str(row.get("id"))) or []
