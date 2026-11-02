@@ -24,11 +24,13 @@ _PRIVATE_PATH = re.compile(r"(?:[A-Za-z]:[\\/]|/|\bdata/)[^\s\"'<>]+")
 def _text(value: str) -> str:
     value = redact_url(value)
     value = _IDENTITY.sub(lambda match: match[1] + "=" + _REDACTED, value)
+
     def path(match):
         candidate = match[0]
         if candidate.startswith("/api/") and route_template(candidate) == candidate:
             return candidate
         return _REDACTED
+
     return _PRIVATE_PATH.sub(path, value)
 
 
