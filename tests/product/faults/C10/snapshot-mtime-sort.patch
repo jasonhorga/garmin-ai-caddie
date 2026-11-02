@@ -1,9 +1,9 @@
 diff --git a/ai_caddie/ops/retention.py b/ai_caddie/ops/retention.py
-index 8bac670a..3a7f4974 100644
+index d8fbddc6..e0171a1b 100644
 --- a/ai_caddie/ops/retention.py
 +++ b/ai_caddie/ops/retention.py
-@@ -112,7 +112,7 @@ def _clean_garmin_snapshots(root: Path) -> None:
-         logger.warning("retention could not inspect Garmin snapshots %s", snapshot_root, exc_info=True)
+@@ -119,7 +119,7 @@ def _clean_garmin_snapshots(root: Path) -> None:
+         logger.warning("retention could not inspect Garmin snapshots", exc_info=True)
          return
  
 -    pairs.sort(key=lambda item: (item[0], item[1]), reverse=True)
