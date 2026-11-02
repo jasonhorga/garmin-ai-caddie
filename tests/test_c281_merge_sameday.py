@@ -128,6 +128,34 @@ class C281MergeSameDayTests(unittest.TestCase):
             current = next(row for row in corrected.rounds if row["id"] == "morning")
             self.assertEqual((current["holesCompleted"], len(current["holes"])), (18, 18))
 
+    def test_j1_3_overlap_must_also_be_own_card_tail(self) -> None:
+        """J1.3: matching the later card's head cannot replace restores from this card's head."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _row("morning", "2026-06-01 07:30", [1, 2, 3])
+            late = _row("late", "2026-06-01 13:30", [1, 2, 4])
+            _restore(root, "morning", numbers=range(4, 19))
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (18, 18))
+
+    def test_j1_3_overlap_must_also_be_other_card_head(self) -> None:
+        """J1.3: matching this card's tail cannot replace restores when the other card starts elsewhere."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _row("morning", "2026-06-01 07:30", [7, 8, 9])
+            late = _row("late", "2026-06-01 13:30", [1, 8, 9, 10])
+            _restore(root, "morning", numbers=list(range(1, 7)) + list(range(10, 19)))
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (18, 18))
+
     def test_j1_3_both_cards_need_non_overlapping_holes(self) -> None:
         """J1.3: two cards that only repeat their two holes cannot replace restores."""
         with TemporaryDirectory() as tmp:
