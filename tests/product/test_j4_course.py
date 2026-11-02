@@ -48,6 +48,50 @@ class PrepWaterRouteTests(unittest.TestCase):
         "GAP": [("Driver", 200), ("3W", 180), ("5I", 150), ("7I", 120), ("SW", 50)],
     }
 
+    def test_j4_6_pin_water_does_not_stack_scoring_and_clearance_margins(self):
+        # J4.6 / C336: the final physical landing may overshoot by at most 20 m
+        # here. 197 + 84 - 268 = 13; 197 + 107 - 292 = 12: both clear L+8.
+        for length, water in ((292, [252, 292]), (268, [253, 278])):
+            with self.subTest(length=length, water=water):
+                steps, *_ = course_prep._strategy(
+                    4, length, {"water_carry": [water]}, self.BAGS["OWNER"],
+                )
+                self.assertEqual(steps[-1]["role"], "scoring")
+                self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20)
+                physical_landing = sum(step["targetCarry_m"] for step in steps)
+                self.assertGreaterEqual(physical_landing, length + 8)
+                self.assertLessEqual(physical_landing - length, 20)
+
+    def test_j4_6_water_starting_in_last_five_metres_has_a_caution(self):
+        # J4.6: the same pre-pin water participates in planning and warnings.
+        # 265/0.9144 -> 290 y; 288/0.9144 -> 315 y.
+        _, cautions, *_ = course_prep._strategy(
+            4, 268, {"water_carry": [[265, 288]]}, self.BAGS["OWNER"],
+        )
+        self.assertIn("水障碍：进水前约 290y，过水需 315y", cautions)
+
+    def test_j4_4_course_data_water_caution_uses_unclipped_far_edge(self):
+        # J4.4: a straight 216 m route, pond at 176--230 m. The factual
+        # far edge is 230/0.9144 -> 252 y, even though planning ends at 216.
+        from ai_caddie.geometry import shot_projection
+
+        def point(north):
+            lat, lon = shot_projection.local_to_world(
+                0, north, ref_lat=0, ref_lon=0,
+            )
+            return {"latitude": lat, "longitude": lon}
+
+        hole = {"lines": [{"role": "hazard-span", "surface": "water",
+                           "points": [point(176), point(230)]}]}
+        hazards, _ = course_prep._course_data_hazards(
+            hole, [(0, 0), (0, 216)], ref_lat=0, ref_lon=0,
+        )
+        steps, cautions, *_ = course_prep._strategy(
+            4, 216, hazards, self.BAGS["OWNER"],
+        )
+        self.assertTrue(steps)
+        self.assertIn("水障碍：进水前约 192y，过水需 252y", cautions)
+
     def test_j4_6_water_routes_keep_safe_landings_and_finish(self):
         # J4.6's complete route and common tail rule apply even beside the green. These
         # bags can cover these lengths within five shots; the endpoint is a 20 m scoring
