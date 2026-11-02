@@ -66,6 +66,20 @@ class NativeFixtureDNSGateTests(unittest.TestCase):
         self.assertEqual(1, len(findings))
         self.assertEqual("<unknown URL>", findings[0][2])
 
+    def test_unmarked_tls_failure_to_fixture_host_is_reported(self) -> None:
+        """J4.2: every fixture-host NSURLError reaches the gate, including TLS errors."""
+        log = (
+            'Task finished with error [-1200] Error Domain=NSURLErrorDomain '
+            'Code=-1200 "The certificate for this server is invalid." '
+            'NSErrorFailingURLStringKey=https://caddie.example/api/v2/courses/31795/holes/1/topo.png\n'
+        )
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual(
+            "https://caddie.example/api/v2/courses/31795/holes/1/topo.png",
+            findings[0][2],
+        )
+
     def test_interleaved_line_of_route_marked_task_is_allowed(self) -> None:
         # CI 40980906665: another process's log line was spliced into the
         # error, so Code=-1003 and route=shared landed on separate lines.
