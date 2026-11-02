@@ -194,6 +194,39 @@ class C281MergeSameDayTests(unittest.TestCase):
             # repeats the morning tail 1 and supersedes restored 2,3.
             self.assertEqual((current["holesCompleted"], len(current["holes"])), (16, 16))
 
+    def test_j1_3_back_id_keeps_two_loop_combo_on_eighteen_hole_ring(self) -> None:
+        """J1.3: a combo card keeps an 18-hole ring even when its pars have nine entries."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _nine_row("morning", "2026-06-01 07:30", list(range(4, 9)))
+            late = _nine_row("late", "2026-06-01 09:40", [8, 9, 1, 2, 3])
+            for row in (morning, late):
+                row["backNineGlobalCourseId"] = 7103
+            _restore(root, "morning", numbers=[9, 1, 2, 3])
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            # The back-loop identity makes 9 -> 1 a course-loop boundary, not a display wrap;
+            # the late card therefore does not replace the restored holes 9,1,2,3.
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (9, 9))
+
+    def test_j1_3_missing_hole_pars_keeps_ambiguous_card_on_eighteen_hole_ring(self) -> None:
+        """J1.3: without holePars, an ambiguous card retains the conservative 18-hole ring."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _nine_row("morning", "2026-06-01 07:30", list(range(4, 10)))
+            late = _nine_row("late", "2026-06-01 09:40", [9, 1, 2, 3])
+            morning.pop("holePars")
+            late.pop("holePars")
+            from ai_caddie.history.corrected_history import _same_day_matching_boundary_score_holes
+
+            covered = _same_day_matching_boundary_score_holes([morning, late])
+            # Missing course metadata cannot prove a nine-hole ring, so the 9 -> 1 gap is not
+            # treated as a continuation and the later card covers no restored holes.
+            self.assertEqual(covered["morning"], set())
+
     def test_j1_3_tied_ring_gaps_keep_current_max_index_rule(self) -> None:
         """J1.3: tied largest gaps keep the existing max-index tie rule, including a 10-start card."""
         with TemporaryDirectory() as tmp:
