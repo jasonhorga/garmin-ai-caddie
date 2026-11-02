@@ -33,6 +33,44 @@ SHARED_PYTHON = Path(os.environ.get("CADDIE_SHARED_PYTHON", sys.executable))
 # one interpreter per target (233 targets, 1.5 h+; C226/C162 pushes hit the 2 h cap,
 # C266). The budget only guards against a hanging import, so give it real headroom.
 PYTHON_BATCH_TIMEOUT = 900.0
+SKIPPED_DETAIL_PREFIX = "目标测试被跳过："
+
+
+# A temporary unittest module works with both the direct interpreter and the
+# optional host wrapper. Keep structured results separate from arbitrary test
+# output. Class/module setup skips do not call startTest; counting skipped
+# entries against testsRun would misclassify a mixed suite with one real pass.
+PYTHON_RUN_REPORTER = r'''
+import json
+import os
+from pathlib import Path
+import unittest
+
+class ReportingSuite(unittest.TestSuite):
+    def run(self, result, debug=False):
+        started, skipped = {}, set()
+        original_start, original_skip = result.startTest, result.addSkip
+        def start(test):
+            started[id(test)] = test
+            original_start(test)
+        def skip(test, reason):
+            skipped.add(id(test))
+            original_skip(test, reason)
+        result.startTest, result.addSkip = start, skip
+        try:
+            return super().run(result, debug)
+        finally:
+            result.startTest, result.addSkip = original_start, original_skip
+            report = {
+                "all_skipped": bool(result.skipped) and not (started.keys() - skipped)
+                    and not (result.failures or result.errors or result.unexpectedSuccesses),
+                "skip_reason": str(result.skipped[0][1]) if result.skipped else "",
+            }
+            Path(os.environ["CADDIE_FAULT_REPORT"]).write_text(json.dumps(report), encoding="utf-8")
+
+def load_tests(loader, tests, pattern):
+    return ReportingSuite([loader.loadTestsFromName(os.environ["CADDIE_FAULT_TARGET"])])
+'''
 
 
 # Use a result file: imported test modules may write arbitrary stdout/stderr.
@@ -386,11 +424,22 @@ def run_target(record: dict[str, Any], repo: Path) -> tuple[str, str, list[str]]
         command = [str(SHARED_PYTHON), *script]
         result = subprocess.run(command, cwd=repo, env=env, text=True, capture_output=True)
     elif kind == "python":
-        if RUN_TESTS:
-            command = ["bash", RUN_TESTS, str(repo), target]
-        else:
-            command = [str(SHARED_PYTHON), "-m", "unittest", target]
-        result = subprocess.run(command, cwd=repo, env=env, text=True, capture_output=True)
+        with tempfile.TemporaryDirectory(prefix="fault-run-") as directory:
+            reporter = "_caddie_fault_reporter"
+            (Path(directory) / (reporter + ".py")).write_text(PYTHON_RUN_REPORTER, encoding="utf-8")
+            report_path = Path(directory) / "result.json"
+            env.update(CADDIE_FAULT_TARGET=target, CADDIE_FAULT_REPORT=str(report_path),
+                       PYTHONPATH=os.pathsep.join([directory, env.get("PYTHONPATH", "")]))
+            if RUN_TESTS:
+                command = ["bash", RUN_TESTS, str(repo), reporter]
+            else:
+                command = [str(SHARED_PYTHON), "-m", "unittest", reporter]
+            result = subprocess.run(command, cwd=repo, env=env, text=True, capture_output=True)
+            if result.returncode == 0 and report_path.is_file():
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+                if report["all_skipped"]:
+                    reason = (report["skip_reason"].splitlines() or [""])[0]
+                    return "unavailable", SKIPPED_DETAIL_PREFIX + reason, command
     elif kind == "web-vitest":
         executable = repo / "web_v2/node_modules/.bin/vitest"
         if not executable.exists():
@@ -416,7 +465,7 @@ def run_target(record: dict[str, Any], repo: Path) -> tuple[str, str, list[str]]
         return "native-pending", "native tests are dispatched by the project console", []
     if kind == "python" and result.returncode:
         # A non-zero test process may be a mutant assertion or a load failure.
-        # Probe only this path so a zero exit is recorded as survived directly.
+        # Probe only this path; a zero exit needs no repeat loading check.
         status, detail = target_check(record, repo)
         if status != "ok":
             return status, detail, command
@@ -539,8 +588,11 @@ def main() -> int:
         result = dispatch_native(records)
     if args.out:
         args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return int(no_match or any(row["status"] in {"unappliable", "unavailable", "leaked"}
-                   for row in result.get("results", [])))
+    return int(no_match or any(
+        row["status"] in {"unappliable", "unavailable", "leaked"}
+        and not (args.run and row["status"] == "unavailable"
+                 and row.get("detail", "").startswith(SKIPPED_DETAIL_PREFIX))
+        for row in result.get("results", [])))
 
 
 if __name__ == "__main__":

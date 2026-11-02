@@ -358,6 +358,31 @@ class ManifestFragmentTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("AssertionError", rows[0]["detail"])
 
+    def test_run_host_wrapper_preserves_skip_and_execution_verdicts(self):
+        record = self.skip_fixture(
+            "import unittest\nfrom pathlib import Path\n"
+            "class Witness(unittest.TestCase):\n"
+            "    @unittest.skip('optional tool missing')\n"
+            "    def test_skipped(self): pass\n"
+            "    def test_green(self): pass\n"
+            "    def test_subject(self):\n"
+            "        self.assertEqual(Path('subject.txt').read_text(), 'before\\n')\n"
+        )
+        wrapper = self.root / "wrapper.sh"
+        wrapper.write_text('cd "$1" || exit 2\nshift\n'
+                           'exec "$CADDIE_SHARED_PYTHON" -m unittest "$@"\n')
+        with mock.patch.object(runner, "RUN_TESTS", str(wrapper)), mock.patch.dict(
+            runner.os.environ, {"CADDIE_SHARED_PYTHON": str(runner.SHARED_PYTHON)}
+        ):
+            for suffix, status, code in (("test_skipped", "unavailable", 0),
+                                         ("test_green", "leaked", 1),
+                                         ("test_subject", "killed", 0)):
+                with self.subTest(target=suffix):
+                    actual_code, rows, _ = self.invoke_main("--run", [
+                        {**record, "target": "test_skip_policy.Witness." + suffix}])
+                    self.assertEqual(rows[0]["status"], status)
+                    self.assertEqual(actual_code, code)
+
     def test_check_requires_loadable_nonempty_python_targets_without_running_them(self):
         (self.root / "test_empty.py").write_text("# No tests.\n", encoding="utf-8")
         (self.root / "test_load_only.py").write_text(
