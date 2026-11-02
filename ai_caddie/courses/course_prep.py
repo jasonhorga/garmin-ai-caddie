@@ -1725,7 +1725,7 @@ def _strategy_water_safe(carry_m: float, hazards: dict) -> bool:
 
 def _water_span_affects_scoring_route(interval, route_len_m: float) -> bool:
     try:
-        return max(float(interval[0]), float(interval[1])) < float(route_len_m)
+        return min(float(interval[0]), float(interval[1])) < float(route_len_m)
     except (TypeError, ValueError, OverflowError, IndexError):
         return False
 
@@ -1891,13 +1891,14 @@ def _strategy(
         for name, distance in ladder
         if club_bag_service.canonical_club_name(name) != "putter"
     ]
-    # A span covering the pin (or beyond it) is inconsistent with a playable route endpoint.
-    # Keep it for display, but omit it from carry feasibility. Every span wholly before the
-    # endpoint remains a planning constraint, including water inside the last 20 metres.
+    # Projection can clamp a water span's far edge to the pin. Keep its pre-pin portion
+    # as a planning constraint; only water starting at or beyond the pin is irrelevant.
+    # Preserve the original spans for display and cautions below.
     planning_hazards = {
         **(hazards or {}),
         "water_carry": [
-            interval
+            [min(float(interval[0]), float(interval[1])),
+             min(max(float(interval[0]), float(interval[1])), float(route_len_m))]
             for interval in (hazards or {}).get("water_carry") or []
             if isinstance(interval, (list, tuple)) and len(interval) >= 2
             and _water_span_affects_scoring_route(interval, route_len_m)
@@ -2124,16 +2125,14 @@ def _strategy(
             # The online tail can be empty when every continuation is unsafe. Keep the old
             # distance fallback, but constrain it to the already-played carry and to a fresh club
             # so the safety fallback cannot reintroduce a short-then-long sequence.
-            # Keep the fallback's hazard view aligned with the planning view used above.  The
-            # local alias also preserves the C255 fault seam while post-green water remains
-            # excluded from every safety decision.
-            hazards = planning_hazards
+            # Apply the same clipped constraints in the fallback while keeping the original
+            # hazards for the measured display facts and cautions after planning finishes.
             safe_ladder = [
                 (name, distance)
                 for name, distance in approach_ladder
                 if club_bag_service.canonical_club_name(name) not in used_clubs
                 and float(distance) <= previous_carry
-                and _strategy_water_safe(route_offset_m + float(distance), hazards)
+                and _strategy_water_safe(route_offset_m + float(distance), planning_hazards)
             ]
             if not safe_ladder:
                 # Match the online repeat fallback when no distinct safe club can finish the
@@ -2143,7 +2142,7 @@ def _strategy(
                     (name, distance)
                     for name, distance in approach_ladder
                     if float(distance) <= previous_carry
-                    and _strategy_water_safe(route_offset_m + float(distance), hazards)
+                    and _strategy_water_safe(route_offset_m + float(distance), planning_hazards)
                 ]
             if not safe_ladder:
                 break
