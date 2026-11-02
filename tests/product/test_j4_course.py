@@ -48,6 +48,50 @@ class PrepWaterRouteTests(unittest.TestCase):
         "GAP": [("Driver", 200), ("3W", 180), ("5I", 150), ("7I", 120), ("SW", 50)],
     }
 
+    def test_j4_6_pin_water_does_not_stack_scoring_and_clearance_margins(self):
+        # J4.6 / C336: the final physical landing may overshoot by at most 20 m
+        # here. 197 + 84 - 268 = 13; 197 + 107 - 292 = 12: both clear L+8.
+        for length, water in ((292, [252, 292]), (268, [253, 278])):
+            with self.subTest(length=length, water=water):
+                steps, *_ = course_prep._strategy(
+                    4, length, {"water_carry": [water]}, self.BAGS["OWNER"],
+                )
+                self.assertEqual(steps[-1]["role"], "scoring")
+                self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20)
+                physical_landing = sum(step["targetCarry_m"] for step in steps)
+                self.assertGreaterEqual(physical_landing, length + 8)
+                self.assertLessEqual(physical_landing - length, 20)
+
+    def test_j4_6_water_starting_in_last_five_metres_has_a_caution(self):
+        # J4.6: the same pre-pin water participates in planning and warnings.
+        # 265/0.9144 -> 290 y; 288/0.9144 -> 315 y.
+        _, cautions, *_ = course_prep._strategy(
+            4, 268, {"water_carry": [[265, 288]]}, self.BAGS["OWNER"],
+        )
+        self.assertIn("水障碍：进水前约 290y，过水需 315y", cautions)
+
+    def test_j4_4_course_data_water_caution_uses_unclipped_far_edge(self):
+        # J4.4: a straight 216 m route, pond at 176--230 m. The factual
+        # far edge is 230/0.9144 -> 252 y, even though planning ends at 216.
+        from ai_caddie.geometry import shot_projection
+
+        def point(north):
+            lat, lon = shot_projection.local_to_world(
+                0, north, ref_lat=0, ref_lon=0,
+            )
+            return {"latitude": lat, "longitude": lon}
+
+        hole = {"lines": [{"role": "hazard-span", "surface": "water",
+                           "points": [point(176), point(230)]}]}
+        hazards, _ = course_prep._course_data_hazards(
+            hole, [(0, 0), (0, 216)], ref_lat=0, ref_lon=0,
+        )
+        steps, cautions, *_ = course_prep._strategy(
+            4, 216, hazards, self.BAGS["OWNER"],
+        )
+        self.assertTrue(steps)
+        self.assertIn("水障碍：进水前约 192y，过水需 252y", cautions)
+
     def test_j4_6_water_routes_keep_safe_landings_and_finish(self):
         # J4.6's complete route and common tail rule apply even beside the green. These
         # bags can cover these lengths within five shots; the endpoint is a 20 m scoring
@@ -80,6 +124,55 @@ class PrepWaterRouteTests(unittest.TestCase):
                     )
                     self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20)
                     self.assertEqual(steps[-1]["role"], "scoring")
+
+    def test_j4_6_water_past_pin_and_reversed_span_keep_a_complete_safe_route(self):
+        # J4.6: planning clips either endpoint order to [160, 200].
+        # 5I@142 is before 160-8; 50@226 is beyond 200+8. Keeping the
+        # raw far edge at 300 would incorrectly prevent this finish.
+        for water in ([160, 300], [300, 160]):
+            with self.subTest(water=water):
+                steps, *_ = course_prep._strategy(
+                    4, 200, {"water_carry": [water]}, self.BAGS["OWNER"],
+                )
+                self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20)
+                self.assertEqual(steps[-1]["role"], "scoring")
+                for step in steps:
+                    self.assertFalse(160 <= step["routeOffset_m"] < 199)
+
+    def test_j4_6_distance_fallback_clips_water_past_pin(self):
+        # J4.6: a missing shared-tail candidate must not restore raw [160, 300]
+        # constraints. The same physical 142+84 m finish remains available.
+        with patch.object(course_prep, "_shared_sequence_tail", return_value=[]):
+            steps, *_ = course_prep._strategy(
+                4, 200, {"water_carry": [[160, 300]]}, self.BAGS["OWNER"],
+            )
+        self.assertEqual(steps[-1]["expectedRemaining_m"], 0)
+        self.assertEqual(steps[-1]["role"], "scoring")
+        self.assertEqual(sum(step["targetCarry_m"] for step in steps), 226)
+
+    def test_j4_6_layup_cannot_choose_the_wedge_leave_inside_water(self):
+        # J4.6: at route station 100, 9I@100 leaves the preferred 80 m
+        # wedge but lands at 200 inside [190, 210]. PW@80 leaves 100 m,
+        # 30 m away from the shortest full wedge (70), outside the 15 m
+        # error allowance. No water-safe full-wedge layup is available.
+        layup = course_prep._layup_position_club(
+            180, [("7I", 120), ("9I", 100), ("PW", 80), ("SW", 70)],
+            start_m=100, hazards={"water_carry": [[190, 210]]},
+        )
+        self.assertIsNone(layup)
+
+    def test_j4_6_distance_fallback_layup_keeps_water_constraints(self):
+        # J4.6: from 200 m, 9I@100 has the attractive 80 m wedge leave
+        # but lands in [280, 310]. 7I@120 clears 310+8, followed by SW@70.
+        # Force the factual fallback, as when the shared scorer has no candidate.
+        ladder = [("Driver", 200), ("7I", 120), ("9I", 100), ("PW", 80), ("SW", 70)]
+        with patch.object(course_prep, "_shared_sequence_tail", return_value=[]):
+            steps, *_ = course_prep._strategy(
+                4, 380, {"water_carry": [[280, 310]]}, ladder,
+            )
+        self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20)
+        for step in steps:
+            self.assertFalse(280 <= step["routeOffset_m"] <= 310)
 
     def test_j4_6_water_ending_at_pin_keeps_safe_landings_and_cautions(self):
         # J4.6: projected water can end exactly at the pin. The last metre is the

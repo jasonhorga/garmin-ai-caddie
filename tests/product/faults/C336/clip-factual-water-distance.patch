@@ -1,0 +1,15 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 2db4a0ec..f931cff1 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2400,8 +2400,8 @@ def _course_data_hazards(
+         front_m, back_m = sorted((first_distance, second_distance))
+         # Water's factual far edge may lie past the flag. Only the planning
+         # copy in _strategy is clipped; cautions retain the measured route station.
+-        front_route, front_side = _route_station(front, route, extend_end=kind == "water")
+-        back_route, back_side = _route_station(back, route, extend_end=kind == "water")
++        front_route, front_side = _route_station(front, route, extend_end=False)
++        back_route, back_side = _route_station(back, route, extend_end=False)
+         if kind == "water":
+             water.append([round(min(front_route, back_route), 1), round(max(front_route, back_route), 1)])
+         else:

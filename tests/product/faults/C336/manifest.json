@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C336-RV3-no-clip",
+      "patch": "tests/product/faults/C336/RV3-no-clip.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_water_past_pin_and_reversed_span_keep_a_complete_safe_route",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C336-RV4-no-reversed-normalisation",
+      "patch": "tests/product/faults/C336/RV4-no-reversed-normalisation.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_water_past_pin_and_reversed_span_keep_a_complete_safe_route",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C336-SM5-fallback-raw-hazards",
+      "patch": "tests/product/faults/C336/SM5-fallback-raw-hazards.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_distance_fallback_clips_water_past_pin",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C336-SM6-layup-ignores-water",
+      "patch": "tests/product/faults/C336/SM6-layup-ignores-water.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_distance_fallback_layup_keeps_water_constraints",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C336-stack-water-and-gir-margins",
+      "patch": "tests/product/faults/C336/stack-water-and-gir-margins.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_pin_water_does_not_stack_scoring_and_clearance_margins",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C336-drop-last-five-metre-caution",
+      "patch": "tests/product/faults/C336/drop-last-five-metre-caution.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_water_starting_in_last_five_metres_has_a_caution",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C336-clip-factual-water-distance",
+      "patch": "tests/product/faults/C336/clip-factual-water-distance.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_4_course_data_water_caution_uses_unclipped_far_edge",
+      "promise": "4.4"
+    }
+  ]
+}
