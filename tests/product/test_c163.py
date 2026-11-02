@@ -789,6 +789,9 @@ class SignatureRefreshTests(unittest.TestCase):
 class MonitorLifecycleTests(unittest.TestCase):
     def test_J42_monitor_stops_with_application_lifespan(self):
         """J4.2: repeated lifespan entry cannot accumulate signature watcher threads."""
+        from tests.service_logging import preserve_service_logging
+
+        self.enterContext(preserve_service_logging())
         from server_v2 import main
         import asyncio
         async def run():

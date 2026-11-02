@@ -3,10 +3,16 @@
 import io
 import logging
 import unittest
+from unittest.mock import patch
 
 
 LOGGING_MUTATING_MODULES = (
+    "tests.test_pipeline",
+    "tests.test_c90_timing",
+    "tests.test_course_install",
+    "tests.test_c295_log_privacy",
     "tests.product.test_c154b",
+    "tests.product.test_c163",
     "tests.product.test_c33_start_fast",
     "tests.product.test_c36_cold_release_start",
     "tests.test_app_boots_with_db",
@@ -21,10 +27,25 @@ LOGGING_MUTATING_MODULES = (
 # cheap enough for every backend test run while still catching the SM5 leak.
 LOGGING_GUARD_TARGETS = {
     "tests.product.test_c154b": ("ForegroundAdmissionTests",),
+    "tests.product.test_c163": ("MonitorLifecycleTests",),
 }
 
 
 class ServiceLoggingIsolationTests(unittest.TestCase):
+    def test_J73_isolation_guard_rejects_leaked_logger_methods(self):
+        """J7.3: detect process hooks even if handlers and levels were restored."""
+        for method in ("addHandler", "callHandlers"):
+            with self.subTest(method=method):
+                class LeakingTest(unittest.TestCase):
+                    def runTest(self):
+                        setattr(logging.Logger, method, lambda *args: None)
+
+                suite = unittest.TestSuite([LeakingTest()])
+                with patch.object(unittest.TestLoader, "loadTestsFromName",
+                                  return_value=[suite]):
+                    with self.assertRaisesRegex(AssertionError, f"leaked Logger.{method}"):
+                        self.assert_module_restores_logging("logging_leak_probe")
+
     def test_J73_pipeline_then_course_prep_preserves_diagnostics(self):
         """J7.3: cron privacy setup must not change a later library log capture.
 
@@ -34,7 +55,7 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
         from tests.service_logging import preserve_service_logging
 
         output = io.StringIO()
-        suite = unittest.defaultTestLoader.loadTestsFromNames(
+        suite = unittest.TestLoader().loadTestsFromNames(
             ["tests.test_pipeline", "tests.test_course_prep"]
         )
         with preserve_service_logging():
@@ -47,7 +68,7 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
 
     def test_J42_background_slot_logging_suite_is_discoverable(self):
         """J4.2: the logging isolation regression suite is visible to unittest discover."""
-        discovered = unittest.defaultTestLoader.discover(
+        discovered = unittest.TestLoader().discover(
             "tests/product", pattern="test_c154b.py", top_level_dir="."
         )
 
@@ -100,13 +121,15 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
 
         # The loader groups a module by class. Run and inspect each class separately:
         # another class's cleanup must not hide the class that leaked logging state.
-        for suite in unittest.defaultTestLoader.loadTestsFromName(module):
+        # Use a fresh loader so CLI -k filters cannot empty these nested checks.
+        for suite in unittest.TestLoader().loadTestsFromName(module):
             if isinstance(suite, unittest.TestCase):
                 suite = unittest.TestSuite([suite])
             class_name = type(next(iter(suite))).__name__
             if only_class is not None and class_name != only_class:
                 continue
             before = snapshot()
+            before_methods = (logging.Logger.addHandler, logging.Logger.callHandlers)
             output = io.StringIO()
             try:
                 result = unittest.TextTestRunner(stream=output).run(suite)
@@ -115,8 +138,13 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
                 changed = {name: (before[name], after[name]) for name in before
                            if before[name] != after[name]}
                 self.assertEqual(changed, {}, f"{module}.{class_name} leaked logging state: {changed}")
+                self.assertIs(logging.Logger.addHandler, before_methods[0],
+                              f"{module}.{class_name} leaked Logger.addHandler")
+                self.assertIs(logging.Logger.callHandlers, before_methods[1],
+                              f"{module}.{class_name} leaked Logger.callHandlers")
             finally:
                 # This guard's cleanup is independent of the fixture it checks.
+                logging.Logger.addHandler, logging.Logger.callHandlers = before_methods
                 for logger in loggers:
                     handlers, filters, level, propagate, disabled = before[logger.name]
                     logger.handlers[:] = handlers

@@ -24,6 +24,10 @@ def preserve_service_logging():
     try:
         yield
     finally:
+        if logging.Logger.addHandler is not add_handler:
+            handle = getattr(logging.Logger.addHandler, "_privacy_handle", None)
+            if handle is not None:
+                handle.close()
         logging.Logger.addHandler = add_handler
         logging.Logger.callHandlers = call_handlers
         for name, logger in logging.Logger.manager.loggerDict.copy().items():

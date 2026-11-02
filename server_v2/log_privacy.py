@@ -4,10 +4,12 @@ Diagnostic codes, public course ids and numeric values survive at every level.
 Exception payloads remain untrusted; retain their types and frame locations.
 """
 from collections.abc import Mapping
+from contextlib import ExitStack
 import logging
 from pathlib import Path
 import re
 import traceback
+from weakref import WeakKeyDictionary
 
 from ai_caddie.core.request_timing import redact_url, route_template
 
@@ -178,19 +180,42 @@ def protect_handler(handler: logging.Handler) -> None:
         handler.addFilter(LogPrivacyFilter())
 
 
-def protect_future_handlers() -> None:
-    """Protect handlers attached after startup, including direct list mutations."""
+def protect_future_handlers() -> ExitStack:
+    """Install once at service/cron startup; close the handle to undo this guard.
+
+    Repeated calls share the same installation and lifetime. Embedded entrypoint
+    callers must close it when done; standalone services keep it for the process.
+    Handler filters added by the guard are also removed when it closes.
+    """
     original = logging.Logger.addHandler
     original_call_handlers = logging.Logger.callHandlers
     if getattr(original, "_privacy_guard", False):
-        return
+        return original._privacy_handle
+
+    handle = ExitStack()
+    added_filters = WeakKeyDictionary()
+
+    def protect(handler):
+        if not any(isinstance(item, LogPrivacyFilter) for item in handler.filters):
+            privacy_filter = LogPrivacyFilter()
+            handler.addFilter(privacy_filter)
+            added_filters[handler] = privacy_filter
+
+    def restore():
+        logging.Logger.addHandler = original
+        logging.Logger.callHandlers = original_call_handlers
+        for handler, privacy_filter in list(added_filters.items()):
+            handler.removeFilter(privacy_filter)
+
+    handle.callback(restore)
 
     def add_handler(logger, handler):
         if logger is logging.getLogger() or logger.name.startswith(("server_v2", "ai_caddie", "uvicorn")):
-            protect_handler(handler)
+            protect(handler)
         return original(logger, handler)
 
     add_handler._privacy_guard = True
+    add_handler._privacy_handle = handle
     logging.Logger.addHandler = add_handler
 
     def call_handlers(logger, record):
@@ -198,7 +223,7 @@ def protect_future_handlers() -> None:
         while current:
             if current.name.startswith(("server_v2", "ai_caddie", "uvicorn")) or current is logging.getLogger():
                 for handler in current.handlers:
-                    protect_handler(handler)
+                    protect(handler)
             if not current.propagate:
                 break
             current = current.parent
@@ -206,3 +231,4 @@ def protect_future_handlers() -> None:
 
     call_handlers._privacy_guard = True
     logging.Logger.callHandlers = call_handlers
+    return handle

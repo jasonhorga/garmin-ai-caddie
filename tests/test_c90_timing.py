@@ -348,6 +348,9 @@ class C90TimingEndpointTests(unittest.TestCase):
 class UvicornLogExitTests(unittest.TestCase):
     def _log_after_startup(self, logger_name: str, formatter: logging.Formatter, msg: str, args: tuple) -> str:
         """Log one line the way uvicorn does, through the loggers the app configures at startup."""
+        from tests.service_logging import preserve_service_logging
+
+        self.enterContext(preserve_service_logging())
         stream = io.StringIO()
         handler = logging.StreamHandler(stream)
         handler.setFormatter(formatter)

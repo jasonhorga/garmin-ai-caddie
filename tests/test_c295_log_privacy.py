@@ -52,6 +52,40 @@ class J7LogPrivacyTests(unittest.TestCase):
         request_timing.clear_route_template_cache()
         self.addCleanup(request_timing.clear_route_template_cache)
 
+    def test_J73_future_handler_guard_has_one_reversible_lifetime(self):
+        """J7.3: privacy guards must end with the service that owns their exits."""
+        from server_v2.log_privacy import protect_future_handlers
+
+        before = (logging.Logger.addHandler, logging.Logger.callHandlers)
+        target = logging.getLogger("ai_caddie.guard_lifetime")
+        target.setLevel(logging.WARNING)
+        target.propagate = False
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        handle = protect_future_handlers()
+        self.addCleanup(handle.close)
+        installed = (logging.Logger.addHandler, logging.Logger.callHandlers)
+        self.assertIs(protect_future_handlers(), handle)
+        self.assertEqual(installed, (logging.Logger.addHandler, logging.Logger.callHandlers))
+        # Direct list mutation must be covered until the service ends.
+        target.handlers[:] = [handler]
+        target.warning("player_id=PRIVATEPLAYER")
+        self.assertNotIn("PRIVATEPLAYER", stream.getvalue())
+        self.assertTrue(handler.filters)
+        handle.close()
+        handle.close()
+        self.assertEqual((logging.Logger.addHandler, logging.Logger.callHandlers), before)
+        self.assertEqual(handler.filters, [])
+        target.warning("library diagnostic: mesh unreadable")
+        self.assertIn("library diagnostic: mesh unreadable", stream.getvalue())
+        # Closing an installation must permit a fresh service to start later.
+        with protect_future_handlers():
+            stream.seek(0)
+            stream.truncate()
+            target.warning("player_id=PRIVATEPLAYER")
+            self.assertNotIn("PRIVATEPLAYER", stream.getvalue())
+        self.assertEqual((logging.Logger.addHandler, logging.Logger.callHandlers), before)
+
     def capture_production(self):
         # J7.3: model uvicorn's real topology: no root handler, independent
         # service exits and a dynamic-stderr lastResort for ordinary children.
