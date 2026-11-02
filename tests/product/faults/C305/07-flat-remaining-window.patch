@@ -1,8 +1,8 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index 8c656270..bf00707b 100644
+index 8199a077..a48c8aa7 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -2068,7 +2068,7 @@ def _strategy(
+@@ -2089,7 +2089,7 @@ def _strategy(
                  ) <= SCORING_WINDOW_MAX_M:
                      shared_tail = replanned_tail
              if shared_tail:

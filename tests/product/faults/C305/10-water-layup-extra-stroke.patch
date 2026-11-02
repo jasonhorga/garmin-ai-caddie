@@ -1,13 +1,13 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index 8c656270..ff3ce4e1 100644
+index 8199a077..5891acd1 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -2028,7 +2028,7 @@ def _strategy(
-             scoring_max_overshoot = TEE_SEQUENCE_MAX_OVERSHOOT_M
-             if approach_ladder and (
-                 effective <= max(float(distance) for _name, distance in approach_ladder)
--                or (planning_hazards.get("water_carry") and tee_club != (real_driver_row or (None,))[0])
-+                or False
+@@ -2044,7 +2044,7 @@ def _strategy(
+                 player_id=player_id,
+             )
+             if (
+-                planning_hazards.get("water_carry")
++                False
+                 and tee_club != (real_driver_row or (None,))[0]
+                 and (not shared_tail or effective - sum(distance for _club, distance in shared_tail) > SCORING_WINDOW_MAX_M)
              ):
-                 # A short scoring remainder, or a water-forced shorter tee, can leave a
-                 # narrow gap between measured carries. Keep a bounded GIR candidate ahead of

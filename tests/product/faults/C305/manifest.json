@@ -70,6 +70,13 @@
       "kind": "python",
       "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_water_layup_keeps_the_three_shot_route",
       "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C305-11-water-relaxation-adds-third-tail-shot",
+      "patch": "tests/product/faults/C305/11-water-relaxation-adds-third-tail-shot.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_water_layup_keeps_the_three_shot_route",
+      "promise": "4.6"
     }
   ]
 }

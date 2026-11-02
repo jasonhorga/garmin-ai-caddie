@@ -1,5 +1,5 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index 8c656270..5d276226 100644
+index 8199a077..abf8fc1f 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
 @@ -1900,7 +1900,7 @@ def _strategy(
