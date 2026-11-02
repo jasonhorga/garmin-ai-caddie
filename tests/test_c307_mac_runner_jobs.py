@@ -6,6 +6,7 @@ GitHub, and each runner owns exact simulator names. Execute shell with fake tool
 import json
 import os
 from pathlib import Path
+import plistlib
 import shlex
 import subprocess
 import sys
@@ -22,19 +23,21 @@ from tests.acceptance.test_card_440_native_mutant_workflow import _command_file
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / '.github/scripts'
 MOVED = {
-    'native-mobile.yml': ('native-live', 'native-unit-watch', 'native-real-flow',
-                          'native-screenshots', 'native-product-ui'),
+    'native-mobile.yml': ('native-live', 'native-real-flow'),
     'agenthub-native-mutant.yml': ('native-mutant',),
     'watch-runtime.yml': ('watch-runtime',),
     'watch-cold-start.yml': ('cold-start',),
 }
+SDK_HOSTED = ('native-unit-watch', 'native-screenshots', 'native-product-ui')
+MOBILE_JOBS = (*MOVED['native-mobile.yml'], *SDK_HOSTED)
+SIM_JOBS = {**MOVED, 'native-mobile.yml': MOBILE_JOBS}
 
 def workflow(name):
     return yaml.safe_load((ROOT / '.github/workflows' / name).read_text())
 
 
 FAKE = r'''
-import json, os, sys
+import json, os, plistlib, sys
 from pathlib import Path
 args = sys.argv[1:]
 p = Path(os.environ['SIM_STATE'])
@@ -50,9 +53,21 @@ elif args[:2] == ['simctl', 'create']:
     name, model, runtime = args[2:]
     assert model in [d['identifier'] for d in s['devicetypes']], model
     udid = 'created-' + name
-    s['devices'].setdefault(runtime, []).append(dict(name=name, udid=udid, isAvailable=True))
+    data = p.parent / 'simulators' / udid / 'data'
+    s['devices'].setdefault(runtime, []).append(dict(name=name, udid=udid, isAvailable=True,
+                                                   state='Shutdown', dataPath=str(data)))
     p.write_text(json.dumps(s))
     print(udid)
+elif args[:2] in (['simctl', 'erase'], ['simctl', 'boot'], ['simctl', 'shutdown']):
+    device = next(d for devices in s['devices'].values() for d in devices if d['udid'] == args[2])
+    prefs = Path(device['dataPath']) / 'Library/Preferences/.GlobalPreferences.plist'
+    if args[1] == 'erase':
+        prefs.parent.mkdir(parents=True, exist_ok=True)
+        prefs.write_bytes(plistlib.dumps(dict(AppleLanguages=['zh-Hans-US'], AppleLocale='zh_CN')))
+    if args[1] == 'boot':
+        s['boot_preferences'] = plistlib.loads(prefs.read_bytes())
+    device['state'] = 'Booted' if args[1] == 'boot' else 'Shutdown'
+    p.write_text(json.dumps(s))
 '''
 
 
@@ -88,6 +103,14 @@ class MacRunnerJobsTests(unittest.TestCase):
         self.save()
 
     def save(self):
+        for devices in self.state['devices'].values():
+            for device in devices:
+                data = self.root / 'simulators' / device['udid'] / 'data'
+                device['dataPath'] = str(data)
+                prefs = data / 'Library/Preferences/.GlobalPreferences.plist'
+                if not prefs.exists():
+                    prefs.parent.mkdir(parents=True, exist_ok=True)
+                    prefs.write_bytes(plistlib.dumps(dict(AppleLanguages=['zh-Hans-US'], AppleLocale='zh_CN')))
         Path(self.env['SIM_STATE']).write_text(json.dumps(self.state))
 
     def shell(self, script, **env):
@@ -326,6 +349,77 @@ while True:
                                   'github.event.pull_request.head.repo.full_name': repo}
                         self.assertEqual(evaluate(workflow(name)['jobs'][job]['runs-on'], values), expected)
 
+    def test_sdk_affected_jobs_stay_hosted_even_when_mac_is_online(self):
+        # C307 r4 keeps 27 SDK hit testing / vertical paging under C332 on hosted SDKs.
+        for job in SDK_HOSTED:
+            for event, repo in [('workflow_dispatch', ''), ('pull_request', 'owner/repo'),
+                                ('pull_request', 'fork/repo')]:
+                with self.subTest(job=job, event=event, repo=repo):
+                    self.assertEqual(evaluate(workflow('native-mobile.yml')['jobs'][job]['runs-on'], {
+                        'vars.MAC_RUNNER': 'online', 'github.event_name': event,
+                        'github.repository': 'owner/repo',
+                        'github.event.pull_request.head.repo.full_name': repo}), 'macos-15')
+
+    def test_owned_selection_boots_in_english_after_each_job_erase(self):
+        # The host supplies Chinese defaults again on every erase; both platforms
+        # must have the card's explicit English/US values before the first boot.
+        for platform in ('ios', 'watch'):
+            for job in ('first', 'next'):
+                with self.subTest(platform=platform, job=job):
+                    udid = self.select(platform, CADDIE_SIM_PREFIX='runner-two',
+                                       GITHUB_ENV=str(self.root / (platform + job + '.env')))
+                    result = self.shell('xcrun simctl boot ' + shlex.quote(udid))
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    prefs = json.loads(Path(self.env['SIM_STATE']).read_text())['boot_preferences']
+                    self.assertEqual(prefs['AppleLanguages'], ['en'])
+                    self.assertEqual(prefs['AppleLocale'], 'en_US')
+
+    def test_watch_tests_receive_location_grant_before_xcodebuild(self):
+        for name, job, step_name in [
+            ('native-mobile.yml', 'native-live', 'Resolve and boot Watch test simulator'),
+            ('native-mobile.yml', 'native-unit-watch', 'Resolve and boot Watch test simulator'),
+            ('watch-runtime.yml', 'watch-runtime', 'Boot resolved Watch simulator'),
+            ('agenthub-native-mutant.yml', 'native-mutant', 'Test Watch scheme'),
+        ]:
+            with self.subTest(workflow=name, job=job):
+                self.fake_tool('xcodebuild', 'exit 0')
+                udid = self.select('watch', CADDIE_SIM_PREFIX='runner-two')
+                steps = workflow(name)['jobs'][job]['steps']
+                step = next(s for s in steps if s.get('name') == step_name)
+                before = len(self.calls())
+                result = self.shell(step['run'], CADDIE_SIM_PREFIX='runner-two', WATCH_UDID=udid,
+                                    ONLY_TESTING='')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                calls = self.calls()[before:]
+                self.assertIn(['simctl', 'privacy', udid, 'grant', 'location',
+                               'com.ai-caddie.mobile.watchkitapp'], calls)
+                self.assertLess(calls.index(['simctl', 'bootstatus', udid, '-b']),
+                                calls.index(['simctl', 'privacy', udid, 'grant', 'location',
+                                             'com.ai-caddie.mobile.watchkitapp']))
+
+    def test_watch_screenshot_resets_restore_english_before_boot(self):
+        # Execute the workflow's real reset prefix through boot; the remaining
+        # capture loops do not affect language and require a built app/backend.
+        self.fake_tool('xcodebuild', 'exit 0')
+        app = self.root / 'WatchDerivedData-watch-runtime/Build/Products/Debug-watchsimulator/AICaddieWatch.app'
+        app.mkdir(parents=True)
+        self.fake_tool('find', 'printf "%s\\n" ' + shlex.quote(str(app)))
+        for name, job, step_name in [
+            ('native-mobile.yml', 'native-live', 'Real Watch round seed and restore screenshots'),
+            ('watch-runtime.yml', 'watch-runtime', 'Seed and restore a real Watch round'),
+        ]:
+            with self.subTest(workflow=name):
+                udid = self.select('watch', CADDIE_SIM_PREFIX='runner-two')
+                step = next(s for s in workflow(name)['jobs'][job]['steps'] if s.get('name') == step_name)
+                prefix, boundary, _ = step['run'].partition('xcrun simctl bootstatus "$WATCH_UDID" -b')
+                self.assertTrue(boundary, 'reset prefix must include the boot boundary')
+                result = self.shell(prefix + boundary, CADDIE_SIM_PREFIX='runner-two', WATCH_UDID=udid,
+                                    NATIVE_DERIVED_DATA=str(self.root))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                prefs = json.loads(Path(self.env['SIM_STATE']).read_text())['boot_preferences']
+                self.assertEqual(prefs['AppleLanguages'], ['en'])
+                self.assertEqual(prefs['AppleLocale'], 'en_US')
+
     def test_signing_and_testflight_always_stay_hosted(self):
         paths = list((ROOT / '.github/workflows').glob('ios-testflight*.yml'))
         paths += [ROOT / '.github/workflows/ios-signing-bootstrap.yml']
@@ -340,6 +434,10 @@ while True:
         self.assertEqual(self.select('ios'), 'iOS27.2')
         self.assertEqual(self.select('watch'), 'watchOS27.2')
         self.assertFalse([c for c in self.calls() if c[:2] == ['simctl', 'create']])
+        self.assertFalse([c for c in self.calls() if c[:2] == ['simctl', 'erase']])
+        for udid in ('iOS27.2', 'watchOS27.2'):
+            prefs = self.root / 'simulators' / udid / 'data/Library/Preferences/.GlobalPreferences.plist'
+            self.assertEqual(plistlib.loads(prefs.read_bytes())['AppleLanguages'], ['zh-Hans-US'])
 
     def test_prefixed_selection_creates_correct_models_then_reuses_them(self):
         for platform, suffix, model in [('ios', 'iphone', 'type-iOS'), ('watch', 'watch', 'type-watchOS')]:
@@ -380,7 +478,7 @@ while True:
 
     def test_mobile_selection_exports_udid_destinations_and_separate_build_trees(self):
         trees = set()
-        for job_name in MOVED['native-mobile.yml']:
+        for job_name in MOBILE_JOBS:
             step = next(s for s in workflow('native-mobile.yml')['jobs'][job_name]['steps']
                         if s.get('name') == 'Select job simulators')
             result = self.shell(step['run'], CADDIE_SIM_PREFIX='runner-two', GITHUB_JOB=job_name)
@@ -395,7 +493,7 @@ while True:
         self.assertEqual(len(trees), 5)
 
     def test_install_steps_skip_installed_tools_and_install_missing_tools(self):
-        for name, jobs in MOVED.items():
+        for name, jobs in SIM_JOBS.items():
             for job_name in jobs:
                 for step in workflow(name)['jobs'][job_name]['steps']:
                     if not step.get('name', '').startswith('Install '):
@@ -433,7 +531,7 @@ while True:
 
     def test_cleanup_always_shuts_down_only_recorded_owned_udids(self):
         # Replay every cleanup after a failed/cancelled job; no global operation may reach simctl.
-        for name, jobs in MOVED.items():
+        for name, jobs in SIM_JOBS.items():
             for job_name in jobs:
                 steps = workflow(name)['jobs'][job_name]['steps']
                 cleanups = [s for s in steps if s.get('name') == 'Shut down owned simulators']
