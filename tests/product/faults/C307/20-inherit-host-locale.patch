@@ -1,0 +1,11 @@
+diff --git a/.github/scripts/set-sim-locale.py b/.github/scripts/set-sim-locale.py
+index 81c23234..6d9e321a 100644
+--- a/.github/scripts/set-sim-locale.py
++++ b/.github/scripts/set-sim-locale.py
+@@ -30,6 +30,5 @@ if values.get('AppleLanguages') == ['en'] and values.get('AppleLocale') == 'en_U
+ if device['state'] != 'Shutdown':
+     raise SystemExit('simulator must be shut down before changing language/locale')
+ values['AppleLanguages'] = ['en']
+-values['AppleLocale'] = 'en_US'
+ prefs.parent.mkdir(parents=True, exist_ok=True)
+ prefs.write_bytes(plistlib.dumps(values, fmt=plistlib.FMT_BINARY))

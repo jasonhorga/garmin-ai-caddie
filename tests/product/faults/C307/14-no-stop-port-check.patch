@@ -1,0 +1,13 @@
+diff --git a/.github/scripts/fixture-port.py b/.github/scripts/fixture-port.py
+index 40c1d091..c86571e5 100644
+--- a/.github/scripts/fixture-port.py
++++ b/.github/scripts/fixture-port.py
+@@ -116,7 +116,7 @@ def stop(port):
+             signal_pids({pid}, signal.SIGKILL)
+             wait_free(port)
+         pid_file.unlink(missing_ok=True)
+-    free(port)
++    # Port check omitted.
+ 
+ 
+ if __name__ == '__main__':

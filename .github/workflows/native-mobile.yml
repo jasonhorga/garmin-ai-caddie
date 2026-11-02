@@ -45,6 +45,11 @@ on:
       - 'ops/write_native_build_evidence.py'
       - '.github/scripts/preflight_live_course_catalogue.py'
       - '.github/scripts/retry-transient-command.sh'
+      - '.github/caddie-runner-ports.json'
+      - '.github/scripts/fixture-port.py'
+      - '.github/scripts/select-sim.sh'
+      - '.github/scripts/set-sim-locale.py'
+      - '.github/scripts/shutdown-owned-sims.sh'
       - '.github/scripts/check_native_fixture_dns.py'
       - '.github/scripts/scan_artifacts_for_secrets.py'
       - '.github/scripts/test-retry-transient-command.sh'
@@ -205,33 +210,52 @@ jobs:
   # Live dispatch retains serial execution; fixture runners reuse the same launch and scan gates.
   native-live:
     if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fixture_mode }}
+    # Keep on GitHub until C332 fixes watchOS 27 SDK hit testing / vertical paging (full
+    # AICaddieWatch scheme incl. WatchHolePagesUITests); then move back to Mac.
     runs-on: macos-15
     # Live dispatch keeps the existing serial capture path.
     timeout-minutes: 150
     env:
       NATIVE_ARTIFACT_SUFFIX: ''
       NATIVE_CAPTURE_SHARD: all
-      IOS_DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=latest
-      WATCH_DESTINATION: platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest
     steps:
       - &actions_checkout_v4
         uses: actions/checkout@v4
+      - &select_fixture_port
+        name: Select runner fixture port
+        if: ${{ inputs.fixture_mode }}
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: python3 .github/scripts/fixture-port.py select
       - &test_transient_command_retry_gate
         name: Test transient-command retry gate
         run: bash .github/scripts/test-retry-transient-command.sh
       - &install_xcodegen
         name: Install XcodeGen
-        run: brew install xcodegen
+        run: command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
       - &generate_native_project
         name: Generate native project
         run: xcodegen generate --spec mobile/ios/project.yml --project-root .
+      - &select_job_simulators
+        name: Select job simulators
+        run: |
+          set -euo pipefail
+          IOS_UDID=$(bash .github/scripts/select-sim.sh ios)
+          WATCH_UDID=$(bash .github/scripts/select-sim.sh watch)
+          {
+            echo "IOS_UDID=$IOS_UDID"
+            echo "WATCH_UDID=$WATCH_UDID"
+            echo "IOS_DESTINATION=platform=iOS Simulator,id=$IOS_UDID"
+            echo "WATCH_DESTINATION=platform=watchOS Simulator,id=$WATCH_UDID"
+            echo "NATIVE_DERIVED_DATA=$RUNNER_TEMP/NativeDerivedData-$GITHUB_JOB"
+          } >> "$GITHUB_ENV"
       - &show_simulator_inventory
         name: Show simulator inventory
         run: xcrun simctl list devices available
       - &install_uv_for_isolated_ci_fixture
         name: Install uv for isolated CI fixture
         if: ${{ inputs.fixture_mode }}
-        run: brew install uv
+        run: command -v uv >/dev/null 2>&1 || brew install uv
       - &start_isolated_ci_fixture
         name: Start isolated CI fixture
         id: start_fixture
@@ -256,16 +280,17 @@ jobs:
             printf 'SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN=%s\n' "$FIXTURE_TOKEN"
             printf 'SIMCTL_CHILD_AI_CADDIE_FIXTURE_MODE=1\n'
             printf 'SIMCTL_CHILD_AI_CADDIE_DATA_MODE=fixture\n'
-            printf 'SIMCTL_CHILD_AI_CADDIE_API_BASE_URL=http://127.0.0.1:9000\n'
+            printf 'SIMCTL_CHILD_AI_CADDIE_API_BASE_URL=%s\n' "$CADDIE_FIXTURE_BASE_URL"
           } >> "$GITHUB_ENV"
-          export CI=true AI_CADDIE_FIXTURE_PORT=9000
+          export CI=true AI_CADDIE_FIXTURE_PORT="$CADDIE_FIXTURE_PORT"
+          python3 .github/scripts/fixture-port.py prepare
           command -v uv >/dev/null 2>&1 || { echo "uv is required for fixture startup" >&2; exit 1; }
           uv --version
           python3 --version
           nohup bash ops/run_ci_fixture.sh > "$RUNNER_TEMP/ai-caddie-fixture.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/ai-caddie-fixture.pid"
           for _ in {1..30}; do
-            if curl --fail --silent --show-error http://127.0.0.1:9000/api/v2/health > /dev/null; then
+            if python3 .github/scripts/fixture-port.py health; then
               exit 0
             fi
             sleep 2
@@ -373,7 +398,7 @@ jobs:
         id: validate_native_launch_prereq
         if: ${{ (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         env:
-          NATIVE_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          NATIVE_BASE_URL: ${{ inputs.fixture_mode && env.CADDIE_FIXTURE_BASE_URL || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL }}
           NATIVE_FIXTURE_MODE: ${{ inputs.fixture_mode && '1' || '0' }}
           NATIVE_DATA_MODE: ${{ inputs.fixture_mode && 'fixture' || '' }}
         run: |
@@ -384,7 +409,7 @@ jobs:
             "${#AI_CADDIE_ADMIN_TOKEN}" "$NATIVE_FIXTURE_MODE"
           test -n "$NATIVE_BASE_URL" && test -n "${AI_CADDIE_ADMIN_TOKEN:-}"
           if [[ "$NATIVE_FIXTURE_MODE" == "1" ]]; then
-            test "$NATIVE_BASE_URL" = "http://127.0.0.1:9000"
+            test "$NATIVE_BASE_URL" = "$CADDIE_FIXTURE_BASE_URL"
             test "${AI_CADDIE_FIXTURE_MODE:-}" = "1" && test "${AI_CADDIE_DATA_MODE:-}" = "fixture"
             test "${SIMCTL_CHILD_AI_CADDIE_FIXTURE_MODE:-}" = "1"
             test "${SIMCTL_CHILD_AI_CADDIE_DATA_MODE:-}" = "fixture"
@@ -396,7 +421,7 @@ jobs:
         id: validate_native_launch_environment_app
         if: ${{ (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         env:
-          NATIVE_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          NATIVE_BASE_URL: ${{ inputs.fixture_mode && env.CADDIE_FIXTURE_BASE_URL || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL }}
           NATIVE_FIXTURE_MODE: ${{ inputs.fixture_mode && '1' || '0' }}
         run: |
           set -euo pipefail
@@ -406,7 +431,7 @@ jobs:
             "${#AI_CADDIE_ADMIN_TOKEN}" "$NATIVE_FIXTURE_MODE"
           test -n "$NATIVE_BASE_URL" && test -n "${AI_CADDIE_ADMIN_TOKEN:-}"
           if [[ "$NATIVE_FIXTURE_MODE" == "1" ]]; then
-            test "$NATIVE_BASE_URL" = "http://127.0.0.1:9000"
+            test "$NATIVE_BASE_URL" = "$CADDIE_FIXTURE_BASE_URL"
             test "${AI_CADDIE_FIXTURE_MODE:-}" = "1" && test "${AI_CADDIE_DATA_MODE:-}" = "fixture"
             test "${SIMCTL_CHILD_AI_CADDIE_FIXTURE_MODE:-}" = "1"
             test "${SIMCTL_CHILD_AI_CADDIE_DATA_MODE:-}" = "fixture"
@@ -418,7 +443,7 @@ jobs:
         id: validate_native_launch_environment
         if: ${{ (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         env:
-          NATIVE_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          NATIVE_BASE_URL: ${{ inputs.fixture_mode && env.CADDIE_FIXTURE_BASE_URL || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL }}
           NATIVE_FIXTURE_MODE: ${{ inputs.fixture_mode && '1' || '0' }}
           NATIVE_DATA_MODE: ${{ inputs.fixture_mode && 'fixture' || '' }}
         run: |
@@ -432,7 +457,7 @@ jobs:
           test -n "$NATIVE_BASE_URL"
           test -n "${AI_CADDIE_ADMIN_TOKEN:-}"
           if [[ "$NATIVE_FIXTURE_MODE" == "1" ]]; then
-            test "$NATIVE_BASE_URL" = "http://127.0.0.1:9000"
+            test "$NATIVE_BASE_URL" = "$CADDIE_FIXTURE_BASE_URL"
             test "${AI_CADDIE_FIXTURE_MODE:-}" = "1"
             test "${AI_CADDIE_DATA_MODE:-}" = "fixture"
             test "${SIMCTL_CHILD_AI_CADDIE_FIXTURE_MODE:-}" = "1"
@@ -451,6 +476,8 @@ jobs:
           mkdir -p native-mobile-results
           set -o pipefail
           xcodebuild test \
+            -derivedDataPath "$NATIVE_DERIVED_DATA" \
+            -parallel-testing-enabled NO \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddie \
             -test-timeouts-enabled YES \
@@ -538,7 +565,7 @@ jobs:
             exit 1
           fi
 
-          DOMAIN_FRAMEWORK=$(find "$HOME/Library/Developer/Xcode/DerivedData" \
+          DOMAIN_FRAMEWORK=$(find "$NATIVE_DERIVED_DATA" \
             -type d -path '*/Build/Products/Debug-iphonesimulator/AICaddieDomain.framework' \
             -print -quit)
           test -n "$DOMAIN_FRAMEWORK"
@@ -586,7 +613,7 @@ jobs:
         if: ${{ always() && github.event.inputs.capture_scope != 'edit' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           mkdir -p design-snapshots
-          find ~/Library/Developer/CoreSimulator -path "*Documents/design-snapshots/*.png" -exec cp {} design-snapshots/ \; 2>/dev/null || true
+          find "$HOME/Library/Developer/CoreSimulator/Devices/$IOS_UDID/data" -path "*Documents/design-snapshots/*.png" -exec cp {} design-snapshots/ \; 2>/dev/null || true
           ls -la design-snapshots || true
       - &scan_design_snapshots_for_secret_bytes
         name: Scan design snapshots for secret bytes
@@ -628,7 +655,7 @@ jobs:
         env:
           # TEST_RUNNER_-prefixed vars are forwarded by xcodebuild into the UI-test runner environment
           # (the plain forms are a fallback in case they propagate too). The test reads both.
-          TEST_RUNNER_AI_CADDIE_API_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          TEST_RUNNER_AI_CADDIE_API_BASE_URL: ${{ inputs.fixture_mode && env.CADDIE_FIXTURE_BASE_URL || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL }}
           TEST_RUNNER_AI_CADDIE_FIXTURE_MODE: ${{ inputs.fixture_mode && '1' || '0' }}
           TEST_RUNNER_AI_CADDIE_DATA_MODE: ${{ inputs.fixture_mode && 'fixture' || '' }}
           TEST_RUNNER_UITEST_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
@@ -636,7 +663,7 @@ jobs:
           # 北京丽宫第 1 洞蓝 T (from the decoded CourseView hole anchor + tee coordinates).
           TEST_RUNNER_UITEST_GPS_LAT: '40.0454995'
           TEST_RUNNER_UITEST_GPS_LON: '116.5461531'
-          AI_CADDIE_API_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          AI_CADDIE_API_BASE_URL: ${{ inputs.fixture_mode && env.CADDIE_FIXTURE_BASE_URL || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL }}
           AI_CADDIE_FIXTURE_MODE: ${{ inputs.fixture_mode && '1' || '0' }}
           AI_CADDIE_DATA_MODE: ${{ inputs.fixture_mode && 'fixture' || '' }}
           UITEST_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
@@ -651,7 +678,7 @@ jobs:
           # owner token + a simulated GPS fix, navigates, and captures real screens AND a screen-recorded
           # video. Resolve + boot the exact iPhone 16 sim by UDID so simctl can record it while XCUITest
           # drives the app on the same instance. `|| true` so screenshots/video artifacts always collect.
-          UDID=$(xcrun simctl list devices available | grep -E "iPhone 16 \(" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
+          UDID="$IOS_UDID"
           echo "iOS sim UDID: $UDID"
           xcrun simctl boot "$UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$UDID" || true
@@ -685,7 +712,7 @@ jobs:
               )
               ;;
             *)
-              # ProductPhoneUITests brings its own fixture server on port 9000 and runs in the
+              # ProductPhoneUITests brings its own fixture server on its runner port and runs in the
               # native-product-ui job; here it would collide with the Python fixture.
               ONLY_TESTING=(
                 -skip-testing:AICaddieUITests/ProductPhoneUITests
@@ -704,6 +731,7 @@ jobs:
           .github/scripts/retry-transient-command.sh \
             "$RUNNER_TEMP/real-xcuitest" \
             xcodebuild test \
+              -derivedDataPath "$NATIVE_DERIVED_DATA" \
               -project mobile/ios/AICaddieNative.xcodeproj \
               -scheme AICaddieUITests \
               -destination "platform=iOS Simulator,id=$UDID" \
@@ -724,7 +752,7 @@ jobs:
           # Surface each UI-test assertion as a job annotation: the inline xcodebuild failure line
           # scrolls out of the retained log tail on a full run.
           if [ "$TEST_STATUS" -ne 0 ]; then
-            RESULT=$(ls -td "$HOME"/Library/Developer/Xcode/DerivedData/*/Logs/Test/Test-AICaddieUITests-*.xcresult 2>/dev/null | head -1)
+            RESULT=$(ls -td "$NATIVE_DERIVED_DATA"/Logs/Test/Test-AICaddieUITests-*.xcresult 2>/dev/null | head -1)
             if [ -n "$RESULT" ]; then
               xcrun xcresulttool get test-results summary --path "$RESULT" --compact 2>/dev/null \
                 | python3 -c 'import json, sys
@@ -740,8 +768,8 @@ jobs:
         if: ${{ always() && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           mkdir -p real-screenshots
-          find ~/Library/Developer/CoreSimulator -path "*Documents/real-screenshots/*" -exec cp {} real-screenshots/ \; 2>/dev/null || true
-          UDID=$(xcrun simctl list devices available | grep -E "iPhone 16 \(" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
+          find "$HOME/Library/Developer/CoreSimulator/Devices/$IOS_UDID/data" -path "*Documents/real-screenshots/*" -exec cp {} real-screenshots/ \; 2>/dev/null || true
+          UDID="$IOS_UDID"
           if [ -n "$UDID" ]; then
             xcrun simctl spawn "$UDID" log show \
               --style compact \
@@ -792,46 +820,27 @@ jobs:
         name: Remove UI-test app data
         if: ${{ always() }}
         run: |
-          UDID=$(xcrun simctl list devices available | grep -E "iPhone 16 \(" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
+          UDID="$IOS_UDID"
           if [ -n "$UDID" ]; then
             xcrun simctl terminate "$UDID" com.ai-caddie.mobile 2>/dev/null || true
             xcrun simctl uninstall "$UDID" com.ai-caddie.mobile 2>/dev/null || true
           fi
       - &stop_isolated_ci_fixture
         name: Stop isolated CI fixture
-        if: ${{ always() && inputs.fixture_mode }}
-        run: |
-          if [ -f "$RUNNER_TEMP/ai-caddie-fixture.pid" ]; then
-            pid="$(cat "$RUNNER_TEMP/ai-caddie-fixture.pid")"
-            kill "$pid" 2>/dev/null || true
-            for _ in {1..20}; do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
-            if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
-            ! curl --silent --show-error http://127.0.0.1:9000/api/v2/health >/dev/null 2>&1 || { echo "fixture port still serving" >&2; exit 1; }
-            rm -f "$RUNNER_TEMP/ai-caddie-fixture.pid"
-          fi
+        if: ${{ always() && inputs.fixture_mode && env.CADDIE_FIXTURE_PORT != '' }}
+        run: python3 .github/scripts/fixture-port.py stop
       - &resolve_and_boot_watch_test_simulator
         name: Resolve and boot Watch test simulator
         if: ${{ always() && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           set -euo pipefail
-          WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
-            [.devices | to_entries[]
-              | .key as $runtime
-              | .value[]
-              | select(.isAvailable == true and .name == "Apple Watch Series 10 (46mm)")
-              | {
-                  udid: .udid,
-                  version: ($runtime
-                    | capture("watchOS-(?<major>[0-9]+)-(?<minor>[0-9]+)")
-                    | [(.major | tonumber), (.minor | tonumber)])
-                }]
-            | sort_by(.version)
-            | last')
-          test "$WATCH_DEVICE" != "null"
-          NATIVE_WATCH_UDID=$(jq -r .udid <<< "$WATCH_DEVICE")
+          NATIVE_WATCH_UDID=$(bash .github/scripts/select-sim.sh watch)
           echo "NATIVE_WATCH_UDID=$NATIVE_WATCH_UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$NATIVE_WATCH_UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$NATIVE_WATCH_UDID" -b
+          if [ -n "${CADDIE_SIM_PREFIX:-}" ]; then
+            xcrun simctl privacy "$NATIVE_WATCH_UDID" grant location com.ai-caddie.mobile.watchkitapp
+          fi
       - &test_watch_app_target
         name: Test Watch app target
         id: test_watch_app
@@ -840,6 +849,8 @@ jobs:
           mkdir -p native-mobile-results
           set -o pipefail
           xcodebuild test \
+            -derivedDataPath "$NATIVE_DERIVED_DATA" \
+            -parallel-testing-enabled NO \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
             -test-timeouts-enabled YES \
@@ -872,7 +883,7 @@ jobs:
         if: ${{ always() && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           mkdir -p watch-snapshots
-          find ~/Library/Developer/CoreSimulator -path "*Documents/watch-snapshots/*.png" -exec cp {} watch-snapshots/ \; 2>/dev/null || true
+          find "$HOME/Library/Developer/CoreSimulator/Devices/$WATCH_UDID/data" -path "*Documents/watch-snapshots/*.png" -exec cp {} watch-snapshots/ \; 2>/dev/null || true
           ls -la watch-snapshots || true
       - &scan_watch_design_snapshots_for_secret_bytes
         name: Scan Watch design snapshots for secret bytes
@@ -894,30 +905,15 @@ jobs:
         if: ${{ always() && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           set -euo pipefail
-          WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
-            [.devices | to_entries[]
-              | .key as $runtime
-              | .value[]
-              | select(.isAvailable == true and .name == "Apple Watch Series 10 (46mm)")
-              | {
-                  udid: .udid,
-                  runtime: $runtime,
-                  version: ($runtime
-                    | capture("watchOS-(?<major>[0-9]+)-(?<minor>[0-9]+)")
-                    | [(.major | tonumber), (.minor | tonumber)])
-                }]
-            | sort_by(.version)
-            | last')
-          test "$WATCH_DEVICE" != "null"
-          WATCH_UDID=$(jq -r .udid <<< "$WATCH_DEVICE")
-          echo "Watch runtime device: $WATCH_DEVICE"
+          WATCH_UDID=$(bash .github/scripts/select-sim.sh watch)
 
           xcodebuild build \
+            -derivedDataPath "$NATIVE_DERIVED_DATA" \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
             -destination "platform=watchOS Simulator,id=$WATCH_UDID"
 
-          APP=$(find "$HOME/Library/Developer/Xcode/DerivedData" -type d \
+          APP=$(find "$NATIVE_DERIVED_DATA" -type d \
             -path '*/Build/Products/Debug-watchsimulator/AICaddieWatch.app' -print -quit)
           BID=com.ai-caddie.mobile.watchkitapp
           test -d "$APP"
@@ -925,6 +921,7 @@ jobs:
           # fresh simulator so they prove the app UI rather than capturing stale system state.
           xcrun simctl shutdown "$WATCH_UDID" 2>/dev/null || true
           xcrun simctl erase "$WATCH_UDID"
+          python3 .github/scripts/set-sim-locale.py "$WATCH_UDID"
           xcrun simctl boot "$WATCH_UDID"
           xcrun simctl bootstatus "$WATCH_UDID" -b
           xcrun simctl uninstall "$WATCH_UDID" "$BID" 2>/dev/null || true
@@ -1045,22 +1042,29 @@ jobs:
           path: mobile/ios/native_build_evidence.json
 
 
+      - &shutdown_owned_simulators
+        name: Shut down owned simulators
+        if: ${{ always() && runner.environment == 'self-hosted' }}
+        run: bash .github/scripts/shutdown-owned-sims.sh
+
   # Four independent macOS runners; no cross-runner build transfer or fixture sharing.
 
   native-unit-watch:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
+    # Keep on GitHub until C332 fixes iOS/watchOS 27 SDK transparent green
+    # button hit testing and Watch vertical paging; then move back to Mac.
     runs-on: macos-15
     timeout-minutes: 45
     env:
-      IOS_DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=latest
-      WATCH_DESTINATION: platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest
       NATIVE_CAPTURE_SHARD: unit-watch
       NATIVE_ARTIFACT_SUFFIX: -unit-watch
     steps:
       - *actions_checkout_v4
+      - *select_fixture_port
       - *test_transient_command_retry_gate
       - *install_xcodegen
       - *generate_native_project
+      - *select_job_simulators
       - *show_simulator_inventory
       - *install_uv_for_isolated_ci_fixture
       - *start_isolated_ci_fixture
@@ -1100,21 +1104,22 @@ jobs:
       - *scan_native_build_evidence_for_secret_bytes
       - *upload_native_build_evidence
       - *stop_isolated_ci_fixture
+      - *shutdown_owned_simulators
 
   native-real-flow:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
-    runs-on: macos-15
+    runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
     timeout-minutes: 55
     env:
-      IOS_DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=latest
-      WATCH_DESTINATION: platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest
       NATIVE_CAPTURE_SHARD: real-flow
       NATIVE_ARTIFACT_SUFFIX: -real-flow
     steps:
       - *actions_checkout_v4
+      - *select_fixture_port
       - *test_transient_command_retry_gate
       - *install_xcodegen
       - *generate_native_project
+      - *select_job_simulators
       - *show_simulator_inventory
       - *install_uv_for_isolated_ci_fixture
       - *start_isolated_ci_fixture
@@ -1133,21 +1138,24 @@ jobs:
       - *upload_real_video
       - *remove_ui_test_app_data
       - *stop_isolated_ci_fixture
+      - *shutdown_owned_simulators
 
   native-screenshots:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
+    # Keep on GitHub until C332 fixes iOS/watchOS 27 SDK transparent green
+    # button hit testing and Watch vertical paging; then move back to Mac.
     runs-on: macos-15
     timeout-minutes: 45
     env:
-      IOS_DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=latest
-      WATCH_DESTINATION: platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest
       NATIVE_CAPTURE_SHARD: screenshots
       NATIVE_ARTIFACT_SUFFIX: -screenshots
     steps:
       - *actions_checkout_v4
+      - *select_fixture_port
       - *test_transient_command_retry_gate
       - *install_xcodegen
       - *generate_native_project
+      - *select_job_simulators
       - *show_simulator_inventory
       - *install_uv_for_isolated_ci_fixture
       - *start_isolated_ci_fixture
@@ -1166,13 +1174,16 @@ jobs:
       - *upload_real_video
       - *remove_ui_test_app_data
       - *stop_isolated_ci_fixture
+      - *shutdown_owned_simulators
 
   # C16e ProductPhoneUITests on its own runner. ProductFixtureServer binds the only fixture origin the
-  # DEBUG app accepts (loopback port 9000, BackendConfigurationStore.normalizedAPIBaseURL), which
+  # DEBUG app accepts (loopback ports 9000–9009, BackendConfigurationStore.normalizedAPIBaseURL), which
   # the job above gives to the Python fixture in fixture_mode. No Python fixture and no secrets here:
   # the tests launch the app with synthetic credentials against the in-process server.
   native-product-ui:
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit' }}
+    # Keep on GitHub until C332 fixes iOS/watchOS 27 SDK transparent green
+    # button hit testing and Watch vertical paging; then move back to Mac.
     runs-on: macos-15
     # "Test iOS app target" (build + unit tests) took 12 min on run 40187234659. This scheme also
     # builds the UI-test bundle and then runs 13 serial tests with about 20 app launches, so about
@@ -1180,22 +1191,23 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Select runner fixture port
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: python3 .github/scripts/fixture-port.py select
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
       - name: Generate native project
         run: xcodegen generate --spec mobile/ios/project.yml --project-root .
+      - *select_job_simulators
       - name: Show simulator inventory
         run: xcrun simctl list devices available
-      - name: Check Product UI fixture port is free
-        run: |
-          if lsof -nP -iTCP:9000 -sTCP:LISTEN; then
-            echo "::error::port 9000 is already listening; ProductFixtureServer needs it"
-            exit 1
-          fi
+      - name: Prepare Product UI fixture port
+        run: python3 .github/scripts/fixture-port.py prepare
       - name: Resolve and boot iOS UI-test simulator
         run: |
           set -eu
-          UDID=$(xcrun simctl list devices available | grep -E "iPhone 16 \(" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
+          UDID="$IOS_UDID"
           test -n "$UDID"
           echo "iOS sim UDID: $UDID"
           echo "PRODUCT_UI_UDID=$UDID" >> "$GITHUB_ENV"
@@ -1211,10 +1223,11 @@ jobs:
           set +e
           set -o pipefail
           xcodebuild test \
+            -derivedDataPath "$NATIVE_DERIVED_DATA" \
+            -parallel-testing-enabled NO \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieUITests \
             -destination "platform=iOS Simulator,id=$PRODUCT_UI_UDID" \
-            -parallel-testing-enabled NO \
             -resultBundlePath product-ui-results/ProductPhoneUITests.xcresult \
             -only-testing:AICaddieUITests/ProductPhoneUITests \
             2>&1 | tee product-ui-results/xcodebuild.log
@@ -1302,6 +1315,12 @@ jobs:
           name: product-ui-screenshots
           path: product-ui-screenshots/
           if-no-files-found: warn
+
+      - *shutdown_owned_simulators
+
+      - name: Check Product UI fixture stopped
+        if: ${{ always() && env.CADDIE_FIXTURE_PORT != '' }}
+        run: python3 .github/scripts/fixture-port.py free
 
   # Keep the public job conclusion and artifact names consumed by the project console.
   # This runner only combines already secret-scanned evidence; it never starts a simulator.

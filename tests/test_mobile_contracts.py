@@ -2795,7 +2795,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("SecItemDelete", backend_store)
         self.assertIn('let scheme = components.scheme?.lowercased()', backend_store)
         self.assertIn('scheme == "https" || isFixtureLoopback', backend_store)
-        self.assertIn('components.port == 9000', backend_store)
         self.assertIn('allowFixtureLoopback: Bool = false', backend_store)
         self.assertIn('let markerPresent = environment["AI_CADDIE_FIXTURE_MODE"] != nil', app_swift)
         self.assertIn('persistedValue = nil', app_swift)

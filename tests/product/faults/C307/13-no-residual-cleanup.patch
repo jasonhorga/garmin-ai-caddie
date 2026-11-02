@@ -1,0 +1,18 @@
+diff --git a/.github/scripts/fixture-port.py b/.github/scripts/fixture-port.py
+index 40c1d091..c4a3b0d8 100644
+--- a/.github/scripts/fixture-port.py
++++ b/.github/scripts/fixture-port.py
+@@ -85,13 +85,6 @@ def free(port):
+ 
+ def prepare(port):
+     pids = listeners(port)
+-    if pids:
+-        print(f'Cleaning runner fixture port {port}; residual listener pid(s): {sorted(pids)}')
+-        signal_pids(pids, signal.SIGTERM)
+-        if not wait_free(port):
+-            # Escalate only for the original listeners still bound to this port.
+-            signal_pids(pids & listeners(port), signal.SIGKILL)
+-            wait_free(port)
+     free(port)
+ 
+ 

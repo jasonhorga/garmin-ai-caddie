@@ -48,6 +48,27 @@ final class BackendConfigurationStoreTests: XCTestCase {
         XCTAssertNotNil(BackendConfigurationStore.normalizedAPIBaseURL(from: "https://caddie.example.test"))
     }
 
+    // C307 infrastructure: only the ten reserved ports, with explicit fixture opt-in.
+    func testFixtureLoopbackUsesOnlyReservedRunnerPorts() {
+        for host in ["localhost", "127.0.0.1"] {
+            for port in [9000, 9003, 9009] {
+                let value = "http://\(host):\(port)"
+                XCTAssertEqual(BackendConfigurationStore.normalizedAPIBaseURL(
+                    from: value, allowFixtureLoopback: true
+                )?.absoluteString, value, "reserved runner port must be accepted")
+                XCTAssertNil(BackendConfigurationStore.normalizedAPIBaseURL(from: value))
+            }
+            for port in [8999, 9010, 12345] {
+                XCTAssertNil(BackendConfigurationStore.normalizedAPIBaseURL(
+                    from: "http://\(host):\(port)", allowFixtureLoopback: true
+                ), "outside reserved runner ports must be rejected")
+            }
+        }
+        XCTAssertNil(BackendConfigurationStore.normalizedAPIBaseURL(
+            from: "http://fixture.example.test:" + "9003", allowFixtureLoopback: true
+        ), "reserved port must not allow a non-loopback host")
+    }
+
     func testFixtureURLRejectsAPathPrefix() {
         XCTAssertNil(BackendConfigurationStore.normalizedAPIBaseURL(
             from: "http://127.0.0.1:9000/fixture",

@@ -476,7 +476,26 @@ def runtime_key(key):
 
 
 def simctl(args):
+    if args[:1] == ["create"]:
+        name, model, runtime = args[1:]
+        udid = "C3070000-0000-4000-8000-" + ("000000000001" if name.endswith("-iphone") else "000000000002")
+        CONFIG["devices"].setdefault(runtime, []).append(dict(
+            name=name, udid=udid, isAvailable=True, state="Shutdown",
+            dataPath=str(STATE / "simulators" / udid / "data")))
+        (STATE / "config.json").write_text(json.dumps(CONFIG))
+        print(udid)
+        return 0
     if args[:1] != ["list"]:
+        return 0
+    if "devicetypes" in args:
+        print(json.dumps({"devicetypes": [
+            dict(name="iPhone 16", identifier="type-ios16"),
+            dict(name="Apple Watch Series 10 (46mm)", identifier="type-watch10")]}))
+        return 0
+    if "runtimes" in args:
+        print(json.dumps({"runtimes": [dict(identifier=key,
+            version=".".join(map(str, runtime_key(key)[1:])), isAvailable=True)
+            for key in CONFIG["devices"]]}))
         return 0
     devices = CONFIG["devices"]
     if "available" in args:
@@ -517,6 +536,13 @@ def xcresulttool(args):
 
 def xcrun(args):
     log("xcrun", args)
+    if args[:3] in (["--sdk", "iphonesimulator", "--show-sdk-version"],
+                    ["--sdk", "watchsimulator", "--show-sdk-version"]):
+        # select-sim.sh caps hosted runtimes at the SDK installed by the runner.
+        # Keep this fake tool compatible with that query while allowing the
+        # fixture's synthetic 27.x runtimes.
+        print("99.0")
+        return 0
     if args[:1] == ["simctl"]:
         return simctl(args[1:])
     if args[:1] == ["xcresulttool"]:
@@ -624,7 +650,8 @@ def _skip_testing(args: list[str]) -> list[str]:
     return targets
 
 
-VALUE_OPTIONS = ("-project", "-scheme", "-destination", "-resultBundlePath")
+VALUE_OPTIONS = ("-project", "-scheme", "-destination", "-resultBundlePath",
+                 "-derivedDataPath", "-parallel-testing-enabled")
 
 
 def _arguments(args: list[str]) -> tuple[list[str], list[str]]:
@@ -895,7 +922,8 @@ class _Replay:
             "actor": "agenthub",
             "server_url": "https://github.com",
         }
-        self.runner = {"temp": str(self.temp), "os": "macOS", "arch": "ARM64"}
+        self.runner = {"temp": str(self.temp), "os": "macOS", "arch": "ARM64",
+                       "environment": "self-hosted" if config.get("sim_prefix") else "github-hosted"}
         self.base_env = {
             **git_env,
             "PATH": f"{self.bin}{os.pathsep}{git_env['PATH']}",
@@ -918,6 +946,9 @@ class _Replay:
             "CARD440_FAKE_STATE": str(self.state),
             "PYTHONDONTWRITEBYTECODE": "1",
         }
+        if config.get("sim_prefix"):
+            self.base_env["CADDIE_SIM_PREFIX"] = config["sim_prefix"]
+            (self.state / "xcodegen-installed").touch()
         self.env: dict[str, str] = {}
         self.step_results: dict[str, dict] = {}
         self.failed = False
@@ -1083,6 +1114,7 @@ class _Replay:
         if shell not in (None, "bash"):
             raise AssertionError(f"step {name!r}: the replay runs bash steps only (shell: {shell!r})")
         script = str(step["run"])
+        script = 'command() { if [ "$1" = "-v" ] && [ "$2" = "xcodegen" ] && ! test -f "$CARD440_FAKE_STATE/xcodegen-installed"; then return 1; fi; builtin command "$@"; }\n' + script
         if "${{" in script:
             raise AssertionError(f"step {name!r}: pass values to run: through env:, not ${{{{ }}}} (contract, replay rules)")
         directory = step.get("working-directory", defaults.get("working-directory"))
@@ -1268,6 +1300,7 @@ class NativeMutantReplayCase(unittest.TestCase):
         cancel_after_writer: bool = False,
         request_id: str | None = None,
         head: str | None = None,
+        sim_prefix: str = "",
     ) -> _Outcome:
         # G1 G2 G3 G4: one dispatch of the workflow, replayed offline. `fail` names fake runner tools
         # (brew, xcode-select) that exit non-zero; `cancel_after_writer` cancels the run once the writer's
@@ -1288,6 +1321,7 @@ class NativeMutantReplayCase(unittest.TestCase):
             "broken_spec": BROKEN_SPEC,
             "fail": list(fail),
             "devices": devices,
+            "sim_prefix": sim_prefix,
             "xcodebuild": {
                 "AICaddie": {"exit": ios["exit"], "bundle": ios["bundle"], "cancel": ios["cancel"]},
                 "AICaddieWatch": {"exit": watch["exit"], "bundle": watch["bundle"], "cancel": watch["cancel"]},
@@ -1401,6 +1435,8 @@ class NativeMutantReplayCase(unittest.TestCase):
                 )
                 for name in ("test", *VALUE_OPTIONS):
                     self.assertEqual(known.count(name), 1, f"exactly one {name} per scheme: {args}")
+                self.assertEqual(_option(args, "-parallel-testing-enabled"), "NO")
+                self.assertTrue(_option(args, "-derivedDataPath").endswith("/NativeMutantDerivedData"))
                 for target in _skip_testing(args):
                     self.assertTrue(
                         scheme == "AICaddieWatch" and target.split("/")[0] == "AICaddieWatchUITests",
@@ -1439,7 +1475,8 @@ class NativeMutantWorkflowTests(NativeMutantReplayCase):
         self.assertEqual(len(jobs), 1, list(jobs))
         job = next(iter(jobs.values()))
         self.assertEqual(job.get("permissions", {"contents": "read"}), {"contents": "read"})
-        native_runner = yaml.safe_load(NATIVE_MOBILE.read_text(encoding="utf-8"))["jobs"]["native-unit-watch"]["runs-on"]
+        # C307 r4: SDK-affected Watch UI stays hosted; mutants retain the Mac route.
+        native_runner = yaml.safe_load(NATIVE_MOBILE.read_text(encoding="utf-8"))["jobs"]["native-real-flow"]["runs-on"]
         self.assertEqual(job.get("runs-on"), native_runner)
         self.assertNotIn("if", job)
         self.assertNotIn("continue-on-error", job)
@@ -1512,6 +1549,36 @@ class NativeMutantWorkflowTests(NativeMutantReplayCase):
         result = self._result(run)
         self.assertEqual(result.get("stage"), "tested")
         self.assertEqual(self._statuses(result), BASELINE_STATUSES)
+
+    def test_mac_prefix_creates_private_devices_and_cleans_only_the_used_udids(self) -> None:
+        # C307 infrastructure: shared Mac devices are never used by mutant jobs.
+        run = self._replay(sim_prefix="caddie-mba-2", devices=MAC_DEVICES)
+        self.assertFalse(run.job_failed, run.describe())
+        creates = [c["args"] for c in run.tool("xcrun") if c["args"][:2] == ["simctl", "create"]]
+        self.assertEqual(run.tool("brew"), [], "preinstalled XcodeGen must not be reinstalled")
+        self.assertEqual(creates, [
+            ["simctl", "create", "caddie-mba-2-iphone", "type-ios16", _runtime("iOS", 27, 10)],
+            ["simctl", "create", "caddie-mba-2-watch", "type-watch10", _runtime("watchOS", 27, 10)],
+        ])
+        expected = {"AICaddie": "C3070000-0000-4000-8000-000000000001",
+                    "AICaddieWatch": "C3070000-0000-4000-8000-000000000002"}
+        for call in run.scheme_runs():
+            self.assertEqual(_destination(_option(call["args"], "-destination"))["id"],
+                             expected[_option(call["args"], "-scheme")])
+        shutdowns = [c["args"] for c in run.tool("xcrun") if c["args"][:2] == ["simctl", "shutdown"]]
+        self.assertEqual(shutdowns, [["simctl", "shutdown", u] for u in sorted(expected.values())])
+        self.assertEqual(self._statuses(self._result(run)), BASELINE_STATUSES)
+
+    def test_mac_cleanup_also_runs_after_cancellation(self) -> None:
+        run = self._replay(sim_prefix="caddie-mba-2", devices=MAC_DEVICES,
+                           ios=_scheme(0, tree=IOS_PASSING, cancel=True))
+        self.assertTrue(run.cancelled, run.describe())
+        later = [s["name"] for s in run.steps[run.cancel_index + 1:] if s["ran"]]
+        self.assertEqual(later, ["Shut down owned simulators"])
+        self.assertEqual(run.uploads, [])
+        shutdowns = [c["args"] for c in run.tool("xcrun") if c["args"][:2] == ["simctl", "shutdown"]]
+        self.assertEqual(len(shutdowns), 2)
+        self.assertNotIn(["simctl", "shutdown", "all"], shutdowns)
 
     # G2 G3 G4 — a mutant that a native test catches
 

@@ -33,6 +33,9 @@ on:
       - claude/watch-cold-start-timing-20261014
     paths:
       - '.github/workflows/watch-cold-start.yml'
+      - '.github/scripts/select-sim.sh'
+      - '.github/scripts/set-sim-locale.py'
+      - '.github/scripts/shutdown-owned-sims.sh'
       - 'mobile/ios/AICaddieWatch/**'
 
 concurrency:
@@ -41,13 +44,13 @@ concurrency:
 
 jobs:
   cold-start:
-    runs-on: macos-15
+    runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
 
       - name: Generate native project
         run: xcodegen generate --spec mobile/ios/project.yml --project-root .
@@ -56,9 +59,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TYPE=$(xcrun simctl list devicetypes -j | jq -er '[.devicetypes[] | select(.name | test("Apple Watch Series (10|11) \\(46mm\\)")) | .identifier] | first')
-          RUNTIME=$(xcrun simctl list runtimes available -j | jq -er '[.runtimes[] | select(.isAvailable == true) | select(.identifier | contains(".watchOS-"))] | sort_by(.version | split(".") | map(tonumber)) | last | .identifier')
-          UDID=$(xcrun simctl create "AI Caddie Cold Start" "$TYPE" "$RUNTIME")
+          UDID=$(CADDIE_SIM_PROFILE=cold bash .github/scripts/select-sim.sh watch)
           echo "WATCH_UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID"
           xcrun simctl bootstatus "$UDID" -b
@@ -70,7 +71,7 @@ jobs:
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
             -destination "platform=watchOS Simulator,id=$WATCH_UDID" \
-            -derivedDataPath "$RUNNER_TEMP/WatchDerivedData" | tail -5
+            -derivedDataPath "$RUNNER_TEMP/WatchDerivedData-cold-start" | tail -5
 
       - name: Start a round on a never-prepared course and time it
         env:
@@ -90,7 +91,7 @@ jobs:
             read -r COLD_LAT COLD_LON <<< "${REGIONS[$((RUN_NUMBER % ${#REGIONS[@]}))]}"
           fi
           echo "Looking for a cold course near $COLD_LAT,$COLD_LON"
-          APP="$RUNNER_TEMP/WatchDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
+          APP="$RUNNER_TEMP/WatchDerivedData-cold-start/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
           BID=com.ai-caddie.mobile.watchkitapp
           xcrun simctl install "$WATCH_UDID" "$APP"
           xcrun simctl privacy "$WATCH_UDID" grant location "$BID" || true
@@ -159,3 +160,6 @@ jobs:
           name: watch-cold-start
           path: cold-start/
           if-no-files-found: warn
+      - name: Shut down owned simulators
+        if: ${{ always() && runner.environment == 'self-hosted' }}
+        run: bash .github/scripts/shutdown-owned-sims.sh
