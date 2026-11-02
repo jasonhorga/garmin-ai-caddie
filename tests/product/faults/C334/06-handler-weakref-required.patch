@@ -1,0 +1,13 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+index 35d9b0f1..23be1c5f 100644
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -228,7 +228,7 @@ def protect_future_handlers(*, all_loggers=False) -> ExitStack:
+             try:
+                 reference = ref(handler, lambda unused: added_filters.pop(key, None))
+             except TypeError:
+-                reference = lambda: handler
++                reference = ref(handler)
+             added_filters[key] = (reference, privacy_filter)
+ 
+     def restore():

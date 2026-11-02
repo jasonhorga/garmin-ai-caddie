@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C334-01-partition-hidden",
+      "patch": "tests/product/faults/C334/01-partition-hidden.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_player_partition_hash_survives_service_exit",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C334-02-bearer-order",
+      "patch": "tests/product/faults/C334/02-bearer-order.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_bearer_credentials_are_private_in_every_spelling",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C334-03-lastresort-unprotected",
+      "patch": "tests/product/faults/C334/03-lastresort-unprotected.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_cron_other_loggers_redact_root_and_last_resort",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C334-04-cron-scope-restricted",
+      "patch": "tests/product/faults/C334/04-cron-scope-restricted.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_cron_other_loggers_redact_root_and_last_resort",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C334-05-handler-hash-required",
+      "patch": "tests/product/faults/C334/05-handler-hash-required.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_unhashable_and_nonweak_handlers_remain_safe_and_reversible",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C334-06-handler-weakref-required",
+      "patch": "tests/product/faults/C334/06-handler-weakref-required.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_unhashable_and_nonweak_handlers_remain_safe_and_reversible",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C334-07-execution-path-missing",
+      "patch": "tests/product/faults/C334/07-execution-path-missing.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_python_target_loads_from_worktree_with_safe_path",
+      "promise": "fault-runner infrastructure: acceptance-method runnable faults"
+    },
+    {
+      "id": "tests-product-faults-C334-08-module-guard-disabled",
+      "patch": "tests/product/faults/C334/08-module-guard-disabled.patch",
+      "kind": "python",
+      "target": "tests.test_service_logging_isolation.ServiceLoggingIsolationTests.test_J73_unregistered_module_leaks_are_rejected_at_module_boundary",
+      "promise": "J7.3"
+    }
+  ]
+}

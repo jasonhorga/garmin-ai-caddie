@@ -161,7 +161,7 @@ class ManifestFragmentTests(unittest.TestCase):
                       "user.email=fault@example.invalid", "-c", "commit.gpgsign=false",
                       "commit", "--quiet", "-m", "test package")):
             subprocess.run(["git", *args], cwd=self.root, check=True, capture_output=True)
-        with mock.patch.dict(runner.os.environ, {"PYTHONSAFEPATH": "1", "PYTHONPATH": ""}):
+        with mock.patch.dict(runner.os.environ, {"PYTHONSAFEPATH": "1", "PYTHONPATH": str(self.root / "caller-path")}):
             status, detail = runner.target_check(record, self.root)
             self.assertEqual(status, "ok", detail)
             with contextlib.redirect_stdout(io.StringIO()):

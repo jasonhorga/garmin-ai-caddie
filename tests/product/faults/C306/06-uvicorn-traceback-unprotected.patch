@@ -1,13 +1,13 @@
 diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
-index 6782f771..1642f4e3 100644
+index 35d9b0f1..f1e99e02 100644
 --- a/server_v2/log_privacy.py
 +++ b/server_v2/log_privacy.py
-@@ -142,7 +142,7 @@ class LogPrivacyFilter(logging.Filter):
+@@ -166,7 +166,7 @@ class LogPrivacyFilter(logging.Filter):
              return True
  
      def _filter(self, record: logging.LogRecord) -> bool:
--        if not record.name.startswith(("server_v2", "ai_caddie", "uvicorn.error")):
-+        if not record.name.startswith(("server_v2", "ai_caddie")):
+-        if not self.all_loggers and not record.name.startswith(("server_v2", "ai_caddie", "uvicorn.error")):
++        if not self.all_loggers and not record.name.startswith(("server_v2", "ai_caddie")):
              return True
          record.args = _arguments(record.args)
          record.msg = _text(record.getMessage())

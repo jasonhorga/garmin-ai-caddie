@@ -3,9 +3,11 @@
 CI/local usage: python -m tests.check_isolation tests.test_offline_followups
 Full CI usage: python -m tests.check_isolation discover -s tests -t . -v
 """
+import logging
 from pathlib import Path
 import subprocess
 import sys
+import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,12 +32,55 @@ def artifact_files():
     return files
 
 
+class LoggingIsolationSuite(unittest.TestSuite):
+    """Check each module after tearDownModule and unittest module cleanups.
+
+    The child runner captures pristine methods before importing test modules.
+    Report leaks at their source and restore the methods so subsequent modules
+    still run with independent results.
+    """
+
+    original_methods = (logging.Logger.addHandler, logging.Logger.callHandlers)
+
+    def _handleModuleTearDown(self, result):
+        previous = self._get_previous_module(result)
+        super()._handleModuleTearDown(result)
+        if previous is None:
+            return
+        changed = [name for name, original in zip(
+            ("addHandler", "callHandlers"), self.original_methods)
+            if getattr(logging.Logger, name) is not original]
+        if not changed:
+            return
+        try:
+            raise AssertionError("; ".join(f"{previous} leaked Logger.{name}" for name in changed))
+        except AssertionError:
+            # Use a real assertion failure, attributed to the completed module.
+            witness = unittest.FunctionTestCase(lambda: None,
+                                                description=previous + " logging isolation")
+            result.addFailure(witness, sys.exc_info())
+        finally:
+            handle = getattr(logging.Logger.addHandler, "_privacy_handle", None)
+            if handle is not None:
+                handle.close()
+            logging.Logger.addHandler, logging.Logger.callHandlers = self.original_methods
+
+
+def run_logging_checked_tests(arguments):
+    loader = unittest.TestLoader()
+    loader.suiteClass = LoggingIsolationSuite
+    program = unittest.main(module=None, argv=[sys.argv[0], *arguments],
+                            testLoader=loader, exit=False)
+    return 0 if program.result.wasSuccessful() else 1
+
+
 def main():
     if len(sys.argv) == 1:
         raise SystemExit("Pass unittest modules or discovery arguments")
     before = repository_artifacts()
     before_files = artifact_files()
-    result = subprocess.run([sys.executable, "-m", "unittest", *sys.argv[1:]], cwd=ROOT)
+    result = subprocess.run([sys.executable, "-m", "tests.check_isolation",
+                             "--logging-child", *sys.argv[1:]], cwd=ROOT)
     after = repository_artifacts()
     after_files = artifact_files()
     changed = {
@@ -54,4 +99,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--logging-child":
+        raise SystemExit(run_logging_checked_tests(sys.argv[2:]))
     raise SystemExit(main())

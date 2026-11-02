@@ -1,0 +1,12 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+index 35d9b0f1..842eb647 100644
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -46,7 +46,6 @@ def _text(value: str) -> str:
+         return match[1] + match[2] + quote + _REDACTED + quote
+ 
+     # Consume the credential before a key/value rule can eat just "Bearer".
+-    value = re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer " + _REDACTED, value)
+     value = _IDENTITY.sub(identity, value)
+     def path(match):
+         candidate = match[0]

@@ -16,11 +16,12 @@ def preserve_service_logging():
     for logger in (logging.getLogger(), *existing.values()):
         snapshots.append((logger, logger.handlers[:], logger.filters[:],
                           logger.level, logger.propagate, logger.disabled))
-    handler_filters = {handler: handler.filters[:] for value in logging.Logger.manager.loggerDict.values()
+    handler_filters = {id(handler): (handler, handler.filters[:])
+                       for value in logging.Logger.manager.loggerDict.values()
                        if isinstance(value, logging.Logger) for handler in value.handlers}
     for handler in (*logging.getLogger().handlers, logging.lastResort):
         if handler is not None:
-            handler_filters.setdefault(handler, handler.filters[:])
+            handler_filters.setdefault(id(handler), (handler, handler.filters[:]))
     try:
         yield
     finally:
@@ -37,7 +38,7 @@ def preserve_service_logging():
                 logger.setLevel(logging.NOTSET)
                 logger.propagate = True
                 logger.disabled = False
-        for handler, filters in handler_filters.items():
+        for handler, filters in handler_filters.values():
             handler.filters[:] = filters
         for logger, handlers, filters, level, propagate, disabled in snapshots:
             logger.handlers[:] = handlers

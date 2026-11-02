@@ -85,6 +85,8 @@ apply 持有该分区的事件锁；同一分区的追加、读和 ACK 会等待
 docker exec "$C" find /var/lib/ai-caddie/data -name events.jsonl.migration.json -print
 ```
 
+服务和 cron 的日志出口统一脱敏（含 root 传播及 lastResort）；`partition=player:<12 位 hex>` 保留供映射，玩家 id 和 Bearer 凭据仍脱敏。CI 的 `tests.check_isolation` 在每个测试模块清理后检查 `Logger.addHandler/callHandlers` 是否还原，无需登记模块。
+
 告警的 `main:<hash>` 对应主分区，`player:<hash>` 对应 `players/<id>/mobile_events` 或 revision scanner 的 `players/<id>/scorecards`、`shots`、`snapshots`、`manual_rounds`、`corrections` 等目录；hash 是容器内分区**解析后的绝对目录路径**按 UTF-8 编码计算 SHA256 的前 12 位。下面命令在同一容器内列出标识与目录的对应关系（包括 intent 已消失的目录），按告警中的完整标识匹配；不要在宿主机路径上计算：
 
 ```bash

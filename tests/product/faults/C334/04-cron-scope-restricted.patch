@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/pipeline.py b/ai_caddie/pipeline.py
+index 1f7bcf7b..e79d6ead 100644
+--- a/ai_caddie/pipeline.py
++++ b/ai_caddie/pipeline.py
+@@ -32,7 +32,7 @@ _SYNC_LOG_HANDLER_MARKER = "_ai_caddie_sync_handler"
+ 
+ def _configure_sync_logging() -> None:
+     """Expose shot-diff diagnostics and protect every cron logging exit."""
+-    protect_future_handlers(all_loggers=True)
++    protect_future_handlers()
+     target = logging.getLogger(_SYNC_LOGGER_NAME)
+     target.setLevel(logging.INFO)
+     target.propagate = False
