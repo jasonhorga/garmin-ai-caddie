@@ -283,13 +283,21 @@ def _same_day_matching_boundary_score_holes(
     Compare source scores, never restored/corrected scores: manual edits cannot
     manufacture evidence that two Garmin cards describe the same outing.
     """
-    by_day: dict[str, list[tuple[str, dict[tuple[int, int], set[int]]]]] = {}
+    by_day: dict[str, list[tuple[str, dict[tuple[int, int], set[int]], list[tuple[int, int]]]]] = {}
     for row in rounds:
         day = str(row.get("date") or "")[:10]
         if not day:
             continue
         scores: dict[tuple[int, int], set[int]] = {}
-        for hole, _display, physical, side in hole_sides(row):
+        ordered_keys: list[tuple[int, int]] = []
+        physical_by_hole = {
+            id(hole): (physical, side) for hole, _display, physical, side in hole_sides(row)
+        }
+        for hole in row.get("holes") or []:
+            physical_side = physical_by_hole.get(id(hole))
+            if physical_side is None:
+                continue
+            physical, side = physical_side
             strokes = _int(hole.get("strokes"))
             if strokes is None:
                 continue
@@ -299,18 +307,23 @@ def _same_day_matching_boundary_score_holes(
                 gid = gid or front_course_global_id(row)
             local = _int(hole.get("sourceLocalHole") or hole.get("localHole")) or physical
             if gid is not None and local > 0:
-                scores.setdefault((gid, local), set()).add(strokes)
-        by_day.setdefault(day, []).append((str(row.get("id")), scores))
+                key = (gid, local)
+                scores.setdefault(key, set()).add(strokes)
+                ordered_keys.append(key)
+        by_day.setdefault(day, []).append((str(row.get("id")), scores, ordered_keys))
     candidates: dict[str, set[tuple[int, int]]] = {}
     for cards in by_day.values():
-        for round_id, own in cards:
+        for round_id, own, own_order in cards:
             covered = candidates.setdefault(round_id, set())
-            for other_id, other in cards:
+            for other_id, other, other_order in cards:
                 if other_id == round_id:
                     continue
                 overlap = own.keys() & other.keys()
+                own_boundary = set(own_order[-len(overlap):]) if overlap else set()
+                other_boundary = set(other_order[:len(overlap)]) if overlap else set()
                 if (1 <= len(overlap) <= 2
                         and len(overlap) < min(len(own), len(other))
+                        and overlap == own_boundary == other_boundary
                         and all(len(own[key]) == 1 and own[key] == other[key] for key in overlap)):
                     covered.update(other.keys() - own.keys())
     return candidates
