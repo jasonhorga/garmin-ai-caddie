@@ -454,6 +454,31 @@ public enum SyncClientError: Error, Equatable {
     case http(status: Int, body: String?)
 }
 
+private final class SyncClientDataTaskController: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: URLSessionDataTask?
+    private var cancelled = false
+
+    func install(_ task: URLSessionDataTask) {
+        lock.lock()
+        if cancelled {
+            lock.unlock()
+            task.cancel()
+            return
+        }
+        self.task = task
+        lock.unlock()
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        let task = self.task
+        lock.unlock()
+        task?.cancel()
+    }
+}
+
 public final class SyncClient {
     public enum PackageRequestKind: Equatable {
         case foregroundStart
@@ -625,9 +650,6 @@ public final class SyncClient {
         in urlSession: URLSession,
         recordTiming: Bool = true
     ) async throws -> (Data, URLResponse) {
-        #if DEBUG
-        if roundStartSessionLock.withLock({ invalidatedForTesting }) { throw CancellationError() }
-        #endif
         var timedRequest = request
         let requestId = UUID().uuidString
         timedRequest.setValue(requestId, forHTTPHeaderField: "X-AI-Caddie-Request-ID")
@@ -642,11 +664,11 @@ public final class SyncClient {
         let started = recordTiming ? monotonicNow() : 0
         if !recordTiming {
             try Task.checkCancellation()
-            return try await urlSession.data(for: timedRequest)
+            return try await data(for: timedRequest, in: urlSession)
         }
         try Task.checkCancellation()
         do {
-            let result = try await urlSession.data(for: timedRequest)
+            let result = try await data(for: timedRequest, in: urlSession)
             let finished = monotonicNow()
             recordClientTiming(
                 request: timedRequest,
@@ -670,6 +692,39 @@ public final class SyncClient {
                 now: finished
             )
             throw error
+        }
+    }
+
+    /// Create the URLSession task while holding the same lock used by teardown. URLSession's async
+    /// `data(for:)` can suspend between its caller's state check and task creation; using the
+    /// synchronous data-task factory closes that window while preserving cancellation semantics.
+    private func data(for request: URLRequest, in urlSession: URLSession) async throws -> (Data, URLResponse) {
+        let controller = SyncClientDataTaskController()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(Data, URLResponse), Error>) in
+                roundStartSessionLock.lock()
+                #if DEBUG
+                if invalidatedForTesting {
+                    roundStartSessionLock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                #endif
+                let task = urlSession.dataTask(with: request) { data, response, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else if let data, let response {
+                        continuation.resume(returning: (data, response))
+                    } else {
+                        continuation.resume(throwing: URLError(.badServerResponse))
+                    }
+                }
+                controller.install(task)
+                task.resume()
+                roundStartSessionLock.unlock()
+            }
+        } onCancel: {
+            controller.cancel()
         }
     }
 
