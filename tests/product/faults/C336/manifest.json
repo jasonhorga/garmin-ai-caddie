@@ -26,7 +26,7 @@
       "id": "tests-product-faults-C336-SM6-layup-ignores-water",
       "patch": "tests/product/faults/C336/SM6-layup-ignores-water.patch",
       "kind": "python",
-      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_layup_cannot_choose_the_wedge_leave_inside_water",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_distance_fallback_layup_keeps_water_constraints",
       "promise": "4.6"
     },
     {

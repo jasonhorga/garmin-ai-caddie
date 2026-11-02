@@ -1,13 +1,13 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index c2209fe9..0e1c998d 100644
+index 2db4a0ec..0b7315ee 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -1694,7 +1694,7 @@ def _layup_position_club(remaining_m: float, approach_ladder, *, start_m: float
-         leave = remaining_m - float(distance)
-         if leave < LAYUP_LEAVE_MIN_M:
-             continue
--        if not _strategy_water_safe(float(start_m) + float(distance), hazards):
-+        if False:
-             continue
-         error = abs(leave - target_leave)
-         if best_error is None or error < best_error:
+@@ -2190,7 +2190,7 @@ def _strategy(
+             approach_club, approach_distance = None, None
+             if effective > longest_approach + 15 and remaining - longest_approach < LAYUP_LEAVE_MIN_M:
+                 layup = _layup_position_club(
+-                    remaining, eligible_ladder, start_m=route_offset_m, hazards=planning_hazards,
++                    remaining, eligible_ladder, start_m=route_offset_m, hazards={**planning_hazards, "water_carry": []},
+                 )
+                 if layup is not None:
+                     approach_club, approach_distance = layup

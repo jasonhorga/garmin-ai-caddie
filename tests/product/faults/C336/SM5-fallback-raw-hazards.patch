@@ -1,31 +1,31 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index c2209fe9..d95d3e2e 100644
+index 2db4a0ec..59c410de 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -2166,7 +2166,7 @@ def _strategy(
-                 for name, distance in approach_ladder
-                 if club_bag_service.canonical_club_name(name) not in used_clubs
-                 and float(distance) <= previous_carry
--                and _strategy_water_safe(route_offset_m + float(distance), planning_hazards)
-+                and _strategy_water_safe(route_offset_m + float(distance), hazards)
+@@ -2169,7 +2169,7 @@ def _strategy(
+             ]
+             safe_ladder = [
+                 row for row in eligible_ladder
+-                if _strategy_water_safe(route_offset_m + float(row[1]), planning_hazards)
++                if _strategy_water_safe(route_offset_m + float(row[1]), hazards)
              ]
              if not safe_ladder:
                  # Match the online repeat fallback when no distinct safe club can finish the
-@@ -2176,7 +2176,7 @@ def _strategy(
-                     (name, distance)
-                     for name, distance in approach_ladder
-                     if float(distance) <= previous_carry
--                    and _strategy_water_safe(route_offset_m + float(distance), planning_hazards)
-+                    and _strategy_water_safe(route_offset_m + float(distance), hazards)
+@@ -2182,7 +2182,7 @@ def _strategy(
+                 ]
+                 safe_ladder = [
+                     row for row in eligible_ladder
+-                    if _strategy_water_safe(route_offset_m + float(row[1]), planning_hazards)
++                    if _strategy_water_safe(route_offset_m + float(row[1]), hazards)
                  ]
              if not safe_ladder:
                  break
-@@ -2184,7 +2184,7 @@ def _strategy(
+@@ -2190,7 +2190,7 @@ def _strategy(
              approach_club, approach_distance = None, None
              if effective > longest_approach + 15 and remaining - longest_approach < LAYUP_LEAVE_MIN_M:
                  layup = _layup_position_club(
--                    remaining, safe_ladder, start_m=route_offset_m, hazards=planning_hazards,
-+                    remaining, safe_ladder, start_m=route_offset_m, hazards=hazards,
+-                    remaining, eligible_ladder, start_m=route_offset_m, hazards=planning_hazards,
++                    remaining, eligible_ladder, start_m=route_offset_m, hazards=hazards,
                  )
                  if layup is not None:
                      approach_club, approach_distance = layup
