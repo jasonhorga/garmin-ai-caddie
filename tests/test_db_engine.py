@@ -1,5 +1,6 @@
 # tests/test_db_engine.py
 import os
+import hashlib
 import sqlalchemy
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from unittest import mock
 from sqlalchemy import text
 
 from server_v2 import db
+from server_v2 import players_api
 
 
 class DatabaseUrlTests(unittest.TestCase):
@@ -87,7 +89,13 @@ class DatabaseUrlTests(unittest.TestCase):
                             text("select * from missing_table where token_hash=:token"),
                             {"token": secret},
                         )
-        self.assertNotIn(secret, str(raised.exception))
+                self.assertNotIn(secret, str(raised.exception))
+                token_hash = hashlib.sha256(secret.encode("utf-8")).hexdigest()
+                with self.assertLogs("server_v2.players_api", level="WARNING") as captured:
+                    self.assertIsNone(players_api._player_for_session_token(secret))
+                logged = "\n".join(captured.output)
+                self.assertNotIn(secret, logged)
+                self.assertNotIn(token_hash, logged)
 
 
 if __name__ == "__main__":
