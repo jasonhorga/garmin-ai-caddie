@@ -37,11 +37,28 @@ def _row(round_id: str, date: str, holes: list[int], *, course: int = 55555) -> 
     }
 
 
+def _combo_row(round_id: str, date: str, holes: list[int], front: int, back: int) -> dict:
+    row = _row(round_id, date, holes, course=front)
+    row.update(frontNineGlobalCourseId=front, backNineGlobalCourseId=back)
+    return row
+
+
 def _restore(root: Path, round_id: str, numbers=range(10, 19)) -> None:
     for number in numbers:
         add_annotation(
             "hole", f"{round_id}:{number}", "score_correction",
             {"to": 5, "restore": True, "restoreGlobalId": 55555, "restoreLocalHole": number},
+            root=root,
+        )
+
+
+def _restore_combo(root: Path, round_id: str, numbers, front: int, back: int) -> None:
+    for number in numbers:
+        add_annotation(
+            "hole", f"{round_id}:{number}", "score_correction",
+            {"to": 5, "restore": True,
+             "restoreGlobalId": front if number <= 9 else back,
+             "restoreLocalHole": number},
             root=root,
         )
 
@@ -113,6 +130,31 @@ class C281MergeSameDayTests(unittest.TestCase):
             )
             current = next(row for row in corrected.rounds if row["id"] == "morning")
             self.assertEqual((current["holesCompleted"], len(current["holes"])), (10, 10))
+
+    def test_j1_3_combo_ring_order_uses_display_holes_across_global_ids(self) -> None:
+        """J1.3: a combo course follows display holes 1..18, regardless of gid ordering."""
+        front_holes = list(range(1, 10))
+        back_holes = list(range(10, 19))
+        cases = (
+            (back_holes, [18] + list(range(1, 9)), 10),
+            (back_holes, list(range(1, 9)) + [18], 10),
+            (back_holes, list(range(1, 8)) + [17, 18], 11),
+            ([1] + back_holes, front_holes, 10),
+        )
+        for front, back in ((7101, 7102), (7102, 7101)):
+            for morning_holes, late_holes, expected in cases:
+                with self.subTest(front=front, back=back, morning=morning_holes, late=late_holes), TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    morning = _combo_row("morning", "2026-06-01 07:30", morning_holes, front, back)
+                    late = _combo_row("late", "2026-06-01 09:40", late_holes, front, back)
+                    restored = front_holes if morning_holes == back_holes else list(range(2, 10))
+                    _restore_combo(root, "morning", restored, front, back)
+                    corrected = corrected_history_data(
+                        HistoryData(raw_rounds=[], rounds=[morning, late], shots=[]),
+                        annotations_root=root,
+                    )
+                    current = next(row for row in corrected.rounds if row["id"] == "morning")
+                    self.assertEqual((current["holesCompleted"], len(current["holes"])), (expected, expected))
 
     def test_j1_3_sorted_x10_card_keeps_the_morning_restore(self) -> None:
         """J1.3: sorted [1, 2, 10..18] cannot consume a 1..9 restore from a 10-start outing."""
