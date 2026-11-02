@@ -39,7 +39,9 @@ PYTHON_BATCH_TIMEOUT = 900.0
 # Inspect unittest's objects and loader errors, never its formatted console output.
 PYTHON_LOAD_PROBE = r'''
 import builtins
-from importlib.machinery import PathFinder
+import importlib
+from importlib.machinery import BuiltinImporter, FrozenImporter, PathFinder
+from importlib.util import resolve_name
 import json
 from pathlib import Path
 import sys
@@ -65,23 +67,29 @@ def signature(spec):
     return (str(Path(origin).resolve()) if origin and origin not in {"built-in", "frozen"}
             else origin, tuple(str(Path(item).resolve()) for item in search))
 
+def import_spec(name, path):
+    # Python consults builtin/frozen finders before filesystem namespaces.
+    return (BuiltinImporter.find_spec(name) or FrozenImporter.find_spec(name)
+            or PathFinder.find_spec(name, path))
+
 def baseline_cached(name):
     top = name.partition(".")[0]
     module = sys.modules.get(top)
     return signature(getattr(module, "__spec__", None)) == signature(
-        PathFinder.find_spec(top, baseline_path))
+        import_spec(top, baseline_path))
 
 baseline_directories = directories(sys.path)
 observed_paths = []
 batch_tainted = False
 needs_isolation = False
 original_import = builtins.__import__
+original_import_module = importlib.import_module
 tracking = False
 
-def tracked_import(name, globals=None, locals=None, fromlist=(), level=0):
+def observe_import(name, level=0):
     global batch_tainted, needs_isolation, tracking
     if tracking:
-        return original_import(name, globals, locals, fromlist, level)
+        return
     # Path/spec inspection may itself import pathlib helpers on some runtimes.
     tracking = True
     try:
@@ -91,14 +99,21 @@ def tracked_import(name, globals=None, locals=None, fromlist=(), level=0):
             observed_paths.extend(current)
             if not level:
                 top = name.partition(".")[0]
-                if signature(PathFinder.find_spec(top, current)) != signature(
-                        PathFinder.find_spec(top, baseline_path)):
+                if signature(import_spec(top, current)) != signature(
+                        import_spec(top, baseline_path)):
                     # Cached modules can mask the target's own changed resolution.
                     needs_isolation |= top in sys.modules
                     batch_tainted = True
     finally:
         tracking = False
+
+def tracked_import(name, globals=None, locals=None, fromlist=(), level=0):
+    observe_import(name, level)
     return original_import(name, globals, locals, fromlist, level)
+
+def tracked_import_module(name, package=None):
+    observe_import(resolve_name(name, package) if name.startswith(".") else name)
+    return original_import_module(name, package)
 
 multiple_targets = len(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))) > 1
 reports = {}
@@ -106,6 +121,10 @@ baseline_path = list(sys.path)
 previous_modules = set(sys.modules)
 for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
     builtins.__import__ = tracked_import
+    importlib.import_module = tracked_import_module
+    # The parent can replay this suffix as one clean batch. Keep loading here
+    # so batch cleanup remains observable independently of the fallback.
+    restart = batch_tainted
     needs_isolation = batch_tainted
     # Keep normal dependencies, even beneath broad added paths such as '/'.
     # Suspicious successes are independently checked instead of clearing caches.
@@ -137,6 +156,8 @@ for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
             report = {"ok": False, "reason": "0 tests loaded"}
         else:
             report = {"ok": True, "reason": ""}
+        report["load_failed"] = not report["ok"]
+        report["restart"] = restart
         if multiple_targets and report["ok"] and needs_isolation:
             report.update(ok=False, reason="search-path effects require isolated verification")
     except (Exception, SystemExit):
@@ -146,8 +167,14 @@ Path(sys.argv[2]).write_text(json.dumps(reports), encoding="utf-8")
 '''
 
 
-def _run_python_load_probe(targets: list[str], repo: Path) -> dict[str, tuple[str, str]]:
-    """Load a batch in one interpreter, returning a separate result per target."""
+def _run_python_load_probe(
+    targets: list[str], repo: Path, *, observations: dict[str, Any] | None = None,
+) -> dict[str, tuple[str, str]]:
+    """Load a batch; optionally expose loader outcomes before isolation overrides.
+
+    load_failed records actual loader failure, independently of diagnostic text.
+    restart identifies targets that inherited a prior target's path effects.
+    """
     env = {**os.environ, "AI_CADDIE_DATA_MODE": "fixture", "PYTHONDONTWRITEBYTECODE": "1"}
     try:
         with tempfile.TemporaryDirectory(prefix="fault-load-") as directory:
@@ -167,14 +194,17 @@ def _run_python_load_probe(targets: list[str], repo: Path) -> dict[str, tuple[st
                 )
             except subprocess.TimeoutExpired as error:
                 if len(targets) > 1:
-                    print(f"LOAD_PROBE_TIMEOUT timeout={timeout:g}s fallback_targets={len(targets)}",
+                    advice = "increase PYTHON_BATCH_TIMEOUT in tests/product/faults/run_faults.py"
+                    print(f"LOAD_PROBE_TIMEOUT timeout={timeout:g}s fallback_targets={len(targets)}; {advice}",
                           file=sys.stderr)
-                raise ValueError(
-                    f"加载超时 ({error.timeout:g}s); configure CADDIE_PYTHON_LOAD_TIMEOUT"
-                ) from error
+                else:
+                    advice = "configure CADDIE_PYTHON_LOAD_TIMEOUT"
+                raise ValueError(f"加载超时 ({error.timeout:g}s); {advice}") from error
             if result.returncode or not output.is_file():
                 reason = f"load probe exited {result.returncode}: {result.stderr.strip()}"
             else:
+                if observations is not None:
+                    observations.update(json.loads(output.read_text(encoding="utf-8")))
                 reports = json.loads(output.read_text(encoding="utf-8"))
                 return {
                     target: ("ok", "") if reports[target]["ok"] else
@@ -191,11 +221,22 @@ def probe_python_targets(targets: Iterable[str], repo: Path) -> dict[str, tuple[
     targets = list(dict.fromkeys(targets))
     if not targets:
         return {}
-    results = _run_python_load_probe(targets, repo)
-    if len(targets) > 1:
-        for target in targets:
-            if results[target][0] != "ok":
-                results[target] = _run_python_load_probe([target], repo)[target]
+    results = {}
+    pending = targets
+    while pending:
+        observations = {}
+        batch = _run_python_load_probe(pending, repo, observations=observations)
+        restart = {target for target, row in observations.items() if row.get("restart")}
+        for target in pending:
+            if target in restart:
+                continue
+            result = batch[target]
+            if len(pending) > 1 and result[0] != "ok":
+                result = _run_python_load_probe([target], repo)[target]
+            results[target] = result
+        # The first target never inherits contamination, so each pass makes
+        # progress. Ordinary clean targets continue sharing dependency caches.
+        pending = [target for target in pending if target in restart]
     return results
 
 

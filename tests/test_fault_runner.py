@@ -535,15 +535,99 @@ class ManifestFragmentTests(unittest.TestCase):
             "test_b.py": "import helper\n"})
         self.assert_path_check()
 
+    # Product spec 验收方式, fault-runner infrastructure: these cases refine
+    # batch isolation and diagnostics; they are not separate J/G promises.
+    def probe_processes(self, processes):
+        return [call for call in processes.call_args_list
+                if call.args[0][:2] == [str(runner.SHARED_PYTHON), "-c"]]
+
+    def test_check_tainted_prefix_keeps_clean_suffix_batched(self):
+        """验收方式: Y2 must not turn six clean targets into six retries."""
+        self.path_fixture({"extra/helper.py": "VALUE=1\n",
+            "test_a.py": "import sys\nsys.path.insert(0,'extra')\nimport helper\n",
+            **{f"test_clean{i}.py": "import json\n" for i in range(6)}})
+        targets = ["test_a"] + [f"test_clean{i}" for i in range(6)]
+        with mock.patch.object(runner.subprocess, "run", wraps=subprocess.run) as processes:
+            result = runner.probe_python_targets(targets, self.root)
+        self.assertEqual([result[t][0] for t in targets], ["ok"] * 7)
+        # One initial batch plus one clean suffix batch. Allow one independent
+        # verification of A if an implementation conservatively requests it.
+        self.assertLessEqual(len(self.probe_processes(processes)), 3)
+
+    def test_check_builtin_and_frozen_imports_ignore_added_root(self):
+        """验收方式: filesystem namespaces cannot shadow builtin/frozen imports."""
+        for name, entry in (("sys", "/"), ("sys", "extra"), ("_frozen_importlib", "extra")):
+            with self.subTest(module=name, entry=entry):
+                # A synthetic namespace also reproduces /sys on hosts whose
+                # sandbox does not expose the real /sys directory.
+                self.path_fixture({f"extra/{name}/child.py": "VALUE=1\n",
+                    "test_a.py":
+                    f"import sys\nsys.path.insert(0,{entry!r})\nimport {name}\n",
+                    "test_b.py": "import json\n"})
+                with mock.patch.object(runner.subprocess, "run", wraps=subprocess.run) as processes:
+                    result = runner.probe_python_targets(["test_a", "test_b"], self.root)
+                self.assertEqual([result[t][0] for t in ("test_a", "test_b")], ["ok", "ok"])
+                self.assertEqual(len(self.probe_processes(processes)), 1)
+
+    def test_check_import_module_cannot_hide_broken_shadow(self):
+        """验收方式: Y3 import_module must have the same isolated verdict as import."""
+        self.path_fixture({"util.py": "VALUE=1\n",
+            "extra/util.py": "raise ImportError('broken added util')\n",
+            "test_a.py": "import util\n",
+            "test_b.py": "import sys, importlib\nsys.path.insert(0,'extra')\nimportlib.import_module('util')\n"})
+        self.assert_path_check()
+
+    def test_single_target_path_effects_remain_loadable_before_and_after_run(self):
+        """验收方式: pre/post --run probes and isolated retries allow own path effects."""
+        self.path_fixture({"util.py": "VALUE=1\n", "extra/util.py": "VALUE=2\n",
+            "test_a.py": "import util\n",
+            "test_b.py": "import sys\nimport util\nsys.path.insert(0,'extra')\nimport util\n"})
+        target = "test_b.T.test_loads"
+        self.assertEqual(runner._run_python_load_probe([target], self.root)[target], ("ok", ""))
+        self.assertEqual(runner.probe_python_targets(["test_a", target], self.root)[target], ("ok", ""))
+        # Exercise the real --run preflight and nonzero postflight; this patch
+        # changes the independent witness assertion, not its import behaviour.
+        path = self.root / "test_b.py"
+        path.write_text(path.read_text().replace("def test_loads(self): pass",
+            "def test_loads(self): self.assertEqual(__import__('pathlib').Path('subject.txt').read_text(), 'before\\n')"))
+        self.init_repo()
+        code, rows, _ = self.invoke_main("--run", [{**self.record("own-path"), "target": target}])
+        self.assertEqual(rows[0]["status"], "killed")
+        self.assertEqual(code, 0)
+        self.assertIn("AssertionError", rows[0]["detail"])
+
+    def test_batch_cleans_helper_after_import_path_was_removed(self):
+        """验收方式: transient search directories participate in module cleanup."""
+        self.path_fixture({"extra/helper.py": "VALUE=1\n",
+            "test_a.py": "import sys\nsys.path.insert(0,'extra')\nimport helper\nsys.path.remove('extra')\n",
+            # Read the cache directly: loading failure must be observable before
+            # the isolation fallback, independently of its human-readable reason.
+            "test_b.py": "import sys, json\nfrom pathlib import Path\nPath('cache-state.json').write_text(json.dumps('helper' in sys.modules))\n"})
+        result = runner._run_python_load_probe(["test_a", "test_b"], self.root)
+        self.assertEqual(result["test_b"][0], "unavailable")
+        self.assertFalse(json.loads((self.root / "cache-state.json").read_text()))
+
+    def test_batch_timeout_names_its_own_budget(self):
+        """验收方式 + card: batch diagnostics must identify the adjustable budget."""
+        with mock.patch.object(runner.subprocess, "run",
+                side_effect=subprocess.TimeoutExpired("probe", 900)):
+            with contextlib.redirect_stderr(io.StringIO()) as warning:
+                result = runner._run_python_load_probe(["test_a", "test_b"], self.root)
+        self.assertIn("PYTHON_BATCH_TIMEOUT", result["test_a"][1])
+        self.assertNotIn("CADDIE_PYTHON_LOAD_TIMEOUT", result["test_a"][1])
+        self.assertIn("PYTHON_BATCH_TIMEOUT", warning.getvalue())
+
     def test_batch_removes_namespace_package_from_added_directory(self):
         """验收方式 explicitly includes namespace packages without an origin."""
         self.path_fixture({"extra/namespace_only/child.py": "VALUE=1\n",
             "test_a.py": "import sys\nsys.path.insert(0,'extra')\nimport namespace_only\n",
             "test_b.py": "import namespace_only\n"})
-        # Inspect the batch itself so independent retries cannot mask M2.
-        result = runner._run_python_load_probe(["test_a", "test_b"], self.root)
+        # Observe loader failure before isolation can replace the diagnostic;
+        # independent retries must not hide a namespace cleanup failure.
+        observations = {}
+        result = runner._run_python_load_probe(["test_a", "test_b"], self.root, observations=observations)
         self.assertEqual([result[t][0] for t in ["test_a", "test_b"]], ["ok", "unavailable"])
-        self.assertIn('ModuleNotFoundError', result['test_b'][1])
+        self.assertTrue(observations["test_b"]["load_failed"])
 
     def test_batch_resolves_symlink_module_locations_before_cleanup(self):
         """验收方式: symlink and real module locations identify one directory."""
@@ -551,9 +635,10 @@ class ManifestFragmentTests(unittest.TestCase):
             "test_a.py": "import sys\nsys.path.insert(0,'link')\nimport helper\n",
             "test_b.py": "import helper\n"})
         (self.root / 'link').symlink_to(self.root / 'real', target_is_directory=True)
-        result = runner._run_python_load_probe(["test_a", "test_b"], self.root)
+        observations = {}
+        result = runner._run_python_load_probe(["test_a", "test_b"], self.root, observations=observations)
         self.assertEqual([result[t][0] for t in ["test_a", "test_b"]], ["ok", "unavailable"])
-        self.assertIn('ModuleNotFoundError', result['test_b'][1])
+        self.assertTrue(observations["test_b"]["load_failed"])
 
     def test_check_directory_aliases_and_root_keep_single_initialization_cached(self):
         """验收方式: harmless path spellings require one batch, no retry."""
@@ -634,19 +719,19 @@ class ManifestFragmentTests(unittest.TestCase):
             "    def test_loads(self): pass\n", encoding="utf-8",
         )
         self.init_repo()
+        observations = {}
         batch = runner._run_python_load_probe(
-            ["test_adds_path", "test_needs_clean_path"], self.root
+            ["test_adds_path", "test_needs_clean_path"], self.root, observations=observations
         )
         # 批量探测本身必须观察到 helper 不再可见；外层 probe_python_targets
-        # 的独立复核不能把 sys.path/模块清理故障救回。
+        # 的独立复核不能把 sys.path/模块清理故障救回；看结构化加载结果，不钉原因文本。
         self.assertEqual(batch["test_adds_path"][0], "ok")
         self.assertEqual(batch["test_needs_clean_path"][0], "unavailable")
-        self.assertIn("ModuleNotFoundError", batch["test_needs_clean_path"][1])
+        self.assertTrue(observations["test_needs_clean_path"]["load_failed"])
         records = [{**self.record(str(index)), "target": target}
                    for index, target in enumerate(("test_adds_path", "test_needs_clean_path"))]
         code, rows, _ = self.invoke_main("--check", records)
         self.assertEqual([row["status"] for row in rows], ["ok", "unavailable"])
-        self.assertIn("ModuleNotFoundError", rows[1]["detail"])
         self.assertNotEqual(code, 0)
 
     def test_check_reuses_single_initialization_dependency_without_fallback(self):

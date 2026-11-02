@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C279-01-tainted-suffix-isolated-per-target",
+      "patch": "tests/product/faults/C279/01-tainted-suffix-isolated-per-target.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_check_tainted_prefix_keeps_clean_suffix_batched",
+      "promise": "fault-runner infrastructure: N1: clean suffix remains batched after search-path contamination"
+    },
+    {
+      "id": "tests-product-faults-C279-02-filesystem-before-builtin-frozen",
+      "patch": "tests/product/faults/C279/02-filesystem-before-builtin-frozen.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_check_builtin_and_frozen_imports_ignore_added_root",
+      "promise": "fault-runner infrastructure: N2: builtin/frozen resolution precedes filesystem namespaces"
+    },
+    {
+      "id": "tests-product-faults-C279-03-untracked-import-module",
+      "patch": "tests/product/faults/C279/03-untracked-import-module.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_check_import_module_cannot_hide_broken_shadow",
+      "promise": "fault-runner infrastructure: N3: import_module cannot mask a broken shadow module"
+    },
+    {
+      "id": "tests-product-faults-C279-04-isolate-single-target",
+      "patch": "tests/product/faults/C279/04-isolate-single-target.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_single_target_path_effects_remain_loadable_before_and_after_run",
+      "promise": "fault-runner infrastructure: N4: single-target pre/postflight and independent retry allow own path effects"
+    },
+    {
+      "id": "tests-product-faults-C279-05-ignore-observed-paths",
+      "patch": "tests/product/faults/C279/05-ignore-observed-paths.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_batch_cleans_helper_after_import_path_was_removed",
+      "promise": "fault-runner infrastructure: N5: transient directories cannot leave imported helpers cached"
+    },
+    {
+      "id": "tests-product-faults-C279-06-wrong-batch-timeout-advice",
+      "patch": "tests/product/faults/C279/06-wrong-batch-timeout-advice.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_batch_timeout_names_its_own_budget",
+      "promise": "fault-runner infrastructure: N6: batch timeout names its own adjustable budget"
+    }
+  ]
+}

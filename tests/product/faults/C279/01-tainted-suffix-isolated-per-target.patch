@@ -1,0 +1,13 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+index c37ca859..284880bf 100644
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -226,7 +226,7 @@ def probe_python_targets(targets: Iterable[str], repo: Path) -> dict[str, tuple[
+     while pending:
+         observations = {}
+         batch = _run_python_load_probe(pending, repo, observations=observations)
+-        restart = {target for target, row in observations.items() if row.get("restart")}
++        restart = set()
+         for target in pending:
+             if target in restart:
+                 continue
