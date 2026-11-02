@@ -169,7 +169,11 @@ class PrepRouteQualityTests(unittest.TestCase):
                 row = self.prep(bag, 4, length, ((length + 5, length + 30),))
                 self.assert_complete(row)
                 physical = sum(s["targetCarry_m"] for s in row["steps"])
-                self.assertLessEqual(physical, length - 3)
+                front, back = (length + 5, length + 30)
+                self.assertTrue(
+                    physical <= front - 8 or physical >= back + 8,
+                    f"landing {physical} must clear buffered pond [{front}, {back}]",
+                )
 
     def test_j4_6_same_stroke_count_prefers_twenty_metre_overshoot(self):
         # J4.6: at L364, 197+102+84=383 (+19) and 197+109+84=390

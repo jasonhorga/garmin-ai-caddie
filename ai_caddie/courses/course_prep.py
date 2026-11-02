@@ -2418,6 +2418,10 @@ def _strategy(
                 break
     physical_total = sum(float(step["targetCarry_m"]) for step in steps)
     post_pin_safe = _strategy_water_safe(physical_total, {"water_carry": post_pin_water})
+    post_pin_flyover = any(
+        physical_total > float(back) + TEE_WATER_CLEARANCE_BUFFER_M
+        for _front, back in post_pin_water
+    )
     incomplete = bool(steps) and steps[-1]["role"] != "scoring"
     # A different measured tee can save a stroke when the original prefix cannot:
     # search shorter chains only, so this does not add shots to a complete route.
@@ -2434,7 +2438,9 @@ def _strategy(
         float(back) + TEE_WATER_CLEARANCE_BUFFER_M > steps[0]["targetCarry_m"]
         for front, back in planning_hazards.get("water_carry") or []
     )
-    if par != 3 and steps and (incomplete or not post_pin_safe or try_shorter_tee or has_long_short):
+    if par != 3 and steps and (
+        incomplete or not post_pin_safe or post_pin_flyover or try_shorter_tee or has_long_short
+    ):
         # Try safe measured tees when the current prefix cannot meet the tradeoff.
         # Keep slope-sensitive openings with the existing plays-like planner.
         def route_rank(candidate):
@@ -2472,10 +2478,10 @@ def _strategy(
                 hazards=planning_hazards, maximum_carry_m=tee_carry,
                 player_id=player_id,
                 maximum_steps=(4 if incomplete or not post_pin_safe else
-                               len(steps) - 1 if has_long_short else len(steps) - 2),
+                               len(steps) - 1 if has_long_short else max(1, len(steps) - 2)),
                 post_pin_water=post_pin_water, preserve_layup=False,
             )
-            if tail and route_len_m - tee_carry - sum(carry for _, carry in tail) <= SCORING_WINDOW_MAX_M:
+            if route_len_m - tee_carry - sum(carry for _, carry in tail) <= SCORING_WINDOW_MAX_M:
                 candidate = [(tee_name, tee_carry), *tail]
                 physical = sum(carry for _, carry in candidate)
                 if not _strategy_water_safe(physical, {"water_carry": post_pin_water}):
