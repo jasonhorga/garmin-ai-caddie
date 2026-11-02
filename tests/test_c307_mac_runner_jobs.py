@@ -47,7 +47,11 @@ p = Path(os.environ['SIM_STATE'])
 s = json.loads(p.read_text())
 with open(os.environ['CALLS'], 'a') as f:
     f.write(json.dumps(args) + '\n')
-if args[:2] == ['simctl', 'list']:
+if args[:3] == ['--sdk', 'iphonesimulator', '--show-sdk-version']:
+    print(os.environ.get('SIM_SDK_VERSION', '99.0'))
+elif args[:3] == ['--sdk', 'watchsimulator', '--show-sdk-version']:
+    print(os.environ.get('SIM_SDK_VERSION', '99.0'))
+elif args[:2] == ['simctl', 'list']:
     key = args[2]
     print(json.dumps({key: s[key]}))
 elif args[:2] == ['simctl', 'shutdown'] and os.environ.get('SHUTDOWN_TRANSITION'):
@@ -118,6 +122,18 @@ class MacRunnerJobsTests(unittest.TestCase):
                     prefs.parent.mkdir(parents=True, exist_ok=True)
                     prefs.write_bytes(plistlib.dumps(dict(AppleLanguages=['zh-Hans-US'], AppleLocale='zh_CN')))
         Path(self.env['SIM_STATE']).write_text(json.dumps(self.state))
+
+    def set_ios_runtimes(self, versions):
+        self.state['runtimes'] = [r for r in self.state['runtimes'] if not r['identifier'].startswith(
+            'com.apple.CoreSimulator.SimRuntime.iOS-')]
+        self.state['devices'] = {key: entries for key, entries in self.state['devices'].items()
+                                 if not key.startswith('com.apple.CoreSimulator.SimRuntime.iOS-')}
+        for value in versions:
+            runtime = 'com.apple.CoreSimulator.SimRuntime.iOS-' + value.replace('.', '-')
+            self.state['runtimes'].append(dict(identifier=runtime, version=value, isAvailable=True))
+            self.state['devices'][runtime] = [dict(name='iPhone 16', udid='iOS' + value,
+                                                    isAvailable=True)]
+        self.save()
 
     def shell(self, script, **env):
         return subprocess.run(['bash', '-euo', 'pipefail', '-c', script], cwd=self.root,
@@ -444,6 +460,17 @@ while True:
         for udid in ('iOS27.2', 'watchOS27.2'):
             prefs = self.root / 'simulators' / udid / 'data/Library/Preferences/.GlobalPreferences.plist'
             self.assertEqual(plistlib.loads(prefs.read_bytes())['AppleLanguages'], ['zh-Hans-US'])
+
+    def test_hosted_selection_replays_main_runtime_order_and_sdk_cap(self):
+        # Main's grep/head -1 UI jobs use the first simulator runtime in the
+        # inventory; its OS=latest unit job uses the newest one. Hosted selection
+        # must preserve those job-specific choices while never exceeding Xcode's SDK.
+        self.set_ios_runtimes(['18.5', '18.6', '26.2'])
+        for job in ('native-real-flow', 'native-screenshots', 'native-product-ui'):
+            with self.subTest(job=job):
+                self.assertEqual(self.select('ios', GITHUB_JOB=job, SIM_SDK_VERSION='30.0'), 'iOS18.5')
+        self.assertEqual(self.select('ios', GITHUB_JOB='native-unit-watch', SIM_SDK_VERSION='30.0'), 'iOS26.2')
+        self.assertEqual(self.select('ios', GITHUB_JOB='native-unit-watch', SIM_SDK_VERSION='18.5'), 'iOS18.5')
 
     def test_prefixed_selection_creates_correct_models_then_reuses_them(self):
         for platform, suffix, model in [('ios', 'iphone', 'type-iOS'), ('watch', 'watch', 'type-watchOS')]:
