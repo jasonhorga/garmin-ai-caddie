@@ -1,0 +1,13 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+index 03440667..89fa0851 100644
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -78,7 +78,7 @@ def _exception_summary(exc):
+     if isinstance(exc, OSError) and isinstance(exc.errno, int):
+         # Keep errno and the supplied diagnostic; omit filenames and sanitize
+         # any credentials or identity fields inside strerror itself.
+-        detail = f"[Errno {exc.errno}] {_text(str(exc.strerror))}"
++        detail = f"[Errno {exc.errno}] {exc.strerror}"
+     return f"{type(exc).__name__}: {detail}"
+ 
+ 

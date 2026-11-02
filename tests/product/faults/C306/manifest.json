@@ -56,6 +56,27 @@
       "kind": "python",
       "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_handlers_added_after_startup_are_protected",
       "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C306-S2-bare-player-shape",
+      "patch": "tests/product/faults/C306/S2-bare-player-shape.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_real_course_prep_failure_redacts_bare_player_id",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C306-S5-relative-data-path",
+      "patch": "tests/product/faults/C306/S5-relative-data-path.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_relative_player_path_is_redacted_without_swallowing_fields",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C306-S6-strerror-unfiltered",
+      "patch": "tests/product/faults/C306/S6-strerror-unfiltered.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_oserror_strerror_redacts_private_payload",
+      "promise": "J7.3"
     }
   ]
 }
