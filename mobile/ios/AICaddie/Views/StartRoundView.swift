@@ -2597,7 +2597,18 @@ public struct StartRoundView: View {
     /// Whether the automatic nearby choice no longer belongs to the latest provider answer.
     static func shouldClearAutomaticSelection(
         selected: MobileCourseOption?,
-        selectedGlobalIdText: String = "",
+        availableNearby: [MobileCourseOption],
+        userPickedVenue: Bool
+    ) -> Bool {
+        guard let selected, !userPickedVenue else { return false }
+        return !availableNearby.contains { samePhysicalVenue(selected, $0) }
+    }
+
+    /// The finish path also knows the persisted id. If the replacement list temporarily omits
+    /// that row, the automatic id is stale even though `selectedSegment` is currently nil.
+    static func shouldClearAutomaticSelectionAfterDiscovery(
+        selected: MobileCourseOption?,
+        selectedGlobalIdText: String,
         availableNearby: [MobileCourseOption],
         userPickedVenue: Bool
     ) -> Bool {
@@ -2605,7 +2616,9 @@ public struct StartRoundView: View {
         guard let selected else {
             return !selectedGlobalIdText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
-        return !availableNearby.contains { samePhysicalVenue(selected, $0) }
+        return shouldClearAutomaticSelection(
+            selected: selected, availableNearby: availableNearby, userPickedVenue: userPickedVenue
+        )
     }
 
     /// Nearby selection must compare physical venues, because one venue can expose several global
@@ -2769,7 +2782,7 @@ public struct StartRoundView: View {
         )
         guard canApply() else { return }
         applyProviderResult(outcome)
-        if Self.shouldClearAutomaticSelection(
+        if Self.shouldClearAutomaticSelectionAfterDiscovery(
             selected: selectedSegment,
             selectedGlobalIdText: courseGlobalIdText,
             availableNearby: outcome.providerOptions,

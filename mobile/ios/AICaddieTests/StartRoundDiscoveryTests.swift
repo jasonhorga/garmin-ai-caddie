@@ -1789,7 +1789,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let stale = MobileCourseOption(globalId: 7501, name: "旧球场", holes: 18, venueName: "旧球场")
         let replacement = MobileCourseOption(globalId: 7502, name: "新球场", holes: 18, venueName: "新球场")
         XCTAssertTrue(
-            StartRoundView.shouldClearAutomaticSelection(
+            StartRoundView.shouldClearAutomaticSelectionAfterDiscovery(
                 selected: nil, selectedGlobalIdText: String(stale.globalId),
                 availableNearby: [replacement], userPickedVenue: false
             ),
