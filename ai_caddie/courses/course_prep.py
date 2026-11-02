@@ -1988,7 +1988,9 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_
 
         # Plan a complete Par 4/5 chain. A long Par 5 remainder is not one imaginary approach; use
         # the longest playable non-driver until a normal scoring club can cover what remains.
-        while remaining > 20 and approach_ladder and len(steps) < 4:
+        from ai_caddie.caddie.decision import SCORING_WINDOW_MAX_M
+
+        while remaining > SCORING_WINDOW_MAX_M and approach_ladder and len(steps) < 4:
             effective = plays_like(remaining)
             used_clubs = {
                 club_bag_service.canonical_club_name(step["club"])
@@ -2014,7 +2016,7 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_
                     remaining = max(0.0, remaining - tail_distance)
                     before_effective = effective_remaining
                     effective_remaining = max(0.0, effective_remaining - tail_distance)
-                    scoring = tail_index == len(shared_tail) - 1 and effective_remaining <= 20.0
+                    scoring = tail_index == len(shared_tail) - 1 and effective_remaining <= SCORING_WINDOW_MAX_M
                     note = (
                         f"剩约 {yd(before)}y 上果岭"
                         if scoring
@@ -2060,7 +2062,7 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_
                 break
             before = remaining
             sloped = effective != before
-            if sloped and effective - float(approach_distance) <= 20:
+            if sloped and effective - float(approach_distance) <= SCORING_WINDOW_MAX_M:
                 # Reaches the green by its plays-like distance: it ends on the green, whatever the
                 # slope does to its flat carry, and leaves the plays-like shortfall.
                 remaining = max(0.0, effective - float(approach_distance))
@@ -2068,7 +2070,7 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_
                 landing_override = route_len_m
             else:
                 remaining = max(0.0, remaining - float(approach_distance))
-                scoring = remaining <= 20
+                scoring = remaining <= SCORING_WINDOW_MAX_M
                 landing_override = None
             if scoring:
                 note = f"剩约 {yd(before)}y 上果岭"
