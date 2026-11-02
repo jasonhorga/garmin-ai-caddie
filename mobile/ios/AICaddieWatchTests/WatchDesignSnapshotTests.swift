@@ -2705,20 +2705,52 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let base = WatchHoleMapSample.geometry
         let missing = WatchHoleMapGeometry(image: nil, imageSize: base.imageSize, youPx: base.youPx,
             pinPx: base.pinPx, layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx)
-        let state = WatchRoundState(roundId: "garmin", hole: 1, par: 4, distanceM: 320,
-            suggestedClub: nil, selectedClub: nil, globalId: 42, sourceLocalHole: 1, garminAssetVersion: "release-a", courseHoleNumber: 1, score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline")
+        // Decode the phone wire seed, then let production applyRoundSeed build the hole states.
+        // J4.5's Garmin fallback must work without injecting versions into WatchRoundState.
+        let seedObject: [String: Any] = [
+            "schema": "ai-caddie-watch-round-seed-v2", "roundId": "garmin",
+            "courseName": "测试球场", "activeHole": 1, "globalId": 42, "loopKey": "42:front",
+            "holes": (1...9).map { number in
+                ["hole": number, "par": 4, "distanceM": 320, "globalId": 42,
+                 "localHole": number, "courseHoleNumber": number, "garminAssetVersion": "release-a"] as [String: Any]
+            }
+        ]
+        let seed = try JSONDecoder().decode(WatchRoundSeed.self,
+            from: JSONSerialization.data(withJSONObject: seedObject))
         let model = WatchRoundModel(store: WatchRoundStore(directoryURL: directory))
-        let states = (1...9).map { number in
-            WatchRoundState(roundId: state.roundId, hole: number, par: 4, distanceM: 320,
-                suggestedClub: nil, selectedClub: nil, globalId: 42, sourceLocalHole: number,
-                garminAssetVersion: "release-a",
-                courseHoleNumber: number, score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline")
-        }
-        model.seedRound(states, activeHole: 1, courseName: "测试球场", courseGlobalId: 42, loopKey: "42:front")
-        XCTAssertNotNil(model.round, "fixture is a playable canonical round")
+        model.applyRoundSeed(seed)
+        let state = try XCTUnwrap(model.activeHoleState, "fixture is a playable phone-seeded round")
         let container = WatchRoundContainerView(model: model, holeGeometry: missing, holeImageStore: store)
         let actual = container.holeMapView(state, missing)
-        XCTAssertEqual(actual.mapPreparingAccessibilityIdentifiers, [], "J4.5: WC Garmin reaches the production root")
+        XCTAssertEqual(actual.mapPreparingAccessibilityIdentifiers, [], "J4.5: phone-seeded round shows the WC Garmin raster")
+        // A legacy snapshot omits the version; a current phone includes it. Both keep the map.
+        for version in [nil, "release-a"] as [String?] {
+            var snapshot = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+            snapshot["garminAssetVersion"] = version
+            // The legacy phone omits physical identity too.
+            snapshot.removeValue(forKey: "sourceLocalHole")
+            snapshot.removeValue(forKey: "courseHoleNumber")
+            let phoneState = try JSONDecoder().decode(WatchRoundState.self,
+                from: JSONSerialization.data(withJSONObject: snapshot))
+            model.receivePhoneState(phoneState)
+            let refreshed = try XCTUnwrap(model.activeHoleState)
+            XCTAssertEqual(refreshed.garminAssetVersion, "release-a",
+                "J4.5: a phone snapshot keeps the hole's Garmin version")
+            XCTAssertEqual(container.holeMapView(refreshed, missing).mapPreparingAccessibilityIdentifiers, [],
+                "J4.5: Garmin remains visible after a phone snapshot")
+        }
+        // An explicit different release must never use the cached release-a or another hole.
+        var mismatch = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+        mismatch["garminAssetVersion"] = "release-b"
+        model.receivePhoneState(try JSONDecoder().decode(WatchRoundState.self,
+            from: JSONSerialization.data(withJSONObject: mismatch)))
+        let mismatchedState = try XCTUnwrap(model.activeHoleState)
+        XCTAssertEqual(mismatchedState.garminAssetVersion, "release-b")
+        XCTAssertEqual(container.holeMapView(mismatchedState, missing).mapPreparingAccessibilityIdentifiers,
+            ["watch-map-preparing"], "J4.5: mismatched Garmin version waits neutrally")
+        let otherHole = try XCTUnwrap(model.round?.holeStates.first(where: { $0.hole == 2 }))
+        XCTAssertEqual(container.holeMapView(otherHole, missing).mapPreparingAccessibilityIdentifiers,
+            ["watch-map-preparing"], "J4.5: another physical hole cannot borrow this Garmin raster")
         func pixels(_ view: some View) throws -> [UInt8] {
             renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: view.frame(width: 198, height: 242)).cgImage))
         }
