@@ -1,0 +1,14 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 5d032812..a20358ee 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -245,9 +245,6 @@ def configure_request_timing_logging() -> None:
+     # Handler filters cover propagated child records; ancestor logger filters do not.
+     exits = [logging.getLogger(), logging.getLogger("server_v2"), logging.getLogger("ai_caddie"),
+              logging.getLogger("uvicorn"), logging.getLogger("uvicorn.error")]
+-    exits.extend(value for value in logging.Logger.manager.loggerDict.values()
+-                 if isinstance(value, logging.Logger)
+-                 and value.name.startswith(("server_v2", "ai_caddie")))
+     for exit_logger in exits:
+         for handler in exit_logger.handlers:
+             protect_handler(handler)

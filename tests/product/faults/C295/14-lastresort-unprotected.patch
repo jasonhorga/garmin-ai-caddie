@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 5d032812..4e855076 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -251,8 +251,6 @@ def configure_request_timing_logging() -> None:
+     for exit_logger in exits:
+         for handler in exit_logger.handlers:
+             protect_handler(handler)
+-    if logging.lastResort is not None:
+-        protect_handler(logging.lastResort)
+     access_log = logging.getLogger("uvicorn.access")
+     if not any(isinstance(item, request_timing.URLRedactionFilter) for item in access_log.filters):
+         access_log.addFilter(request_timing.URLRedactionFilter())

@@ -1,0 +1,13 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+index 6782f771..eb1267e7 100644
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -157,7 +157,7 @@ class LogPrivacyFilter(logging.Filter):
+         elif record.exc_text and not getattr(record, "_privacy_sanitized", False):
+             record.exc_text = _REDACTED
+         if record.stack_info:
+-            record.stack_info = _stack_text(record.stack_info)
++            record.stack_info = _REDACTED
+         record._privacy_sanitized = True
+         record.pathname = Path(record.pathname).name
+         return True

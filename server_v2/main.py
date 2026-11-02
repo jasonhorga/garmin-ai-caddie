@@ -211,7 +211,7 @@ from .session import save_garmin_session_response
 from . import session as session_routes
 from .sync_status import load_sync_status_response
 from .timing import RequestTiming, bind as bind_request_timing, mark as mark_request_stage, request_id as request_id_for
-from .log_privacy import protect_handler
+from .log_privacy import protect_future_handlers, protect_handler
 from . import timing_api
 from .share_api import router as share_router
 from ai_caddie.core import request_timing
@@ -235,6 +235,7 @@ SERVICE_INFO_LOGGERS = (
 
 def configure_request_timing_logging() -> None:
     """Service logging belongs to startup, never to importing a library hook."""
+    protect_future_handlers()
     for name in SERVICE_INFO_LOGGERS:
         service_log = logging.getLogger(name)
         service_log.setLevel(logging.INFO)
@@ -242,7 +243,8 @@ def configure_request_timing_logging() -> None:
             service_log.handlers.extend(logging.getLogger("uvicorn.error").handlers or [logging.StreamHandler()])
         service_log.propagate = False
     # Handler filters cover propagated child records; ancestor logger filters do not.
-    exits = [logging.getLogger(), logging.getLogger("server_v2"), logging.getLogger("ai_caddie")]
+    exits = [logging.getLogger(), logging.getLogger("server_v2"), logging.getLogger("ai_caddie"),
+             logging.getLogger("uvicorn"), logging.getLogger("uvicorn.error")]
     exits.extend(value for value in logging.Logger.manager.loggerDict.values()
                  if isinstance(value, logging.Logger)
                  and value.name.startswith(("server_v2", "ai_caddie")))

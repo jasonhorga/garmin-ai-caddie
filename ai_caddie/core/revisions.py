@@ -29,6 +29,13 @@ _REVISION_DIRECTORY_NAMES = frozenset({
 _LOGGER = logging.getLogger(__name__)
 
 
+def log_partition(directory: Path) -> str:
+    """Public J7.3 directory locator: scope plus SHA256 of the resolved UTF-8 path."""
+    directory = Path(directory)
+    scope = "player" if directory.parent.parent.name == "players" else "main"
+    return f"{scope}:{hashlib.sha256(str(directory.resolve()).encode('utf-8')).hexdigest()[:12]}"
+
+
 @dataclass
 class _Entry:
     directory: Path
@@ -270,7 +277,7 @@ def _scan_revision_cache_once() -> float:
             try:
                 signature = entry.scanner()
             except BaseException:
-                _LOGGER.exception("revision scanner failed")
+                _LOGGER.exception("revision scanner failed partition=%s", log_partition(entry.directory))
                 continue
             with _LOCK:
                 current = _ENTRIES.get((key, entry.variant))

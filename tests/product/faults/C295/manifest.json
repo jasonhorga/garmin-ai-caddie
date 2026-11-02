@@ -91,6 +91,20 @@
       "kind": "python",
       "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_syntax_error_payload_is_private_but_stack_survives",
       "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C295-14-lastresort-unprotected",
+      "patch": "tests/product/faults/C295/14-lastresort-unprotected.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_each_production_exit_redacts_identity_and_preserves_diagnostics",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C295-15-service-handlers-unprotected",
+      "patch": "tests/product/faults/C295/15-service-handlers-unprotected.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_each_production_exit_redacts_identity_and_preserves_diagnostics",
+      "promise": "J7.3"
     }
   ]
 }
