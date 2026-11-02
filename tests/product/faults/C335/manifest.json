@@ -24,6 +24,30 @@
       "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_display_ring_uses_display_number_when_local_hole_differs",
       "promise": "1.3",
       "kills": "Using source localHole as the ring display number rejects a valid combo continuation whose back loop is displayed as holes 10..18."
+    },
+    {
+      "id": "tests-product-faults-C335-04-ring-drops-back-id-guard",
+      "patch": "tests/product/faults/C335/04-ring-drops-back-id-guard.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_back_id_keeps_two_loop_combo_on_eighteen_hole_ring",
+      "promise": "1.3",
+      "kills": "Treating a nine-par course with a back loop as a nine-hole ring consumes restored holes across a 27-hole combo boundary."
+    },
+    {
+      "id": "tests-product-faults-C335-05-missing-pars-use-nine-ring",
+      "patch": "tests/product/faults/C335/05-missing-pars-use-nine-ring.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_missing_hole_pars_keeps_ambiguous_card_on_eighteen_hole_ring",
+      "promise": "1.3",
+      "kills": "Assuming missing holePars means a nine-hole ring falsely treats an ambiguous 9 -> 1 gap as same-round continuation."
+    },
+    {
+      "id": "tests-product-faults-C335-06-nine-ring-ignores-displayed-second-lap",
+      "patch": "tests/product/faults/C335/06-nine-ring-ignores-displayed-second-lap.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_nine_hole_double_round_from_non_one_start_keeps_tail_boundary",
+      "promise": "1.3",
+      "kills": "Keeping a nine-hole ring for displayed holes above 9 puts the second lap after the inferred tail and leaves duplicated restores in a non-one-start 9x2 round."
     }
   ]
 }

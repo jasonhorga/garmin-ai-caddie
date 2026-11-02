@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index c913df5e..082ee83c 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -312,7 +312,7 @@ def _same_day_matching_boundary_score_holes(
+         # A nine-hole course can be played twice and Garmin then displays 1..18 on one card.
+         # Those display numbers require the full ring; otherwise the out-of-ring second lap is
+         # appended after the inferred tail and boundary matching counts restored holes twice.
+-        if ring_size == 9 and any(display > 9 for display in display_by_key.values()):
++        if ring_size == 9 and False:
+             ring_size = 18
+         by_display: dict[int, list[tuple[int, int]]] = {}
+         for key in scores:
