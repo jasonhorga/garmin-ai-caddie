@@ -749,19 +749,6 @@ public struct StartRoundView: View {
         applySelectedCourse(first)
     }
 
-    /// The discovery loop supplies S70 evidence only from the single-venue 5 km answer.
-    /// Later radius publications must never replace this selection or its map-only intent.
-    private func ensureDefaultSelection(_ option: MobileCourseOption) {
-        let currentIsValid = selectedSegment != nil
-        if !currentIsValid {
-            selectVenue(Self.courseVenueName(option), userInitiated: false)
-        } else if Self.shouldReplaceAutomaticSelection(
-            current: selectedSegment, candidate: option, userPickedVenue: userPickedVenue
-        ) {
-            selectVenue(Self.courseVenueName(option), userInitiated: false)
-        }
-    }
-
     /// Provider nearby/search venues. Offline packages are deliberately excluded: they are listed
     /// after the provider rows and must never count as nearby evidence (auto-selection).
     private var displayVenues: [(venue: String, segments: [MobileCourseOption])] {
@@ -2336,7 +2323,7 @@ public struct StartRoundView: View {
         // explicit search result as a nearby-service error.
         nearbyRequestToken = nil
         isLoadingNearby = false
-        nearbyCourseOptions = Self.resetNearbyOptionsForManualSearch(nearbyCourseOptions)
+        reduceNearbyDiscoveryState(.manualSearch)
         nearbyStatusText = nil
         nearbyDiscoveryFailed = false
         offlineCourseOptions = []
@@ -2543,7 +2530,8 @@ public struct StartRoundView: View {
             selected: MobileCourseOption?,
             selectedGlobalIdText: String,
             availableNearby: [MobileCourseOption],
-            userPickedVenue: Bool
+            userPickedVenue: Bool,
+            canApply: Bool
         )
     }
 
@@ -2551,7 +2539,36 @@ public struct StartRoundView: View {
         _ state: NearbyDiscoveryState,
         event: NearbyDiscoveryEvent
     ) -> NearbyDiscoveryState {
-        state
+        var next = state
+        next.selectionCommand = .none
+        switch event {
+        case .begin:
+            next.nearbyOptions = []
+        case .manualSearch:
+            next.nearbyOptions = []
+        case let .providerResult(result, canApply):
+            guard canApply else { return state }
+            next.nearbyOptions = result.providerOptions
+            if !result.providerOptions.isEmpty {
+                next.lastNearbyOptions = result.providerOptions
+            }
+        case let .automaticSelection(candidate, selected, selectedGlobalIdText, availableNearby, userPickedVenue, canApply):
+            guard canApply, !userPickedVenue else { return next }
+            if let candidate,
+               shouldReplaceAutomaticSelection(
+                   current: selected, candidate: candidate, userPickedVenue: userPickedVenue
+               ) {
+                next.selectionCommand = .select(candidate)
+            } else if candidate == nil,
+                      !nearbySelectionMatchesCurrentVenue(
+                          selected: selected,
+                          selectedGlobalIdText: selectedGlobalIdText,
+                          availableNearby: availableNearby
+                      ) {
+                next.selectionCommand = .clear
+            }
+        }
+        return next
     }
 
     /// The actual bounded nearby request loop. Keeping the transport loop here lets acceptance tests
@@ -2666,29 +2683,6 @@ public struct StartRoundView: View {
         return availableNearby.contains { samePhysicalVenue(selected, $0) }
     }
 
-    /// An empty late provider answer must not erase rows already published during expansion.
-    static func nearbyOptionsAfterProviderResult(
-        current: [MobileCourseOption], incoming: [MobileCourseOption]
-    ) -> [MobileCourseOption] {
-        incoming.isEmpty ? current : incoming
-    }
-
-    /// Keep the last successful provider answer for recent/offline venue recovery. Empty radius
-    /// answers never replace that cache.
-    static func nearbyCacheAfterProviderResult(
-        current: [MobileCourseOption], incoming: [MobileCourseOption]
-    ) -> [MobileCourseOption] {
-        incoming.isEmpty ? current : incoming
-    }
-
-    /// A provider result is applied only for the live request generation. The view owns the side
-    /// effects; this pure gate keeps the stale-result guard independently testable.
-    static func providerResultIfCurrent(
-        _ result: NearbyDiscoveryLoopResult, canApply: Bool
-    ) -> NearbyDiscoveryLoopResult? {
-        canApply ? result : nil
-    }
-
     static func shouldReplaceAutomaticSelection(
         current: MobileCourseOption?,
         candidate: MobileCourseOption,
@@ -2697,11 +2691,6 @@ public struct StartRoundView: View {
         guard !userPickedVenue else { return false }
         guard let current else { return true }
         return !samePhysicalVenue(current, candidate)
-    }
-
-    static func resetNearbyOptionsForManualSearch(_ options: [MobileCourseOption]) -> [MobileCourseOption] {
-        _ = options
-        return []
     }
 
     static func nearbyDiscoveryErrorMessage(_ error: Error) -> String {
@@ -2729,6 +2718,76 @@ public struct StartRoundView: View {
         return "附近球场暂时无法读取；可重试，或按球场名搜索。"
     }
 
+    private func reduceNearbyDiscoveryState(_ event: NearbyDiscoveryEvent) {
+        let current = NearbyDiscoveryState(
+            nearbyOptions: nearbyCourseOptions,
+            lastNearbyOptions: lastNearbyCourseOptions
+        )
+        let reduced = Self.reduceNearbyDiscoveryState(current, event: event)
+        nearbyCourseOptions = reduced.nearbyOptions
+        lastNearbyCourseOptions = reduced.lastNearbyOptions
+        switch reduced.selectionCommand {
+        case .none:
+            break
+        case let .select(option):
+            selectVenue(Self.courseVenueName(option), userInitiated: false)
+        case .clear:
+            clearAutomaticSelection()
+        }
+    }
+
+    private func applyNearbyProviderResult(
+        _ result: NearbyDiscoveryLoopResult,
+        requestToken: UUID,
+        requestKey: String,
+        localNearby: [MobileCourseOption]
+    ) {
+        let canApply = Self.shouldApplyNearbyDiscoveryResult(
+            isCancelled: Task.isCancelled,
+            requestToken: requestToken,
+            activeRequestToken: nearbyRequestToken,
+            requestKey: requestKey,
+            currentRequestKey: locationDiscoveryKey,
+            manualSearchSelected: selectedCourseWasManualSearch
+        )
+        reduceNearbyDiscoveryState(.providerResult(result, canApply: canApply))
+        guard canApply else { return }
+        carriedCourseTees.merge(result.carriedTees) { _, latest in latest }
+        let providerIDs = Set(result.providerOptions.map(\.globalId))
+        offlineCourseOptions = resolvedOfflineOptions(localNearby).filter {
+            !providerIDs.contains($0.globalId)
+        }
+    }
+
+    private func applyNearbyAutomaticSelection(
+        _ candidate: MobileCourseOption?,
+        availableNearby: [MobileCourseOption]? = nil,
+        requestToken: UUID? = nil,
+        requestKey: String? = nil
+    ) {
+        let canApply: Bool
+        if let requestToken, let requestKey {
+            canApply = Self.shouldApplyNearbyDiscoveryResult(
+                isCancelled: Task.isCancelled,
+                requestToken: requestToken,
+                activeRequestToken: nearbyRequestToken,
+                requestKey: requestKey,
+                currentRequestKey: locationDiscoveryKey,
+                manualSearchSelected: selectedCourseWasManualSearch
+            )
+        } else {
+            canApply = true
+        }
+        reduceNearbyDiscoveryState(.automaticSelection(
+            candidate: candidate,
+            selected: selectedSegment,
+            selectedGlobalIdText: courseGlobalIdText,
+            availableNearby: availableNearby ?? nearbyCourseOptions,
+            userPickedVenue: userPickedVenue,
+            canApply: canApply
+        ))
+    }
+
     @MainActor
     private func discoverNearbyCourses() async {
         let requestToken = UUID()
@@ -2740,7 +2799,7 @@ public struct StartRoundView: View {
             return
         }
         guard let fix = locationProvider.latestFix else {
-            nearbyCourseOptions = []
+            reduceNearbyDiscoveryState(.begin)
             offlineCourseOptions = resolvedOfflineOptions(downloadedCourseOptions)
             nearbyDiscoveryFailed = false
             isLoadingNearby = locationProvider.authorizationStatus == .notDetermined
@@ -2761,6 +2820,7 @@ public struct StartRoundView: View {
         let requestKey = locationDiscoveryKey
         // Keep published nearby rows usable throughout a refresh/expansion. Local candidates
         // remain in their explicit offline section and never supply S70 nearby evidence.
+        reduceNearbyDiscoveryState(.begin)
         offlineCourseOptions = resolvedOfflineOptions(localNearby)
         nearbyDiscoveryFailed = false
         nearbyStatusText = nil
@@ -2774,54 +2834,22 @@ public struct StartRoundView: View {
                 manualSearchSelected: selectedCourseWasManualSearch
             )
         }
-        func applyProviderResult(_ result: NearbyDiscoveryLoopResult) {
-            guard let result = Self.providerResultIfCurrent(result, canApply: canApply()) else { return }
-            carriedCourseTees.merge(result.carriedTees) { _, latest in latest }
-            let appliedOptions = Self.nearbyOptionsAfterProviderResult(
-                current: nearbyCourseOptions, incoming: result.providerOptions
-            )
-            if appliedOptions != nearbyCourseOptions { nearbyCourseOptions = result.providerOptions }
-            let cachedOptions = Self.nearbyCacheAfterProviderResult(
-                current: lastNearbyCourseOptions, incoming: result.providerOptions
-            )
-            if cachedOptions != lastNearbyCourseOptions { lastNearbyCourseOptions = result.providerOptions }
-            let providerIDs = Set(result.providerOptions.map(\.globalId))
-            offlineCourseOptions = resolvedOfflineOptions(localNearby).filter {
-                !providerIDs.contains($0.globalId)
-            }
-        }
         let outcome = await Self.performNearbyDiscovery(
             latitude: fix.coordinate.latitude,
             longitude: fix.coordinate.longitude,
             setLoading: { loading in
                 if nearbyRequestToken == requestToken { isLoadingNearby = loading }
             },
-            publish: { applyProviderResult($0) },
-            selectAutomatically: { option in
-                guard canApply(), !userPickedVenue else { return }
-                if let option {
-                    ensureDefaultSelection(option)
-                } else if !Self.nearbySelectionMatchesCurrentVenue(
-                    selected: selectedSegment,
-                    selectedGlobalIdText: courseGlobalIdText,
-                    availableNearby: nearbyCourseOptions
-                ) {
-                    clearAutomaticSelection()
-                }
+            publish: { applyNearbyProviderResult($0, requestToken: requestToken, requestKey: requestKey, localNearby: localNearby) },
+            selectAutomatically: {
+                applyNearbyAutomaticSelection($0, requestToken: requestToken, requestKey: requestKey)
             },
             request: onNearbyCourses,
             resolve: { self.resolvedOption(for: $0) }
         )
         guard canApply() else { return }
-        applyProviderResult(outcome)
-        if Self.shouldClearAutomaticSelection(
-            selected: selectedSegment,
-            selectedGlobalIdText: courseGlobalIdText,
-            availableNearby: outcome.providerOptions,
-            userPickedVenue: userPickedVenue
-        ) {
-            clearAutomaticSelection()
-        }
+        applyNearbyProviderResult(outcome, requestToken: requestToken, requestKey: requestKey, localNearby: localNearby)
+        applyNearbyAutomaticSelection(nil, availableNearby: outcome.providerOptions)
         nearbyDiscoveryFailed = Self.nearbyDiscoveryShouldFail(
             publishedProviderResult: outcome.publishedProviderResult,
             lastError: outcome.lastError,
