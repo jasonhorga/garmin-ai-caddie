@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C255-01-old-nearest-tail",
+      "patch": "tests/product/faults/C255/01-old-nearest-tail.patch",
+      "kind": "python",
+      "target": "tests.test_course_prep.PureLogicTests.test_j4_6_every_continuation_path_uses_the_shared_tail",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C255-02-old-longest-tail",
+      "patch": "tests/product/faults/C255/02-old-longest-tail.patch",
+      "kind": "python",
+      "target": "tests.test_course_prep.PureLogicTests.test_j4_6_every_continuation_path_uses_the_shared_tail",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C255-03-old-no-layup-tail",
+      "patch": "tests/product/faults/C255/03-old-no-layup-tail.patch",
+      "kind": "python",
+      "target": "tests.test_course_prep.PureLogicTests.test_j4_6_every_continuation_path_uses_the_shared_tail",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C255-04-stop-window-over20",
+      "patch": "tests/product/faults/C255/04-stop-window-over20.patch",
+      "kind": "python",
+      "target": "tests.test_course_prep.PureLogicTests.test_j4_6_scoring_window_includes_16_to_20m_boundary",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C255-05-fallback-increasing-carry",
+      "patch": "tests/product/faults/C255/05-fallback-increasing-carry.patch",
+      "kind": "python",
+      "target": "tests.test_course_prep.PureLogicTests.test_j4_6_shared_tail_fallback_keeps_carry_descending_through_water",
+      "promise": "4.6"
+    }
+  ]
+}

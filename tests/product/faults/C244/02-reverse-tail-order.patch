@@ -1,9 +1,9 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index 399fb29d..1e58734c 100644
+index a1d346c4..055257a5 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -1808,7 +1808,7 @@ def _shared_sequence_tail(remaining_m: float, approach_ladder, *, start_m: float
-         forbid_driver=True,
+@@ -1856,7 +1856,7 @@ def _shared_sequence_tail(
+         ),
          prefer_layup_window=True,
      )
 -    return [(str(row.get("clubName") or ""), float(row.get("median_m") or 0.0)) for row in tail]

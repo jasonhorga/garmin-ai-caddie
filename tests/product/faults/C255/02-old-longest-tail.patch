@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index a1d346c4..4ee0d200 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2007,7 +2007,7 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_
+                 max_overshoot_m=None,
+                 sample_size=None,
+             )
+-            if shared_tail:
++            if shared_tail and effective > 300:
+                 effective_remaining = effective
+                 for tail_index, (tail_club, tail_distance) in enumerate(shared_tail):
+                     before = remaining
