@@ -21,6 +21,27 @@
       "kind": "python",
       "target": "tests.test_stats_cache.StatsCacheTests.test_persistent_cache_rejects_previous_schema_version",
       "promise": "2.1"
+    },
+    {
+      "id": "tests-product-faults-C235-04-outing-date-unbounded",
+      "patch": "tests/product/faults/C235/outing-date-unbounded.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_restore_is_not_superseded_by_another_date_same_course",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C235-05-global-id-ignored",
+      "patch": "tests/product/faults/C235/global-id-ignored.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_same_day_different_course_does_not_supersede_restore",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C235-06-strokeless-hole-supersedes",
+      "patch": "tests/product/faults/C235/strokeless-hole-supersedes.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_strokeless_late_card_does_not_supersede_restore",
+      "promise": "1.3"
     }
   ]
 }
