@@ -638,7 +638,7 @@ public struct HoleImageMapView: View {
     /// The tee-distance reference arc in topo pixels, for the live viewport layer that lays out its
     /// "N码" label together with the leg labels.
     func teeDistanceArcPixels() -> MapFlightArc? {
-        guard drawsCanvas, let overlay = displayOverlay,
+        guard let overlay = displayOverlay,
               let teeDistanceArcYards,
               teeDistanceArcYards > 0 else { return nil }
         return Self.teeDistanceArc(
@@ -651,7 +651,7 @@ public struct HoleImageMapView: View {
     /// The planned route in topo pixels (the overlay's own frame), exactly as the bitmap would draw
     /// it. Empty when the map has no projectable route or recommendation.
     func plannedLegs() -> [MapPlannedLeg] {
-        guard drawsCanvas, let overlay = displayOverlay, overlay.w > 0, overlay.h > 0 else { return [] }
+        guard let overlay = displayOverlay, overlay.w > 0, overlay.h > 0 else { return [] }
         let routePoints: [CGPoint] = overlay.route.compactMap { row in
             guard row.count >= 2, row[0].isFinite, row[1].isFinite else { return nil }
             return CGPoint(x: row[0], y: row[1])

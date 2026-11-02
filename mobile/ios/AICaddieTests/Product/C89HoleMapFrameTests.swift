@@ -106,7 +106,8 @@ final class C89HoleMapFrameTests: XCTestCase {
                                        drawsPlannedRouteInMap: false)
         XCTAssertFalse(factual.drawsCanvas, "no bitmap means no Canvas at all")
         XCTAssertFalse(factual.drawsFactLayer)
-        XCTAssertTrue(factual.plannedLegs().isEmpty)
+        // Leg geometry is pure; only the Canvas mount is gated on a bitmap.
+        XCTAssertEqual(factual.plannedLegs().count, 2)
     }
 
     func testSameFrameRowKeepsItsRouteOverTheTopoWithoutTheCourseViewBand() throws {
