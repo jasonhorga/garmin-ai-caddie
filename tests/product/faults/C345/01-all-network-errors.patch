@@ -1,0 +1,13 @@
+diff --git a/.github/scripts/check_native_fixture_dns.py b/.github/scripts/check_native_fixture_dns.py
+index 87bba296..7eaf9447 100644
+--- a/.github/scripts/check_native_fixture_dns.py
++++ b/.github/scripts/check_native_fixture_dns.py
+@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
+ 
+ 
+ _NSURLError_RE = re.compile(
+-    r"(?:NSURLErrorDomain Code=|error code:\s*|finished with error \[)(-\d+)"
++    r"(?:NSURLErrorDomain Code=|error code:\s*|finished with error \[)(-1003)"
+ )
+ _URL_RE = re.compile(
+     r"(?:NSErrorFailingURL(?:String)?Key=)([A-Za-z][A-Za-z0-9+.-]*://[^,\s}]+)"

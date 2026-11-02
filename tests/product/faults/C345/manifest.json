@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C345-01-dns-all-network-errors",
+      "patch": "tests/product/faults/C345/01-all-network-errors.patch",
+      "kind": "python",
+      "target": "tests.test_native_fixture_dns_gate.NativeFixtureDNSGateTests.test_unmarked_tls_failure_to_fixture_host_is_reported",
+      "promise": "J4.2",
+      "kills": "Fixture-host TLS failures must be reported alongside DNS failures."
+    }
+  ]
+}
