@@ -1,12 +1,13 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index c761ecd4..698839a1 100644
+index c761ecd4..cede650c 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -348,7 +348,6 @@ def _same_day_matching_boundary_score_holes(
+@@ -347,7 +347,7 @@ def _same_day_matching_boundary_score_holes(
+                 other_boundary = set(other_order[:len(overlap)]) if overlap else set()
                  if overlap != own_boundary or overlap != other_boundary:
                      continue
-                 if (1 <= len(overlap) <= 2
--                        and len(overlap) < min(len(own), len(other))
+-                if (1 <= len(overlap) <= 2
++                if (1 <= len(overlap)
+                         and len(overlap) < min(len(own), len(other))
                          and all(len(own[key]) == 1 and own[key] == other[key] for key in overlap)):
                      covered.update(other.keys() - own.keys())
-     return candidates
