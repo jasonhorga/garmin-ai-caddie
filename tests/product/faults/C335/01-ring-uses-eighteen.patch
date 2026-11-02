@@ -1,13 +1,15 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index 9470999c..74ffa24d 100644
+index aeffb09b..c07d9536 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -358,7 +358,7 @@ def _same_day_matching_boundary_score_holes(
-                 scores.setdefault(key, set()).add(strokes)
-                 display_by_key.setdefault(key, display)
-         by_day.setdefault(day, []).append((
--            str(row.get("id")), scores, ring_order(scores, display_by_key, ring_length(row))
-+            str(row.get("id")), scores, ring_order(scores, display_by_key, 18)
-         ))
-     candidates: dict[str, set[tuple[int, int]]] = {}
-     for cards in by_day.values():
+@@ -336,9 +336,7 @@ def _same_day_matching_boundary_score_holes(
+                 continue
+             display, physical, side = physical_side
+             if ring_size == 9:
+-                # Scale a nine-hole display onto the existing 18-slot arithmetic. Even slots
+-                # preserve every gap ordering and tie while making 9 -> 1 the physical wrap.
+-                display *= 2
++                display *= 1
+             strokes = _int(hole.get("strokes"))
+             if strokes is None:
+                 continue
