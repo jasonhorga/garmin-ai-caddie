@@ -1073,11 +1073,27 @@ def apply_mobile_reconciliation_suggestions(
         source_event_id = str(payload.get("sourceEventId") or "")
         if resolution in {"garmin", "mobile"} and source_event_id:
             conflict_choices.setdefault(source_event_id, set()).add(str(resolution))
+    rejected_conflicts: list[dict[str, Any]] = []
+    rejected_ids: set[str] = set()
     for source_event_id, resolutions in conflict_choices.items():
         if resolutions == {"garmin", "mobile"}:
-            raise CorrectionConflict(
-                f"reconciliation_conflict_mutually_exclusive: choose one resolution for {source_event_id}"
-            )
+            ids = [
+                str(row.get("id")) for row in selected
+                if str((row.get("payload") or {}).get("sourceEventId") or "") == source_event_id
+                and (row.get("payload") or {}).get("resolution") in {"garmin", "mobile"}
+            ]
+            rejected_ids.update(ids)
+            rejected_conflicts.append({
+                "code": "reconciliation_conflict_mutually_exclusive",
+                "message": f"choose one resolution for {source_event_id}",
+                "sourceEventId": source_event_id,
+                "suggestionIds": ids,
+            })
+    if rejected_conflicts:
+        selected = [row for row in selected if str(row.get("id")) not in rejected_ids]
+        if not selected:
+            detail = "; ".join(str(row["message"]) for row in rejected_conflicts)
+            raise CorrectionConflict(f"reconciliation_conflict_mutually_exclusive: {detail}")
 
     from ai_caddie.rounds import correction_audit  # lazy, as in annotations: the audit reads history
 
@@ -1123,6 +1139,8 @@ def apply_mobile_reconciliation_suggestions(
         "skippedCount": len(skipped),
         "missingSuggestionIds": missing,
         "skippedSuggestionIds": skipped,
+        "rejectedSuggestionIds": sorted(rejected_ids),
+        "conflictErrors": rejected_conflicts,
         "annotations": annotations,
         "decisionAudits": decision_audits,
     }

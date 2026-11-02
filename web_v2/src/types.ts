@@ -930,6 +930,8 @@ export interface MobileReconciliationApplyResponse {
   skippedCount: number
   missingSuggestionIds: string[]
   skippedSuggestionIds: string[]
+  rejectedSuggestionIds?: string[]
+  conflictErrors?: Array<Record<string, unknown>>
   annotations: AnnotationRecord[]
   decisionAudits: Array<Record<string, unknown>>
 }

@@ -1443,6 +1443,8 @@ class MobileReconciliationApplyResponse(BaseModel):
     skippedCount: int
     missingSuggestionIds: list[str] = Field(default_factory=list)
     skippedSuggestionIds: list[str] = Field(default_factory=list)
+    rejectedSuggestionIds: list[str] = Field(default_factory=list)
+    conflictErrors: list[dict[str, Any]] = Field(default_factory=list)
     annotations: list[AnnotationRecord]
     decisionAudits: list[dict[str, Any]] = Field(default_factory=list)
 

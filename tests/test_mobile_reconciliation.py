@@ -113,6 +113,41 @@ class MobileReconciliationTests(unittest.TestCase):
                 )
             self.assertEqual(len(list_annotations(root=root)), 1)
 
+    def test_j3_3_mutual_conflict_rejection_does_not_block_other_suggestions(self) -> None:
+        # J3.3: a rejected conflict group is reported explicitly while unrelated suggestions in
+        # the same request continue through the normal annotation path.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data = fixture_history_data()
+            append_event_batch("900001", [{"eventId": "partial-score", "roundId": "900001", "hole": 1,
+                                            "kind": "score", "payload": {"strokes": 6}}],
+                               idempotency_key="partial-score", root=root)
+            initial = reconcile_mobile_round_events("900001", data, root=root)
+            apply_mobile_reconciliation_suggestions(
+                "900001", data, suggestion_ids=["partial-score:score-correction"],
+                root=root, annotations_root=root, data_loader=lambda: data,
+            )
+            append_event_batch("900001", [{"eventId": "partial-note", "roundId": "900001", "hole": 2,
+                                            "kind": "note", "payload": {"note": "keep this note"}}],
+                               idempotency_key="partial-note", root=root)
+            late_round = deepcopy(data.rounds[0])
+            late_round["holes"] = [{**hole, "strokes": 7} if hole.get("number") == 1 else hole
+                                    for hole in late_round["holes"]]
+            late = HistoryData(raw_rounds=[], rounds=[late_round], shots=data.shots)
+            conflict = reconcile_mobile_round_events("900001", late, root=root, annotations_root=root)
+            ids = [row["id"] for row in conflict["annotationSuggestions"]]
+            applied = apply_mobile_reconciliation_suggestions(
+                "900001", late, suggestion_ids=ids, root=root, annotations_root=root,
+                data_loader=lambda: late,
+            )
+
+        self.assertEqual(applied["appliedCount"], 1)
+        self.assertEqual(applied["rejectedSuggestionIds"], [
+            "partial-score:score-correction-conflict:garmin:7:6",
+            "partial-score:score-correction-conflict:mobile:7:6",
+        ])
+        self.assertEqual(applied["conflictErrors"][0]["code"], "reconciliation_conflict_mutually_exclusive")
+
     def test_j3_3_garmin_resolution_follows_later_garmin_but_mobile_rechecks_it(self) -> None:
         # J3.3: adopting Garmin tracks later Garmin values; retaining mobile reports a new conflict.
         for resolution in ("garmin", "mobile"):

@@ -233,6 +233,9 @@ export function MobileReconciliationPanel({
               </span>
             ) : null}
             {expiredMessage ? <span>建议已过期</span> : null}
+            {applyState.status === 'ready' && (applyState.data.conflictErrors ?? []).length ? (
+              <span>冲突未应用：请选择其中一个处理方式</span>
+            ) : null}
             {applyState.status === 'error' ? <span>{applyState.message}</span> : null}
           </div>
 
