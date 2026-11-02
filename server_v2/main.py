@@ -339,7 +339,7 @@ def _start_history_signature_monitor(
             except Exception:
                 retry_attempts += 1
                 retry_after = clock() + exponential_backoff_seconds(retry_attempts)
-                logger.warning("history signature warm-up deferred player=%s", player_id, exc_info=True)
+                logger.warning("history signature warm-up deferred", exc_info=True)
 
     thread = threading.Thread(
         target=monitor,
@@ -1732,7 +1732,7 @@ def _load_player_course_history_rows(player_id: str) -> list:
         rows = getattr(data, "rounds", ())
         return list(rows or ())
     except Exception:
-        logger.warning("course reconciliation history load failed for player %s", player_id, exc_info=True)
+        logger.warning("course reconciliation history load failed", exc_info=True)
         return []
 
 

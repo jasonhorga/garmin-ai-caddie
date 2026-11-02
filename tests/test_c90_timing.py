@@ -430,6 +430,13 @@ class UvicornLogExitTests(unittest.TestCase):
         )
         self.assertNotIn(first_key, request_timing._ROUTE_TEMPLATE_CACHE)
 
+    def test_route_cache_clear_helper_resets_fixture_state(self) -> None:
+        """J7.3: test fixture teardown can reset route diagnostics state."""
+        request_timing.route_template("/c178-clear", "GET")
+        self.assertTrue(request_timing._ROUTE_TEMPLATE_CACHE)
+        request_timing.clear_route_template_cache()
+        self.assertFalse(request_timing._ROUTE_TEMPLATE_CACHE)
+
     def test_route_cache_lock_serializes_lookup_and_write(self) -> None:
         """J7.3: concurrent diagnostic requests cannot bypass the route cache lock."""
         finished = threading.Event()
@@ -461,6 +468,25 @@ class UvicornLogExitTests(unittest.TestCase):
                 server_main._load_player_course_history_rows("C178PLAYERSECRET")
         output = "\n".join(captured.output)
         self.assertNotIn("C178PLAYERSECRET", output)
+
+    def test_history_warm_error_logs_do_not_include_player_id(self) -> None:
+        """J7.3: background history warm diagnostics omit the player identifier."""
+        from server_v2 import main as server_main
+
+        stop = threading.Event()
+        calls = iter([False, True])
+        with (
+            patch.object(server_main, "_history_input_signature", side_effect=[("before",), RuntimeError("db down")]),
+            patch.object(server_main, "start_render_backfill"),
+            self.assertLogs("server_v2.main", level="WARNING") as captured,
+        ):
+            thread = server_main._start_history_signature_monitor(
+                stop_event=stop, interval_s=0.01, player_id="C178WARMPLAYER",
+                wait=lambda _timeout: next(calls),
+            )
+            thread.join(timeout=1)
+        output = "\n".join(captured.output)
+        self.assertNotIn("C178WARMPLAYER", output)
 
     def test_websocket_dependency_warning_is_filtered(self) -> None:
         """J7.3: --ws none's expected dependency warning is suppressed as log noise."""

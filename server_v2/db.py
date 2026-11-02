@@ -58,7 +58,13 @@ def get_engine() -> Engine:
         url = database_url()
         connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
         ensure_sqlite_parent(url)
-        _ENGINE = create_engine(url, future=True, pool_pre_ping=True, connect_args=connect_args)
+        _ENGINE = create_engine(
+            url,
+            future=True,
+            pool_pre_ping=True,
+            connect_args=connect_args,
+            hide_parameters=True,
+        )
         _SESSION_FACTORY = sessionmaker(bind=_ENGINE, expire_on_commit=False, future=True)
     return _ENGINE
 
