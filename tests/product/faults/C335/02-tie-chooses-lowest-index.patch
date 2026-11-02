@@ -1,9 +1,9 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index aeffb09b..c405ec71 100644
+index 9470999c..a53af66a 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -306,7 +306,7 @@ def _same_day_matching_boundary_score_holes(
-             ((displays[(index + 1) % len(displays)] - display - 1) % 18, index)
+@@ -321,7 +321,7 @@ def _same_day_matching_boundary_score_holes(
+             ((displays[(index + 1) % len(displays)] - display - 1) % ring_size, index)
              for index, display in enumerate(displays)
          ]
 -        start = (max(gaps)[1] + 1) % len(displays)
