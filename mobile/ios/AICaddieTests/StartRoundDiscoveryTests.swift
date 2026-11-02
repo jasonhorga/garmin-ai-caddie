@@ -1648,6 +1648,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
             MobileCourseSearchMatch(globalId: 7200 + index, name: "大都会 \(index)", holes: 18,
                 city: nil, province: nil, ratio: 1)
         }
+        let sibling = MobileCourseSearchMatch(globalId: 7102, name: "虹桥", holes: 9,
+            city: nil, province: nil, ratio: 1)
         var radii: [Int] = []
         var published: [MobileCourseOption] = []
         var loading = false
@@ -1669,16 +1671,15 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 selectAutomatically: { option in
                     selected = option
                     selectedIDs.append(option?.globalId)
-                    tee = StartRoundView.initialTee(callerTee: "", offered: option?.tees ?? [],
-                        courseTee: option?.teeBox)
+                    tee = option.map { StartRoundView.selectionState(for: $0, lastUsedTee: nil).teeBox } ?? ""
                 },
                 request: { _, _, radius in
                     radii.append(radius)
                     if radius == 5 { return [first] }
                     if radius == 20 { await gate.suspend() }
-                    // The expanded answer omits the first venue and repeats another: it must
-                    // append rather than replace the first answer or duplicate the visible row.
-                    return expanded + [expanded[0]]
+                    // The wider answer omits the original loop, adds a sibling at that venue,
+                    // and repeats another venue: keep both loops with one visible row per venue.
+                    return expanded + [sibling, expanded[0]]
                 },
                 resolve: { match in
                     MobileCourseOption(globalId: match.globalId, name: match.name, holes: 18,
@@ -1697,11 +1698,12 @@ final class StartRoundDiscoveryTests: XCTestCase {
         gate.resume()
         let outcome = await discovery.value
         XCTAssertEqual(radii, [5, 20], "five physical venues stop expansion before 50 km")
-        XCTAssertEqual(Set(published.map(\.globalId)), Set([7101, 7200, 7201, 7202, 7203]))
-        XCTAssertEqual(published.count, 5)
+        XCTAssertEqual(Set(published.map(\.globalId)), Set([7101, 7102, 7200, 7201, 7202, 7203]))
+        XCTAssertEqual(published.count, 6)
         let rows = StartRoundPresentation.mergedCourseRows(nearby: published)
         XCTAssertEqual(rows.count, 5, "one visible row per physical venue")
-        XCTAssertEqual(Set(outcome.providerOptions.map(\.globalId)), Set([7101, 7200, 7201, 7202, 7203]))
+        XCTAssertEqual(rows.first { $0.venue == "虹桥" }?.segments.map(\.globalId), [7101, 7102])
+        XCTAssertEqual(Set(outcome.providerOptions.map(\.globalId)), Set([7101, 7102, 7200, 7201, 7202, 7203]))
         XCTAssertEqual(selected?.globalId, 7101, "expanded results keep the first-pass selection")
         XCTAssertEqual(selectedIDs, [7101], "only the 5 km pass may change automatic selection")
         XCTAssertEqual(intentKey(), "7101:blue", "expansion must not replace the predownload intent")
@@ -1776,7 +1778,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
             }
         )
         XCTAssertEqual(radii, [5, 20])
-        XCTAssertEqual(outcome.providerOptions.count, 5)
+        XCTAssertEqual(outcome.providerOptions.count, 6, "the first venue is retained alongside five new venues")
     }
 
     func testNearbyResultsAreCappedAtTenPhysicalVenues() {
@@ -2304,7 +2306,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
     }
 
     /// While nearby is still coming the list says so above the usable rows (the watch shows the
-    /// same two states). A failure, an explicit search pick, or arrived nearby rows end the line.
+    /// same two states). A failure, an explicit search pick, or completion ends the line.
     func testNearbyPendingLineShowsOnlyWhileNearbyIsActuallyBeingLookedFor() {
         func text(
             loading: Bool = true, failed: Bool = false, manual: Bool = false,
@@ -2317,7 +2319,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         }
         XCTAssertEqual(text(fix: false), "正在等待定位…")
         XCTAssertEqual(text(fix: true), "正在找附近球场…")
-        XCTAssertNil(text(nearby: true, fix: true), "nearby arrived")
+        XCTAssertEqual(text(nearby: true, fix: true), "正在找附近球场…", "usable rows remain pending during expansion")
         XCTAssertNil(text(failed: true, fix: true), "the retry icon replaces it")
         XCTAssertNil(text(manual: true, fix: true), "an explicit search pick ends the wait")
         XCTAssertNil(text(loading: false, fix: false), "denied GPS: nothing is being looked for")
