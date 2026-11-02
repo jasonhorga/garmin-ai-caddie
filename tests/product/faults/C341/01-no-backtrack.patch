@@ -1,0 +1,8 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -480,3 +480,3 @@
+                              key=lambda i: (legacy_displays[i] - start_display) % ring_size)
+-            while anchor > 0:
++            while False:
+                 previous_display = legacy_displays[anchor - 1]

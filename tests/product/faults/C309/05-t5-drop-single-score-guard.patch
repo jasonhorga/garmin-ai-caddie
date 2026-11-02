@@ -1,9 +1,8 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index c761ecd4..f0d41a9b 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -351,3 +351,3 @@ def _same_day_matching_boundary_score_holes(
+@@ -526,3 +526,3 @@
                          and len(overlap) < min(len(own), len(other))
 -                        and all(len(own[key]) == 1 and own[key] == other[key] for key in overlap)):
 +                        and all(own[key] == other[key] for key in overlap)):
-                     covered.update(other.keys() - own.keys())
+                     effective_other_order = card_rows[other_id].get("timed_order", other_order)

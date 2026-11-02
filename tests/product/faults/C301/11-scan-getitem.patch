@@ -1,12 +1,7 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index eae262de..39723772 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -367,6 +367,7 @@ def corrected_rounds(
-     out: list[dict[str, Any]] = []
-     for row in rounds:
+@@ -591,2 +591,3 @@
          row_id = str(row.get("id"))
 +        _legacy = {key for source in rounds for key in real_score_holes[str(source.get("id"))][1]}
          refs = _round_refs(row)
-         other_real_score_holes = same_day_non_overlapping.get(row_id, set())
-         events = events_by_round.get(str(row.get("id"))) or []

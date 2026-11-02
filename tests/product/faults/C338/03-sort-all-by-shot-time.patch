@@ -1,13 +1,8 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index 05cbddd4..5fae8db5 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -381,7 +381,7 @@ def _same_day_matching_boundary_score_holes(
-         if timed_holes:
-             start_times[str(row.get("id"))] = min(timed_holes)[0]
-         by_day.setdefault(day, []).append((
--            str(row.get("id")), scores, ring_order(scores, display_by_key, ring_size, start_display)
-+            str(row.get("id")), scores, (sorted(scores, key=lambda key: min((time for time, display in timed_holes if display == display_by_key[key]), default=float("inf"))) if timed_holes else ring_order(scores, display_by_key, ring_size, start_display))
-         ))
-     candidates: dict[str, set[tuple[int, int]]] = {}
-     for cards in by_day.values():
+@@ -528,3 +528,3 @@
+                     effective_other_order = card_rows[other_id].get("timed_order", other_order)
+-                    effective_own_order = card_rows[round_id].get("timed_order", own_order)
++                    effective_own_order = sorted(own)
+                     # Timing rotates only the cards whose boundary is genuinely ambiguous.

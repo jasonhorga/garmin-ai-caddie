@@ -1,13 +1,8 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index bd4343ae..a39635e6 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -387,7 +387,7 @@ def _same_day_matching_boundary_score_holes(
-         for _position, shot in source_shots:
-             time = shot.get("shotTime")
-             display = _int(shot.get("hole"))
--            if (isinstance(time, int) and not isinstance(time, bool) and time > 0
-+            if (isinstance(time, int) and not isinstance(time, bool) and time >= 0
-                     and display is not None and 1 <= display <= ring_size):
-                 timed_holes.append((time, display))
-         start_display = min(timed_holes)[1] if timed_holes else None
+@@ -345,3 +345,3 @@
+         """
+-        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
++        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+             return None

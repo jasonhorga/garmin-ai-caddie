@@ -1,19 +1,9 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index eae262de..b5f4512a 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -256,13 +256,9 @@ def _same_day_non_overlapping_score_holes(
-     """
-     by_day: dict[str, list[tuple[str, set[tuple[int, int]]]]] = {}
-     for round_id, (day, keys) in real_score_holes.items():
--        if day:
--            by_day.setdefault(day, []).append((round_id, keys))
-+        by_day.setdefault(day, []).append((round_id, keys))
-     candidates: dict[str, set[tuple[int, int]]] = {}
+@@ -263,5 +263,2 @@
      for round_id, (day, own_keys) in real_score_holes.items():
 -        if not day:
 -            candidates[round_id] = set()
 -            continue
          candidates[round_id] = {
-             key
-             for other_id, other_keys in by_day.get(day, [])

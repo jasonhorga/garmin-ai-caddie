@@ -1,0 +1,8 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -461,3 +461,3 @@
+         # selecting the card start; a genuine first hole is still accepted at the geometry edge.
+-        while len(timed_holes) >= 3:
++        while False:
+             gaps = [right[0] - left[0] for left, right in zip(timed_holes, timed_holes[1:])]
