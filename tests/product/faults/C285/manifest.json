@@ -42,6 +42,27 @@
       "kind": "python",
       "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_restore_then_late_garmin_offers_two_resolutions",
       "promise": "J3.3/N2 assertion that matched resolution rows retain the legacy resolution boolean alongside resolved"
+    },
+    {
+      "id": "tests-product-faults-C285-om3-convergence-reset",
+      "patch": "tests/product/faults/C285/08-om3-drop-convergence-reset.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_sm3_converged_garmin_then_phone_edit_is_ordinary",
+      "promise": "J3.3/SM3 assertions that Garmin convergence leaves one ordinary 6 to 8 suggestion without conflict resolutions"
+    },
+    {
+      "id": "tests-product-faults-C285-om4-garmin-resolution-rechecked",
+      "patch": "tests/product/faults/C285/09-om4-garmin-resolution-rechecked.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_sm4_garmin_resolution_then_phone_edit_follows_current_garmin",
+      "promise": "J3.3/SM4 assertions that choosing Garmin 7 then applying the ordinary 8 to 9 edit settles at score 9"
+    },
+    {
+      "id": "tests-product-faults-C285-conflict-id-reuses-resolution",
+      "patch": "tests/product/faults/C285/07-conflict-id-reuses-resolution.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_mobile_resolution_a_b_a_gets_new_ids_for_score_putt_penalty",
+      "promise": "J3.3/N6 assertions that A to B to A mobile resolutions get a fresh id, apply once, settle, and retry idempotently skips"
     }
   ]
 }

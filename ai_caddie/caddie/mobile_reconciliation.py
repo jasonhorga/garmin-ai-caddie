@@ -27,6 +27,23 @@ def _safe_int(value: Any) -> int | None:
         return None
 
 
+def _correction_record_key(record: dict[str, Any] | None) -> str | None:
+    """Return a stable identity for the correction currently being superseded."""
+    if not isinstance(record, dict):
+        return None
+    audit_seq = record.get("auditSeq")
+    if isinstance(audit_seq, int):
+        return f"audit-{audit_seq}"
+    for key in ("eventId", "id"):
+        value = record.get(key)
+        if value:
+            return str(value)
+    payload = record.get("payload")
+    if isinstance(payload, dict) and payload.get("sourceSuggestionId"):
+        return str(payload["sourceSuggestionId"])
+    return None
+
+
 def _event_rows(round_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
     # The mobile event log is per-player partitioned (mobile_live.mobile_event_log): the owner keeps
     # the flat shared log; a member's live events live under their own partition. Read the ACTING
@@ -214,6 +231,9 @@ def _hole_scores(
                     score_correction_conflict = True
             elif score_correction_conflict and source_strokes is not None:
                 total = source_strokes
+        score_correction_record_key = (
+            _correction_record_key(score_winner) if score_correction_conflict else None
+        )
         for winner, source_value, field_value in (
             (putt_winner, source_putts, "putts"),
             (penalty_winner, source_penalties, "penalties"),
@@ -250,6 +270,12 @@ def _hole_scores(
                 putt_resolved_event_id = resolved_id
             else:
                 penalty_resolved_event_id = resolved_id
+        putt_correction_record_key = (
+            _correction_record_key(putt_winner) if putt_correction_conflict else None
+        )
+        penalty_correction_record_key = (
+            _correction_record_key(penalty_winner) if penalty_correction_conflict else None
+        )
         if putt_correction_conflict and source_putts is not None:
             putts = source_putts
         if penalty_correction_conflict and source_penalties is not None:
@@ -269,10 +295,16 @@ def _hole_scores(
             scores[number]["penaltyCorrectionConflict"] = True
         if resolved_event_id:
             scores[number]["resolvedEventId"] = resolved_event_id
+        if score_correction_record_key:
+            scores[number]["scoreCorrectionRecordKey"] = score_correction_record_key
         if putt_resolved_event_id:
             scores[number]["puttResolvedEventId"] = putt_resolved_event_id
+        if putt_correction_record_key:
+            scores[number]["puttCorrectionRecordKey"] = putt_correction_record_key
         if penalty_resolved_event_id:
             scores[number]["penaltyResolvedEventId"] = penalty_resolved_event_id
+        if penalty_correction_record_key:
+            scores[number]["penaltyCorrectionRecordKey"] = penalty_correction_record_key
     return scores
 
 
@@ -559,6 +591,7 @@ def _annotation_suggestions(
         ref = str(conflict.get("ref") or "")
         local_value = conflict.get("localValue")
         garmin_value = conflict.get("garminValue")
+        record_key = str(conflict.get("correctionRecordKey") or "")
         if not event_id or not ref:
             continue
         if kind == "putt":
@@ -569,7 +602,8 @@ def _annotation_suggestions(
                 ):
                     suggestions.append(
                         _suggestion(
-                            f"{event_id}:putt-correction-conflict:{resolution}:{garmin_value}:{local_value}",
+                            f"{event_id}:putt-correction-conflict:{resolution}:{garmin_value}:{local_value}"
+                            f"{':' + record_key if record_key else ''}",
                             target_type="hole", target_id=ref, kind="putt_correction",
                             payload={
                                 "from": local_value if resolution == "garmin" else garmin_value,
@@ -595,6 +629,7 @@ def _annotation_suggestions(
                 ):
                     suggestion_id = (
                         f"{event_id}:score-correction-conflict:{resolution}:{garmin_value}:{local_value}"
+                        f"{':' + record_key if record_key else ''}"
                     )
                     suggestions.append(
                         _suggestion(
@@ -635,7 +670,8 @@ def _annotation_suggestions(
                 ):
                     suggestions.append(
                         _suggestion(
-                            f"{event_id}:penalty-correction-conflict:{resolution}:{garmin_value}:{local_value}",
+                            f"{event_id}:penalty-correction-conflict:{resolution}:{garmin_value}:{local_value}"
+                            f"{':' + record_key if record_key else ''}",
                             target_type="hole", target_id=ref, kind="penalty_correction",
                             payload={
                                 "from": local_value if resolution == "garmin" else garmin_value,
@@ -893,6 +929,7 @@ def reconcile_mobile_round_events(
                         "garminValue": garmin_value,
                         "ref": garmin["ref"],
                         "correctionConflict": bool(garmin.get("scoreCorrectionConflict")),
+                        "correctionRecordKey": garmin.get("scoreCorrectionRecordKey"),
                     }
                 )
             continue
@@ -928,6 +965,7 @@ def reconcile_mobile_round_events(
                         "garminValue": garmin_value,
                         "ref": garmin["ref"],
                         "correctionConflict": bool(garmin.get("puttCorrectionConflict")),
+                        "correctionRecordKey": garmin.get("puttCorrectionRecordKey"),
                     }
                 )
             continue
@@ -963,6 +1001,7 @@ def reconcile_mobile_round_events(
                         "garminValue": garmin_value,
                         "ref": garmin["ref"],
                         "correctionConflict": bool(garmin.get("penaltyCorrectionConflict")),
+                        "correctionRecordKey": garmin.get("penaltyCorrectionRecordKey"),
                     }
                 )
             continue

@@ -1,0 +1,9 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index e390dabe..29d916fd 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -190,3 +190,3 @@ def _hole_scores(
+                     continue
+-                if resolution == "garmin":
++                if False:
+                     # This choice deliberately follows the current Garmin source forever.

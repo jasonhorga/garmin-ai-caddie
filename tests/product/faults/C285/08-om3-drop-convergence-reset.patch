@@ -1,0 +1,9 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index e390dabe..709bae14 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -209,3 +209,3 @@ def _hole_scores(
+             # even when an earlier link in the chain was superseded by that convergence.
+-            if source_value is not None and effective_value is not None and source_value == effective_value:
++            if False:
+                 conflict = False

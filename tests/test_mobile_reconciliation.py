@@ -136,16 +136,17 @@ class MobileReconciliationTests(unittest.TestCase):
             late = HistoryData(raw_rounds=[], rounds=[late_round], shots=data.shots)
             conflict = reconcile_mobile_round_events("900001", late, root=root, annotations_root=root)
             ids = [row["id"] for row in conflict["annotationSuggestions"]]
+            conflict_ids = [
+                row["id"] for row in conflict["annotationSuggestions"]
+                if row["payload"].get("resolution") in {"garmin", "mobile"}
+            ]
             applied = apply_mobile_reconciliation_suggestions(
                 "900001", late, suggestion_ids=ids, root=root, annotations_root=root,
                 data_loader=lambda: late,
             )
 
         self.assertEqual(applied["appliedCount"], 1)
-        self.assertEqual(applied["rejectedSuggestionIds"], [
-            "partial-score:score-correction-conflict:garmin:7:6",
-            "partial-score:score-correction-conflict:mobile:7:6",
-        ])
+        self.assertEqual(applied["rejectedSuggestionIds"], sorted(conflict_ids))
         self.assertEqual(applied["conflictErrors"][0]["code"], "reconciliation_conflict_mutually_exclusive")
 
     def test_j3_3_garmin_resolution_follows_later_garmin_but_mobile_rechecks_it(self) -> None:

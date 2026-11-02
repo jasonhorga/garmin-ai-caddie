@@ -1,0 +1,8 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index e390dabe..608ac694 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -631,3 +631,2 @@ def _annotation_suggestions(
+                         f"{event_id}:score-correction-conflict:{resolution}:{garmin_value}:{local_value}"
+-                        f"{':' + record_key if record_key else ''}"
+                     )
