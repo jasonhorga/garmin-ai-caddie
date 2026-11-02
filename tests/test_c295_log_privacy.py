@@ -2,9 +2,9 @@
 
 Imported by the J7 product suite; no assertions inspect implementation text.
 """
-import hashlib
 import io
 import logging
+import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -13,6 +13,7 @@ from unittest.mock import patch
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 
+from ai_caddie.caddie.mobile_event_store import FileEventStore
 from ai_caddie.core import request_timing, revisions
 from ai_caddie.ops import retention
 from server_v2 import main
@@ -80,6 +81,47 @@ class J7LogPrivacyTests(unittest.TestCase):
         self.assertIn("player_id", output)  # formatter really emits extra, not message-only
         for logger_name in (*main.SERVICE_INFO_LOGGERS, "server_v2.future.child"):
             self.assertIn("WARNING:" + logger_name, output)
+
+    def test_J73_syntax_error_payload_is_private_but_stack_survives(self):
+        from ai_caddie.history import stats_cache
+
+        stream = self.capture_service()
+        failure = SyntaxError("SENTINELSYNTAX", ("data/players/SENTINELSYNTAX", 1, 1, "SENTINELSYNTAX"))
+        failure.add_note("SENTINELNOTE")
+        with patch.object(stats_cache, "cached_load_history_data", side_effect=failure):
+            main._prepare_recent_work("SENTINELPLAYER")
+        output = stream.getvalue()
+        self.assertNotIn("SENTINELSYNTAX", output)
+        self.assertNotIn("SENTINELNOTE", output)
+        self.assertIn("SyntaxError", output)
+        self.assertIn("Traceback", output)
+
+    def test_J73_cached_exception_text_does_not_bypass_privacy(self):
+        stream = self.capture_service()
+        try:
+            raise RuntimeError("SENTINELCACHEDTEXT")
+        except RuntimeError:
+            record = logging.getLogger("server_v2.future").makeRecord(
+                "server_v2.future", logging.ERROR, __file__, 1, "cached failure", (), None)
+            record.exc_text = logging.Formatter().formatException(sys.exc_info())
+        logging.getLogger("server_v2.future").handle(record)
+        self.assertNotIn("SENTINELCACHEDTEXT", stream.getvalue())
+        self.assertIn("cached failure", stream.getvalue())
+
+    def test_J73_mobile_index_warning_uses_partition_without_service_startup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "data/players/SENTINELSTORE/mobile_events"
+            store = FileEventStore(root)
+            event = {"eventId": "one", "roundId": "privacy-round", "clientId": "ios",
+                     "kind": "score", "hole": 1, "payload": {"strokes": 4}}
+            with patch.object(store, "_record_round_index_after_append", side_effect=OSError("unavailable")), \
+                 self.assertLogs("ai_caddie.caddie.mobile_event_store", level="WARNING") as captured:
+                store.append_batch("privacy-round", [event], request_key="privacy-append")
+            output = "\n".join(captured.output)
+            self.assertNotIn("SENTINELSTORE", output)
+            self.assertRegex(output, r"partition=player:[0-9a-f]{12}")
+            self.assertIn("OSError", output)
+            self.assertEqual(len(store.read_rows()), 1)
 
     def test_J73_revision_scanner_omits_private_directory_without_service_startup(self):
         with tempfile.TemporaryDirectory() as tmp:

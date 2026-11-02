@@ -27,12 +27,14 @@ from server_v2.timing_api import sanitize_client_record
 @contextmanager
 def _routes_prepended(*routes):
     """Put extra routes in front of the real route table for one test."""
+    request_timing.clear_route_template_cache()
     app.router.routes[0:0] = routes
     try:
         yield
     finally:
         for route in routes:
             app.router.routes.remove(route)
+        request_timing.clear_route_template_cache()
 
 
 class _RecordingRoute:

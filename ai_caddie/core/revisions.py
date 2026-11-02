@@ -270,7 +270,7 @@ def _scan_revision_cache_once() -> float:
             try:
                 signature = entry.scanner()
             except BaseException:
-                _LOGGER.exception("revision scanner failed for %s", key)
+                _LOGGER.exception("revision scanner failed")
                 continue
             with _LOCK:
                 current = _ENTRIES.get((key, entry.variant))

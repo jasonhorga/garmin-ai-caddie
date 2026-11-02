@@ -27,6 +27,11 @@ from ai_caddie.core.request_timing import mark
 logger = logging.getLogger(__name__)
 
 
+def _log_partition(root: Path) -> str:
+    scope = "player" if root.parent.parent.name == "players" else "main"
+    return f"{scope}:{hashlib.sha256(str(root.resolve()).encode('utf-8')).hexdigest()[:12]}"
+
+
 EVENT_LOG_FILENAME = "events.jsonl"
 EVENT_LOCK_FILENAME = "events.jsonl.lock"
 ACK_FILENAME = "client_acks.json"
@@ -782,7 +787,7 @@ class FileEventStore:
                 )
             except OSError:
                 # An unavailable auxiliary sidecar cannot prevent an otherwise durable ACK.
-                logger.warning("mobile_event_round_index repair failed root=%s", self.root, exc_info=True)
+                logger.warning("mobile_event_round_index repair failed partition=%s", _log_partition(self.root), exc_info=True)
         rows = []
         for start, length, position, line in index.offsets.get(round_id, ()):
             try:
@@ -2563,8 +2568,8 @@ class FileEventStore:
             # next identity lookup, so an index filesystem issue cannot turn a committed batch
             # into a client-visible append failure.
             logger.warning(
-                "mobile_event_round_index update failed root=%s; will rebuild lazily",
-                self.root,
+                "mobile_event_round_index update failed partition=%s; will rebuild lazily",
+                _log_partition(self.root),
                 exc_info=True,
             )
         finally:
@@ -2694,7 +2699,7 @@ class FileEventStore:
             try:
                 self._write_round_index_unlocked(index, committed_length, committed_prefix)
             except OSError:
-                logger.warning("mobile_event_round_index repair failed root=%s", self.root, exc_info=True)
+                logger.warning("mobile_event_round_index repair failed partition=%s", _log_partition(self.root), exc_info=True)
         return index.high_water
 
     def _atomic_write_json(self, path: Path, payload: dict[str, Any]) -> None:
@@ -2777,9 +2782,9 @@ def start_round_event_index_migration(root: Path | str) -> threading.Thread:
             try:
                 changed = open_mobile_event_store(event_root).ensure_round_event_index()
                 if changed:
-                    logger.info("mobile_event_round_index migrated root=%s", event_root)
+                    logger.info("mobile_event_round_index migrated partition=%s", _log_partition(event_root))
             except Exception:
-                logger.warning("mobile_event_round_index migration failed root=%s", event_root, exc_info=True)
+                logger.warning("mobile_event_round_index migration failed partition=%s", _log_partition(event_root), exc_info=True)
 
     worker = threading.Thread(target=migrate, name="mobile-round-index-migration", daemon=True)
     worker.start()
