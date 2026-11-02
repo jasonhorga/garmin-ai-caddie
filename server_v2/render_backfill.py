@@ -525,7 +525,7 @@ class RenderBackfill:
         if not source:
             raise RuntimeError("garmin download failed: empty local JPEG")
         try:
-            with self._render_slot():
+            with background_work(unit_type="backfill-matte"), self._render_slot():
                 data = self._render_in_pool(processes, garmin_raster.matte_sky_webp, source)
         except (_RetryRender, _ShutdownRender, _RenderTimedOut):
             raise
@@ -793,7 +793,10 @@ class RenderBackfill:
                 self._current_unit = (key, unit)
             error = None
             try:
-                with background_work(unit_type="backfill"):
+                # The default Garmin renderer fetches outside its inner CPU admission. Injected
+                # renderers are CPU bodies, as is topo; keep their admission around the callback.
+                cpu = unit != "garmin" or self._render_garmin != self._default_render_garmin
+                with background_work(unit_type="backfill", cpu=cpu):
                     with work_priority(BACKFILL):
                         if unit == "topo":
                             self._render_topo(task["globalId"], task["localHole"])

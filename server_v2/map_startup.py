@@ -88,7 +88,7 @@ def _nearest_three(matches) -> list:
 
 
 def prefetch_nearby_releases(matches) -> int:
-    with background_work(unit_type="nearby"):
+    with background_work(unit_type="nearby", cpu=False):
         return _prefetch_nearby_releases(matches)
 
 

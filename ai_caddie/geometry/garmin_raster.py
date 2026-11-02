@@ -10,6 +10,8 @@ the geometry rules without a Garmin account or network access.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import nullcontext
+
 from io import BytesIO
 import json
 import logging
@@ -26,6 +28,7 @@ import numpy as np
 from PIL import Image
 
 from ai_caddie.core.data import ROOT, mesh_path, read_json
+from ai_caddie.core.priority_work import background_work, in_background
 from ai_caddie.courses.course_reference import courseview_release_info
 from ai_caddie.geometry.geometry_authority import asset_version, canonical_asset_path
 from ai_caddie.geometry.shot_projection import local_to_world
@@ -348,9 +351,22 @@ def fetch_matted_raster(global_id: int, hole: object, version: str | None = None
                     return data
         except Exception:
             pass
-        source = fetch_raster(int(global_id), hole)
-        if not source:
-            return None
+    # Provider IO and admission precede the shared matte lock. A foreground request must
+    # never follow a background leader that is paused for that same foreground request.
+    source = fetch_raster(int(global_id), hole)
+    if not source:
+        return None
+    lane = background_work(unit_type="raster-matte") if in_background() else nullcontext()
+    with lane, lock:
+        try:
+            if path.is_file():
+                data = path.read_bytes()
+                if data:
+                    with Image.open(BytesIO(data)) as decoded:
+                        decoded.verify()
+                    return data
+        except Exception:
+            pass
         try:
             data = _matte_cold(source)
         except Exception as exc:

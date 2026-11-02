@@ -777,6 +777,7 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
         from pathlib import Path
         from server_v2 import render_backfill as rb
         entered, release = threading.Event(), threading.Event()
+        counts = []
 
         def download(*args, **kwargs):
             entered.set()
@@ -790,7 +791,8 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
              patch.object(rb.garmin_raster, "fetch_raster", side_effect=download), \
              patch.object(rb.topo_render, "_render_process_count", return_value=2), \
              patch.object(rb.RenderBackfill, "_wait_for_foreground"), \
-             patch.object(rb.RenderBackfill, "_render_in_pool", return_value=b"webp"):
+             patch.object(rb.RenderBackfill, "_render_in_pool",
+                          side_effect=lambda *args: counts.append(self.gate.background_count) or b"webp"):
             root = Path(directory)
             (root / "meshes").mkdir()
             (root / "meshes/gid901_h01_meshes.json").write_text("{}")
@@ -801,6 +803,7 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
                 self.assert_cpu_during_network(worker.run_once, entered, release)
             finally:
                 worker.close()
+        self.assertEqual(counts, [1], "backfill matting must own the single CPU slot")
 
     def test_J42_raster_cpu_stays_serial_and_yields_after_download(self):
         from tempfile import TemporaryDirectory
@@ -847,6 +850,158 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertTrue(matted.is_set())
         self.assertEqual(counts, [1], "matting must own the unique background CPU slot")
+
+    def test_J42_install_cpu_callbacks_admit_on_their_own_threads(self):
+        """J4.2: geometry/CPU pool threads must retain both admission and foreground priority."""
+        import os
+        from concurrent.futures import ThreadPoolExecutor
+        from tempfile import TemporaryDirectory
+        from server_v2 import course_install as ci, main
+        downloaded, release, cpu_started = threading.Event(), threading.Event(), threading.Event()
+        waiting, observed = _observed_waits(self.gate)
+        counts, errors = {}, []
+
+        def cpu(kind):
+            counts[kind] = self.gate.background_count
+            cpu_started.set()
+            return True
+
+        def ensure(gid, *, holes, on_hole_complete, **kwargs):
+            downloaded.set()
+            release.wait(3)
+            result = {"globalId": gid, "localHole": 1, "ok": True}
+            # The real geometry pool does not propagate the install coordinator's ContextVars.
+            callback = threading.Thread(target=lambda: on_hole_complete(result), daemon=True)
+            callback.start()
+            callback.join(3)
+            if callback.is_alive():
+                errors.append("geometry callback remained blocked")
+            return {"results": [result]}
+
+        with TemporaryDirectory() as directory, ThreadPoolExecutor(max_workers=1) as topo_pool, \
+             patch.dict(os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}), \
+             patch.object(ci, "_launch"), patch.object(ci, "_schedule_retry"), \
+             patch.object(ci, "_launch_next_resumed_job"), \
+             patch.object(main, "_playing_install_matches", return_value=False), \
+             patch.object(main, "prefetch_garmin_rasters"), \
+             patch.object(main, "_probe_geometry_revision", return_value=("r1", "current")), \
+             patch.object(main, "_render_course_topo_one", side_effect=lambda *args: cpu("topo")), \
+             patch("ai_caddie.caddie.mobile_live._ensure_geometry_for_course", side_effect=ensure), \
+             patch("ai_caddie.courses.vector_prep.warm_requested_vectors", side_effect=lambda *args: cpu("vector")), observed:
+            state = ci.enqueue(global_id=901, tee_box="blue", loop_key="901:front", player_id="fixture",
+                refs=[{"globalId": 901, "localHole": 1, "displayHole": 1}],
+                requested={901: [1]}, ready={})
+
+            class TopoPool:
+                def submit_keyed(self, key, fn, *args, **kwargs):
+                    return topo_pool.submit(fn, *args)
+
+            with patch.object(main, "_TOPO_PIPELINE_POOL", TopoPool()):
+                worker = threading.Thread(target=ci._run, args=(state["jobId"],), daemon=True)
+                worker.start()
+                try:
+                    self.assertTrue(downloaded.wait(2))
+                    with self.gate.foreground():
+                        release.set()
+                        self.assertTrue(waiting.wait(1), "install callbacks skipped foreground admission")
+                        self.assertFalse(cpu_started.wait(.1), "install CPU callback ran beside package")
+                    worker.join(3)
+                finally:
+                    release.set()
+                    worker.join(3)
+                self.assertFalse(worker.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(counts, {"topo": 1, "vector": 1}, "each CPU callback must own the single slot")
+
+    def test_J42_registration_admits_after_network_before_publishing_leader(self):
+        from server_v2 import garmin_raster as api
+        downloaded, release, registered = threading.Event(), threading.Event(), threading.Event()
+        waiting, observed = _observed_waits(self.gate)
+        counts, errors = [], []
+
+        def download(*args):
+            downloaded.set()
+            release.wait(3)
+            return b"jpeg-fixture"
+
+        def register(*args):
+            counts.append(self.gate.background_count)
+            registered.set()
+            return {"available": True}
+
+        def run():
+            try:
+                api._warm_hole(901, 1, (901, 1, "v1"))
+            except BaseException as exc:
+                errors.append(exc)
+
+        with patch.object(api.garmin_raster, "fetch_matted_raster", return_value=b"webp-fixture"), \
+             patch.object(api.garmin_raster, "fetch_raster", side_effect=download), \
+             patch.object(api.garmin_raster, "save_projection_cache"), \
+             patch.object(api, "_asset_version", return_value="v1"), \
+             patch.object(api, "_projection_result", return_value=None), \
+             patch.object(api, "_INFLIGHT", {}), \
+             patch.object(api, "_register_one", side_effect=register), observed:
+            worker = threading.Thread(target=run, daemon=True)
+            worker.start()
+            try:
+                self.assertTrue(downloaded.wait(2))
+                with self.gate.foreground():
+                    release.set()
+                    self.assertTrue(waiting.wait(1), "registration skipped foreground admission")
+                    self.assertEqual(api._INFLIGHT, {}, "paused background published a foreground dependency")
+                    self.assertFalse(registered.is_set())
+                worker.join(2)
+            finally:
+                release.set()
+                worker.join(3)
+        self.assertEqual(errors, [])
+        self.assertEqual(counts, [1], "registration must own the single background CPU slot")
+
+    def test_J42_background_matte_wait_leaves_same_key_foreground_free(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        from ai_caddie.geometry import garmin_raster as raster
+        downloaded, release = threading.Event(), threading.Event()
+        waiting, observed = _observed_waits(self.gate)
+        result, errors = [], []
+
+        def download(*args):
+            downloaded.set()
+            release.wait(3)
+            return b"jpeg-fixture"
+
+        def background():
+            try:
+                # Exercise the real IO scope, source fetch, cache lock and CPU entry.
+                with self.pw.background_work(unit_type="raster", cpu=False):
+                    result.append(raster.fetch_matted_raster(901, 1, "v1"))
+            except BaseException as exc:
+                errors.append(exc)
+
+        with TemporaryDirectory() as directory, patch.object(raster, "RASTER_CACHE_DIR", Path(directory)), \
+             patch.object(raster, "fetch_raster", side_effect=download), \
+             patch.object(raster, "_matte_cold", return_value=b"webp-fixture"), observed:
+            worker = threading.Thread(target=background, daemon=True)
+            worker.start()
+            try:
+                self.assertTrue(downloaded.wait(2))
+                with self.gate.foreground():
+                    release.set()
+                    self.assertTrue(waiting.wait(1))
+                    # Simulate an HTTP foreground caller on a different thread/context. It must
+                    # finish the same cache key while the background is paused before its lock.
+                    foreground = threading.Thread(target=lambda: result.append(raster.fetch_matted_raster(901, 1, "v1")), daemon=True)
+                    foreground.start()
+                    foreground.join(1)
+                    self.assertFalse(foreground.is_alive(), "foreground waited on a paused background cache lock")
+                worker.join(2)
+                foreground.join(2)
+            finally:
+                release.set()
+                worker.join(3)
+        self.assertEqual(errors, [])
+        self.assertEqual(result, [b"webp-fixture", b"webp-fixture"])
 
 
 class NearbyDispatchTests(unittest.TestCase):

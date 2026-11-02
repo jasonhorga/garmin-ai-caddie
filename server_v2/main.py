@@ -44,6 +44,8 @@ from ai_caddie.core.priority_work import (
     SELECTED_COURSE,
     PriorityExecutor,
     foreground_work,
+    background_work,
+    in_background,
     work_priority,
     yield_to_foreground,
 )
@@ -2967,6 +2969,7 @@ def run_course_install_job(identifier: str) -> None:
     behind an 18-hole geometry barrier.  The journal is updated after every hole and can therefore
     resume safely after an API restart or a transient provider failure.
     """
+    background_install = in_background()
     state = course_install.state_for_worker(identifier)
     if state is None:
         return
@@ -3077,6 +3080,12 @@ def run_course_install_job(identifier: str) -> None:
             expected_work_revision=work_revision,
         )
 
+    def render_install_topo(gid: int, hole: int, expected_revision: str | None = None):
+        # Pool workers do not inherit ContextVars from the coordinator.
+        lane = background_work(unit_type="install-topo") if background_install else contextlib.nullcontext()
+        with lane:
+            return _render_course_topo_one(gid, hole, expected_revision)
+
     def queue_topo(row: dict[str, Any]) -> None:
         if course_install.cancellation_requested(identifier):
             return
@@ -3095,7 +3104,7 @@ def run_course_install_job(identifier: str) -> None:
             return
         future = _TOPO_PIPELINE_POOL.submit_keyed(
             ("install", gid, hole, geometry_revision),
-            _render_course_topo_one,
+            render_install_topo,
             gid,
             hole,
             geometry_revision,
@@ -3228,7 +3237,11 @@ def run_course_install_job(identifier: str) -> None:
             # package the interpreter first. No vector/geometry lock is held at this point.
             yield_to_foreground()
             try:
-                warm_requested_vectors(gid, hole)
+                # Geometry completion may run on a geometry worker, without the coordinator's
+                # context. Admit only its CPU seed here; provider/future waits own no CPU slot.
+                lane = background_work(unit_type="install-vector") if background_install else contextlib.nullcontext()
+                with lane:
+                    warm_requested_vectors(gid, hole)
             except Exception:
                 logger.exception("course_install stage=vector gid=%s hole=%s", gid, hole)
 
