@@ -681,6 +681,174 @@ class SingleUnitAdmissionTests(unittest.TestCase):
         self.assertTrue(vector_started.is_set())
 
 
+class CpuPhaseAdmissionTests(unittest.TestCase):
+    """J4.2: background downloads leave CPU capacity for other work and yield to packages."""
+
+    def setUp(self):
+        from ai_caddie.core import priority_work as pw
+        self.pw = pw
+        self.gate = ForegroundGate(timeout_s=5)
+        self.enterContext(patch.object(pw, "FOREGROUND_GATE", self.gate))
+
+    def assert_cpu_during_network(self, run, entered, release):
+        errors = []
+        computed = threading.Event()
+
+        def guarded(fn):
+            try:
+                fn()
+            except BaseException as exc:
+                errors.append(exc)
+
+        def cpu():
+            with self.pw.background_work(unit_type="fixture-cpu"):
+                computed.set()
+
+        network = threading.Thread(target=lambda: guarded(run), daemon=True)
+        compute = threading.Thread(target=lambda: guarded(cpu), daemon=True)
+        network.start()
+        try:
+            self.assertTrue(entered.wait(2), "network fixture did not start")
+            compute.start()
+            # J4.2's <1s foreground responsiveness: use a generous 0.5s watchdog for an
+            # event-only CPU body; network stays blocked until the assertion has run.
+            self.assertTrue(computed.wait(.5), "network wait occupied the background CPU slot")
+        finally:
+            release.set()
+            network.join(3)
+            if compute.ident is not None:
+                compute.join(3)
+        self.assertFalse(network.is_alive())
+        self.assertFalse(compute.is_alive())
+        self.assertEqual(errors, [])
+
+    def test_J42_nearby_network_leaves_background_cpu_available(self):
+        from ai_caddie.courses.course_search import CourseMatch
+        from server_v2 import map_startup as ms
+        entered, release = threading.Event(), threading.Event()
+
+        def fetch(*args, **kwargs):
+            entered.set()
+            release.wait(3)
+            return {"release_version": 1}
+
+        matches = [CourseMatch(901, "Fixture", 9, None, None, 1, distance_km=1)]
+        with patch.object(ms, "_RELEASE_PREFETCHED", {}), \
+             patch.object(ms, "nearby_work_blocked", return_value=False), \
+             patch.object(ms, "tee_requests_in_flight", return_value=False), \
+             patch.object(ms, "courseview_release_info", side_effect=fetch):
+            self.assert_cpu_during_network(lambda: ms.prefetch_nearby_releases(matches), entered, release)
+
+    def test_J42_install_network_leaves_background_cpu_available(self):
+        from server_v2 import course_install as ci, main
+        entered, release = threading.Event(), threading.Event()
+        state = {"jobId": "fixture", "globalId": 901, "phase": "queued", "holes": {}}
+
+        def coordinate(*args):
+            entered.set()
+            release.wait(3)
+
+        with patch.object(ci, "_read", return_value=state), patch.object(ci, "_write"), \
+             patch.object(ci, "_ACTIVE", set()), patch.object(ci, "_launch_next_resumed_job"), \
+             patch.object(main, "_playing_install_matches", return_value=False), \
+             patch.object(main, "run_course_install_job", side_effect=coordinate):
+            self.assert_cpu_during_network(lambda: ci._run("fixture"), entered, release)
+
+    def test_J42_raster_network_leaves_background_cpu_available(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        from server_v2 import garmin_raster as api
+        from ai_caddie.geometry import garmin_raster as raster
+        entered, release = threading.Event(), threading.Event()
+
+        def download(*args, **kwargs):
+            entered.set()
+            release.wait(3)
+            return None
+
+        with TemporaryDirectory() as directory, patch.object(raster, "RASTER_CACHE_DIR", Path(directory)), \
+             patch.object(raster, "_raster_url", return_value=("https://example.invalid/raster", "v1")), \
+             patch.object(raster, "fetch_raster", side_effect=download), \
+             patch.object(api, "_PREFETCHED", set()):
+            self.assert_cpu_during_network(lambda: api._warm_hole(901, 1, (901, 1, "v1")), entered, release)
+
+    def test_J42_backfill_network_leaves_background_cpu_available(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        from server_v2 import render_backfill as rb
+        entered, release = threading.Event(), threading.Event()
+
+        def download(*args, **kwargs):
+            entered.set()
+            release.wait(3)
+            return b"jpeg-fixture"
+
+        with TemporaryDirectory() as directory, \
+             patch.object(rb.garmin_raster, "RASTER_CACHE_DIR", Path(directory)), \
+             patch.object(rb.garmin_raster, "courseview_release_info", return_value={
+                 "release_version": 1, "holes": [{"hole": 1, "raster_url": "https://example.invalid/raster"}]}), \
+             patch.object(rb.garmin_raster, "fetch_raster", side_effect=download), \
+             patch.object(rb.topo_render, "_render_process_count", return_value=2), \
+             patch.object(rb.RenderBackfill, "_wait_for_foreground"), \
+             patch.object(rb.RenderBackfill, "_render_in_pool", return_value=b"webp"):
+            root = Path(directory)
+            (root / "meshes").mkdir()
+            (root / "meshes/gid901_h01_meshes.json").write_text("{}")
+            worker = rb.RenderBackfill(state_path=root / "state.json", mesh_root=root / "meshes",
+                topo_ready=lambda *_: True, raster_version=lambda *_: "v1")
+            try:
+                worker.enqueue_all(recent=[(901, 1)])
+                self.assert_cpu_during_network(worker.run_once, entered, release)
+            finally:
+                worker.close()
+
+    def test_J42_raster_cpu_stays_serial_and_yields_after_download(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        from server_v2 import garmin_raster as api
+        from ai_caddie.geometry import garmin_raster as raster
+        downloaded, release, matted = threading.Event(), threading.Event(), threading.Event()
+        waits, observed = _observed_waits(self.gate)
+        counts, errors = [], []
+
+        def download(*args, **kwargs):
+            downloaded.set()
+            release.wait(3)
+            return b"jpeg-fixture"
+
+        def matte(*args):
+            counts.append(self.gate.background_count)
+            matted.set()
+            return b"webp-fixture"
+
+        def run():
+            try:
+                api._warm_hole(901, 1, (901, 1, "v1"))
+            except BaseException as exc:
+                errors.append(exc)
+
+        with TemporaryDirectory() as directory, patch.object(raster, "RASTER_CACHE_DIR", Path(directory)), \
+             patch.object(raster, "_raster_url", return_value=("https://example.invalid/raster", "v1")), \
+             patch.object(raster, "fetch_raster", side_effect=download), \
+             patch.object(raster, "_matte_cold", side_effect=matte), \
+             patch.object(api, "course_hole_garmin_raster", return_value={"available": True}), observed:
+            thread = threading.Thread(target=run, daemon=True)
+            thread.start()
+            try:
+                self.assertTrue(downloaded.wait(2))
+                with self.gate.foreground():
+                    release.set()
+                    self.assertTrue(waits.wait(1), "download completion skipped foreground checkpoint")
+                    self.assertFalse(matted.is_set(), "background CPU ran beside foreground package")
+                thread.join(2)
+            finally:
+                release.set()
+                thread.join(3)
+        self.assertEqual(errors, [])
+        self.assertTrue(matted.is_set())
+        self.assertEqual(counts, [1], "matting must own the unique background CPU slot")
+
+
 class NearbyDispatchTests(unittest.TestCase):
     def test_J42_pending_nearby_batches_are_kept_per_player(self):
         """J4.2: another player's discovery must not replace a waiting batch (#599 r2 N4)."""
