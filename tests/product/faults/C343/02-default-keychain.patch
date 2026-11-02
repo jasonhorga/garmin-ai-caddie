@@ -4,7 +4,7 @@ index 5ca2232d..39a7ceb5 100644
 +++ b/fastlane/Fastfile
 @@ -95,8 +95,14 @@ platform :ios do
    end
- 
+
    def make_keychain!
 -    create_keychain(name: KEYCHAIN, password: match_keychain_password,
 -                    default_keychain: false, unlock: true, timeout: 3600)
@@ -17,5 +17,5 @@ index 5ca2232d..39a7ceb5 100644
 +    options[KEYCHAIN.start_with?("/") ? :path : :name] = KEYCHAIN
 +    create_keychain(**options)
    end
- 
+
    def build_xcargs
