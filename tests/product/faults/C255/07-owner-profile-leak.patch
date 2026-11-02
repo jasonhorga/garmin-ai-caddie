@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 98d0f540..50ca3e95 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -1774,7 +1774,7 @@ def _strategy_tee_row(usable_ladder, hazards: dict):
+ 
+ def _shared_sequence_profiles(player_id: str = OWNER_ID) -> dict[str, dict]:
+     try:
+-        profile_history = _corrected_profile_history(player_id)
++        profile_history = _corrected_profile_history()
+         profiles = build_club_profiles(
+             **({"history_data": profile_history} if profile_history is not None else {})
+         )

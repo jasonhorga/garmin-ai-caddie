@@ -35,6 +35,20 @@
       "kind": "python",
       "target": "tests.test_course_prep.PureLogicTests.test_j4_6_shared_tail_fallback_keeps_carry_descending_through_water",
       "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C255-06-unresolved-tail-accept",
+      "patch": "tests/product/faults/C255/06-unresolved-tail-accept.patch",
+      "kind": "python",
+      "target": "tests.test_course_prep.PureLogicTests.test_j4_6_shared_tail_always_finishes_in_the_scoring_window",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C255-07-owner-profile-leak",
+      "patch": "tests/product/faults/C255/07-owner-profile-leak.patch",
+      "kind": "python",
+      "target": "tests.test_course_prep.PureLogicTests.test_j7_1_member_prep_uses_member_profile_statistics",
+      "promise": "7.1"
     }
   ]
 }
