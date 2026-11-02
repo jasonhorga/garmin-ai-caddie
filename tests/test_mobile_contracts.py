@@ -3777,7 +3777,7 @@ class MobileContractTests(unittest.TestCase):
         chrome = current_hole.split("    private var liveMapChrome: some View {", 1)[1].split("    private var liveCaddieRouteSummary", 1)[0]
         self.assertNotIn(".accessibilityElement(children: .contain)", chrome)
         self.assertNotIn('"live-map-chrome"', current_hole)
-        self.assertIn("greenPath.boundingRect.midX", current_hole)
+        self.assertIn("greenEntryHitPath.boundingRect.midX", current_hole)
         self.assertIn('HoleSwipeNavigation.target(', current_hole)
         self.assertIn("penaltyCount", current_hole)
         self.assertIn("CaddieDecisionRequestBuilder", current_hole)
