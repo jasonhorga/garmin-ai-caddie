@@ -49,6 +49,7 @@ class J7LogPrivacyTests(unittest.TestCase):
         # service exits and a dynamic-stderr lastResort for ordinary children.
         logging.config.dictConfig(LOGGING_CONFIG)
         logging.getLogger().handlers[:] = []
+        logging.getLogger().setLevel(logging.WARNING)
         streams = {}
         for name in (*main.SERVICE_INFO_LOGGERS, "uvicorn"):
             streams[name] = io.StringIO()
@@ -57,7 +58,7 @@ class J7LogPrivacyTests(unittest.TestCase):
             logging.getLogger(name).handlers[:] = [handler]
         streams["lastResort"] = io.StringIO()
         self.enterContext(patch("sys.stderr", streams["lastResort"]))
-        self.enterContext(patch.object(logging, "lastResort", logging._StderrHandler()))
+        self.enterContext(patch.object(logging, "lastResort", logging._StderrHandler(logging.WARNING)))
         logging.lastResort.setFormatter(_FullFormatter("%(levelname)s:%(name)s:%(message)s"))
         main.configure_request_timing_logging()
         main.configure_request_timing_logging()
@@ -85,13 +86,13 @@ class J7LogPrivacyTests(unittest.TestCase):
                                "public-course-42", 7, "ValueError")
                 target.info("course_install gid=%s", "public-course-42")
                 try:
-                    raise OSError(28, "No space left on device", "data/players/PRIVATEPLAYER/events")
+                    raise OSError(28, "No space left on device (quota)", "data/players/PRIVATEPLAYER/events")
                 except OSError as exc:
                     target.warning("storage failed: %r player_id=%s round_id=%s token=%s",
                                    exc, "PRIVATEPLAYER", "PRIVATEROUND", "PRIVATETOKEN", exc_info=True)
                 output = streams[exit_name].getvalue()
                 for public in ("log_and_backup_mismatch", "ValueError", "OSError", "28",
-                               "No space left on device", "main:0123456789ab"):
+                               "No space left on device (quota)", "main:0123456789ab"):
                     with self.subTest(diagnostic=public):
                         self.assertIn(public, output)
                 self.assertEqual(output.count("public-course-42"), 1 if exit_name == "lastResort" else 2)

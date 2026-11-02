@@ -5,7 +5,6 @@ Exception payloads remain untrusted; retain their types and frame locations.
 """
 from collections.abc import Mapping
 import logging
-import os
 from pathlib import Path
 import re
 import traceback
@@ -73,8 +72,9 @@ def _context(value, key=""):
 def _exception_summary(exc):
     detail = _REDACTED
     if isinstance(exc, OSError) and isinstance(exc.errno, int):
-        # Use the OS's public diagnostic, never a filename or custom strerror.
-        detail = f"[Errno {exc.errno}] {os.strerror(exc.errno)}"
+        # Keep errno and the supplied diagnostic; omit filenames and sanitize
+        # any credentials or identity fields inside strerror itself.
+        detail = f"[Errno {exc.errno}] {_text(str(exc.strerror))}"
     return f"{type(exc).__name__}: {detail}"
 
 
