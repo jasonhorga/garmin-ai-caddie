@@ -51,7 +51,7 @@ from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.geometry import garmin_raster
 from ai_caddie.geometry.geometry_evidence import build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.geometry.shot_projection import local_to_world
-from ai_caddie.history.history import HistoryData, OWNER_ID
+from ai_caddie.history.history import HistoryData, OWNER_ID, merged_back_local_hole
 from ai_caddie.history.corrected_history import corrected_history_data
 from ai_caddie.history.history_stats import _effective_score_data
 from ai_caddie.reports.report_labels_zh import issue_label_zh
@@ -878,7 +878,7 @@ def _round_hole_geometry_ref(round_row: dict[str, Any], hole: int) -> tuple[int 
         return _safe_int(round_row.get("frontNineGlobalCourseId")) or global_id, hole
     back_global_id = _safe_int(round_row.get("backNineGlobalCourseId"))
     if back_global_id is not None:
-        return back_global_id, hole - 9
+        return back_global_id, merged_back_local_hole(round_row, hole)
     # Garmin can encode an A+A (or standalone nine played twice) round without repeating the
     # back-nine global id.  Once the cached CourseView release proves that the primary layout has
     # nine holes, map the second display lap back to local holes 1-9 instead of asking for the

@@ -1,0 +1,9 @@
+diff --git a/ai_caddie/history/history.py b/ai_caddie/history/history.py
+index 74128f32..be2e08be 100644
+--- a/ai_caddie/history/history.py
++++ b/ai_caddie/history/history.py
+@@ -754,3 +754,3 @@ def merged_back_local_hole(row: dict[str, Any], hole: int) -> int:
+     """
+-    return hole if round_loop_half(row, "back") == "back" else hole - 9
++    return hole if round_loop_half(row, "back") in {"back", "all"} else hole - 9
+ 

@@ -4914,6 +4914,37 @@ class ServerV2MobileTests(ServiceLoggingIsolationMixin, unittest.TestCase):
         self.assertEqual(audits[0]["actualShotRefs"], ["900001:3:1"])
 
 
+class MergedMobileHoleGeometryTest(unittest.TestCase):
+    def test_j1_3_mobile_live_geometry_uses_back_loop_identity(self) -> None:
+        """J1.3: mobile live geometry keeps 12 for an 18-hole back loop."""
+        from ai_caddie.caddie import mobile_live
+
+        row = {
+            "globalId": 50001, "frontNineGlobalCourseId": 50001,
+            "backNineGlobalCourseId": 50001, "merged": True,
+            "roundLoops": [
+                {"globalId": 50001, "half": "front"},
+                {"globalId": 50001, "half": "back"},
+            ],
+        }
+        self.assertEqual(mobile_live._round_hole_geometry_ref(row, 12), (50001, 12))
+
+    def test_j1_3_mobile_live_geometry_normalizes_nine_and_front_loops(self) -> None:
+        """J1.3: mobile live maps display 12 to local 3 for nine/front loops."""
+        from ai_caddie.caddie import mobile_live
+
+        for half in ("all", "front"):
+            with self.subTest(half=half):
+                row = {
+                    "globalId": 50001, "backNineGlobalCourseId": 50002, "merged": True,
+                    "roundLoops": [
+                        {"globalId": 50001, "half": "front"},
+                        {"globalId": 50002, "half": half},
+                    ],
+                }
+                self.assertEqual(mobile_live._round_hole_geometry_ref(row, 12), (50002, 3))
+
+
 if __name__ == "__main__":
     unittest.main()
 

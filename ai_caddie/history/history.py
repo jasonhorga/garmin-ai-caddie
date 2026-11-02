@@ -746,6 +746,15 @@ def round_loop_half(row: dict[str, Any], side: str) -> str | None:
     return str(half) if half in {"front", "back", "all"} else None
 
 
+def merged_back_local_hole(row: dict[str, Any], hole: int) -> int:
+    """Map a merged display back-nine hole to its physical local hole.
+
+    A loop identified as the physical ``back`` half of an 18-hole CourseView keeps
+    display holes 10..18. Nine-hole and front-loop identities repeat local holes 1..9.
+    """
+    return hole if round_loop_half(row, "back") == "back" else hole - 9
+
+
 def _card_loop_half(row: dict[str, Any]) -> str:
     """Infer a raw nine-card loop identity before it is merged into a history row."""
     numbers = [int(hole.get("number") or 0) for hole in row.get("holes") or [] if isinstance(hole, dict)]
@@ -813,6 +822,7 @@ def remap_shots_to_merged_rounds(
             aliases[str(member_ids[1])] = {
                 "roundId": canonical_id,
                 "holeOffset": 9,
+                "backHalf": round_loop_half(round_row, "back"),
                 "globalId": (
                     round_row.get("backNineGlobalCourseId")
                     or round_row.get("globalId")
@@ -874,16 +884,21 @@ def remap_shots_to_merged_rounds(
                 # Snapshot/canonical input: trust its display hole, deriving a
                 # missing physical hole without applying the offset again.
                 if local_hole is None:
-                    local_hole = display_hole - offset
+                    local_hole = (
+                        display_hole
+                        if offset == 9 and alias.get("backHalf") == "back"
+                        else display_hole - offset
+                    )
             else:
                 # Raw local input (or an older partially canonical row): the
                 # physical hole is the stable source for display numbering.
                 source_hole = local_hole or display_hole
                 if source_hole is not None:
-                    if offset == 9 and source_hole > 9:
+                    physical_back = offset == 9 and source_hole > 9 and alias.get("backHalf") == "back"
+                    if offset == 9 and source_hole > 9 and not physical_back:
                         source_hole -= 9
                     local_hole = source_hole
-                    display_hole = source_hole + offset
+                    display_hole = source_hole if physical_back else source_hole + offset
 
             if display_hole is not None:
                 row["hole"] = display_hole
