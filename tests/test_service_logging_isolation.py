@@ -92,6 +92,29 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
             self.assertIn("root", output)
             self.assertIn("logging_state_probe.named", output)
 
+    def test_J73_import_time_leak_names_the_importing_module(self):
+        """J7.3: discover reports the module that leaked while being imported."""
+        with tempfile.TemporaryDirectory() as tmp:
+            module = Path(tmp) / "logging_import_probe.py"
+            module.write_text(
+                "import logging\n"
+                "logging.getLogger('logging_import_probe.named').setLevel(logging.ERROR)\n"
+                "import unittest\n"
+                "class Probe(unittest.TestCase):\n"
+                "    def test_imported(self):\n"
+                "        pass\n"
+            )
+            result = subprocess.run(
+                [sys.executable, "-m", "tests.check_isolation", "logging_import_probe"],
+                env={**os.environ, "PYTHONPATH": os.pathsep.join(
+                    [tmp, str(Path(__file__).resolve().parents[1])])},
+                capture_output=True, text=True, timeout=30,
+            )
+            output = result.stdout + result.stderr
+            self.assertNotEqual(result.returncode, 0, output)
+            self.assertIn("logging_import_probe leaked logger state at import", output)
+            self.assertNotIn("tests.check_isolation leaked", output)
+
     def test_J73_pipeline_then_course_prep_preserves_diagnostics(self):
         """J7.3: cron privacy setup must not change a later library log capture.
 
