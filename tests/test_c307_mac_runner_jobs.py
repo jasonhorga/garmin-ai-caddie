@@ -144,8 +144,16 @@ class MacRunnerJobsTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, port)
             self.assertIn('9000..9009', result.stderr)
 
+    def drop_repo_sync_lock_after_test(self):
+        # The real fixture app takes the Garmin sync lock under the repo root; the
+        # backend job fails on new repository artifacts, so drop a lock this test made.
+        sync_lock = ROOT / 'data' / 'sync' / '.garmin-sync.lock'
+        if not sync_lock.exists():
+            self.addCleanup(lambda: sync_lock.unlink(missing_ok=True))
+
     def start_server(self, port, fixture=False):
         if fixture:
+            self.drop_repo_sync_lock_after_test()
             command = [sys.executable, '-m', 'uvicorn', 'server_v2.main:app',
                        '--host', '127.0.0.1', '--port', str(port), '--ws', 'none']
         else:
@@ -224,6 +232,7 @@ while True:
     def test_workflow_start_health_stop_with_real_fixture_on_mapped_port(self):
         # Run the workflow shell and the real fixture entrypoint; only replace uv's
         # package selection with the already provisioned shared interpreter.
+        self.drop_repo_sync_lock_after_test()
         (self.root / 'ops').symlink_to(ROOT / 'ops')
         self.fake_tool('uv', 'if [ "$1" = "--version" ]; then echo shared-runtime; exit 0; fi\n'
                        'cd ' + shlex.quote(str(ROOT)) + '\n'
