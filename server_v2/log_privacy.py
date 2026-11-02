@@ -22,6 +22,7 @@ _IDENTITY = re.compile(
     r"[\w-]*token|cookie|csrf|authorization|[\w-]*secret|api_?key)([\"']?\s*[:=]\s*)"
     r"(\[redacted\]|\"[^\"\n]*\"|'[^'\n]*'|[^\s,;&#\)\}\]]+)"
 )
+_PLAYER_ID = re.compile(r"(?i)\bp_[0-9a-f]{8,16}\b")
 _URL = re.compile(r"https?://[^\s\"'<>;,]+|(?<![\w/])/(?:api|p)/[^\s\"'<>;,]+")
 _PRIVATE_PATH = re.compile(r"https?://[^\s\"'<>;,\)]+|(?<![\w/])(?:[A-Za-z]:[\\/]|/|\bdata/)[^\s\"'<>;,\)]+")
 _FRAME = re.compile(r'^(\s*File ")(.+)(", line \d+, in .+)$')
@@ -37,6 +38,9 @@ def _text(value: str) -> str:
         return match[1] + match[2] + quote + _REDACTED + quote
 
     value = _IDENTITY.sub(identity, value)
+    # Player ids also reach warning/error calls as a bare %-argument (without
+    # a ``player_id=`` label), so redact their stable shape independently.
+    value = _PLAYER_ID.sub(_REDACTED, value)
     value = re.sub(r"(?i)\b(player|round)\s+[pr]_[\w.-]+", r"\1=" + _REDACTED, value)
     value = re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer " + _REDACTED, value)
 
