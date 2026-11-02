@@ -37,6 +37,62 @@ def rectangle(x1,y1,x2,y2):
     return mesh([(x1,y1),(x2,y1),(x2,y2),(x1,y2)], [[0,1,2],[0,2,3]])
 
 
+class PrepWaterRouteTests(unittest.TestCase):
+    """J4.6: water-safe, complete opening routes, including sparse measured bags."""
+
+    BAGS = {
+        "OWNER": [("Driver", 197), ("3W", 170), ("3H", 157), ("5I", 142),
+                  ("6I", 132), ("7I", 128), ("8I", 121), ("9I", 109),
+                  ("Pw", 107), ("Aw", 102), ("50", 84), ("54", 48), ("58", 35)],
+        "TRIG": [("Driver", 197), ("3W", 160), ("8I", 121), ("Aw", 102), ("58", 68)],
+        "GAP": [("Driver", 200), ("3W", 180), ("5I", 150), ("7I", 120), ("SW", 50)],
+    }
+
+    def test_j4_6_water_routes_keep_safe_landings_and_finish(self):
+        # J4.6's complete route and common tail rule apply even beside the green. These
+        # bags can cover these lengths within five shots; the endpoint is a 20 m scoring
+        # window, not permission to erase a water span wholly before the flag.
+        for bag, ladder in self.BAGS.items():
+            for par, lengths in ((3, (160, 215)), (4, (215, 271, 275, 289)), (5, (428, 600))):
+                for length in lengths:
+                    for front in (5, 15, 20, 25, -10):
+                        water = [length - front, length - front + 3]
+                        with self.subTest(bag=bag, par=par, length=length, water=water):
+                            steps, *_ = course_prep._strategy(
+                                par, length, {"water_carry": [water]}, ladder,
+                            )
+                            self.assertTrue(steps)
+                            for step in steps:
+                                self.assertFalse(
+                                    water[0] <= step["routeOffset_m"] <= water[1],
+                                    f"{step['club']} lands at {step['routeOffset_m']} in {water}",
+                                )
+                            self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20)
+                            self.assertEqual(steps[-1]["role"], "scoring")
+
+        # Water crossing the pin is inconsistent source geometry, rather than a genuine
+        # pre-green crossing. Keep the usable route complete instead of stopping at 38 m.
+        for par in (4, 5):
+            with self.subTest(par=par, pin_covering=True):
+                steps, *_ = course_prep._strategy(
+                    par, 288, {"water_carry": [[300, 330]]}, self.BAGS["GAP"],
+                )
+                self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20)
+                self.assertEqual(steps[-1]["role"], "scoring")
+
+    def test_j4_6_water_layup_keeps_the_three_shot_route(self):
+        # 3W@180 clears the first landing; 5I@330 clears water at 200--225;
+        # 7I reaches the 428 m green. Main already completes this route in three shots.
+        for par in (4, 5):
+            with self.subTest(par=par):
+                steps, *_ = course_prep._strategy(
+                    par, 428, {"water_carry": [[200, 225]]}, self.BAGS["GAP"],
+                )
+                self.assertLessEqual(len(steps), 3)
+                self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20)
+                self.assertEqual(steps[-1]["role"], "scoring")
+
+
 class CourseRefreshTests(unittest.TestCase):
     def test_j4_2_replaced_mesh_is_visible_with_preserved_size_and_mtime(self):
         """J4.2: a replacement map must replace the old in-process geometry too."""

@@ -1106,6 +1106,14 @@ class PureLogicTests(unittest.TestCase):
         )
         from ai_caddie.caddie.decision import SCORING_WINDOW_MAX_M
 
+        # A 200 m tee leaves 71--75 m. The first 50 m wedge candidate alone is
+        # unresolved (21--25 m); J4.6 requires a scoring continuation, not an early stop.
+        cases += tuple(
+            (f"GAP Par 4 {length}", 4, float(length),
+             [("Driver", 200), ("3W", 180), ("5I", 150), ("7I", 120), ("SW", 50)])
+            for length in range(271, 276)
+        )
+
         for label, par, route_len, ladder in cases:
             with self.subTest(label=label):
                 steps, *_ = cp._strategy(par, route_len, self._NO_HAZARDS, ladder)
