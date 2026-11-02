@@ -2026,7 +2026,37 @@ public struct StartRoundView: View {
     /// The source that granted the current selection owns its sibling loops. Mixing a stale local
     /// package into a provider row is what previously produced C/全场/全场 for Black Knight.
     private var selectedAuthorityOptions: [MobileCourseOption] {
-        guard let selectedSegment else { return [] }
+        Self.selectedAuthorityOptions(
+            selected: selectedSegment,
+            nearbyCourseOptions: nearbyCourseOptions,
+            remoteCourseOptions: remoteCourseOptions,
+            preselectedVenueOptions: preselectedVenueOptions,
+            offlineCourseOptions: offlineCourseOptions,
+            recentCourseOption: recentCourseOption,
+            recentResolvedCourseOption: recentResolvedCourseOption,
+            explicitCourseOptions: explicitCourseOptions,
+            courseOptions: courseOptions,
+            downloadedCourseOptions: downloadedCourseOptions,
+            lastNearbyCourseOptions: lastNearbyCourseOptions
+        )
+    }
+
+    /// The source that supplied the selected row owns the sibling loops. Keeping this decision
+    /// pure makes the recent/offline cached-nearby authority testable without constructing a View.
+    static func selectedAuthorityOptions(
+        selected: MobileCourseOption?,
+        nearbyCourseOptions: [MobileCourseOption],
+        remoteCourseOptions: [MobileCourseOption],
+        preselectedVenueOptions: [MobileCourseOption],
+        offlineCourseOptions: [MobileCourseOption],
+        recentCourseOption: MobileCourseOption?,
+        recentResolvedCourseOption: MobileCourseOption?,
+        explicitCourseOptions: [MobileCourseOption],
+        courseOptions: [MobileCourseOption],
+        downloadedCourseOptions: [MobileCourseOption],
+        lastNearbyCourseOptions: [MobileCourseOption]
+    ) -> [MobileCourseOption] {
+        guard let selectedSegment = selected else { return [] }
         let selectedID = selectedSegment.globalId
         if nearbyCourseOptions.contains(where: { $0.globalId == selectedID }) {
             return Self.reconciledCourseOptions(
@@ -2267,6 +2297,24 @@ public struct StartRoundView: View {
     }
 
     private var selectedCourseRequiresRemoteTees: Bool {
+        Self.selectedCourseRequiresRemoteTees(
+            courseGlobalId: courseGlobalId,
+            recentCourseOption: recentCourseOption,
+            selectedCourseTeeNames: selectedCourseTeeNames,
+            courseOptions: courseOptions,
+            downloadedCourseOptions: downloadedCourseOptions,
+            recentResolvedCourseOption: recentResolvedCourseOption
+        )
+    }
+
+    static func selectedCourseRequiresRemoteTees(
+        courseGlobalId: Int?,
+        recentCourseOption: MobileCourseOption?,
+        selectedCourseTeeNames: [String],
+        courseOptions: [MobileCourseOption],
+        downloadedCourseOptions: [MobileCourseOption],
+        recentResolvedCourseOption: MobileCourseOption?
+    ) -> Bool {
         guard let courseGlobalId else { return false }
         if recentCourseOption?.globalId == courseGlobalId {
             return selectedCourseTeeNames.isEmpty
@@ -2538,7 +2586,7 @@ public struct StartRoundView: View {
         activeRequestToken: UUID?,
         requestKey: String,
         currentRequestKey: String,
-        manualSearchSelected: Bool = false
+        manualSearchSelected: Bool
     ) -> Bool {
         !isCancelled
             && activeRequestToken == requestToken
@@ -2549,11 +2597,51 @@ public struct StartRoundView: View {
     /// Whether the automatic nearby choice no longer belongs to the latest provider answer.
     static func shouldClearAutomaticSelection(
         selected: MobileCourseOption?,
+        selectedGlobalIdText: String = "",
         availableNearby: [MobileCourseOption],
         userPickedVenue: Bool
     ) -> Bool {
-        guard let selected, !userPickedVenue else { return false }
+        guard !userPickedVenue else { return false }
+        guard let selected else {
+            return !selectedGlobalIdText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
         return !availableNearby.contains { samePhysicalVenue(selected, $0) }
+    }
+
+    /// Nearby selection must compare physical venues, because one venue can expose several global
+    /// IDs (A/B/C loops). A missing selected row is stale when an automatic global-id remains.
+    static func nearbySelectionMatchesCurrentVenue(
+        selected: MobileCourseOption?,
+        selectedGlobalIdText: String,
+        availableNearby: [MobileCourseOption]
+    ) -> Bool {
+        guard let selected else {
+            return selectedGlobalIdText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return availableNearby.contains { samePhysicalVenue(selected, $0) }
+    }
+
+    /// An empty late provider answer must not erase rows already published during expansion.
+    static func nearbyOptionsAfterProviderResult(
+        current: [MobileCourseOption], incoming: [MobileCourseOption]
+    ) -> [MobileCourseOption] {
+        incoming.isEmpty ? current : incoming
+    }
+
+    /// Keep the last successful provider answer for recent/offline venue recovery. Empty radius
+    /// answers never replace that cache.
+    static func nearbyCacheAfterProviderResult(
+        current: [MobileCourseOption], incoming: [MobileCourseOption]
+    ) -> [MobileCourseOption] {
+        incoming.isEmpty ? current : incoming
+    }
+
+    /// A provider result is applied only for the live request generation. The view owns the side
+    /// effects; this pure gate keeps the stale-result guard independently testable.
+    static func providerResultIfCurrent(
+        _ result: NearbyDiscoveryLoopResult, canApply: Bool
+    ) -> NearbyDiscoveryLoopResult? {
+        canApply ? result : nil
     }
 
     static func shouldReplaceAutomaticSelection(
@@ -2642,10 +2730,16 @@ public struct StartRoundView: View {
             )
         }
         func applyProviderResult(_ result: NearbyDiscoveryLoopResult) {
-            guard canApply() else { return }
+            guard let result = Self.providerResultIfCurrent(result, canApply: canApply()) else { return }
             carriedCourseTees.merge(result.carriedTees) { _, latest in latest }
-            nearbyCourseOptions = result.providerOptions
-            if !result.providerOptions.isEmpty { lastNearbyCourseOptions = result.providerOptions }
+            let appliedOptions = Self.nearbyOptionsAfterProviderResult(
+                current: nearbyCourseOptions, incoming: result.providerOptions
+            )
+            if appliedOptions != nearbyCourseOptions { nearbyCourseOptions = result.providerOptions }
+            let cachedOptions = Self.nearbyCacheAfterProviderResult(
+                current: lastNearbyCourseOptions, incoming: result.providerOptions
+            )
+            if cachedOptions != lastNearbyCourseOptions { lastNearbyCourseOptions = result.providerOptions }
             let providerIDs = Set(result.providerOptions.map(\.globalId))
             offlineCourseOptions = resolvedOfflineOptions(localNearby).filter {
                 !providerIDs.contains($0.globalId)
@@ -2662,9 +2756,11 @@ public struct StartRoundView: View {
                 guard canApply(), !userPickedVenue else { return }
                 if let option {
                     ensureDefaultSelection(option)
-                } else if selectedSegment == nil || !nearbyCourseOptions.contains(where: {
-                    String($0.globalId) == courseGlobalIdText
-                }) {
+                } else if !Self.nearbySelectionMatchesCurrentVenue(
+                    selected: selectedSegment,
+                    selectedGlobalIdText: courseGlobalIdText,
+                    availableNearby: nearbyCourseOptions
+                ) {
                     clearAutomaticSelection()
                 }
             },
@@ -2675,6 +2771,7 @@ public struct StartRoundView: View {
         applyProviderResult(outcome)
         if Self.shouldClearAutomaticSelection(
             selected: selectedSegment,
+            selectedGlobalIdText: courseGlobalIdText,
             availableNearby: outcome.providerOptions,
             userPickedVenue: userPickedVenue
         ) {

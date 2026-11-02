@@ -845,7 +845,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 requestToken: current,
                 activeRequestToken: current,
                 requestKey: "4004:11654",
-                currentRequestKey: "4004:11654"
+                currentRequestKey: "4004:11654",
+                manualSearchSelected: false
             )
         )
         XCTAssertFalse(
@@ -854,7 +855,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 requestToken: current,
                 activeRequestToken: current,
                 requestKey: "4004:11654",
-                currentRequestKey: "4004:11654"
+                currentRequestKey: "4004:11654",
+                manualSearchSelected: false
             )
         )
         XCTAssertFalse(
@@ -863,7 +865,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 requestToken: superseded,
                 activeRequestToken: current,
                 requestKey: "4004:11654",
-                currentRequestKey: "4004:11654"
+                currentRequestKey: "4004:11654",
+                manualSearchSelected: false
             )
         )
         XCTAssertFalse(
@@ -872,7 +875,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 requestToken: current,
                 activeRequestToken: current,
                 requestKey: "4004:11654",
-                currentRequestKey: "4006:11656"
+                currentRequestKey: "4006:11656",
+                manualSearchSelected: false
             )
         )
         XCTAssertFalse(
@@ -1786,7 +1790,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let replacement = MobileCourseOption(globalId: 7502, name: "新球场", holes: 18, venueName: "新球场")
         XCTAssertTrue(
             StartRoundView.shouldClearAutomaticSelection(
-                selected: nil, availableNearby: [replacement], userPickedVenue: false
+                selected: nil, selectedGlobalIdText: String(stale.globalId),
+                availableNearby: [replacement], userPickedVenue: false
             ),
             "a replaced nearby list must clear an automatic id even while its row is temporarily absent"
         )
@@ -1819,6 +1824,15 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let current = MobileCourseOption(globalId: 7601, name: "同场 A", holes: 9, venueName: "同场")
         let sibling = MobileCourseOption(globalId: 7602, name: "同场 B", holes: 9, venueName: "同场")
         let other = MobileCourseOption(globalId: 7603, name: "别场", holes: 18, venueName: "别场")
+        XCTAssertTrue(StartRoundView.nearbySelectionMatchesCurrentVenue(
+            selected: current, selectedGlobalIdText: "7601", availableNearby: [sibling]
+        ))
+        XCTAssertFalse(StartRoundView.nearbySelectionMatchesCurrentVenue(
+            selected: current, selectedGlobalIdText: "7601", availableNearby: [other]
+        ))
+        XCTAssertFalse(StartRoundView.nearbySelectionMatchesCurrentVenue(
+            selected: nil, selectedGlobalIdText: "7601", availableNearby: [sibling]
+        ))
         XCTAssertFalse(StartRoundView.shouldReplaceAutomaticSelection(
             current: current, candidate: sibling, userPickedVenue: false
         ))
@@ -1834,6 +1848,69 @@ final class StartRoundDiscoveryTests: XCTestCase {
     func testManualSearchResetDropsNearbyRows() {
         let nearby = MobileCourseOption(globalId: 7701, name: "附近", holes: 18)
         XCTAssertTrue(StartRoundView.resetNearbyOptionsForManualSearch([nearby]).isEmpty)
+    }
+
+    /// J4.1: an empty late radius answer keeps rows already published by an earlier radius.
+    func testNearbyProviderResultKeepsPreviouslyPublishedRowsWhenEmpty() {
+        let published = loop(7801, venue: "已发布", label: "A")
+        XCTAssertEqual(
+            StartRoundView.nearbyOptionsAfterProviderResult(current: [published], incoming: []),
+            [published]
+        )
+        XCTAssertEqual(
+            StartRoundView.nearbyOptionsAfterProviderResult(current: [published], incoming: [loop(7802, venue: "新场", label: "A")]).map(\.globalId),
+            [7802]
+        )
+        XCTAssertEqual(
+            StartRoundView.nearbyCacheAfterProviderResult(
+                current: [published], incoming: [loop(7802, venue: "新场", label: "A")]
+            ).map(\.globalId),
+            [7802]
+        )
+        XCTAssertEqual(
+            StartRoundView.nearbyCacheAfterProviderResult(current: [published], incoming: []).map(\.globalId),
+            [published.globalId]
+        )
+    }
+
+    /// J4.1: a stale generation cannot enter the provider-result state writer.
+    func testNearbyProviderResultRejectsStaleGeneration() {
+        let result = StartRoundView.NearbyDiscoveryLoopResult(
+            providerOptions: [loop(7803, venue: "新场", label: "A")],
+            carriedTees: [:], publishedProviderResult: true, lastError: nil
+        )
+        XCTAssertNil(StartRoundView.providerResultIfCurrent(result, canApply: false))
+        XCTAssertEqual(StartRoundView.providerResultIfCurrent(result, canApply: true)?.providerOptions, result.providerOptions)
+    }
+
+    /// J4.1/J4.2: a recent row with only a remembered colour still requires remote Tee authority.
+    func testRecentCourseRequiresRemoteTeesUntilAuthorityArrives() {
+        let recent = loop(7810, venue: "最近球场", label: "A")
+        XCTAssertTrue(StartRoundView.selectedCourseRequiresRemoteTees(
+            courseGlobalId: recent.globalId, recentCourseOption: recent,
+            selectedCourseTeeNames: [], courseOptions: [], downloadedCourseOptions: [],
+            recentResolvedCourseOption: recent
+        ))
+        XCTAssertFalse(StartRoundView.selectedCourseRequiresRemoteTees(
+            courseGlobalId: recent.globalId, recentCourseOption: recent,
+            selectedCourseTeeNames: ["blue"], courseOptions: [], downloadedCourseOptions: [],
+            recentResolvedCourseOption: recent
+        ))
+    }
+
+    /// J4.1: recent recovery includes the last successful nearby sibling loops.
+    func testSelectedAuthorityRecentVenueIncludesCachedNearbyLoops() {
+        let recent = loop(7820, venue: "最近球场", label: "A")
+        let cachedSibling = loop(7821, venue: "最近球场", label: "B")
+        let unrelated = loop(7822, venue: "别的球场", label: "A")
+        let authority = StartRoundView.selectedAuthorityOptions(
+            selected: recent, nearbyCourseOptions: [], remoteCourseOptions: [],
+            preselectedVenueOptions: [], offlineCourseOptions: [],
+            recentCourseOption: recent, recentResolvedCourseOption: recent,
+            explicitCourseOptions: [], courseOptions: [], downloadedCourseOptions: [],
+            lastNearbyCourseOptions: [cachedSibling, unrelated]
+        )
+        XCTAssertEqual(authority.map(\.globalId), [7820, 7821])
     }
 
     /// J4.1: a sparse 5 km answer expands to 20 km and retains the first physical venue.
