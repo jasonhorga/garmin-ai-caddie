@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C235-01-late-restore-counted",
+      "patch": "tests/product/faults/C235/late-restore-counted.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_late_unmerged_card_invalidates_restore_for_loop_statistics",
+      "promise": "1.3"
+    },
+    {
+      "id": "tests-product-faults-C235-02-differential-no-rating-guard",
+      "patch": "tests/product/faults/C235/differential-no-rating-guard.patch",
+      "kind": "python",
+      "target": "tests.test_history_stats_core.HistoryStatsCoreTests.test_j2_1_restore_round_with_nine_hole_rating_is_excluded_from_differential",
+      "promise": "2.1"
+    },
+    {
+      "id": "tests-product-faults-C235-03-cache-schema-not-bumped",
+      "patch": "tests/product/faults/C235/cache-schema-not-bumped.patch",
+      "kind": "python",
+      "target": "tests.test_stats_cache.StatsCacheTests.test_persistent_cache_rejects_previous_schema_version",
+      "promise": "2.1"
+    }
+  ]
+}
