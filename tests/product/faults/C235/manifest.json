@@ -26,7 +26,7 @@
       "id": "tests-product-faults-C235-04-outing-date-unbounded",
       "patch": "tests/product/faults/C235/outing-date-unbounded.patch",
       "kind": "python",
-      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_restore_is_not_superseded_by_another_date_same_course",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_same_month_different_day_is_not_one_outing",
       "promise": "1.3"
     },
     {
