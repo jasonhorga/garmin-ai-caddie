@@ -48,6 +48,183 @@ def _save_course_par(root: Path, global_id: int, pars: str) -> None:
 
 
 class MobileReconciliationTests(unittest.TestCase):
+    def test_j1_3_restore_is_not_superseded_by_another_date_same_course(self) -> None:
+        """J1.3: an unrelated historical round cannot invalidate this outing's restore."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = {
+                "id": "restore-date", "date": "2026-06-01 08:00", "globalId": 55555,
+                "frontNineGlobalCourseId": 55555, "holesCompleted": 9, "strokes": 45,
+                "par": 36, "holePars": "4" * 18,
+                "holes": [{"number": n, "strokes": 5, "par": 4} for n in range(1, 10)],
+            }
+            older = {
+                "id": "older-date", "date": "2026-05-01 08:00", "globalId": 55555,
+                "frontNineGlobalCourseId": 55555, "holesCompleted": 18, "strokes": 72,
+                "par": 72, "holePars": "4" * 18,
+                "holes": [{"number": n, "strokes": 4, "par": 4} for n in range(1, 19)],
+            }
+            for number in range(10, 19):
+                add_annotation(
+                    "hole", f"restore-date:{number}", "score_correction",
+                    {"to": 5, "restore": True, "restoreGlobalId": 55555,
+                     "restoreLocalHole": number}, root=root,
+                )
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[first, older], shots=[]),
+                annotations_root=root, course_root=root,
+            ).rounds[0]
+            self.assertEqual((corrected["holesCompleted"], len(corrected["holes"])), (18, 18))
+
+    def test_j1_3_restore_is_not_superseded_by_another_date_same_course_single_hole(self) -> None:
+        """J1.3: a later calendar date still belongs to another outing."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            holes = [{"number": n, "strokes": 5, "par": 4} for n in range(1, 19) if n != 12]
+            row = {
+                "id": "single-date", "date": "2026-06-01 08:00", "globalId": 55555,
+                "frontNineGlobalCourseId": 55555, "holesCompleted": 17, "strokes": 85,
+                "par": 68, "holePars": "4" * 18, "holes": holes,
+            }
+            later = {
+                "id": "later-date", "date": "2026-09-01 08:00", "globalId": 55555,
+                "frontNineGlobalCourseId": 55555, "holesCompleted": 18, "strokes": 72,
+                "par": 72, "holePars": "4" * 18,
+                "holes": [{"number": n, "strokes": 4, "par": 4} for n in range(1, 19)],
+            }
+            add_annotation(
+                "hole", "single-date:12", "score_correction",
+                {"to": 5, "restore": True, "restoreGlobalId": 55555,
+                 "restoreLocalHole": 12}, root=root,
+            )
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[row, later], shots=[]),
+                annotations_root=root, course_root=root,
+            ).rounds[0]
+            self.assertEqual((corrected["holesCompleted"], len(corrected["holes"])), (18, 18))
+
+    def test_j1_3_reconciliation_apply_keeps_restore_when_old_round_exists(self) -> None:
+        """J1.3: the real suggest/apply/full-history path keeps a same-outing restore visible."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "reconcile-date", [(55555, "front"), (55555, "back")])
+            append_event_batch("reconcile-date", [{
+                "eventId": f"score-{n}", "roundId": "reconcile-date", "hole": n,
+                "kind": "score", "payload": {"strokes": 5},
+            } for n in range(1, 19)], idempotency_key="reconcile-date", root=root)
+            first = {
+                "id": "reconcile-date", "date": "2026-06-01 08:00", "globalId": 55555,
+                "frontNineGlobalCourseId": 55555, "holesCompleted": 9, "strokes": 45,
+                "par": 36, "holePars": "4" * 18,
+                "holes": [{"number": n, "strokes": 5, "par": 4} for n in range(1, 10)],
+            }
+            old = {
+                "id": "old-round", "date": "2026-05-01 08:00", "globalId": 55555,
+                "frontNineGlobalCourseId": 55555, "holesCompleted": 18, "strokes": 72,
+                "par": 72, "holePars": "4" * 18,
+                "holes": [{"number": n, "strokes": 4, "par": 4} for n in range(1, 19)],
+            }
+            data = HistoryData(raw_rounds=[], rounds=[first, old], shots=[])
+            result = reconcile_mobile_round_events("reconcile-date", data, root=root)
+            suggestions = [r for r in result["annotationSuggestions"] if r["kind"] == "score_correction"]
+            self.assertEqual(len(suggestions), 9)
+            applied = apply_mobile_reconciliation_suggestions(
+                "reconcile-date", data, suggestion_ids=[r["id"] for r in suggestions],
+                root=root, annotations_root=root, data_loader=lambda: data,
+            )
+            self.assertEqual(applied["appliedCount"], 9)
+            corrected = corrected_history_data(
+                data, annotations_root=root, course_root=root,
+            ).rounds[0]
+            self.assertEqual((corrected["holesCompleted"], len(corrected["holes"])), (18, 18))
+
+    def test_j1_3_same_day_late_card_supersedes_restore_in_any_list_order(self) -> None:
+        """J1.3: same-day real cards replace the synthetic score regardless of row order."""
+        for order in ("restore-first", "late-first"):
+            with self.subTest(order=order), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                first = {
+                    "id": "same-day-first", "date": "2026-06-01 08:00", "globalId": 55555,
+                    "frontNineGlobalCourseId": 55555, "holesCompleted": 9, "strokes": 45,
+                    "par": 36, "holePars": "4" * 18,
+                    "holes": [{"number": n, "strokes": 5, "par": 4} for n in range(1, 10)],
+                }
+                late = {
+                    "id": "same-day-late", "date": "2026-06-01 11:00", "globalId": 55555,
+                    "frontNineGlobalCourseId": 55555, "holesCompleted": 8, "strokes": 40,
+                    "par": 32, "holePars": "4" * 18,
+                    "holes": [{"number": n, "strokes": 5, "par": 4} for n in range(10, 18)],
+                }
+                for number in range(10, 19):
+                    add_annotation(
+                        "hole", f"same-day-first:{number}", "score_correction",
+                        {"to": 5, "restore": True, "restoreGlobalId": 55555,
+                         "restoreLocalHole": number}, root=root,
+                    )
+                rows = [first, late] if order == "restore-first" else [late, first]
+                corrected = corrected_history_data(
+                    HistoryData(raw_rounds=[], rounds=rows, shots=[]),
+                    annotations_root=root, course_root=root,
+                )
+                loop = next(loop for loop in _round_breakdowns(corrected)["loops"]
+                            if loop["loopKey"] == "gid:55555:10-18")
+                samples = {hole["hole"]: hole["samples"] for hole in loop["holes"]}
+                self.assertEqual(samples[10], 1)
+                self.assertEqual(samples[18], 1)
+
+    def test_j1_3_same_day_different_course_does_not_supersede_restore(self) -> None:
+        """J1.3: physical identity includes globalId, so another course's hole is irrelevant."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = {
+                "id": "course-b", "date": "2026-06-01 08:00", "globalId": 55555,
+                "frontNineGlobalCourseId": 55555, "holesCompleted": 9, "strokes": 45,
+                "par": 36, "holePars": "4" * 18,
+                "holes": [{"number": n, "strokes": 5, "par": 4} for n in range(1, 10)],
+            }
+            other = {
+                "id": "course-a", "date": "2026-06-01 11:00", "globalId": 99999,
+                "frontNineGlobalCourseId": 99999, "holesCompleted": 1, "strokes": 4,
+                "par": 4, "holePars": "4" * 18,
+                "holes": [{"number": 10, "strokes": 4, "par": 4}],
+            }
+            add_annotation(
+                "hole", "course-b:10", "score_correction",
+                {"to": 5, "restore": True, "restoreGlobalId": 55555,
+                 "restoreLocalHole": 10}, root=root,
+            )
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[first, other], shots=[]),
+                annotations_root=root, course_root=root,
+            ).rounds[0]
+            self.assertIn(10, [hole["number"] for hole in corrected["holes"]])
+
+    def test_j1_3_strokeless_late_card_does_not_supersede_restore(self) -> None:
+        """J1.3: an unscored Garmin hole is not a real fact that can replace a restore."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = {
+                "id": "strokeless-first", "date": "2026-06-01 08:00", "globalId": 55555,
+                "frontNineGlobalCourseId": 55555, "holesCompleted": 9, "strokes": 45,
+                "par": 36, "holePars": "4" * 18,
+                "holes": [{"number": n, "strokes": 5, "par": 4} for n in range(1, 10)],
+            }
+            late = {
+                "id": "strokeless-late", "date": "2026-06-01 11:00", "globalId": 55555,
+                "frontNineGlobalCourseId": 55555, "holesCompleted": 0, "strokes": 0,
+                "par": 0, "holePars": "4" * 18, "holes": [{"number": 10}],
+            }
+            add_annotation(
+                "hole", "strokeless-first:10", "score_correction",
+                {"to": 5, "restore": True, "restoreGlobalId": 55555,
+                 "restoreLocalHole": 10}, root=root,
+            )
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[first, late], shots=[]),
+                annotations_root=root, course_root=root,
+            ).rounds[0]
+            self.assertIn(10, [hole["number"] for hole in corrected["holes"]])
+
     def test_j1_3_late_unmerged_card_invalidates_restore_for_loop_statistics(self) -> None:
         """J1.3: a later real card wins even when it is too short to merge with the restore."""
         with TemporaryDirectory() as tmp:
