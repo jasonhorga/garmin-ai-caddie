@@ -2626,6 +2626,17 @@ final class WatchDesignSnapshotTests: XCTestCase {
                 .watchSnapshotFrame(width: 198, height: 242)
             XCTAssertEqual(renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: map).cgImage)),
                            expectedPixels, "J4.5: waiting has exactly one visible preparing notice")
+
+            // 198x242 uses the existing 10 pt content inset and 50 pt Back target: (35, 207).
+            let expectedGreen = expected.overlay {
+                WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: {})
+                    .position(x: 35, y: 207)
+            }
+            let green = WatchGreenPreviewView(geometry: geometry)
+                .watchSnapshotFrame(width: 198, height: 242)
+            XCTAssertEqual(renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: green).cgImage)),
+                           renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: expectedGreen).cgImage)),
+                           "J4.5: the actual green waiting page has one preparing notice and Back")
         }
     }
 
