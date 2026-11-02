@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index eae262de..a9731689 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -370,7 +370,7 @@ def corrected_rounds(
+         refs = _round_refs(row)
+         other_real_score_holes = same_day_non_overlapping.get(row_id, set())
+         events = events_by_round.get(str(row.get("id"))) or []
+-        other_real_score_holes = other_real_score_holes | matching_boundary.get(row_id, set())
++        other_real_score_holes = other_real_score_holes
+         penalty_events = [e for e in events if e.get("op") in PENALTY_EVENT_OPS] if "penalty" in fields else []
+         hole_entries: list[tuple[int, int, dict[str, Any]]] = []
+         delta = 0

@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index eae262de..39a63554 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -265,7 +265,7 @@ def _same_day_non_overlapping_score_holes(
+             continue
+         candidates[round_id] = {
+             key
+-            for other_id, other_keys in by_day.get(day, [])
++            for d2, vals in by_day.items() if d2 <= day for other_id, other_keys in vals
+             if other_id != round_id and not (own_keys & other_keys)
+             for key in other_keys
+         }
