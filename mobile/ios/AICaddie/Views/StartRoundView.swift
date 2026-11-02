@@ -581,7 +581,11 @@ public struct StartRoundView: View {
     /// none or a round is being prepared. A concrete/default Tee is enough to announce intent;
     /// `/tees` may continue in the background and replace the default when it arrives.
     private var courseIntentKey: String {
-        guard !isPreparing, let globalId = courseGlobalId, globalId > 0 else { return "" }
+        Self.courseIntentKey(globalId: courseGlobalId, teeBox: teeBox, isPreparing: isPreparing)
+    }
+
+    static func courseIntentKey(globalId: Int?, teeBox: String, isPreparing: Bool) -> String {
+        guard !isPreparing, let globalId, globalId > 0 else { return "" }
         let tee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !tee.isEmpty else { return "" }
         return "\(globalId):\(tee.lowercased())"
@@ -2483,6 +2487,8 @@ public struct StartRoundView: View {
         radii: [Int] = nearbyDiscoveryRadii,
         automaticRetryCount: Int = nearbyAutomaticRetryCount,
         setLoading: (Bool) -> Void = { _ in },
+        publish: (NearbyDiscoveryLoopResult) -> Void = { _ in },
+        selectAutomatically: (MobileCourseOption?) -> Void = { _ in },
         request: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch],
         resolve: @escaping (MobileCourseSearchMatch) -> MobileCourseOption?
     ) async -> NearbyDiscoveryLoopResult {
@@ -2492,6 +2498,18 @@ public struct StartRoundView: View {
         var lastError: Error?
         var carriedTees: [Int: [CourseTee]] = [:]
         var providerOptions: [MobileCourseOption] = []
+        // Preserve the old terminal-only publication/selection until the behavioural test is fixed.
+        func finish() -> NearbyDiscoveryLoopResult {
+            let result = NearbyDiscoveryLoopResult(
+                providerOptions: providerOptions,
+                carriedTees: carriedTees,
+                publishedProviderResult: publishedProviderResult,
+                lastError: lastError
+            )
+            publish(result)
+            selectAutomatically(nearbyVenueCount(providerOptions) == 1 ? providerOptions.first : nil)
+            return result
+        }
         for (index, radius) in radii.enumerated() {
             var attempts = 0
             while attempts <= automaticRetryCount {
@@ -2505,12 +2523,7 @@ public struct StartRoundView: View {
                     )
                     publishedProviderResult = !providerOptions.isEmpty || publishedProviderResult
                     if nearbyVenueCount(providerOptions) >= nearbyMinimumVenueCount || index == radii.count - 1 {
-                        return NearbyDiscoveryLoopResult(
-                            providerOptions: providerOptions,
-                            carriedTees: carriedTees,
-                            publishedProviderResult: publishedProviderResult,
-                            lastError: lastError
-                        )
+                        return finish()
                     }
                     break
                 } catch {
@@ -2519,12 +2532,7 @@ public struct StartRoundView: View {
                 }
             }
         }
-        return NearbyDiscoveryLoopResult(
-            providerOptions: providerOptions,
-            carriedTees: carriedTees,
-            publishedProviderResult: publishedProviderResult,
-            lastError: lastError
-        )
+        return finish()
     }
 
     static func shouldApplyNearbyDiscoveryResult(

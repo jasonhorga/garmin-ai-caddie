@@ -1637,7 +1637,128 @@ final class StartRoundDiscoveryTests: XCTestCase {
         ))
     }
 
-    /// C227: a sparse 5 km answer expands to 20 km and publishes all five physical venues.
+    /// J4.1/J4.2: a usable 5 km venue and its map-only intent must not wait for expansion.
+    /// The card's 5/20/50 km ladder expands below five venues, with at most three requests.
+    @MainActor
+    func testNearbyFirstVenuePublishesAndSelectsWhileExpansionIsSuspended() async {
+        let gate = NearbyExpansionGate()
+        let first = MobileCourseSearchMatch(globalId: 7101, name: "虹桥", holes: 18,
+            city: nil, province: nil, ratio: 1)
+        let expanded = (0..<4).map { index in
+            MobileCourseSearchMatch(globalId: 7200 + index, name: "大都会 \(index)", holes: 18,
+                city: nil, province: nil, ratio: 1)
+        }
+        var radii: [Int] = []
+        var published: [MobileCourseOption] = []
+        var loading = false
+        var selected: MobileCourseOption?
+        var selectedIDs: [Int?] = []
+        var tee = ""
+        func intentKey() -> String {
+            StartRoundView.courseIntentKey(globalId: selected?.globalId, teeBox: tee, isPreparing: false)
+        }
+        func pendingText() -> String? {
+            StartRoundView.nearbyPendingText(isLoading: loading, failed: false,
+                manualSearchSelected: false, hasNearbyRows: !published.isEmpty, hasFix: true)
+        }
+        let discovery = Task { @MainActor in
+            await StartRoundView.performNearbyDiscovery(
+                latitude: 31, longitude: 121,
+                setLoading: { loading = $0 },
+                publish: { published = $0.providerOptions },
+                selectAutomatically: { option in
+                    selected = option
+                    selectedIDs.append(option?.globalId)
+                    tee = StartRoundView.initialTee(callerTee: "", offered: option?.tees ?? [],
+                        courseTee: option?.teeBox)
+                },
+                request: { _, _, radius in
+                    radii.append(radius)
+                    if radius == 5 { return [first] }
+                    if radius == 20 { await gate.suspend() }
+                    // The expanded answer omits the first venue and repeats another: it must
+                    // append rather than replace the first answer or duplicate the visible row.
+                    return expanded + [expanded[0]]
+                },
+                resolve: { match in
+                    MobileCourseOption(globalId: match.globalId, name: match.name, holes: 18,
+                        teeBox: "blue", latitude: match.globalId == 7101 ? 31.01 : 31.001,
+                        longitude: 121)
+                }
+            )
+        }
+        await gate.waitUntilSuspended()
+        XCTAssertEqual(radii, [5, 20])
+        XCTAssertEqual(published.map(\.globalId), [7101], "5 km rows must publish before 20 km returns")
+        XCTAssertEqual(selected?.globalId, 7101, "S70 selects the single first-pass venue")
+        XCTAssertEqual(intentKey(), "7101:blue", "the map-only prefetch task already has its course/Tee intent")
+        XCTAssertEqual(pendingText(), "正在找附近球场…", "expansion stays pending alongside usable rows")
+
+        gate.resume()
+        let outcome = await discovery.value
+        XCTAssertEqual(radii, [5, 20], "five physical venues stop expansion before 50 km")
+        XCTAssertEqual(Set(published.map(\.globalId)), Set([7101, 7200, 7201, 7202, 7203]))
+        XCTAssertEqual(published.count, 5)
+        let rows = StartRoundPresentation.mergedCourseRows(nearby: published)
+        XCTAssertEqual(rows.count, 5, "one visible row per physical venue")
+        XCTAssertEqual(Set(outcome.providerOptions.map(\.globalId)), Set([7101, 7200, 7201, 7202, 7203]))
+        XCTAssertEqual(selected?.globalId, 7101, "expanded results keep the first-pass selection")
+        XCTAssertEqual(selectedIDs, [7101], "only the 5 km pass may change automatic selection")
+        XCTAssertEqual(intentKey(), "7101:blue", "expansion must not replace the predownload intent")
+        XCTAssertFalse(loading)
+        XCTAssertNil(pendingText(), "pending ends after the last expansion settles")
+    }
+
+    /// J4.1/J4.2: a later single venue is visible, but is not S70 first-pass evidence.
+    @MainActor
+    func testNearbySingleExpandedVenueDoesNotAutomaticallySelect() async {
+        for firstPassFails in [false, true] {
+            var published: [MobileCourseOption] = []
+            var selectedIDs: [Int?] = []
+            var radii: [Int] = []
+            let outcome = await StartRoundView.performNearbyDiscovery(
+                latitude: 31, longitude: 121,
+                publish: { published = $0.providerOptions },
+                selectAutomatically: { selectedIDs.append($0?.globalId) },
+                request: { _, _, radius in
+                    radii.append(radius)
+                    if radius == 5 {
+                        if firstPassFails { throw URLError(.timedOut) }
+                        return []
+                    }
+                    if radius == 50 {
+                        XCTAssertEqual(published.map(\.globalId), [7101], "first nonempty radius publishes before the next request")
+                        return []
+                    }
+                    return [MobileCourseSearchMatch(globalId: 7101, name: "虹桥", holes: 18,
+                        city: nil, province: nil, ratio: 1)]
+                },
+                resolve: { MobileCourseOption(globalId: $0.globalId, name: $0.name, holes: 18) }
+            )
+            XCTAssertEqual(radii, [5, 20, 50])
+            XCTAssertTrue(selectedIDs.compactMap { $0 }.isEmpty, "20/50 km must never auto-select")
+            XCTAssertEqual(published.map(\.globalId), [7101], "an empty expansion cannot clear usable rows")
+            XCTAssertEqual(outcome.providerOptions.map(\.globalId), [7101])
+        }
+    }
+
+    /// J4.1: five physical venues in 5 km need no expansion.
+    func testNearbyFiveFirstPassVenuesNeedOnlyOneRequest() async {
+        var radii: [Int] = []
+        let matches = (0..<5).map { index in
+            MobileCourseSearchMatch(globalId: 7400 + index, name: "球场 \(index)", holes: 18,
+                city: nil, province: nil, ratio: 1)
+        }
+        let outcome = await StartRoundView.performNearbyDiscovery(
+            latitude: 31, longitude: 121,
+            request: { _, _, radius in radii.append(radius); return matches },
+            resolve: { MobileCourseOption(globalId: $0.globalId, name: $0.name, holes: 18) }
+        )
+        XCTAssertEqual(radii, [5])
+        XCTAssertEqual(outcome.providerOptions.count, 5)
+    }
+
+    /// J4.1: a sparse 5 km answer expands to 20 km and retains the first physical venue.
     func testNearbySparseFirstPassExpandsToTwentyKilometres() async {
         var radii: [Int] = []
         let first = MobileCourseSearchMatch(globalId: 7101, name: "虹桥", holes: 18, city: nil, province: nil, ratio: 1)
@@ -2326,5 +2447,32 @@ final class StartRoundDiscoveryTests: XCTestCase {
             rows.map { StartRoundView.holeCaption(for: $0, downloaded: [], catalogue: loops, recent: loops[0]) },
             ["27 洞"]
         )
+    }
+}
+
+/// A deterministic transport barrier: the test observes 20 km suspended before releasing it.
+@MainActor
+private final class NearbyExpansionGate {
+    private var response: CheckedContinuation<Void, Never>?
+    private var observer: CheckedContinuation<Void, Never>?
+    private var suspended = false
+
+    func suspend() async {
+        await withCheckedContinuation { continuation in
+            response = continuation
+            suspended = true
+            observer?.resume()
+            observer = nil
+        }
+    }
+
+    func waitUntilSuspended() async {
+        if suspended { return }
+        await withCheckedContinuation { observer = $0 }
+    }
+
+    func resume() {
+        response?.resume()
+        response = nil
     }
 }
