@@ -1,6 +1,24 @@
 import SwiftUI
 import UIKit
 
+enum LiveGreenEntryTapDestination: Equatable {
+    case greenDetail
+    case mapTarget
+}
+
+enum LiveGreenEntryHitRegion {
+    static let fallbackDiameter: CGFloat = 76
+
+    // This preserves the current contour-only behavior until the fallback region is wired in.
+    static func path(greenPath: Path?, fallbackCenter: CGPoint?) -> Path? {
+        greenPath
+    }
+
+    static func destination(at location: CGPoint, path: Path?) -> LiveGreenEntryTapDestination {
+        path?.contains(location) == true ? .greenDetail : .mapTarget
+    }
+}
+
 /// A real, full-alpha control over the already drawn green. Its clear background leaves the
 /// map intact; UIKit owns both contour hit testing and the default accessibility action.
 struct LiveGreenEntryButton: UIViewRepresentable {

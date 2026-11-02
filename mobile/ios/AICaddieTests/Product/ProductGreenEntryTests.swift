@@ -5,6 +5,14 @@ import XCTest
 
 @MainActor
 final class ProductGreenEntryTests: XCTestCase {
+    /// J5.4: a hole without a green outline still opens flag placement from its drawn fallback circle.
+    func testMissingGreenOutlineRoutesFallbackCircleTapToGreenDetail() {
+        let fallbackCenter = CGPoint(x: 120, y: 180)
+        let path = LiveGreenEntryHitRegion.path(greenPath: nil, fallbackCenter: fallbackCenter)
+        let destination = LiveGreenEntryHitRegion.destination(at: fallbackCenter, path: path)
+        XCTAssertEqual(destination, .greenDetail, "J5.4 a finger tap on the no-outline fallback opens flag placement instead of placing a target")
+    }
+
     /// J5.4: the putting surface owns its touches, without stealing the surrounding map.
     func testGreenContourAcceptsInteriorTouchesAndRejectsTheRestOfItsBoundingBox() {
         let control = LiveGreenEntryButton.Control(frame: CGRect(x: 0, y: 0, width: 80, height: 80))
