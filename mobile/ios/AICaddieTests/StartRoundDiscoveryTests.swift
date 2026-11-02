@@ -1786,6 +1786,12 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let replacement = MobileCourseOption(globalId: 7502, name: "新球场", holes: 18, venueName: "新球场")
         XCTAssertTrue(
             StartRoundView.shouldClearAutomaticSelection(
+                selected: nil, availableNearby: [replacement], userPickedVenue: false
+            ),
+            "a replaced nearby list must clear an automatic id even while its row is temporarily absent"
+        )
+        XCTAssertTrue(
+            StartRoundView.shouldClearAutomaticSelection(
                 selected: stale, availableNearby: [], userPickedVenue: false
             )
         )
