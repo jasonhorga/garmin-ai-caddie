@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C305-01-old-tail-order",
+      "patch": "tests/product/faults/C305/01-old-tail-order.patch",
+      "kind": "python",
+      "target": "tests.test_course_prep.PureLogicTests.test_j4_6_sparse_prep_never_adds_a_stroke_over_online_stock",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C305-02-water-stops-before-replan",
+      "patch": "tests/product/faults/C305/02-water-stops-before-replan.patch",
+      "kind": "python",
+      "target": "tests.test_course_prep.PureLogicTests.test_j4_6_water_route_that_stock_finishes_does_not_stop_short",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C305-03-no-repeat-fallback",
+      "patch": "tests/product/faults/C305/03-no-repeat-fallback.patch",
+      "kind": "python",
+      "target": "tests.test_course_prep.PureLogicTests.test_j4_6_water_route_that_stock_finishes_does_not_stop_short",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C305-04-loop-limit-four",
+      "patch": "tests/product/faults/C305/04-loop-limit-four.patch",
+      "kind": "python",
+      "target": "tests.test_course_prep.PureLogicTests.test_j4_6_long_sparse_route_keeps_the_five_step_bound",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C305-05-lightweight-drops-player-id",
+      "patch": "tests/product/faults/C305/05-lightweight-drops-player-id.patch",
+      "kind": "python",
+      "target": "tests.test_course_prep.PureLogicTests.test_j7_1_lightweight_prep_passes_member_profile_to_strategy",
+      "promise": "7.1"
+    },
+    {
+      "id": "tests-product-faults-C305-06-short-tee-advance",
+      "patch": "tests/product/faults/C305/06-short-tee-advance.patch",
+      "kind": "python",
+      "target": "tests.test_course_prep.PureLogicTests.test_j4_6_short_tee_scoring_step_ends_at_landing_station",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C305-07-flat-remaining-window",
+      "patch": "tests/product/faults/C305/07-flat-remaining-window.patch",
+      "kind": "python",
+      "target": "tests.test_course_prep.PureLogicTests.test_j4_6_plays_like_tail_window_uses_effective_remaining",
+      "promise": "4.6"
+    }
+  ]
+}

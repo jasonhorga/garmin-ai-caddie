@@ -97,6 +97,7 @@ class PureLogicTests(unittest.TestCase):
         ladder = [("Driver", 200), ("3W", 180), ("5I", 150), ("7I", 120), ("SW", 50)]
         hazards = {"water_carry": [[200.0, 225.0]], "bunkers": [], "details": []}
         steps, *_ = cp._strategy(5, 600.0, hazards, ladder)
+        self.assertEqual([step["club"] for step in steps], ["3W", "5I", "5I", "7I"])
         self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20.0)
         self.assertEqual(steps[-1]["role"], "scoring")
         carries = [step["targetCarry_m"] for step in steps[1:]]
@@ -106,7 +107,8 @@ class PureLogicTests(unittest.TestCase):
         """J4.6: a long SHORT bag route may use the r2 five-step planning bound."""
         ladder = [("Driver", 175), ("5W", 150), ("7W", 138), ("5H", 128), ("7I", 112),
                   ("8I", 104), ("9I", 95), ("PW", 85), ("AW", 72), ("SW", 58)]
-        steps, *_ = cp._strategy(5, 612.0, self._NO_HAZARDS, ladder)
+        with patch.object(cp, "_shared_sequence_tail", return_value=[]):
+            steps, *_ = cp._strategy(5, 612.0, self._NO_HAZARDS, ladder)
         self.assertEqual(len(steps), 5)
         self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20.0)
 
@@ -142,9 +144,9 @@ class PureLogicTests(unittest.TestCase):
         def elevation(route_m: float) -> float:
             return 50.0 if route_m < 300 else 25.0
 
-        with patch.object(cp, "_shared_sequence_tail", return_value=[("5I", 142.0)]):
+        with patch.object(cp, "_shared_sequence_tail", return_value=[("special", 145.0)]):
             steps, *_ = cp._strategy(4, 363.0, self._NO_HAZARDS, ladder, elevation_at=elevation)
-        self.assertEqual([step["club"] for step in steps], ["Driver", "5I"])
+        self.assertEqual([step["club"] for step in steps], ["Driver", "special"])
         self.assertEqual(steps[-1]["role"], "scoring")
         self.assertEqual(steps[-1]["routeOffset_m"], 363.0)
     def test_xy_handles_dict_and_list(self) -> None:

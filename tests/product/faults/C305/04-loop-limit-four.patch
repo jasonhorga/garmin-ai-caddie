@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index c739b06a..609c6a99 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2017,7 +2017,7 @@ def _strategy(
+ 
+         # Plan a complete Par 4/5 chain. A long Par 5 remainder is not one imaginary approach; use
+         # the longest playable non-driver until a normal scoring club can cover what remains.
+-        while remaining > SCORING_WINDOW_MAX_M and approach_ladder and len(steps) < 5:
++        while remaining > SCORING_WINDOW_MAX_M and approach_ladder and len(steps) < 4:
+             effective = plays_like(remaining)
+             used_clubs = {
+                 club_bag_service.canonical_club_name(step["club"])

@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index c739b06a..2d68f7b0 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2041,7 +2041,7 @@ def _strategy(
+             # exact GIR window, then permit one bounded re-plan gap, and finally permit repeated
+             # clubs.  The old distance fallback chose a fresh short club before trying the online
+             # alternatives, which added a stroke in sparse bags (for example TRIG at 408 m).
+-            if not shared_tail or effective - sum(distance for _club, distance in shared_tail) > SCORING_WINDOW_MAX_M:
++            if False:
+                 for allow_gap, forbid_repeats, excluded in (
+                     (True, True, used_clubs),
+                     (True, False, set()),

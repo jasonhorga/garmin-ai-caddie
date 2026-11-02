@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index c739b06a..9a7d6f65 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2044,7 +2044,6 @@ def _strategy(
+             if not shared_tail or effective - sum(distance for _club, distance in shared_tail) > SCORING_WINDOW_MAX_M:
+                 for allow_gap, forbid_repeats, excluded in (
+                     (True, True, used_clubs),
+-                    (True, False, set()),
+                 ):
+                     replanned_tail = _shared_sequence_tail(
+                         effective,

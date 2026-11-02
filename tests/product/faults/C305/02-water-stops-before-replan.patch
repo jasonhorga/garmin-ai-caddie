@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index c739b06a..651b509f 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2044,7 +2044,7 @@ def _strategy(
+             if not shared_tail or effective - sum(distance for _club, distance in shared_tail) > SCORING_WINDOW_MAX_M:
+                 for allow_gap, forbid_repeats, excluded in (
+                     (True, True, used_clubs),
+-                    (True, False, set()),
++                    (True, True, used_clubs) if planning_hazards.get("water_carry") else (True, False, set()),
+                 ):
+                     replanned_tail = _shared_sequence_tail(
+                         effective,

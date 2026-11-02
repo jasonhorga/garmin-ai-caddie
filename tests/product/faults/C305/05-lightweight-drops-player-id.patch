@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index c739b06a..44a466b9 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2591,7 +2591,7 @@ def _lightweight_prep_hole(
+         par = int(first.get("par") or course_reference.estimate_par_from_length(route_len))
+         par_source = "courseData"
+     steps, cautions, landing, tee_club = _strategy(
+-        par, route_len, hazards, ladder, player_id=player_id,
++        par, route_len, hazards, ladder,
+     )
+     green_lat, green_lon = shot_projection.local_to_world(
+         route[-1][0], route[-1][1], ref_lat=ref_lat, ref_lon=ref_lon
