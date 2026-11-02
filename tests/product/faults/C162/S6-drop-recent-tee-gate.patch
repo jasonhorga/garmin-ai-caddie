@@ -1,9 +1,9 @@
 diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
-index e5eef8a8..39d00982 100644
 --- a/mobile/ios/AICaddie/Views/StartRoundView.swift
 +++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
-@@ -2143,8 +2143,5 @@ public struct StartRoundView: View {
-     private var selectedCourseRequiresRemoteTees: Bool {
+@@ -2316,9 +2316,6 @@
+         recentResolvedCourseOption: MobileCourseOption?
+     ) -> Bool {
          guard let courseGlobalId else { return false }
 -        if recentCourseOption?.globalId == courseGlobalId {
 -            return selectedCourseTeeNames.isEmpty

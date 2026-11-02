@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index d772966c..8a4f4094 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -2560,7 +2560,7 @@ public struct StartRoundView: View {
+                ) {
+                 next.selectionCommand = .select(candidate)
+             } else if candidate == nil,
+-                      !nearbySelectionMatchesCurrentVenue(
++                      nearbySelectionMatchesCurrentVenue(
+                           selected: selected,
+                           selectedGlobalIdText: selectedGlobalIdText,
+                           availableNearby: availableNearby

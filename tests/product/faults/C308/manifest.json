@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C308-W1-stale-automatic-clear-state",
+      "patch": "tests/product/faults/C308/W1-stale-clear.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyInitialFailureOrEmptyAnswerClearsStaleAutomaticSelection",
+      "promise": "4.1"
+    },
+    {
+      "id": "C308-W3-manual-search-state",
+      "patch": "tests/product/faults/C308/W3-manual-search-clears.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testManualSearchResetDropsNearbyRows",
+      "promise": "4.1"
+    },
+    {
+      "id": "C308-W4-physical-venue-state",
+      "patch": "tests/product/faults/C308/W4-global-id.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testAutomaticSelectionUsesPhysicalVenueIdentity",
+      "promise": "4.1"
+    },
+    {
+      "id": "C308-empty-result-retains-stale-rows",
+      "patch": "tests/product/faults/C308/empty-result-retains-stale-rows.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyProviderResultEmptyClearsPublishedRows",
+      "promise": "4.1"
+    },
+    {
+      "id": "C308-W6-stale-result-state",
+      "patch": "tests/product/faults/C308/W6-stale-result.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyProviderResultRejectsStaleGeneration",
+      "promise": "4.1"
+    },
+    {
+      "id": "C308-NB-clear-stale-id-without-row",
+      "patch": "tests/product/faults/C308/N-B-stale-id-not-cleared.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyInitialFailureOrEmptyAnswerClearsStaleAutomaticSelection",
+      "promise": "4.1"
+    },
+    {
+      "id": "C308-begin-clears-published-rows",
+      "patch": "tests/product/faults/C308/begin-clears-published-rows.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyRefreshKeepsSelectedLoopAndTeeSetup",
+      "promise": "4.1"
+    }
+  ]
+}

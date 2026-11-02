@@ -845,7 +845,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 requestToken: current,
                 activeRequestToken: current,
                 requestKey: "4004:11654",
-                currentRequestKey: "4004:11654"
+                currentRequestKey: "4004:11654",
+                manualSearchSelected: false
             )
         )
         XCTAssertFalse(
@@ -854,7 +855,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 requestToken: current,
                 activeRequestToken: current,
                 requestKey: "4004:11654",
-                currentRequestKey: "4004:11654"
+                currentRequestKey: "4004:11654",
+                manualSearchSelected: false
             )
         )
         XCTAssertFalse(
@@ -863,7 +865,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 requestToken: superseded,
                 activeRequestToken: current,
                 requestKey: "4004:11654",
-                currentRequestKey: "4004:11654"
+                currentRequestKey: "4004:11654",
+                manualSearchSelected: false
             )
         )
         XCTAssertFalse(
@@ -872,7 +875,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 requestToken: current,
                 activeRequestToken: current,
                 requestKey: "4004:11654",
-                currentRequestKey: "4006:11656"
+                currentRequestKey: "4006:11656",
+                manualSearchSelected: false
             )
         )
         XCTAssertFalse(
@@ -885,6 +889,106 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 manualSearchSelected: true
             ),
             "a late nearby answer cannot overwrite an explicit text search"
+        )
+    }
+
+    /// J4.1: nearby discovery wiring is one state transition at each view event.
+    func testNearbyDiscoveryStateReducerOwnsDiscoveryAndSelectionTransitions() {
+        let old = loop(7990, venue: "同场", label: "A")
+        let sibling = loop(7991, venue: "同场", label: "B")
+        let state = StartRoundView.NearbyDiscoveryState(
+            nearbyOptions: [old], lastNearbyOptions: [old]
+        )
+
+        let started = StartRoundView.reduceNearbyDiscoveryState(state, event: .begin)
+        XCTAssertEqual(started.nearbyOptions, [old], "a refresh keeps published rows before provider work")
+        XCTAssertEqual(started.lastNearbyOptions, [old], "the successful cache remains available")
+        let unavailable = StartRoundView.reduceNearbyDiscoveryState(state, event: .locationUnavailable)
+        XCTAssertTrue(unavailable.nearbyOptions.isEmpty, "without a location there are no live nearby rows")
+        XCTAssertEqual(unavailable.lastNearbyOptions, [old], "losing location retains the successful cache")
+
+        let result = StartRoundView.NearbyDiscoveryLoopResult(
+            providerOptions: [sibling], carriedTees: [:], publishedProviderResult: true, lastError: nil
+        )
+        let applied = StartRoundView.reduceNearbyDiscoveryState(
+            started, event: .providerResult(result, canApply: true)
+        )
+        XCTAssertEqual(applied.nearbyOptions, [sibling])
+        XCTAssertEqual(applied.lastNearbyOptions, [sibling])
+        XCTAssertEqual(
+            StartRoundView.reduceNearbyDiscoveryState(
+                applied,
+                event: .providerResult(
+                    StartRoundView.NearbyDiscoveryLoopResult(
+                        providerOptions: [], carriedTees: [:], publishedProviderResult: false,
+                        lastError: URLError(.timedOut)
+                    ), canApply: true
+                )
+            ).nearbyOptions,
+            [],
+            "a terminal empty answer clears the live nearby rows"
+        )
+        XCTAssertEqual(
+            StartRoundView.reduceNearbyDiscoveryState(
+                applied, event: .providerResult(result, canApply: false)
+            ).nearbyOptions,
+            [sibling],
+            "a stale provider result cannot write the live state"
+        )
+
+        let sameVenue = StartRoundView.reduceNearbyDiscoveryState(
+            applied,
+            event: .automaticSelection(
+                candidate: nil, selected: old, selectedGlobalIdText: String(old.globalId),
+                availableNearby: [sibling], userPickedVenue: false, canApply: true
+            )
+        )
+        XCTAssertEqual(sameVenue.selectionCommand, .none, "a same-venue loop keeps automatic selection")
+
+        let staleId = StartRoundView.reduceNearbyDiscoveryState(
+            applied,
+            event: .automaticSelection(
+                candidate: nil, selected: nil, selectedGlobalIdText: String(old.globalId),
+                availableNearby: [sibling], userPickedVenue: false, canApply: true
+            )
+        )
+        XCTAssertEqual(staleId.selectionCommand, .clear, "an omitted automatic id is cleared")
+        XCTAssertTrue(
+            StartRoundView.reduceNearbyDiscoveryState(
+                applied, event: .manualSearch
+            ).nearbyOptions.isEmpty,
+            "manual search removes nearby attribution"
+        )
+    }
+
+    /// J4.1/J4.2: retrying or changing GPS buckets keeps the selected loop available and must
+    /// not issue the select/clear commands that discard fetched Tees and reset the setup.
+    func testNearbyRefreshKeepsSelectedLoopAndTeeSetup() {
+        let first = loop(7992, venue: "同场", label: "A")
+        let selected = loop(7993, venue: "同场", label: "B")
+        let state = StartRoundView.NearbyDiscoveryState(
+            nearbyOptions: [first, selected], lastNearbyOptions: [first, selected]
+        )
+
+        let started = StartRoundView.reduceNearbyDiscoveryState(state, event: .begin)
+        XCTAssertEqual(started.nearbyOptions, [first, selected], "discovery must not flash the list empty")
+        XCTAssertEqual(started.selectionCommand, .none, "begin must leave the selected venue and Tee setup alone")
+        let current = StartRoundView.selectedSegment(
+            globalId: selected.globalId, current: started.nearbyOptions,
+            preselectedVenue: [], offline: [], explicit: [], recent: nil
+        )
+        XCTAssertEqual(current, selected, "the chosen B loop stays resolvable while discovery is pending")
+
+        let automatic = StartRoundView.reduceNearbyDiscoveryState(
+            started,
+            event: .automaticSelection(
+                candidate: first, selected: current, selectedGlobalIdText: String(selected.globalId),
+                availableNearby: started.nearbyOptions, userPickedVenue: false, canApply: true
+            )
+        )
+        XCTAssertEqual(
+            automatic.selectionCommand, .none,
+            "same-venue discovery must not reselect A and reset fetchedTees, teeBox, roundId or userPickedTee"
         )
     }
 
@@ -1784,28 +1888,31 @@ final class StartRoundDiscoveryTests: XCTestCase {
     func testNearbyInitialFailureOrEmptyAnswerClearsStaleAutomaticSelection() {
         let stale = MobileCourseOption(globalId: 7501, name: "旧球场", holes: 18, venueName: "旧球场")
         let replacement = MobileCourseOption(globalId: 7502, name: "新球场", holes: 18, venueName: "新球场")
-        XCTAssertTrue(
-            StartRoundView.shouldClearAutomaticSelection(
-                selected: stale, availableNearby: [], userPickedVenue: false
-            )
+        let state = StartRoundView.NearbyDiscoveryState(
+            nearbyOptions: [stale], lastNearbyOptions: [stale]
         )
-        XCTAssertTrue(
-            StartRoundView.shouldClearAutomaticSelection(
-                selected: stale, availableNearby: [replacement], userPickedVenue: false
+        let sibling = MobileCourseOption(globalId: 7503, name: "旧球场 ~ B", holes: 9, venueName: "旧球场")
+        let cases: [(selected: MobileCourseOption?, id: String, nearby: [MobileCourseOption],
+                     manual: Bool, expected: StartRoundView.NearbySelectionCommand, reason: String)] = [
+            (nil, "7501", [replacement], false, .clear, "an omitted automatic id is cleared"),
+            (stale, "7501", [], false, .clear, "an empty answer clears the automatic venue"),
+            (stale, "7501", [replacement], false, .clear, "a different venue clears the automatic venue"),
+            (stale, "7501", [sibling], false, .none, "a sibling loop keeps the automatic venue"),
+            (stale, "7501", [], true, .none, "an explicit venue choice is retained"),
+            (nil, "  ", [], false, .none, "no automatic id means nothing to clear")
+        ]
+        for item in cases {
+            XCTAssertEqual(
+                StartRoundView.reduceNearbyDiscoveryState(
+                    state,
+                    event: .automaticSelection(
+                        candidate: nil, selected: item.selected, selectedGlobalIdText: item.id,
+                        availableNearby: item.nearby, userPickedVenue: item.manual, canApply: true
+                    )
+                ).selectionCommand,
+                item.expected, item.reason
             )
-        )
-        XCTAssertFalse(
-            StartRoundView.shouldClearAutomaticSelection(
-                selected: stale,
-                availableNearby: [MobileCourseOption(globalId: 7503, name: "旧球场 ~ B", holes: 9, venueName: "旧球场")],
-                userPickedVenue: false
-            )
-        )
-        XCTAssertFalse(
-            StartRoundView.shouldClearAutomaticSelection(
-                selected: stale, availableNearby: [], userPickedVenue: true
-            )
-        )
+        }
     }
 
     /// J4.1: a nearby result from the same physical venue keeps the current loop selection.
@@ -1813,6 +1920,15 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let current = MobileCourseOption(globalId: 7601, name: "同场 A", holes: 9, venueName: "同场")
         let sibling = MobileCourseOption(globalId: 7602, name: "同场 B", holes: 9, venueName: "同场")
         let other = MobileCourseOption(globalId: 7603, name: "别场", holes: 18, venueName: "别场")
+        XCTAssertTrue(StartRoundView.nearbySelectionMatchesCurrentVenue(
+            selected: current, selectedGlobalIdText: "7601", availableNearby: [sibling]
+        ))
+        XCTAssertFalse(StartRoundView.nearbySelectionMatchesCurrentVenue(
+            selected: current, selectedGlobalIdText: "7601", availableNearby: [other]
+        ))
+        XCTAssertFalse(StartRoundView.nearbySelectionMatchesCurrentVenue(
+            selected: nil, selectedGlobalIdText: "7601", availableNearby: [sibling]
+        ))
         XCTAssertFalse(StartRoundView.shouldReplaceAutomaticSelection(
             current: current, candidate: sibling, userPickedVenue: false
         ))
@@ -1822,12 +1938,106 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertFalse(StartRoundView.shouldReplaceAutomaticSelection(
             current: current, candidate: other, userPickedVenue: true
         ))
+        let state = StartRoundView.NearbyDiscoveryState(
+            nearbyOptions: [sibling], lastNearbyOptions: [sibling]
+        )
+        XCTAssertEqual(
+            StartRoundView.reduceNearbyDiscoveryState(
+                state,
+                event: .automaticSelection(
+                    candidate: nil, selected: current, selectedGlobalIdText: "7601",
+                    availableNearby: [sibling], userPickedVenue: false, canApply: true
+                )
+            ).selectionCommand,
+            .none
+        )
     }
 
     /// J4.1: choosing a text-search result removes stale nearby attribution before rendering it.
     func testManualSearchResetDropsNearbyRows() {
         let nearby = MobileCourseOption(globalId: 7701, name: "附近", holes: 18)
-        XCTAssertTrue(StartRoundView.resetNearbyOptionsForManualSearch([nearby]).isEmpty)
+        let state = StartRoundView.NearbyDiscoveryState(
+            nearbyOptions: [nearby], lastNearbyOptions: [nearby]
+        )
+        XCTAssertTrue(
+            StartRoundView.reduceNearbyDiscoveryState(state, event: .manualSearch).nearbyOptions.isEmpty
+        )
+    }
+
+    /// J4.1: a terminal empty provider answer clears the live nearby rows while retaining cache.
+    func testNearbyProviderResultEmptyClearsPublishedRows() {
+        let published = loop(7801, venue: "已发布", label: "A")
+        let state = StartRoundView.NearbyDiscoveryState(
+            nearbyOptions: [published], lastNearbyOptions: [published]
+        )
+        let empty = StartRoundView.NearbyDiscoveryLoopResult(
+            providerOptions: [], carriedTees: [:], publishedProviderResult: false,
+            lastError: URLError(.timedOut)
+        )
+        XCTAssertEqual(
+            StartRoundView.reduceNearbyDiscoveryState(
+                state, event: .providerResult(empty, canApply: true)
+            ).nearbyOptions,
+            []
+        )
+        XCTAssertEqual(
+            StartRoundView.reduceNearbyDiscoveryState(
+                state, event: .providerResult(empty, canApply: true)
+            ).lastNearbyOptions.map(\.globalId),
+            [published.globalId]
+        )
+    }
+
+    /// J4.1: a stale generation cannot enter the provider-result state writer.
+    func testNearbyProviderResultRejectsStaleGeneration() {
+        let result = StartRoundView.NearbyDiscoveryLoopResult(
+            providerOptions: [loop(7803, venue: "新场", label: "A")],
+            carriedTees: [:], publishedProviderResult: true, lastError: nil
+        )
+        let state = StartRoundView.NearbyDiscoveryState(
+            nearbyOptions: [], lastNearbyOptions: []
+        )
+        XCTAssertTrue(
+            StartRoundView.reduceNearbyDiscoveryState(
+                state, event: .providerResult(result, canApply: false)
+            ).nearbyOptions.isEmpty
+        )
+        XCTAssertEqual(
+            StartRoundView.reduceNearbyDiscoveryState(
+                state, event: .providerResult(result, canApply: true)
+            ).nearbyOptions,
+            result.providerOptions
+        )
+    }
+
+    /// J4.1/J4.2: a recent row with only a remembered colour still requires remote Tee authority.
+    func testRecentCourseRequiresRemoteTeesUntilAuthorityArrives() {
+        let recent = loop(7810, venue: "最近球场", label: "A")
+        XCTAssertTrue(StartRoundView.selectedCourseRequiresRemoteTees(
+            courseGlobalId: recent.globalId, recentCourseOption: recent,
+            selectedCourseTeeNames: [], courseOptions: [], downloadedCourseOptions: [],
+            recentResolvedCourseOption: recent
+        ))
+        XCTAssertFalse(StartRoundView.selectedCourseRequiresRemoteTees(
+            courseGlobalId: recent.globalId, recentCourseOption: recent,
+            selectedCourseTeeNames: ["blue"], courseOptions: [], downloadedCourseOptions: [],
+            recentResolvedCourseOption: recent
+        ))
+    }
+
+    /// J4.1: recent recovery includes the last successful nearby sibling loops.
+    func testSelectedAuthorityRecentVenueIncludesCachedNearbyLoops() {
+        let recent = loop(7820, venue: "最近球场", label: "A")
+        let cachedSibling = loop(7821, venue: "最近球场", label: "B")
+        let unrelated = loop(7822, venue: "别的球场", label: "A")
+        let authority = StartRoundView.selectedAuthorityOptions(
+            selected: recent, nearbyCourseOptions: [], remoteCourseOptions: [],
+            preselectedVenueOptions: [], offlineCourseOptions: [],
+            recentCourseOption: recent, recentResolvedCourseOption: recent,
+            explicitCourseOptions: [], courseOptions: [], downloadedCourseOptions: [],
+            lastNearbyCourseOptions: [cachedSibling, unrelated]
+        )
+        XCTAssertEqual(authority.map(\.globalId), [7820, 7821])
     }
 
     /// J4.1: a sparse 5 km answer expands to 20 km and retains the first physical venue.

@@ -1,13 +1,8 @@
 diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
-index cce069b4..1cc2407a 100644
 --- a/mobile/ios/AICaddie/Views/StartRoundView.swift
 +++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
-@@ -2617,7 +2617,7 @@ public struct StartRoundView: View {
-             guard canApply() else { return }
-             carriedCourseTees.merge(result.carriedTees) { _, latest in latest }
-             nearbyCourseOptions = result.providerOptions
--            if !result.providerOptions.isEmpty { lastNearbyCourseOptions = result.providerOptions }
-+            if false { lastNearbyCourseOptions = result.providerOptions }
-             let providerIDs = Set(result.providerOptions.map(\.globalId))
-             offlineCourseOptions = resolvedOfflineOptions(localNearby).filter {
-                 !providerIDs.contains($0.globalId)
+@@ -2551,3 +2551,3 @@ public struct StartRoundView: View {
+             next.nearbyOptions = result.providerOptions
+-            if !result.providerOptions.isEmpty {
++            if result.providerOptions.isEmpty {
+                 next.lastNearbyOptions = result.providerOptions

@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 3ea0469..17e11e2 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -2655,7 +2655,7 @@ public struct StartRoundView: View {
+         availableNearby: [MobileCourseOption]
+     ) -> Bool {
+         guard let selected else {
+-            return selectedGlobalIdText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
++            return true
+         }
+         return availableNearby.contains { samePhysicalVenue(selected, $0) }
+     }
