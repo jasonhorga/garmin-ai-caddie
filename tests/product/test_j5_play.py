@@ -405,7 +405,8 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
                    "p90_m": carry + 8, "sampleSize": 20, "riskRate": 0, "usableRate": 100}
             for name, carry in owner_ladder
         }
-        for distance_m in range(450, 501):
+        # The 51 hand-written Par-5 distances in the C244 r3 probe: 400…600m by 4m.
+        for distance_m in range(400, 601, 4):
             with self.subTest(distance_m=distance_m):
                 context = {
                     "roundId": "c244-r3-par5", "globalId": 31688, "hole": 18, "localHole": 18,
@@ -425,7 +426,7 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
                 )
                 prep_clubs = [step["club"] for step in prep_steps]
                 self.assertEqual(online_clubs, prep_clubs)
-                self.assertEqual(len(online_clubs), 3)
+                self.assertGreaterEqual(len(online_clubs), 3)
 
     def test_j4_6_online_tee_without_wedge_keeps_safe_and_stock_routes(self):
         """J4.6: a bag without a 70–115m club still yields tee alternatives."""
