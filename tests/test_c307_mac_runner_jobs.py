@@ -59,14 +59,17 @@ elif args[:2] == ['simctl', 'create']:
     p.write_text(json.dumps(s))
     print(udid)
 elif args[:2] in (['simctl', 'erase'], ['simctl', 'boot'], ['simctl', 'shutdown']):
-    device = next(d for devices in s['devices'].values() for d in devices if d['udid'] == args[2])
-    prefs = Path(device['dataPath']) / 'Library/Preferences/.GlobalPreferences.plist'
-    if args[1] == 'erase':
-        prefs.parent.mkdir(parents=True, exist_ok=True)
-        prefs.write_bytes(plistlib.dumps(dict(AppleLanguages=['zh-Hans-US'], AppleLocale='zh_CN')))
-    if args[1] == 'boot':
-        s['boot_preferences'] = plistlib.loads(prefs.read_bytes())
-    device['state'] = 'Booted' if args[1] == 'boot' else 'Shutdown'
+    selected = [d for devices in s['devices'].values() for d in devices
+                if args[2] == 'all' or d['udid'] == args[2]]
+    assert selected, 'unknown UDID: ' + args[2]
+    for device in selected:
+        prefs = Path(device['dataPath']) / 'Library/Preferences/.GlobalPreferences.plist'
+        if args[1] == 'erase':
+            prefs.parent.mkdir(parents=True, exist_ok=True)
+            prefs.write_bytes(plistlib.dumps(dict(AppleLanguages=['zh-Hans-US'], AppleLocale='zh_CN')))
+        if args[1] == 'boot':
+            s['boot_preferences'] = plistlib.loads(prefs.read_bytes())
+        device['state'] = 'Booted' if args[1] == 'boot' else 'Shutdown'
     p.write_text(json.dumps(s))
 '''
 
