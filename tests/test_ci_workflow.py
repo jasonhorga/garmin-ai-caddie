@@ -77,7 +77,7 @@ class FakeHttp
   def request(request)
     Net::HTTP.readiness_requests += 1 if request.path == "/api/v2/readiness"
     body = @responses.fetch(request.path)
-    body = body.shift if body.is_a?(Array)
+    body = body.length > 1 ? body.shift : body.first if body.is_a?(Array)
     FakeResponse.new("200", JSON.generate(body))
   end
 end
@@ -94,20 +94,33 @@ module Net
   end
 end
 
+# G7 specifies 15-second polls and a 720-second total budget. Advance a fake
+# monotonic clock only on sleep; no real-time wait and no clock-call counting.
+module Process
+  class << self
+    attr_accessor :readiness_now
+    def clock_gettime(*)
+      readiness_now
+    end
+  end
+end
 module Kernel
-  def sleep(*) end
+  def sleep(seconds)
+    Process.readiness_now += seconds
+  end
 end
 
 def run_case(readiness, allow_degraded)
+  Process.readiness_now = 0.0
   Net::HTTP.readiness_requests = 0
   Net::HTTP.responses = {
     "/api/v2/health" => {"schema" => "ai-caddie-health-v2", "revision" => "a" * 40},
     "/api/v2/readiness" => readiness.is_a?(Array) ? readiness : [readiness]
   }
   result = preflight_backend!(allow_degraded_readiness: allow_degraded)
-  puts JSON.generate({"result" => "pass", "revision" => result["revision"], "requests" => Net::HTTP.readiness_requests})
+  puts JSON.generate({"result" => "pass", "revision" => result["revision"], "requests" => Net::HTTP.readiness_requests, "waited" => Process.readiness_now})
 rescue => error
-  puts JSON.generate({"result" => "error", "message" => error.message, "requests" => Net::HTTP.readiness_requests})
+  puts JSON.generate({"result" => "error", "message" => error.message, "requests" => Net::HTTP.readiness_requests, "waited" => Process.readiness_now})
 end
 
 origin = {"runtimeStatus" => "ready", "checks" => [{"label" => "history", "state" => "ready"}]}
@@ -122,6 +135,9 @@ run_case([warming.merge("checks" => [{"label" => "mobile_package", "state" => "w
 run_case(origin.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "ready", "serviceStatus" => "ready"), false)
 run_case(degraded.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "degraded", "serviceStatus" => "degraded"), false)
 run_case(error_state.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "degraded", "serviceStatus" => "degraded"), false)
+run_case(degraded.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "degraded", "serviceStatus" => "degraded"), true)
+run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "ready", "serviceStatus" => "ready"), false)
+run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "ready", "serviceStatus" => "ready"), true)
 '''
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -137,8 +153,13 @@ run_case(error_state.merge("schema" => "ai-caddie-readiness-v1", "authenticated"
             )
         self.assertEqual(result.returncode, 0, result.stderr)
         rows = [json.loads(line) for line in result.stdout.splitlines()]
-        self.assertEqual([row["result"] for row in rows], ["pass", "pass", "error", "error"])
-        self.assertEqual([row["requests"] for row in rows], [2, 1, 1, 1])
+        self.assertEqual([row["result"] for row in rows], ["pass", "pass", "error", "error", "pass", "error", "error"])
+        # 720 / 15 = 48 requests, at t=0,15,...,705; opt-in cannot bypass warming.
+        self.assertEqual([row["requests"] for row in rows], [2, 1, 1, 1, 1, 48, 48])
+        self.assertEqual([row["waited"] for row in rows], [15, 0, 0, 0, 0, 720, 720])
+        for row in rows[-2:]:
+            self.assertIn("已等 720 s", row["message"])
+            self.assertIn("checks=", row["message"])
 
     def test_native_artifacts_download_only_shards_and_replace_previous_attempt(self) -> None:
         """J3/J4: summary excludes unrelated/combined artifacts and consumes latest uploads."""
