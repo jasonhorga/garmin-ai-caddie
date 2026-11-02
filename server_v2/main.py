@@ -1531,7 +1531,7 @@ def _prepare_recent_work(player_id: str, prep_warm_delay_s: float = 0.0) -> None
     except Exception:  # noqa: BLE001 - best-effort;绝不弄崩触发它的线程
         import logging
 
-        logging.getLogger(__name__).exception("prepare-recent failed for %s", player_id)
+        logging.getLogger(__name__).exception("prepare-recent failed")
 
 
 @app.post("/api/v2/history/prepare-recent")
