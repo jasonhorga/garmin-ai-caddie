@@ -149,6 +149,8 @@ class PrepRouteQualityTests(unittest.TestCase):
             ("NOWEDGE", 208, (213, 238), ("3W",)),
             ("TRIG", 300, (305, 330), None),
             ("OWNER", 232, (237, 262), None),
+            ("TRIG", 288, (293, 318), ("3W", "8I")),
+            ("GAP", 224, (229, 254), ("7I", "SW", "SW")),
         )
         for bag, length, pond, expected_clubs in cases:
             with self.subTest(bag=bag, length=length):
