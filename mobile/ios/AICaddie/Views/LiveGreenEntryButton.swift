@@ -46,6 +46,9 @@ struct LiveGreenEntryButton: UIViewRepresentable {
 
         override init(frame: CGRect) {
             super.init(frame: frame)
+            // Keep the element hittable for VoiceOver/XCTest. Physical touches are routed to
+            // the SwiftUI map gesture layer by point(inside:with:) below.
+            isUserInteractionEnabled = true
             isAccessibilityElement = false
             addSubview(control)
             accessibilityElements = [control]
@@ -59,7 +62,16 @@ struct LiveGreenEntryButton: UIViewRepresentable {
         }
 
         override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-            control.point(inside: convert(point, to: control), with: event)
+            // Keep the contour available to UIKit accessibility/XCTest hit testing.
+            return control.point(inside: convert(point, to: control), with: event)
+        }
+
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            // Physical touches belong to the SwiftUI map gesture layer. Returning nil after
+            // point(inside:) has exposed the contour preserves accessibility hit testing while
+            // preventing this sibling from winning the map's touch sequence.
+            guard event == nil else { return nil }
+            return super.hitTest(point, with: event)
         }
     }
 

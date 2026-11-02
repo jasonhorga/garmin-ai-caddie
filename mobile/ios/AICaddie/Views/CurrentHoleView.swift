@@ -2410,36 +2410,12 @@ public struct CurrentHoleView: View {
             ZStack {
                 Color.clear
                     .contentShape(Rectangle())
-                    // The map owns its gestures and accessibility element. The green button is
-                    // a sibling, so a full-screen gesture container cannot win its AX hit test.
+                    // Keep the map and the contour-sized green entry as separate accessibility
+                    // elements while physical gestures remain owned by the enclosing ZStack.
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("球洞地图，点地图设目标点")
                     .accessibilityHint("按住目标点拖动微调，左右滑动切换球洞")
                     .accessibilityIdentifier("live-open-map-from-hero")
-                    // Keep all map gestures in the full hero coordinate space. The old gesture lived on a
-                    // translated rectangle below the header, which made green-path exclusion depend on
-                    // SwiftUI's local-coordinate interpretation and allowed an accessibility tap to be lost.
-                    // B1c: a tap on the map places the Touch Target (a tap on the target clears it); the
-                    // green keeps its own button above. Holding the target drags it with the loupe.
-                    .simultaneousGesture(
-                        // The Touch Target works on the factual map while the precise one is pending
-                        // (B4c): `carryOverMapInteraction` keeps the target on the same spot when it lands.
-                        SpatialTapGesture().onEnded { value in
-                            guard !heroTargetDragGrabbed,
-                                  value.location.y >= LivePlayMapOverlayLayout.liveMapTopInset,
-                                  greenPath?.contains(value.location) != true else { return }
-                            handleHeroMapTap(at: value.location, in: geometry.size)
-                        }
-                    )
-                    .simultaneousGesture(heroTargetDragGesture(in: geometry.size))
-                    .simultaneousGesture(heroMapPinchGesture(in: geometry.size))
-                    // Keep the two drag contracts separate. The paging gesture is active only at the fitted
-                    // scale, while the map pan is active only after zoom; this prevents a vertical pan from
-                    // accidentally changing holes and prevents the parent ScrollView from stealing zoomed
-                    // map movement. Both are simultaneous so ordinary vertical page scrolling remains
-                    // available when the fitted map is not being paged.
-                    .simultaneousGesture(heroMapHoleSwipeGesture())
-                    .simultaneousGesture(heroMapPanGesture(in: geometry.size))
 
                 if let greenPath {
                     let greenBounds = greenPath.boundingRect
@@ -2457,7 +2433,13 @@ public struct CurrentHoleView: View {
                         width: max(greenBounds.width, 1),
                         height: max(greenBounds.height, 1)
                     )
-                    .position(x: greenPath.boundingRect.midX, y: greenPath.boundingRect.midY)
+                    .position(x: greenBounds.midX, y: greenBounds.midY)
+                    .accessibilityLabel("调整旗位")
+                    .accessibilityIdentifier("live-open-green-from-hero")
+                    // Keep the accessibility activation point on the actual green contour.  The
+                    // button is already reduced to the contour's local bounding box, so this point
+                    // remains deterministic for XCTest and VoiceOver without reopening the whole
+                    // map as a green hit target.
                     .zIndex(1)
                 } else if let greenTarget = liveGreenTarget(in: geometry.size) {
                     LiveGreenEntryButton(hitPath: Circle().path(in: CGRect(x: 0, y: 0, width: 76, height: 76)), exclusions: liveChromeRects.map(\.rect)) {
@@ -2466,9 +2448,39 @@ public struct CurrentHoleView: View {
                     }
                     .frame(width: 76, height: 76)
                     .position(transformedHeroPoint(greenTarget, in: geometry.size))
+                    .accessibilityLabel("调整旗位")
+                    .accessibilityIdentifier("live-open-green-from-hero")
                     .zIndex(1)
                 }
             }
+            // Keep all map gestures in the full hero coordinate space. The old gesture lived on a
+            // translated rectangle below the header, which made green-path exclusion depend on
+            // SwiftUI's local-coordinate interpretation and allowed an accessibility tap to be lost.
+            // B1c: a tap on the map places the Touch Target (a tap on the target clears it); the
+            // green keeps its own button above. Holding the target drags it with the loupe.
+            .simultaneousGesture(
+                // The Touch Target works on the factual map while the precise one is pending
+                // (B4c): `carryOverMapInteraction` keeps the target on the same spot when it lands.
+                SpatialTapGesture().onEnded { value in
+                    guard !heroTargetDragGrabbed,
+                          value.location.y >= LivePlayMapOverlayLayout.liveMapTopInset else { return }
+                    if greenPath?.contains(value.location) == true {
+                        guard canOpenGreenDetail else { return }
+                        showGreenDetail = true
+                        return
+                    }
+                    handleHeroMapTap(at: value.location, in: geometry.size)
+                }
+            )
+            .simultaneousGesture(heroTargetDragGesture(in: geometry.size))
+            .simultaneousGesture(heroMapPinchGesture(in: geometry.size))
+            // Keep the two drag contracts separate. The paging gesture is active only at the fitted
+            // scale, while the map pan is active only after zoom; this prevents a vertical pan from
+            // accidentally changing holes and prevents the parent ScrollView from stealing zoomed
+            // map movement. Both are simultaneous so ordinary vertical page scrolling remains
+            // available when the fitted map is not being paged.
+            .simultaneousGesture(heroMapHoleSwipeGesture())
+            .simultaneousGesture(heroMapPanGesture(in: geometry.size))
             .preference(
                 key: LiveHolePagerGestureStateKey.self,
                 value: isSelected && (
