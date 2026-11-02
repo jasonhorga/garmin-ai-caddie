@@ -1,0 +1,13 @@
+diff --git a/.github/scripts/select-sim.sh b/.github/scripts/select-sim.sh
+index 09441b36..1b73e19c 100755
+--- a/.github/scripts/select-sim.sh
++++ b/.github/scripts/select-sim.sh
+@@ -61,7 +61,7 @@ if not prefix:
+         ['xcrun', '--sdk', sdk_name, '--show-sdk-version'], text=True).strip())
+ 
+ def supported(runtime_version):
+-    return sdk_limit is None or runtime_version <= sdk_limit
++    return True
+ 
+ candidates = []
+ for runtime, entries in devices.items():

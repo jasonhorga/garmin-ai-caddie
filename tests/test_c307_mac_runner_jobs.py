@@ -466,7 +466,7 @@ while True:
         # inventory; its OS=latest unit job uses the newest one. Hosted selection
         # must preserve those job-specific choices while never exceeding Xcode's SDK.
         self.set_ios_runtimes(['18.5', '18.6', '26.2'])
-        for job in ('native-real-flow', 'native-screenshots', 'native-product-ui'):
+        for job in ('native-live', 'native-real-flow', 'native-screenshots', 'native-product-ui'):
             with self.subTest(job=job):
                 self.assertEqual(self.select('ios', GITHUB_JOB=job, SIM_SDK_VERSION='30.0'), 'iOS18.5')
         self.assertEqual(self.select('ios', GITHUB_JOB='native-unit-watch', SIM_SDK_VERSION='30.0'), 'iOS26.2')

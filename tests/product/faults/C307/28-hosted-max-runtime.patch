@@ -1,0 +1,14 @@
+diff --git a/.github/scripts/select-sim.sh b/.github/scripts/select-sim.sh
+index 09441b36..218c3610 100755
+--- a/.github/scripts/select-sim.sh
++++ b/.github/scripts/select-sim.sh
+@@ -118,8 +118,7 @@ else:
+     # OS=latest selection and therefore keeps the newest available runtime.
+     oldest_ios_jobs = {'native-live', 'native-real-flow', 'native-screenshots',
+                        'native-product-ui'}
+-    choose = (min if platform == 'iOS' and os.environ.get('GITHUB_JOB') in oldest_ios_jobs
+-              else max)
++    choose = max
+     if profile == 'visual':
+         choose = min
+     udid = candidates[0][1] if profile in ('compact', 'ultra') else choose(candidates)[1]

@@ -536,6 +536,13 @@ def xcresulttool(args):
 
 def xcrun(args):
     log("xcrun", args)
+    if args[:3] in (["--sdk", "iphonesimulator", "--show-sdk-version"],
+                    ["--sdk", "watchsimulator", "--show-sdk-version"]):
+        # select-sim.sh caps hosted runtimes at the SDK installed by the runner.
+        # Keep this fake tool compatible with that query while allowing the
+        # fixture's synthetic 27.x runtimes.
+        print("99.0")
+        return 0
     if args[:1] == ["simctl"]:
         return simctl(args[1:])
     if args[:1] == ["xcresulttool"]:

@@ -161,6 +161,20 @@
       "kind": "python",
       "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_sdk_affected_jobs_stay_hosted_even_when_mac_is_online",
       "promise": "C307 r5 full Watch scheme jobs stay hosted until C332"
+    },
+    {
+      "id": "tests-product-faults-C307-28-hosted-max-runtime",
+      "patch": "tests/product/faults/C307/28-hosted-max-runtime.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_hosted_selection_replays_main_runtime_order_and_sdk_cap",
+      "promise": "C307 r6 hosted simulator runtime selection"
+    },
+    {
+      "id": "tests-product-faults-C307-29-hosted-sdk-cap",
+      "patch": "tests/product/faults/C307/29-hosted-sdk-cap.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_hosted_selection_replays_main_runtime_order_and_sdk_cap",
+      "promise": "C307 r6 hosted simulator runtime selection"
     }
   ]
 }
