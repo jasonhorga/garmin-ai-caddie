@@ -82,16 +82,18 @@ class PrepWaterRouteTests(unittest.TestCase):
                     self.assertEqual(steps[-1]["role"], "scoring")
 
     def test_j4_6_water_layup_keeps_the_three_shot_route(self):
-        # 3W@180 clears the first landing; 5I@330 clears water at 200--225;
-        # 7I reaches the 428 m green. Main already completes this route in three shots.
+        # 3W@180 then 5I@330 clears water at 200--225; 7I reaches the 428 m green.
+        # At 476 m, repeating 5I reaches the green at 480 m. Both are three-shot routes;
+        # a relaxed distinct candidate must not insert two wedges instead of that repeat.
         for par in (4, 5):
-            with self.subTest(par=par):
-                steps, *_ = course_prep._strategy(
-                    par, 428, {"water_carry": [[200, 225]]}, self.BAGS["GAP"],
-                )
-                self.assertLessEqual(len(steps), 3)
-                self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20)
-                self.assertEqual(steps[-1]["role"], "scoring")
+            for length in (428, 476):
+                with self.subTest(par=par, length=length):
+                    steps, *_ = course_prep._strategy(
+                        par, length, {"water_carry": [[200, 225]]}, self.BAGS["GAP"],
+                    )
+                    self.assertLessEqual(len(steps), 3)
+                    self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20)
+                    self.assertEqual(steps[-1]["role"], "scoring")
 
 
 class CourseRefreshTests(unittest.TestCase):

@@ -2026,13 +2026,10 @@ def _strategy(
             }
             previous_carry = float(steps[-1].get("targetCarry_m") or math.inf)
             scoring_max_overshoot = TEE_SEQUENCE_MAX_OVERSHOOT_M
-            if approach_ladder and (
-                effective <= max(float(distance) for _name, distance in approach_ladder)
-                or (planning_hazards.get("water_carry") and tee_club != (real_driver_row or (None,))[0])
-            ):
-                # A short scoring remainder, or a water-forced shorter tee, can leave a
-                # narrow gap between measured carries. Keep a bounded GIR candidate ahead of
-                # repeated short swings; ordinary long advances retain the lay-up ranking.
+            if approach_ladder and effective <= max(float(distance) for _name, distance in approach_ladder):
+                # A short remainder can be closed by one measured scoring club whose carry is
+                # just beyond the route window; prefer that GIR candidate to two short fallback
+                # swings. Long advances keep the online 20 m tolerance and lay-up ranking.
                 scoring_max_overshoot += 15.0
             shared_tail = _shared_sequence_tail(
                 effective,
@@ -2046,6 +2043,30 @@ def _strategy(
                 sample_size=None,
                 player_id=player_id,
             )
+            if (
+                planning_hazards.get("water_carry")
+                and tee_club != (real_driver_row or (None,))[0]
+                and (not shared_tail or effective - sum(distance for _club, distance in shared_tail) > SCORING_WINDOW_MAX_M)
+            ):
+                # A water-forced lay-up can leave a narrow gap between measured carries.
+                # Accept a bounded two-club finish before repeats, but never add a third
+                # tail shot just to avoid repeating a club (GAP 428 m versus 476 m).
+                water_tail = _shared_sequence_tail(
+                    effective,
+                    approach_ladder,
+                    start_m=route_offset_m,
+                    hazards=planning_hazards,
+                    exclude_club_keys=used_clubs,
+                    maximum_carry_m=previous_carry,
+                    forbid_repeated_clubs=True,
+                    max_overshoot_m=scoring_max_overshoot + 15.0,
+                    sample_size=None,
+                    player_id=player_id,
+                )
+                if 0 < len(water_tail) <= 2 and effective - sum(
+                    distance for _club, distance in water_tail
+                ) <= SCORING_WINDOW_MAX_M:
+                    shared_tail = water_tail
             # Keep the distinct GIR candidate first; only a non-converging candidate needs
             # the online repeat fallback. A separate distinct re-plan-gap pass selected no
             # accepted route that the initial pass did not already select.
