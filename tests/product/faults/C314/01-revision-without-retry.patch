@@ -1,0 +1,11 @@
+diff --git a/fastlane/Fastfile b/fastlane/Fastfile
+index 19b65811..f55798b0 100644
+--- a/fastlane/Fastfile
++++ b/fastlane/Fastfile
+@@ -258,5 +258,5 @@ platform :ios do
+     origin = ENV.fetch("AI_CADDIE_API_BASE_URL").to_s.strip
+     token = ENV.fetch("AI_CADDIE_ADMIN_TOKEN").to_s.strip
+-    payload = fetch_backend_health!(origin: origin, token: token, error_context: "backend health")
++    payload = fetch_backend_json!(origin: origin, token: token, path: "/api/v2/health", error_context: "backend health")
+     revision = payload["revision"].to_s.strip.downcase
+     UI.user_error!("backend health schema mismatch") unless payload["schema"] == "ai-caddie-health-v2"

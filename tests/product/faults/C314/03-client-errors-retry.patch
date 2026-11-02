@@ -1,0 +1,11 @@
+diff --git a/fastlane/Fastfile b/fastlane/Fastfile
+index 19b65811..acdb1324 100644
+--- a/fastlane/Fastfile
++++ b/fastlane/Fastfile
+@@ -148,5 +148,5 @@ platform :ios do
+     request["X-AI-Caddie-Admin-Token"] = token
+     response = http.request(request)
+-    if response.code.to_i >= 500
++    if response.code.to_i >= 400
+       raise BackendRetryableError, "#{error_context} HTTP #{response.code}"
+     end

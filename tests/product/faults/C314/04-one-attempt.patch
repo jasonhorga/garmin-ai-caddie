@@ -1,0 +1,11 @@
+diff --git a/fastlane/Fastfile b/fastlane/Fastfile
+index 19b65811..3705f489 100644
+--- a/fastlane/Fastfile
++++ b/fastlane/Fastfile
+@@ -31,5 +31,5 @@ READINESS_POLL_INTERVAL = 15.0
+ READINESS_READ_TIMEOUT = 60.0
+ READINESS_OPEN_TIMEOUT = 20.0
+-HEALTH_MAX_ATTEMPTS = 3
++HEALTH_MAX_ATTEMPTS = 1
+ HEALTH_RETRY_INTERVALS = [5.0, 15.0].freeze
+ BackendRetryableError = Class.new(StandardError)

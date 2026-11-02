@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C314-FM1",
+      "patch": "tests/product/faults/C314/01-revision-without-retry.patch",
+      "kind": "python",
+      "target": "tests.test_fastfile_preflight_retry.FastfileHealthRetryTests.test_G7_health_connection_failure_then_success",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C314-FM2",
+      "patch": "tests/product/faults/C314/02-preflight-without-retry.patch",
+      "kind": "python",
+      "target": "tests.test_fastfile_preflight_retry.FastfileHealthRetryTests.test_G7_health_connection_failure_then_success",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C314-FM3",
+      "patch": "tests/product/faults/C314/03-client-errors-retry.patch",
+      "kind": "python",
+      "target": "tests.test_fastfile_preflight_retry.FastfileHealthRetryTests.test_G7_health_non_200_client_and_redirect_responses_fail_immediately",
+      "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C314-FM4",
+      "patch": "tests/product/faults/C314/04-one-attempt.patch",
+      "kind": "python",
+      "target": "tests.test_fastfile_preflight_retry.FastfileHealthRetryTests.test_G7_health_persistent_timeout_stops_after_three_attempts",
+      "promise": "G7"
+    }
+  ]
+}

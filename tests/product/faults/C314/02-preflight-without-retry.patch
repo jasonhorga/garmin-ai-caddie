@@ -1,0 +1,11 @@
+diff --git a/fastlane/Fastfile b/fastlane/Fastfile
+index 19b65811..ec03c634 100644
+--- a/fastlane/Fastfile
++++ b/fastlane/Fastfile
+@@ -190,5 +190,5 @@ platform :ios do
+     UI.user_error!("AI_CADDIE_ADMIN_TOKEN is required for authenticated backend preflight") if token.empty?
+
+-    health = fetch_backend_health!(origin: origin, token: token)
++    health = fetch_backend_json!(origin: origin, token: token, path: "/api/v2/health")
+     UI.user_error!("backend health schema mismatch") unless health["schema"] == "ai-caddie-health-v2"
+     readiness_started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
