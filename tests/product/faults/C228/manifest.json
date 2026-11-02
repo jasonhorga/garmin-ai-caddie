@@ -21,6 +21,27 @@
       "kind": "python",
       "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_score_correction_from_mismatch_keeps_late_garmin_value_visible",
       "promise": "3.1"
+    },
+    {
+      "id": "tests-product-faults-C228-effective-conflict-raw-garmin",
+      "patch": "tests/product/faults/C228/C228-effective-conflict-raw-garmin.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_stacked_score_corrections_use_previous_effective_value",
+      "promise": "3.3"
+    },
+    {
+      "id": "tests-product-faults-C228-conflict-reuses-applied-id",
+      "patch": "tests/product/faults/C228/C228-conflict-reuses-applied-id.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_restore_then_late_garmin_offers_two_resolutions",
+      "promise": "3.3"
+    },
+    {
+      "id": "tests-product-faults-C228-m5-garmin-greater-only",
+      "patch": "tests/product/faults/C228/C228-m5-garmin-greater-only.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_late_garmin_lower_than_from_is_also_a_conflict",
+      "promise": "3.3"
     }
   ]
 }
