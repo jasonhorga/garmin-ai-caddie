@@ -295,6 +295,7 @@ public struct WatchRoundSeedHolePayload: Codable, Equatable {
     public let globalId: Int?
     public let localHole: Int?
     public let courseHoleNumber: Int?
+    public let garminAssetVersion: String?
 
     public init(
         hole: Int,
@@ -304,7 +305,8 @@ public struct WatchRoundSeedHolePayload: Codable, Equatable {
         teeLongitude: Double? = nil,
         globalId: Int? = nil,
         localHole: Int? = nil,
-        courseHoleNumber: Int? = nil
+        courseHoleNumber: Int? = nil,
+        garminAssetVersion: String? = nil
     ) {
         self.hole = hole
         self.par = par
@@ -314,6 +316,7 @@ public struct WatchRoundSeedHolePayload: Codable, Equatable {
         self.globalId = globalId
         self.localHole = localHole
         self.courseHoleNumber = courseHoleNumber
+        self.garminAssetVersion = garminAssetVersion
     }
 }
 
@@ -478,6 +481,7 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let backGreenLon: Double?
     public let holeImageProjection: WatchHoleImageProjection?
     // watch P1b: course global id (image-cache key) + pre-computed hole-map overlay anchors.
+    public let garminAssetVersion: String?
     public let globalId: Int?
     public let holeMap: WatchHoleMap?
     public let playsLikeDistanceM: Double?
@@ -691,6 +695,7 @@ public final class WatchEventBridge: NSObject {
             backGreenLat: backGreenLat,
             backGreenLon: backGreenLon,
             holeImageProjection: holeImageProjection,
+            garminAssetVersion: Self.garminAssetVersion(for: hole),
             globalId: globalId,
             holeMap: holeMap,
             playsLikeDistanceM: playsLikeDistanceM,
@@ -753,7 +758,8 @@ public final class WatchEventBridge: NSObject {
                         teeLongitude: tee?.longitude,
                         globalId: hole.sourceGlobalId,
                         localHole: hole.sourceLocalHole,
-                        courseHoleNumber: hole.courseHoleNumber
+                        courseHoleNumber: hole.courseHoleNumber,
+                        garminAssetVersion: Self.garminAssetVersion(for: hole)
                     )
                 },
             globalId: package.course.globalId,
@@ -761,6 +767,13 @@ public final class WatchEventBridge: NSObject {
             loopKey: package.loopKey,
             acknowledgedTableRevision: acknowledgedTableRevision
         )
+    }
+
+    /// The same descriptor version keys WC bytes, round seeds and per-hole snapshots.
+    static func garminAssetVersion(for hole: Hole) -> String? {
+        hole.garminRaster.flatMap {
+            URLComponents(string: $0.imageUrl)?.queryItems?.first(where: { $0.name == "v" })?.value
+        }
     }
 
     private static func teeCoordinate(

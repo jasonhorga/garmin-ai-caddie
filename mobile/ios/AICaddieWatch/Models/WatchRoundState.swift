@@ -369,6 +369,7 @@ public struct WatchRoundSeedHole: Codable, Equatable {
     /// Physical hole and the course's printed number (B4b-2); `hole` stays the round hole.
     public let localHole: Int?
     public let courseHoleNumber: Int?
+    public let garminAssetVersion: String?
 
     public init(
         hole: Int,
@@ -378,7 +379,8 @@ public struct WatchRoundSeedHole: Codable, Equatable {
         teeLongitude: Double? = nil,
         globalId: Int? = nil,
         localHole: Int? = nil,
-        courseHoleNumber: Int? = nil
+        courseHoleNumber: Int? = nil,
+        garminAssetVersion: String? = nil
     ) {
         self.hole = hole
         self.par = par
@@ -388,6 +390,7 @@ public struct WatchRoundSeedHole: Codable, Equatable {
         self.globalId = globalId
         self.localHole = localHole
         self.courseHoleNumber = courseHoleNumber
+        self.garminAssetVersion = garminAssetVersion
     }
 }
 
@@ -908,7 +911,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         _ newRoundId: String,
         hole newHole: Int,
         sourceLocalHole newSourceLocalHole: Int?,
-        courseHoleNumber newCourseHoleNumber: Int?
+        courseHoleNumber newCourseHoleNumber: Int?,
+        garminAssetVersion newGarminAssetVersion: String? = nil
     ) -> WatchRoundState {
         WatchRoundState(
             roundId: newRoundId,
@@ -946,7 +950,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             holeImageProjection: holeImageProjection,
             globalId: globalId,
             sourceLocalHole: newSourceLocalHole,
-            garminAssetVersion: garminAssetVersion,
+            garminAssetVersion: newGarminAssetVersion ?? garminAssetVersion,
             courseHoleNumber: newCourseHoleNumber,
             holeMap: holeMap,
             fairwayOutline: fairwayOutline,

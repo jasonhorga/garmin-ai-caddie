@@ -31,9 +31,7 @@ final class WatchTopoSender {
                 localHole: hole.sourceLocalHole,
                 revision: package.coursePrep?.holes.first(where: { $0.hole == hole.number })?.geometryRevision
                     ?? hole.geometryRevision,
-                garminAssetVersion: hole.garminRaster.flatMap {
-                    URLComponents(string: $0.imageUrl)?.queryItems?.first(where: { $0.name == "v" })?.value
-                }
+                garminAssetVersion: WatchEventBridge.garminAssetVersion(for: hole)
             )
         }
     }

@@ -2698,10 +2698,6 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let metadata: [String: Any] = ["globalId": 42, "hole": 1, "localHole": 1, "assetKind": "garmin",
             "styleVersion": WatchBackendClient.topoStyleVersion,
             "assetStyleVersion": "garmin-raster-v1", "assetVersion": "release-a"]
-        XCTAssertTrue(client.receiveHoleImage(fileURL: file, metadata: metadata), "J4.5: accept Garmin asset transfer")
-        XCTAssertNil(store.image(globalId: 42, hole: 1), "J4.5: Garmin never contaminates precise cache")
-        let received = store.image(globalId: 42, hole: 1, garminAssetVersion: "release-a")
-        XCTAssertNotNil(received, "J4.5: received Garmin bitmap is readable offline")
         let base = WatchHoleMapSample.geometry
         let missing = WatchHoleMapGeometry(image: nil, imageSize: base.imageSize, youPx: base.youPx,
             pinPx: base.pinPx, layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx)
@@ -2719,24 +2715,39 @@ final class WatchDesignSnapshotTests: XCTestCase {
             from: JSONSerialization.data(withJSONObject: seedObject))
         let model = WatchRoundModel(store: WatchRoundStore(directoryURL: directory))
         model.applyRoundSeed(seed)
+        model.resumeRound()
         let state = try XCTUnwrap(model.activeHoleState, "fixture is a playable phone-seeded round")
+        XCTAssertTrue(client.receiveHoleImage(fileURL: file, metadata: metadata), "J4.5: accept Garmin asset transfer")
+        XCTAssertNil(store.image(globalId: 42, hole: 1), "J4.5: Garmin never contaminates precise cache")
+        let received = store.image(globalId: 42, hole: 1, garminAssetVersion: "release-a")
+        XCTAssertNotNil(received, "J4.5: received Garmin bitmap is readable offline")
         let container = WatchRoundContainerView(model: model, holeGeometry: missing, holeImageStore: store)
         let actual = container.holeMapView(state, missing)
         XCTAssertEqual(actual.mapPreparingAccessibilityIdentifiers, [], "J4.5: phone-seeded round shows the WC Garmin raster")
+        func pixels(_ view: some View) throws -> [UInt8] {
+            renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: view.frame(width: 198, height: 242)).cgImage))
+        }
+        XCTAssertNotEqual(try pixels(actual), try pixels(WatchRoundContainerView(model: model, holeGeometry: missing).holeMapView(state, missing)),
+            "J4.5: root actually displays the received Garmin raster")
+        let noGeometry = WatchRoundContainerView(model: model, holeImageStore: store).snapshottingHoleRoot()
+        try render(noGeometry.watchSnapshotFrame(width: 198, height: 242), named: "watch-garmin-root-no-projection")
         // A legacy snapshot omits the version; a current phone includes it. Both keep the map.
-        for version in [nil, "release-a"] as [String?] {
+        for (version, legacyIdentity) in [(nil, false), (nil, true), ("release-a", false)] as [(String?, Bool)] {
             var snapshot = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
             snapshot["garminAssetVersion"] = version
             // The legacy phone omits physical identity too.
-            snapshot.removeValue(forKey: "sourceLocalHole")
-            snapshot.removeValue(forKey: "courseHoleNumber")
+            if legacyIdentity {
+                snapshot.removeValue(forKey: "sourceLocalHole")
+                snapshot.removeValue(forKey: "courseHoleNumber")
+            }
             let phoneState = try JSONDecoder().decode(WatchRoundState.self,
                 from: JSONSerialization.data(withJSONObject: snapshot))
             model.receivePhoneState(phoneState)
             let refreshed = try XCTUnwrap(model.activeHoleState)
             XCTAssertEqual(refreshed.garminAssetVersion, "release-a",
                 "J4.5: a phone snapshot keeps the hole's Garmin version")
-            XCTAssertEqual(container.holeMapView(refreshed, missing).mapPreparingAccessibilityIdentifiers, [],
+            XCTAssertEqual(WatchRoundContainerView(model: model, holeGeometry: missing, holeImageStore: store)
+                .holeMapView(refreshed, missing).mapPreparingAccessibilityIdentifiers, [],
                 "J4.5: Garmin remains visible after a phone snapshot")
         }
         // An explicit different release must never use the cached release-a or another hole.
@@ -2746,19 +2757,14 @@ final class WatchDesignSnapshotTests: XCTestCase {
             from: JSONSerialization.data(withJSONObject: mismatch)))
         let mismatchedState = try XCTUnwrap(model.activeHoleState)
         XCTAssertEqual(mismatchedState.garminAssetVersion, "release-b")
-        XCTAssertEqual(container.holeMapView(mismatchedState, missing).mapPreparingAccessibilityIdentifiers,
+        XCTAssertEqual(WatchRoundContainerView(model: model, holeGeometry: missing, holeImageStore: store)
+            .holeMapView(mismatchedState, missing).mapPreparingAccessibilityIdentifiers,
             ["watch-map-preparing"], "J4.5: mismatched Garmin version waits neutrally")
-        let otherHole = try XCTUnwrap(model.round?.holeStates.first(where: { $0.hole == 2 }))
-        XCTAssertEqual(container.holeMapView(otherHole, missing).mapPreparingAccessibilityIdentifiers,
+        model.selectHole(2)
+        let otherHole = try XCTUnwrap(model.activeHoleState)
+        XCTAssertEqual(WatchRoundContainerView(model: model, holeGeometry: missing, holeImageStore: store)
+            .holeMapView(otherHole, missing).mapPreparingAccessibilityIdentifiers,
             ["watch-map-preparing"], "J4.5: another physical hole cannot borrow this Garmin raster")
-        func pixels(_ view: some View) throws -> [UInt8] {
-            renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: view.frame(width: 198, height: 242)).cgImage))
-        }
-        XCTAssertNotEqual(try pixels(actual), try pixels(WatchRoundContainerView(model: model, holeGeometry: missing).holeMapView(state, missing)),
-            "J4.5: root actually displays the received Garmin raster")
-        let noGeometry = WatchRoundContainerView(model: model, holeImageStore: store).snapshottingHoleRoot()
-        try render(noGeometry.watchSnapshotFrame(width: 198, height: 242), named: "watch-garmin-root-no-projection")
-
     }
 
     /// J4.5: an invalid focus transform must not leave a contour over the waiting map.

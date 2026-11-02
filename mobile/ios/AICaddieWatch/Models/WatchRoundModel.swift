@@ -850,6 +850,7 @@ public final class WatchRoundModel: ObservableObject {
                     selectedClub: nil,
                     globalId: hole.globalId,
                     sourceLocalHole: hole.localHole,
+                    garminAssetVersion: hole.garminAssetVersion,
                     courseHoleNumber: hole.courseHoleNumber,
                     score: 0,
                     putts: 0,
@@ -987,14 +988,15 @@ public final class WatchRoundModel: ObservableObject {
         var merged = current.pendingEvents.reduce(state) { partial, event in
             partial.applying(event)
         }
-        // A phone snapshot may predate physical identity; keep the round's printed hole number.
-        if merged.courseHoleNumber == nil || merged.sourceLocalHole == nil,
+        // Older phone snapshots omit map identity/version; retain this hole's known values.
+        if merged.courseHoleNumber == nil || merged.sourceLocalHole == nil || merged.garminAssetVersion == nil,
            let previous = current.holeStates.first(where: { $0.hole == merged.hole }) {
             merged = merged.replacingRoundId(
                 merged.roundId,
                 hole: merged.hole,
                 sourceLocalHole: merged.sourceLocalHole ?? previous.sourceLocalHole,
-                courseHoleNumber: merged.courseHoleNumber ?? previous.courseHoleNumber
+                courseHoleNumber: merged.courseHoleNumber ?? previous.courseHoleNumber,
+                garminAssetVersion: merged.garminAssetVersion ?? previous.garminAssetVersion
             )
         }
         guard var persisted = try? store.upsertHoleState(merged, makeActive: false) else {
