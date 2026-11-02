@@ -426,7 +426,12 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
                 )
                 prep_clubs = [step["club"] for step in prep_steps]
                 self.assertEqual(online_clubs, prep_clubs)
-                self.assertGreaterEqual(len(online_clubs), 3)
+                # Three shots cover through 544m with Driver/3W/3H; 548m onward needs a fourth
+                # shot. This absolute minimum-shot contract kills a window-rank mutation that
+                # otherwise changes both online and prep in lockstep.
+                expected_shots = 3 if distance_m <= 544 else 4
+                self.assertEqual(len(online_clubs), expected_shots)
+                self.assertEqual(len(prep_clubs), expected_shots)
 
     def test_j4_6_online_tee_without_wedge_keeps_safe_and_stock_routes(self):
         """J4.6: a bag without a 70–115m club still yields tee alternatives."""

@@ -943,7 +943,13 @@ class PureLogicTests(unittest.TestCase):
         )
         for ladder, route_len in cases:
             with self.subTest(route_len=route_len, ladder=ladder):
-                with patch.object(cp, '_shared_sequence_tail', return_value=[('50', 84.0)]):
+                # Supply a resolved tail for each branch; unresolved candidates are deliberately
+                # rejected by the B1 contract and must fall through to re-planning.
+                with patch.object(
+                    cp,
+                    '_shared_sequence_tail',
+                    side_effect=lambda remaining, *_args, **_kwargs: [('50', remaining - 10.0)],
+                ):
                     steps, *_ = cp._strategy(4 if route_len < 500 else 5, route_len, self._NO_HAZARDS, ladder)
                 self.assertEqual([step['club'] for step in steps], ['Driver', '50'])
 
