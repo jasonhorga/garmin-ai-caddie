@@ -15,6 +15,7 @@ import unittest
 import yaml
 
 from tests.test_c298_native_quick_runner import evaluate
+from tests.acceptance.test_card_440_native_mutant_workflow import _command_file
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / '.github/scripts'
@@ -58,6 +59,8 @@ class MacRunnerJobsTests(unittest.TestCase):
         self.root = Path(self.holder.name)
         self.bin = self.root / 'bin'
         self.bin.mkdir()
+        (self.root / '.github').symlink_to(ROOT / '.github')
+        (self.root / 'native-tools').symlink_to(ROOT)
         fake = self.root / 'fake.py'
         fake.write_text(FAKE)
         xcrun = self.bin / 'xcrun'
@@ -84,7 +87,7 @@ class MacRunnerJobsTests(unittest.TestCase):
         Path(self.env['SIM_STATE']).write_text(json.dumps(self.state))
 
     def shell(self, script, **env):
-        return subprocess.run(['bash', '-euo', 'pipefail', '-c', script], cwd=ROOT,
+        return subprocess.run(['bash', '-euo', 'pipefail', '-c', script], cwd=self.root,
                               env={**self.env, **env}, capture_output=True, text=True, timeout=20)
 
     def calls(self):
@@ -116,6 +119,8 @@ class MacRunnerJobsTests(unittest.TestCase):
         paths += [ROOT / '.github/workflows/ios-signing-bootstrap.yml']
         for path in paths:
             for job in workflow(path.name)['jobs'].values():
+                if 'uses' in job:
+                    continue  # Reusable workflows choose their runner in their own jobs.
                 self.assertEqual(evaluate(job['runs-on'], {'vars.MAC_RUNNER': 'online',
                                  'github.event_name': 'workflow_dispatch'}), 'macos-15', path.name)
 
@@ -135,6 +140,22 @@ class MacRunnerJobsTests(unittest.TestCase):
                 self.assertEqual(creates[0][3], model)
                 self.assertTrue(creates[0][4].endswith('-27-2'))
 
+    def test_prefixed_selection_uses_a_runtime_compatible_with_the_requested_model(self):
+        specialized = dict(identifier='com.apple.CoreSimulator.SimRuntime.iOS-27-2-Duo',
+                           version='27.2', isAvailable=True,
+                           supportedDeviceTypes=[dict(identifier='type-duo')])
+        self.state['runtimes'].insert(0, specialized)
+        self.save()
+        self.assertEqual(self.select('ios', CADDIE_SIM_PREFIX='runner-two'), 'created-runner-two-iphone')
+        create = [c for c in self.calls() if c[:2] == ['simctl', 'create']][0]
+        self.assertEqual(create[3:], ['type-iOS', 'com.apple.CoreSimulator.SimRuntime.iOS-27-2'])
+
+    def test_prefixed_selection_falls_back_only_when_preferred_type_is_missing(self):
+        self.state['devicetypes'] = [dict(name='iPhone 17', identifier='type-ios17')]
+        self.save()
+        self.select('ios', CADDIE_SIM_PREFIX='runner-two')
+        self.assertEqual([c for c in self.calls() if c[:2] == ['simctl', 'create']][0][3], 'type-ios17')
+
     def test_prefixed_selection_ignores_older_unavailable_and_similar_names(self):
         for runtime, devices in self.state['devices'].items():
             if '.iOS-' in runtime:
@@ -144,6 +165,59 @@ class MacRunnerJobsTests(unittest.TestCase):
         self.save()
         self.assertEqual(self.select('ios', CADDIE_SIM_PREFIX='runner-two'),
                          'com.apple.CoreSimulator.SimRuntime.iOS-27-2')
+
+    def test_mobile_selection_exports_udid_destinations_and_separate_build_trees(self):
+        trees = set()
+        for job_name in MOVED['native-mobile.yml']:
+            step = next(s for s in workflow('native-mobile.yml')['jobs'][job_name]['steps']
+                        if s.get('name') == 'Select job simulators')
+            result = self.shell(step['run'], CADDIE_SIM_PREFIX='runner-two', GITHUB_JOB=job_name)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            env = _command_file(Path(self.env['GITHUB_ENV']))
+            self.assertEqual(env['IOS_DESTINATION'], 'platform=iOS Simulator,id=created-runner-two-iphone')
+            self.assertEqual(env['WATCH_DESTINATION'], 'platform=watchOS Simulator,id=created-runner-two-watch')
+            self.assertEqual(set(env['CADDIE_SIM_UDIDS'].split()),
+                             {'created-runner-two-iphone', 'created-runner-two-watch'})
+            self.assertEqual(env['NATIVE_DERIVED_DATA'], str(self.root / ('NativeDerivedData-' + job_name)))
+            trees.add(env['NATIVE_DERIVED_DATA'])
+        self.assertEqual(len(trees), 5)
+
+    def test_install_steps_skip_installed_tools_and_install_missing_tools(self):
+        for name, jobs in MOVED.items():
+            for job_name in jobs:
+                for step in workflow(name)['jobs'][job_name]['steps']:
+                    if not step.get('name', '').startswith('Install '):
+                        continue
+                    for installed in (True, False):
+                        probe = ('command() { return ' + ('0' if installed else '1') + '; }\n'
+                                 'brew() { printf "%s\\n" "$*"; }\n')
+                        result = self.shell(probe + step['run'])
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(bool(result.stdout.strip()), not installed, (job_name, step['name']))
+
+    def test_visual_profiles_keep_hosted_canvas_sizes_and_private_mac_names(self):
+        models = [('visual', 'Apple Watch Series 9 (45mm)'),
+                  ('compact', 'Apple Watch Series 9 (41mm)'),
+                  ('ultra', 'Apple Watch Ultra 2 (49mm)')]
+        for profile, model in models:
+            self.state['devicetypes'].append(dict(name=model, identifier='type-' + profile))
+            for runtime, entries in self.state['devices'].items():
+                if '.watchOS-' in runtime:
+                    entries.append(dict(name=model, udid=profile + runtime, isAvailable=True))
+        self.save()
+        for profile, model in models:
+            with self.subTest(profile=profile):
+                options = dict(CADDIE_SIM_PROFILE=profile)
+                if profile != 'visual':
+                    options['WATCH_RUNTIME'] = 'com.apple.CoreSimulator.SimRuntime.watchOS-27-2'
+                hosted = self.select('watch', **options)
+                self.assertEqual(hosted, profile + 'com.apple.CoreSimulator.SimRuntime.watchOS-' +
+                                 ('9-9' if profile == 'visual' else '27-2'))
+                self.assertEqual(self.select('watch', CADDIE_SIM_PREFIX='runner-two', **options),
+                                 'created-runner-two-watch-' + profile)
+                create = [c for c in self.calls() if c[:2] == ['simctl', 'create']][-1]
+                self.assertEqual(create[3], 'type-' + profile)
+                self.assertTrue(create[4].endswith('-27-2'))
 
     def test_cleanup_always_shuts_down_only_recorded_owned_udids(self):
         # Replay every cleanup after a failed/cancelled job; no global operation may reach simctl.

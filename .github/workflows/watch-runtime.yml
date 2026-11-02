@@ -36,6 +36,8 @@ on:
       - feature/lean-product-delivery
     paths:
       - '.github/workflows/watch-runtime.yml'
+      - '.github/scripts/select-sim.sh'
+      - '.github/scripts/shutdown-owned-sims.sh'
       - '.github/scripts/preflight_live_course_catalogue.py'
       - '.github/scripts/scan_artifacts_for_secrets.py'
       - 'mobile/ios/AICaddieWatch/**'
@@ -49,12 +51,12 @@ concurrency:
 jobs:
   watch-runtime:
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.runtime_scope != 'web-only'
-    runs-on: macos-15
+    runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
 
       - name: Generate native project
         run: xcodegen generate --spec mobile/ios/project.yml --project-root .
@@ -63,52 +65,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          WATCH_NAME="Apple Watch Series 9 (45mm)"
-          WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
-            [.devices | to_entries[]
-              | .key as $runtime
-              | .value[]
-              | select(.isAvailable == true and .name == "Apple Watch Series 9 (45mm)")
-              | {
-                  udid: .udid,
-                  runtime: $runtime,
-                  version: ($runtime
-                    | capture("watchOS-(?<major>[0-9]+)-(?<minor>[0-9]+)")
-                    | [(.major | tonumber), (.minor | tonumber)])
-                }]
-            | sort_by(.version)
-            | first')
-
-          # GitHub's macOS image does not instantiate every supported device. Create the exact
-          # 396x484 Series 9 canvas used by the approved renders when only newer Watches are listed.
-          if [[ "$WATCH_DEVICE" == "null" ]]; then
-            WATCH_TYPE_ID=$(xcrun simctl list devicetypes -j | jq -er \
-              --arg name "$WATCH_NAME" \
-              '[.devicetypes[] | select(.name == $name) | .identifier] | first')
-            WATCH_RUNTIME=$(xcrun simctl list runtimes available -j | jq -er '
-              [.runtimes[]
-                | select(.isAvailable == true)
-                | select(.identifier | contains(".watchOS-"))
-                | {
-                    identifier: .identifier,
-                    version: (.version | split(".") | map(tonumber))
-                  }]
-              | sort_by(.version)
-              | first
-              | .identifier')
-            WATCH_UDID=$(xcrun simctl create "AI Caddie Visual 45mm" "$WATCH_TYPE_ID" "$WATCH_RUNTIME")
-            WATCH_DEVICE=$(jq -cn \
-              --arg udid "$WATCH_UDID" \
-              --arg runtime "$WATCH_RUNTIME" \
-              '{udid: $udid, runtime: $runtime}')
-          fi
-
-          test "$WATCH_DEVICE" != "null"
-          WATCH_UDID=$(jq -r .udid <<< "$WATCH_DEVICE")
-          WATCH_RUNTIME=$(jq -r .runtime <<< "$WATCH_DEVICE")
+          WATCH_UDID=$(CADDIE_SIM_PROFILE=visual bash .github/scripts/select-sim.sh watch)
+          WATCH_RUNTIME=$(xcrun simctl list devices available -j | jq -er --arg id "$WATCH_UDID" \
+            '.devices | to_entries[] | select(any(.value[]; .udid == $id)) | .key')
           echo "WATCH_UDID=$WATCH_UDID" >> "$GITHUB_ENV"
           echo "WATCH_RUNTIME=$WATCH_RUNTIME" >> "$GITHUB_ENV"
-          echo "Diagnostic device: $WATCH_RUNTIME / $WATCH_UDID"
 
       - name: Boot resolved Watch simulator
         run: |
@@ -122,13 +83,15 @@ jobs:
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
-            -destination "platform=watchOS Simulator,id=$WATCH_UDID"
+            -parallel-testing-enabled NO \
+            -destination "platform=watchOS Simulator,id=$WATCH_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/WatchDerivedData-watch-runtime"
 
       - name: Collect Watch design snapshots
         if: always()
         run: |
           mkdir -p watch-design-snapshots
-          find ~/Library/Developer/CoreSimulator \
+          find "$HOME/Library/Developer/CoreSimulator/Devices/$WATCH_UDID/data" \
             -path "*Documents/watch-snapshots/*.png" \
             -exec cp {} watch-design-snapshots/ \; 2>/dev/null || true
           ls -la watch-design-snapshots
@@ -155,38 +118,19 @@ jobs:
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
             -destination "platform=watchOS Simulator,id=$WATCH_UDID" \
-            -derivedDataPath "$RUNNER_TEMP/WatchDerivedData"
+            -derivedDataPath "$RUNNER_TEMP/WatchDerivedData-watch-runtime"
 
       - name: Capture compact 41mm runtime boundaries
         run: |
           set -euo pipefail
-          APP="$RUNNER_TEMP/WatchDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
+          APP="$RUNNER_TEMP/WatchDerivedData-watch-runtime/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
           BID=com.ai-caddie.mobile.watchkitapp
           test -d "$APP"
 
           # ImageRenderer does not lay out ScrollView/List content on watchOS, so a generated PNG can
           # be blank while its XCTest still passes. Exercise the longest normal copy in a real small
           # Watch runtime instead; 41mm Series 7/8/9 all use the 352x430 physical screenshot canvas.
-          COMPACT_DEVICE=$(xcrun simctl list devices available -j | jq -r \
-            --arg runtime "$WATCH_RUNTIME" '
-              [.devices[$runtime][]?
-                | select(.isAvailable == true)
-                | select(.name == "Apple Watch Series 9 (41mm)"
-                    or .name == "Apple Watch Series 8 (41mm)"
-                    or .name == "Apple Watch Series 7 (41mm)")
-                | .udid]
-              | first // empty')
-          if [[ -z "$COMPACT_DEVICE" ]]; then
-            COMPACT_TYPE=$(xcrun simctl list devicetypes -j | jq -er '
-              [.devicetypes[]
-                | select(.name == "Apple Watch Series 9 (41mm)"
-                    or .name == "Apple Watch Series 8 (41mm)"
-                    or .name == "Apple Watch Series 7 (41mm)")]
-              | first
-              | .identifier')
-            COMPACT_DEVICE=$(xcrun simctl create \
-              "AI Caddie Compact 41mm" "$COMPACT_TYPE" "$WATCH_RUNTIME")
-          fi
+          COMPACT_DEVICE=$(CADDIE_SIM_PROFILE=compact bash .github/scripts/select-sim.sh watch)
 
           xcrun simctl boot "$COMPACT_DEVICE" 2>/dev/null || true
           xcrun simctl bootstatus "$COMPACT_DEVICE" -b
@@ -274,28 +218,11 @@ jobs:
       - name: Capture Apple Watch Ultra 49mm lifecycle boundaries
         run: |
           set -euo pipefail
-          APP="$RUNNER_TEMP/WatchDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
+          APP="$RUNNER_TEMP/WatchDerivedData-watch-runtime/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
           BID=com.ai-caddie.mobile.watchkitapp
           test -d "$APP"
 
-          ULTRA_DEVICE=$(xcrun simctl list devices available -j | jq -r \
-            --arg runtime "$WATCH_RUNTIME" '
-              [.devices[$runtime][]?
-                | select(.isAvailable == true)
-                | select(.name == "Apple Watch Ultra 2 (49mm)"
-                    or .name == "Apple Watch Ultra (49mm)")
-                | .udid]
-              | first // empty')
-          if [[ -z "$ULTRA_DEVICE" ]]; then
-            ULTRA_TYPE=$(xcrun simctl list devicetypes -j | jq -er '
-              [.devicetypes[]
-                | select(.name == "Apple Watch Ultra 2 (49mm)"
-                    or .name == "Apple Watch Ultra (49mm)")]
-              | first
-              | .identifier')
-            ULTRA_DEVICE=$(xcrun simctl create \
-              "AI Caddie Ultra 49mm" "$ULTRA_TYPE" "$WATCH_RUNTIME")
-          fi
+          ULTRA_DEVICE=$(CADDIE_SIM_PROFILE=ultra bash .github/scripts/select-sim.sh watch)
 
           xcrun simctl boot "$ULTRA_DEVICE" 2>/dev/null || true
           xcrun simctl bootstatus "$ULTRA_DEVICE" -b
@@ -385,7 +312,7 @@ jobs:
           WATCH_RUNTIME_SCOPE: ${{ github.event.inputs.runtime_scope || 'full' }}
         run: |
           set -euo pipefail
-          APP="$RUNNER_TEMP/WatchDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
+          APP="$RUNNER_TEMP/WatchDerivedData-watch-runtime/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
           BID=com.ai-caddie.mobile.watchkitapp
           test -d "$APP"
           # Unit tests host the real app and can leave watchOS's location sheet open. Reset the
@@ -879,6 +806,10 @@ jobs:
           name: watch-runtime-evidence
           path: watch-runtime-artifacts/
           if-no-files-found: error
+
+      - name: Shut down owned simulators
+        if: ${{ always() && runner.environment == 'self-hosted' }}
+        run: bash .github/scripts/shutdown-owned-sims.sh
 
   web-live-evidence:
     needs: watch-runtime

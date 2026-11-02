@@ -33,7 +33,7 @@ permissions:
 
 jobs:
   native-mutant:
-    runs-on: macos-15
+    runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
     timeout-minutes: 60
     defaults:
       run:
@@ -93,38 +93,15 @@ jobs:
         id: simulators
         if: ${{ steps.validate.outcome == 'success' && steps.apply.outcome == 'success' }}
         run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import re
-          import subprocess
-
-          inventory = json.loads(subprocess.check_output(
-              ['xcrun', 'simctl', 'list', 'devices', 'available', '-j'], text=True
-          ))['devices']
-
-          def newest(platform, name):
-              candidates = []
-              for runtime, devices in inventory.items():
-                  version = re.search(rf'\.{platform}-(\d+)-(\d+)(?:-|$)', runtime)
-                  if version is None:
-                      continue
-                  for device in devices:
-                      if device.get('isAvailable') is True and device.get('name') == name:
-                          candidates.append((tuple(map(int, version.groups())), device['udid']))
-              if not candidates:
-                  raise SystemExit(f'No available simulator: {name}')
-              return max(candidates)[1]
-
-          ios = newest('iOS', 'iPhone 16')
-          watch = newest('watchOS', 'Apple Watch Series 10 (46mm)')
-          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as handle:
-              handle.write(f'IOS_UDID={ios}\nWATCH_UDID={watch}\n')
-          PY
+          set -euo pipefail
+          IOS_UDID=$(bash native-tools/.github/scripts/select-sim.sh ios)
+          WATCH_UDID=$(bash native-tools/.github/scripts/select-sim.sh watch)
+          echo "IOS_UDID=$IOS_UDID" >> "$GITHUB_ENV"
+          echo "WATCH_UDID=$WATCH_UDID" >> "$GITHUB_ENV"
       - name: Install XcodeGen
         id: install
         if: ${{ steps.validate.outcome == 'success' && steps.apply.outcome == 'success' }}
-        run: brew install xcodegen
+        run: command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
       - name: Generate native project
         id: generate
         if: ${{ steps.validate.outcome == 'success' && steps.apply.outcome == 'success' }}
@@ -162,6 +139,8 @@ jobs:
             xcrun simctl bootstatus "$IOS_UDID" -b
           ) > "$RUNNER_TEMP/native-ios-boot.log" 2>&1 &
           args=(test \
+            -derivedDataPath "$RUNNER_TEMP/NativeMutantDerivedData" \
+            -parallel-testing-enabled NO \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddie \
             -destination "platform=iOS Simulator,id=$IOS_UDID" \
@@ -180,6 +159,8 @@ jobs:
           ONLY_TESTING: ${{ inputs.only_testing }}
         run: |
           args=(test \
+            -derivedDataPath "$RUNNER_TEMP/NativeMutantDerivedData" \
+            -parallel-testing-enabled NO \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
             -destination "platform=watchOS Simulator,id=$WATCH_UDID" \
@@ -198,6 +179,8 @@ jobs:
           ONLY_TESTING: ${{ inputs.only_testing }}
         run: |
           args=(test \
+            -derivedDataPath "$RUNNER_TEMP/NativeMutantDerivedData" \
+            -parallel-testing-enabled NO \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieUITests \
             -destination "platform=iOS Simulator,id=$IOS_UDID" \
@@ -252,3 +235,6 @@ jobs:
           name: agenthub-native-${{ inputs.request_id }}
           path: native-verdict/result.json
           if-no-files-found: error
+      - name: Shut down owned simulators
+        if: ${{ always() && runner.environment == 'self-hosted' }}
+        run: bash native-tools/.github/scripts/shutdown-owned-sims.sh
