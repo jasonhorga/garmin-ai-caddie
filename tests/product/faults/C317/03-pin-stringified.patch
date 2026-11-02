@@ -1,0 +1,13 @@
+diff --git a/server_v2/pin_sheet.py b/server_v2/pin_sheet.py
+index 21044e6..ec375e7 100644
+--- a/server_v2/pin_sheet.py
++++ b/server_v2/pin_sheet.py
+@@ -57,7 +57,7 @@ def read_pin_sheet_response(request: PinSheetRequest) -> dict:
+     except Exception as exc:  # provider transport / runtime failure
+         logger.warning(
+             "pin_sheet provider_failed images=%s bytes=%s error=%s: %s",
+-            len(images), total_bytes, type(exc).__name__, exc,
++            len(images), total_bytes, type(exc).__name__, redact_secret_text(exc),
+         )
+         raise HTTPException(status_code=502, detail=f"pin sheet reading failed: {redact_secret_text(exc)}")
+     logger.info(

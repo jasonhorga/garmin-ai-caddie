@@ -1,12 +1,8 @@
 diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
-index 03440667..60b034d4 100644
+index c235575..2c29c6f 100644
 --- a/server_v2/log_privacy.py
 +++ b/server_v2/log_privacy.py
-@@ -40,7 +40,6 @@ def _text(value: str) -> str:
-     value = _IDENTITY.sub(identity, value)
-     # Player ids also reach warning/error calls as a bare %-argument (without
-     # a ``player_id=`` label), so redact their stable shape independently.
+@@ -56,3 +56,2 @@ def _text(value: str) -> str:
+     # Bare arguments and non-sensitive extras use the same player-id shape.
 -    value = _PLAYER_ID.sub(_REDACTED, value)
-     value = re.sub(r"(?i)\b(player|round)\s+[pr]_[\w.-]+", r"\1=" + _REDACTED, value)
-     value = re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer " + _REDACTED, value)
- 
+     return re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer " + _REDACTED, value)
