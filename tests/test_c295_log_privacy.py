@@ -98,6 +98,18 @@ class J7LogPrivacyTests(unittest.TestCase):
                 for private in ("PRIVATEPLAYER", "PRIVATEROUND", "PRIVATETOKEN", "data/players"):
                     self.assertNotIn(private, output)
 
+    def test_J73_mapping_arguments_and_serialized_identity_fields_are_private(self):
+        streams = self.capture_production()
+        target = logging.getLogger(main.SERVICE_INFO_LOGGERS[0])
+        target.warning("details=%s status=200", {"player_id": "PRIVATEPLAYER", "reason": "intent_unreadable"})
+        target.warning('details={"round_id":"PRIVATEROUND","reason":"intent_unreadable"} status=200')
+        output = streams[main.SERVICE_INFO_LOGGERS[0]].getvalue()
+        for private in ("PRIVATEPLAYER", "PRIVATEROUND"):
+            with self.subTest(private=private):
+                self.assertNotIn(private, output)
+        self.assertEqual(output.count("intent_unreadable"), 2)
+        self.assertEqual(output.count("status=200"), 2)
+
     def test_J73_filter_failure_never_escapes_business_logging(self):
         streams = self.capture_production()
         target = logging.getLogger(main.SERVICE_INFO_LOGGERS[0])
