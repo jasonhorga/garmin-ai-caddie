@@ -564,6 +564,9 @@ final class LiveHoleLoadingProbe {
         let surfaceFailed: Bool
         let displayState: LiveMapDisplayState
         let greenRange: LiveGreenRangeYards
+        let retainedMapState: LiveMapDisplayState?
+        let garminImageReady: Bool
+        let hasMapOverlay: Bool
     }
 
     var didMount: (() -> Void)?
@@ -571,6 +574,8 @@ final class LiveHoleLoadingProbe {
     var load: (() async -> Void)?
     var retry: (() async -> Bool)?
     var loadGarmin: (() async -> Void)?
+    var failPreciseImage: (() -> Void)?
+    var didBootstrap: (() -> Void)?
 
     func detach() {
         didMount = nil
@@ -578,6 +583,8 @@ final class LiveHoleLoadingProbe {
         load = nil
         retry = nil
         loadGarmin = nil
+        failPreciseImage = nil
+        didBootstrap = nil
     }
 }
 
@@ -1222,12 +1229,19 @@ public struct CurrentHoleView: View {
                         hasPrep: holePrep != nil, hasRoute: liveHasRoute
                     ),
                     displayState: liveMapDisplayState,
-                    greenRange: displayedGreenRangeYards
+                    greenRange: displayedGreenRangeYards,
+                    retainedMapState: retainedLiveMapDisplayState,
+                    garminImageReady: garminImageReadyForDisplay,
+                    hasMapOverlay: liveMapOverlay != nil
                 )
             }
             loadingProbe?.load = { await loadCurrentHole() }
             loadingProbe?.retry = { await loadHoleMap() }
             loadingProbe?.loadGarmin = { await loadGarminRasterIfNeeded() }
+            if let holePrep {
+                // Exercise the callback supplied to the real map, using this mounted State.
+                loadingProbe?.failPreciseImage = liveHoleImageMap(holePrep).onPreciseImageFailed
+            }
             loadingProbe?.didMount?()
             bindDecisionProbe()
             UITestPagerTrace.shared.metric(.currentHoleAppear)
@@ -1435,6 +1449,7 @@ public struct CurrentHoleView: View {
             reconcileCaddieRoutes()
             applySnapshotState()
             #if DEBUG
+            loadingProbe?.didBootstrap?()
             // The package already carries factual Tee coordinates for every ready hole. Move the
             // deterministic multi-hole simulator journey before waiting on the per-hole prep GET;
             // otherwise the new hole can appear with shot capture disabled for the whole request.
