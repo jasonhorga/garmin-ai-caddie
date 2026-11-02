@@ -272,6 +272,50 @@ def _same_day_non_overlapping_score_holes(
     return candidates
 
 
+def _same_day_matching_boundary_score_holes(
+    rounds: list[dict[str, Any]],
+) -> dict[str, set[tuple[int, int]]]:
+    """Recognize a late half-card that repeats one or two scored boundary holes.
+
+    Disjoint cards are indexed separately. For overlapping cards, require agreement
+    on every repeated physical hole and new holes beyond the overlap. Replaying more
+    than two holes, or either card entirely, remains evidence of a second outing.
+    Compare source scores, never restored/corrected scores: manual edits cannot
+    manufacture evidence that two Garmin cards describe the same outing.
+    """
+    by_day: dict[str, list[tuple[str, dict[tuple[int, int], set[int]]]]] = {}
+    for row in rounds:
+        day = str(row.get("date") or "")[:10]
+        if not day:
+            continue
+        scores: dict[tuple[int, int], set[int]] = {}
+        for hole, _display, physical, side in hole_sides(row):
+            strokes = _int(hole.get("strokes"))
+            if strokes is None:
+                continue
+            gid = _int(hole.get("sourceGlobalId") or hole.get("globalId"))
+            if gid is None:
+                gid = _int(row.get("backNineGlobalCourseId")) if side == "back" else None
+                gid = gid or front_course_global_id(row)
+            local = _int(hole.get("sourceLocalHole") or hole.get("localHole")) or physical
+            if gid is not None and local > 0:
+                scores.setdefault((gid, local), set()).add(strokes)
+        by_day.setdefault(day, []).append((str(row.get("id")), scores))
+    candidates: dict[str, set[tuple[int, int]]] = {}
+    for cards in by_day.values():
+        for round_id, own in cards:
+            covered = candidates.setdefault(round_id, set())
+            for other_id, other in cards:
+                if other_id == round_id:
+                    continue
+                overlap = own.keys() & other.keys()
+                if (1 <= len(overlap) <= 2
+                        and len(overlap) < min(len(own), len(other))
+                        and all(len(own[key]) == 1 and own[key] == other[key] for key in overlap)):
+                    covered.update(other.keys() - own.keys())
+    return candidates
+
+
 def _restore_is_superseded(
     records: list[dict[str, Any]], other_real_score_holes: set[tuple[int, int]]
 ) -> bool:
@@ -313,6 +357,9 @@ def corrected_rounds(
     for record in annotations or []:
         if record.get("targetType") == "hole" and record.get("kind") in wanted:
             hole_annotations.setdefault(str(record.get("targetId") or ""), []).append(record)
+    matching_boundary = (
+        _same_day_matching_boundary_score_holes(rounds) if hole_annotations or events_by_round else {}
+    )
     if not hole_annotations and not events_by_round:
         return rounds
     real_score_holes = _real_score_hole_keys(rounds)
@@ -323,6 +370,7 @@ def corrected_rounds(
         refs = _round_refs(row)
         other_real_score_holes = same_day_non_overlapping.get(row_id, set())
         events = events_by_round.get(str(row.get("id"))) or []
+        other_real_score_holes = other_real_score_holes | matching_boundary.get(row_id, set())
         penalty_events = [e for e in events if e.get("op") in PENALTY_EVENT_OPS] if "penalty" in fields else []
         hole_entries: list[tuple[int, int, dict[str, Any]]] = []
         delta = 0

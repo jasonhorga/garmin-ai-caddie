@@ -1,0 +1,93 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C301-01-boundary-overlap-veto",
+      "patch": "tests/product/faults/C301/01-boundary-overlap-veto.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_late_card_boundary_overlap_replaces_only_covered_restore",
+      "promise": "1.3",
+      "kills": "Back-nine sample count must be 1, not 2 when 9..17 repeats hole 9."
+    },
+    {
+      "id": "tests-product-faults-C301-02-boundary-score-ignored",
+      "patch": "tests/product/faults/C301/02-boundary-score-ignored.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_overlapping_conflicting_or_replayed_cards_preserve_restore",
+      "promise": "1.3",
+      "kills": "Conflicting repeated scores must keep the restored round at 18 holes, not 10."
+    },
+    {
+      "id": "tests-product-faults-C301-03-boundary-overlap-unbounded",
+      "patch": "tests/product/faults/C301/03-boundary-overlap-unbounded.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_overlapping_conflicting_or_replayed_cards_preserve_restore",
+      "promise": "1.3",
+      "kills": "A three-hole replay must keep 18 holes, not consume restores."
+    },
+    {
+      "id": "tests-product-faults-C301-04-reports-assume-eighteen",
+      "patch": "tests/product/faults/C301/04-reports-assume-eighteen.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j2_1_nine_hole_round_is_not_priced_with_either_rating",
+      "promise": "2.1",
+      "kills": "The nine-hole scorecard differential must be None, not -25.4."
+    },
+    {
+      "id": "tests-product-faults-C301-05-M3-date-le",
+      "patch": "tests/product/faults/C301/05-M3-date-le.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_earlier_disjoint_card_is_not_one_outing",
+      "promise": "1.3",
+      "kills": "The earlier disjoint card must leave 18 holes, not 10."
+    },
+    {
+      "id": "tests-product-faults-C301-06-M7-undated-group",
+      "patch": "tests/product/faults/C301/06-M7-undated-group.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_two_undated_cards_preserve_restore_conservatively",
+      "promise": "1.3",
+      "kills": "Grouping two undated cards must not consume restores: 18, not 10."
+    },
+    {
+      "id": "tests-product-faults-C301-07-M7b-undated-fallback",
+      "patch": "tests/product/faults/C301/07-M7b-undated-fallback.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_two_undated_cards_preserve_restore_conservatively",
+      "promise": "1.3",
+      "kills": "Empty-date pair fallback must leave 18 holes, not 10."
+    },
+    {
+      "id": "tests-product-faults-C301-08-R3-scan-iter-getitem",
+      "patch": "tests/product/faults/C301/08-R3-scan-iter-getitem.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_builds_real_hole_key_index_once",
+      "promise": "1.3",
+      "kills": "The full-history scan budget must stay at most 2, not 6."
+    },
+    {
+      "id": "tests-product-faults-C301-09-R4-scan-values",
+      "patch": "tests/product/faults/C301/09-R4-scan-values.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_builds_real_hole_key_index_once",
+      "promise": "1.3",
+      "kills": "The full-history scan budget must stay at most 2, not 6."
+    },
+    {
+      "id": "tests-product-faults-C301-10-scan-keys",
+      "patch": "tests/product/faults/C301/10-scan-keys.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_builds_real_hole_key_index_once",
+      "promise": "1.3",
+      "kills": "The keys traversal budget must stay at most 2, not 6."
+    },
+    {
+      "id": "tests-product-faults-C301-11-scan-getitem",
+      "patch": "tests/product/faults/C301/11-scan-getitem.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_builds_real_hole_key_index_once",
+      "promise": "1.3",
+      "kills": "The direct lookup budget must stay at most 4, not 16."
+    }
+  ]
+}
