@@ -37,10 +37,18 @@ final class WatchCourseDownloadTests: XCTestCase {
         _ = await library.upgradeCourseWhenReady(selection, roundId: "fallback",
             config: WatchRoundConfig(baseURL: URL(string: "https://caddie.example")!, adminToken: nil), onProgress: { _ in })
         XCTAssertEqual(rasterRequests, 1, "J4.5: the download caches Garmin independently across precise retries")
-        XCTAssertNotNil(images.image(globalId: 42, hole: 1, garminAssetVersion: "release-a"),
-            "J4.5: physical hole 10 caches as round hole 1 even when prep fails")
+        XCTAssertNotNil(images.image(globalId: 42, hole: 10, garminAssetVersion: "release-a"),
+            "B1: physical hole 10 is cached under its physical identity")
+        XCTAssertNil(images.image(globalId: 42, hole: 1, garminAssetVersion: "release-a"),
+            "B1: a back-nine round hole must not alias physical hole 1")
         XCTAssertNil(images.image(globalId: 42, hole: 1), "J4.5: fallback never becomes precise")
         XCTAssertNil(images.image(globalId: 42, hole: 1, garminAssetVersion: "release-b"), "J4.5: versions remain independent")
+
+        // Garmin asset versions can repeat across physical holes. Each physical key must remain
+        // independent even when both holes use the same release string.
+        try images.store(data: bytes, globalId: 42, hole: 1, garminAssetVersion: "release-a")
+        XCTAssertNotNil(images.image(globalId: 42, hole: 10, garminAssetVersion: "release-a"))
+        XCTAssertNotNil(images.image(globalId: 42, hole: 1, garminAssetVersion: "release-a"))
     }
 
     func testBackendGarminVenueIsSharedBySearchAndWatchOption() {

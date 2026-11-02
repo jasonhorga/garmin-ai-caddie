@@ -1095,6 +1095,14 @@ public struct WatchHoleMapView: View {
             width: max(1, safe.maxX - left), height: 42)
     }
 
+    /// Touch Target Garmin notice placement seam. The first red test keeps the old centered/bottom
+    /// placement; the implementation moves it above the bottom interaction rail.
+    static func touchTargetGarminNoticeFrame(in size: CGSize) -> CGRect {
+        let safe = WatchDisplayGeometry.contentRect(in: size)
+        let width = min(150, max(120, safe.width - 20))
+        return CGRect(x: safe.midX - width / 2, y: safe.maxY - 72, width: width, height: 36)
+    }
+
     static func rootCaddieChipFrame(in size: CGSize) -> CGRect {
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
         let width: CGFloat = min(50, max(46, safeRect.width * 0.28))

@@ -72,6 +72,12 @@ public final class WatchHoleImageStore {
 
     /// The cursor is written only after valid pixels are durable; failed replacements keep the old asset.
     #if canImport(UIKit)
+    /// Versioned Garmin lookup keyed by the physical course hole. The implementation is replaced
+    /// in the B1 fix; this compatibility seam initially preserves the old round-hole lookup.
+    public func garminImage(globalId: Int, localHole: Int, assetVersion: String) -> UIImage? {
+        image(globalId: globalId, hole: localHole, garminAssetVersion: assetVersion)
+    }
+
     public func garminImage(globalId: Int, hole: Int) -> UIImage? {
         guard let version = try? String(contentsOf: garminCursor(globalId: globalId, hole: hole), encoding: .utf8),
               !version.isEmpty else { return nil }

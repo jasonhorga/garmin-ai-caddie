@@ -2839,6 +2839,25 @@ final class WatchDesignSnapshotTests: XCTestCase {
         }
     }
 
+    /// B1/N1: the full-map Garmin notice must leave Touch Target's Back and target controls usable.
+    @MainActor
+    func testTouchTargetGarminNoticeAvoidsBottomControlsOnSupportedFaces() {
+        for size in [CGSize(width: 176, height: 215), CGSize(width: 198, height: 242), CGSize(width: 205, height: 251)] {
+            let safe = WatchDisplayGeometry.contentRect(in: size)
+            let notice = WatchHoleMapView.touchTargetGarminNoticeFrame(in: size)
+            let controlHalf = WatchDisplayGeometry.instrumentControlSize / 2
+            let back = CGRect(x: safe.minX, y: safe.maxY - WatchDisplayGeometry.instrumentControlSize,
+                              width: WatchDisplayGeometry.instrumentControlSize,
+                              height: WatchDisplayGeometry.instrumentControlSize)
+            let target = CGRect(x: safe.maxX - 100, y: safe.maxY - WatchDisplayGeometry.instrumentControlSize,
+                                width: 100, height: WatchDisplayGeometry.instrumentControlSize)
+            XCTAssertFalse(notice.intersects(back), "N1: Garmin Touch Target notice avoids Back at \(size)")
+            XCTAssertFalse(notice.intersects(target), "N1: Garmin Touch Target notice avoids target action at \(size)")
+            XCTAssertTrue(safe.contains(notice), "N1: Garmin Touch Target notice stays in the display at \(size)")
+            _ = controlHalf
+        }
+    }
+
     /// J4.5: green/hazard pages retain their displayed rasters on a transient nil input.
     @MainActor
     func testGreenAndHazardRetainDisplayedBitmapsWithoutWaitingOverlay() throws {
