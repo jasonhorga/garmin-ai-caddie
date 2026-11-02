@@ -52,7 +52,9 @@ concurrency:
 jobs:
   watch-runtime:
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.runtime_scope != 'web-only'
-    runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
+    # Keep on GitHub until C332 fixes watchOS 27 SDK vertical paging (full
+    # AICaddieWatch scheme incl. WatchHolePagesUITests); then move back to Mac.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 

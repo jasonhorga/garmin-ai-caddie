@@ -23,14 +23,17 @@ from tests.acceptance.test_card_440_native_mutant_workflow import _command_file
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / '.github/scripts'
 MOVED = {
-    'native-mobile.yml': ('native-live', 'native-real-flow'),
+    'native-mobile.yml': ('native-real-flow',),
     'agenthub-native-mutant.yml': ('native-mutant',),
-    'watch-runtime.yml': ('watch-runtime',),
     'watch-cold-start.yml': ('cold-start',),
 }
-SDK_HOSTED = ('native-unit-watch', 'native-screenshots', 'native-product-ui')
-MOBILE_JOBS = (*MOVED['native-mobile.yml'], *SDK_HOSTED)
-SIM_JOBS = {**MOVED, 'native-mobile.yml': MOBILE_JOBS}
+# C307 r5: jobs running the full Watch scheme / iOS UI tests stay hosted until C332.
+SDK_HOSTED = {
+    'native-mobile.yml': ('native-live', 'native-unit-watch', 'native-screenshots', 'native-product-ui'),
+    'watch-runtime.yml': ('watch-runtime',),
+}
+MOBILE_JOBS = (*MOVED['native-mobile.yml'], *SDK_HOSTED['native-mobile.yml'])
+SIM_JOBS = {**MOVED, **SDK_HOSTED, 'native-mobile.yml': MOBILE_JOBS}
 
 def workflow(name):
     return yaml.safe_load((ROOT / '.github/workflows' / name).read_text())
@@ -354,11 +357,11 @@ while True:
 
     def test_sdk_affected_jobs_stay_hosted_even_when_mac_is_online(self):
         # C307 r4 keeps 27 SDK hit testing / vertical paging under C332 on hosted SDKs.
-        for job in SDK_HOSTED:
+        for name, job in [(n, j) for n, jobs in SDK_HOSTED.items() for j in jobs]:
             for event, repo in [('workflow_dispatch', ''), ('pull_request', 'owner/repo'),
                                 ('pull_request', 'fork/repo')]:
-                with self.subTest(job=job, event=event, repo=repo):
-                    self.assertEqual(evaluate(workflow('native-mobile.yml')['jobs'][job]['runs-on'], {
+                with self.subTest(workflow=name, job=job, event=event, repo=repo):
+                    self.assertEqual(evaluate(workflow(name)['jobs'][job]['runs-on'], {
                         'vars.MAC_RUNNER': 'online', 'github.event_name': event,
                         'github.repository': 'owner/repo',
                         'github.event.pull_request.head.repo.full_name': repo}), 'macos-15')

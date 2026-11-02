@@ -210,7 +210,9 @@ jobs:
   # Live dispatch retains serial execution; fixture runners reuse the same launch and scan gates.
   native-live:
     if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fixture_mode }}
-    runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
+    # Keep on GitHub until C332 fixes watchOS 27 SDK hit testing / vertical paging (full
+    # AICaddieWatch scheme incl. WatchHolePagesUITests); then move back to Mac.
+    runs-on: macos-15
     # Live dispatch keeps the existing serial capture path.
     timeout-minutes: 150
     env:
