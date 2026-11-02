@@ -55,7 +55,6 @@ class ServerV2MobileTests(ServiceLoggingIsolationMixin, unittest.TestCase):
         """J4.4: the HTTP package route exposes terminal selected-Tee failure without retrying."""
         from server_v2 import main as server_main, map_startup
         from ai_caddie.courses import vector_prep as vp
-        from ai_caddie.caddie import mobile_live
         from tests.product.test_c33_start_fast import selected_tee_fixture_course
 
         builds = []
@@ -68,17 +67,18 @@ class ServerV2MobileTests(ServiceLoggingIsolationMixin, unittest.TestCase):
                     return None
                 return real_cached(global_id, local_hole, *args, **kwargs)
 
-            terminal_key = (str(vp2._CACHE_DIR), 123, 1, 4)
+            terminal_state = {
+                (str(vp2._CACHE_DIR), 123, 1, tee): {
+                    "revision": "r1", "failures": 3,
+                    "retryAfter": None, "unavailable": True,
+                }
+                for tee in range(1, 9)
+            }
             with (
-                patch.object(vp2, "_VECTOR_RETRY_STATE", {
-                    terminal_key: {
-                        "revision": "r1", "failures": 3,
-                        "retryAfter": None, "unavailable": True,
-                    }
-                }),
+                patch.object(vp2, "_VECTOR_RETRY_STATE", terminal_state),
                 patch.object(vp2, "_VECTOR_FUTURES", {}),
                 patch.object(vp2, "cached_vector_hole", side_effect=failed_cached),
-                patch.object(mobile_live, "geometry_coverage_for_hole",
+                patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole",
                              return_value={"coverage": "ready", "geometryRevision": "r1"}),
                 patch.object(server_main.course_install, "enqueue", return_value={"phase": "queued"}),
                 patch.object(map_startup, "prepare_priority_hole", return_value={}),
