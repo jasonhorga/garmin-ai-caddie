@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/ios-testflight.yml b/.github/workflows/ios-testflight.yml
+index c5d2b0c2..08879433 100644
+--- a/.github/workflows/ios-testflight.yml
++++ b/.github/workflows/ios-testflight.yml
+@@ -36,7 +36,7 @@ concurrency:
+ 
+ jobs:
+   testflight:
+-    runs-on: [self-hosted, caddie-mba]
++    runs-on: macos-15
+     timeout-minutes: 90
+     steps:
+       - uses: actions/checkout@v4

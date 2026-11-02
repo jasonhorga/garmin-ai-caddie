@@ -1,0 +1,13 @@
+diff --git a/fastlane/Fastfile b/fastlane/Fastfile
+index 5ca2232d..4b1c2bfc 100644
+--- a/fastlane/Fastfile
++++ b/fastlane/Fastfile
+@@ -96,7 +96,7 @@ platform :ios do
+ 
+   def make_keychain!
+     create_keychain(name: KEYCHAIN, password: match_keychain_password,
+-                    default_keychain: false, unlock: true, timeout: 3600)
++                    default_keychain: true, unlock: true, timeout: 3600)
+   end
+ 
+   def build_xcargs

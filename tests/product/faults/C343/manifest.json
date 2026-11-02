@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C343-01-hosted-runner",
+      "patch": "tests/product/faults/C343/01-hosted-runner.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_testflight_uses_xcode27_self_hosted_runner_and_ephemeral_keychain",
+      "promise": "G8",
+      "kills": "Running TestFlight on macos-15 bypasses the required self-hosted Xcode 27 runner."
+    },
+    {
+      "id": "tests-product-faults-C343-02-default-keychain",
+      "patch": "tests/product/faults/C343/02-default-keychain.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_testflight_uses_xcode27_self_hosted_runner_and_ephemeral_keychain",
+      "promise": "G8",
+      "kills": "Making the signing keychain the default keychain changes Jason's login-keychain behavior."
+    },
+    {
+      "id": "tests-product-faults-C343-03-cleanup-without-always",
+      "patch": "tests/product/faults/C343/03-cleanup-without-always.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_testflight_uses_xcode27_self_hosted_runner_and_ephemeral_keychain",
+      "promise": "G8",
+      "kills": "Without always() a failed build can leave the temporary keychain and modified search list behind."
+    }
+  ]
+}
