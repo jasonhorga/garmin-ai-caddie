@@ -1,12 +1,12 @@
 diff --git a/server_v2/readiness.py b/server_v2/readiness.py
 --- a/server_v2/readiness.py
 +++ b/server_v2/readiness.py
-@@ -1012,7 +1012,7 @@
-                 if isinstance(row, dict) and str(row.get("label") or "").strip()
-             }
-         ),
--        "stale": stale,
-+        "stale": False,
-         "source": "background",
-     }
-     return ("ready" if package_ready else "degraded"), evidence
+@@ -1059,7 +1059,7 @@
+                     "reason": f"{exc.__class__.__name__}: {exc}",
+                 }
+             if "reason" not in evidence:
+-                evidence["stale"] = bool(stats_snapshot.get("stale"))
++                evidence["stale"] = False
+             with _MOBILE_READINESS_LOCK:
+                 registered = _MOBILE_READINESS_THREADS.get("me")
+                 current_status = _MOBILE_READINESS.get("me") or {}

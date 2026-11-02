@@ -1049,7 +1049,7 @@ def warm_mobile_readiness_in_background(stats_snapshot: dict[str, Any]) -> threa
                     stats_data=value,
                     allow_weather_fetch=False,
                 )
-                state, evidence = _mobile_readiness_evidence(package, stale=bool(stats_snapshot.get("stale")))
+                state, evidence = _mobile_readiness_evidence(package)
             except Exception as exc:  # noqa: BLE001 - readiness reports background failure
                 state = "degraded"
                 evidence = {
@@ -1058,6 +1058,8 @@ def warm_mobile_readiness_in_background(stats_snapshot: dict[str, Any]) -> threa
                     "source": "background",
                     "reason": f"{exc.__class__.__name__}: {exc}",
                 }
+            if "reason" not in evidence:
+                evidence["stale"] = bool(stats_snapshot.get("stale"))
             with _MOBILE_READINESS_LOCK:
                 registered = _MOBILE_READINESS_THREADS.get("me")
                 current_status = _MOBILE_READINESS.get("me") or {}
@@ -1091,15 +1093,14 @@ def _mobile_readiness_status(stats_snapshot: dict[str, Any] | None) -> dict[str,
     with _MOBILE_READINESS_LOCK:
         status = dict(_MOBILE_READINESS.get("me") or {})
         existing = _MOBILE_READINESS_THREADS.get("me")
+        if status.get("state") == "warming" and (existing is None or not existing.is_alive()):
+            status = {}
     same_revision = status.get("revision") == revision
     # A completed package can legitimately be degraded (e.g. missing geometry). Cache that
     # evidence, but retry a builder exception on the next poll instead of making it permanent.
     last_failure = (status.get("evidence") or {}).get("reason") if same_revision else None
     retry_failed_build = status.get("state") == "degraded" and bool(last_failure)
-    warming_alive = status.get("state") == "warming" and existing is not None and existing.is_alive()
-    if same_revision and status.get("state") in {"ready", "degraded"} and not retry_failed_build:
-        return status
-    if same_revision and warming_alive:
+    if same_revision and status.get("state") in {"ready", "warming", "degraded"} and not retry_failed_build:
         return status
     if isinstance(stats_snapshot, dict) and os.getenv("AI_CADDIE_READINESS_TRACE") != "1":
         warm_mobile_readiness_in_background(stats_snapshot)
