@@ -1801,7 +1801,7 @@ def _shared_sequence_tail(
     allow_replan_gap: bool = False,
     forbid_repeated_clubs: bool = True,
     max_overshoot_m: float | None = None,
-    sample_size: int = 1,
+    sample_size: int | None = None,
 ):
     """Return the continuation selected by the online decision tail scorer.
 
@@ -1809,7 +1809,11 @@ def _shared_sequence_tail(
     carry ordering and leave score.  Keeping this adapter tuple-shaped lets the prep planner reuse
     that rule without exposing decision-layer DTOs in its wire contract.
     """
-    from ai_caddie.caddie.decision import _sequence_tail
+    from ai_caddie.caddie.decision import (
+        MAX_SEQUENCE_OVERSHOOT_M,
+        SEQUENCE_DEFAULT_SAMPLE_SIZE,
+        _sequence_tail,
+    )
 
     profile_by_token = _shared_sequence_profiles()
     rows = []
@@ -1824,7 +1828,7 @@ def _shared_sequence_tail(
             "median_m": median,
             "p10_m": float(profile.get("p10") or profile.get("p10_m") or (median - 8.0)),
             "p90_m": float(profile.get("p90") or profile.get("p90_m") or (median + 8.0)),
-            "sampleSize": int(profile.get("sampleSize") or sample_size or 20),
+            "sampleSize": int(profile.get("sampleSize") or sample_size or SEQUENCE_DEFAULT_SAMPLE_SIZE),
         })
     avoid_zones = [
         {
@@ -1848,7 +1852,7 @@ def _shared_sequence_tail(
         max_overshoot_m=(
             float(max_overshoot_m)
             if max_overshoot_m is not None
-            else 10.0
+            else MAX_SEQUENCE_OVERSHOOT_M
         ),
         prefer_layup_window=True,
     )
@@ -2000,8 +2004,8 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_
                 exclude_club_keys=used_clubs,
                 maximum_carry_m=previous_carry,
                 forbid_repeated_clubs=True,
-                max_overshoot_m=10.0,
-                sample_size=1,
+                max_overshoot_m=None,
+                sample_size=None,
             )
             if shared_tail:
                 effective_remaining = effective
