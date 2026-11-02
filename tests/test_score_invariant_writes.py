@@ -90,6 +90,7 @@ class ReconciliationApplyTests(HTTPFixture, unittest.TestCase):
         response = self.apply(rid, ["rec-putt-5:putt-correction", "rec-putt-1:putt-correction",
                                     "rec-score-6:score-correction"])
         self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["missingSuggestionIds"], ["rec-putt-5:putt-correction"])
         stored = [(row["kind"], row["payload"]["to"]) for row in annotations.list_annotations(root=self.root)]
         self.assertEqual(stored, [("score_correction", 6), ("putt_correction", 5), ("putt_correction", 1)])
 
