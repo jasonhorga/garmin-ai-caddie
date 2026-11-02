@@ -24,6 +24,14 @@
       "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j2_1_reports_and_history_share_low_rating_guard",
       "promise": "2.1",
       "kills": "The assertion that reports return no differential for rating 35.2 fails when the shared <50 guard is removed."
+    },
+    {
+      "id": "tests-product-faults-C281-04-rebuild-index-per-round",
+      "patch": "tests/product/faults/C281/rebuild-index-per-round.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_builds_real_hole_key_index_once",
+      "promise": "1.3",
+      "kills": "The assertion that the shared index is traversed at most twice fails when the index is rebuilt for each round."
     }
   ]
 }
