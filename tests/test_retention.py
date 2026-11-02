@@ -158,9 +158,9 @@ class PrivateVolumeRetentionTests(unittest.TestCase):
             for stamp in ("20261001T000000Z", "20261002T000000Z", "20261003T000000Z", "20261004T000000Z"):
                 self._make_snapshot(root, stamp)
             snapshots = root / "data" / "snapshots"
-            self._make_snapshot(root, "garmin_cn_custom",)
+            self._make_snapshot(root, "custom")
             (snapshots / "garmin_cn_custom.json").write_text('{"createdAt":"2099-01-01T00:00:00Z"}')
-            self._make_snapshot(root, "garmin_cn_20261399T000000Z")
+            self._make_snapshot(root, "20261399T000000Z")
             (snapshots / "garmin_cn_20261008T000000Z.json").write_text("{}")
             (snapshots / "garmin_cn_20261009T000000Z").mkdir()
 
@@ -177,7 +177,7 @@ class PrivateVolumeRetentionTests(unittest.TestCase):
                 "garmin_cn_20261008T000000Z.json",
                 "garmin_cn_20261009T000000Z",
             ):
-                self.assertTrue((snapshots / name).exists())
+                self.assertTrue((snapshots / name).exists(), name)
 
 
 if __name__ == "__main__":

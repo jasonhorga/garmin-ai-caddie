@@ -270,6 +270,7 @@ env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8 bash -c \
 回滚后按 §4 用 `$PREV` 核对。注意：`git diff --name-only $PREV $SHA -- migrations/` 非空时，
 回滚只换代码、不回退库结构；新库结构和旧代码不兼容就改为向前修。用快照
 `pg_restore --clean` 恢复数据库会丢掉快照之后写入的数据，**要 Jason 点头**。
+回滚到旧镜像时，新版 `topo-vN` 缓存可能被 retention 当作过期删除；缓存可再生，不影响服务数据。
 
 ### C62 会话存储回滚注意
 
