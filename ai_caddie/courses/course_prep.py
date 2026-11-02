@@ -1958,11 +1958,14 @@ def _strategy(
         # caddie appear to forbid the club the golfer normally tees with.  Keep the landing target
         # conservative for a short hole, but keep the physical tee club honest.
         tee_club = driver_name
+        from ai_caddie.caddie.decision import SCORING_WINDOW_MAX_M
+
+        tee_role = "scoring" if route_len_m - landing <= SCORING_WINDOW_MAX_M else "advance"
         append_step(
             tee_club,
             f"开球落点约 {yd(landing)}y",
             landing,
-            role="advance",
+            role=tee_role,
             route_landing_m=landing,
         )
         remaining = route_len_m - landing
@@ -1995,8 +1998,6 @@ def _strategy(
 
         # Plan a complete Par 4/5 chain. A long Par 5 remainder is not one imaginary approach; use
         # the longest playable non-driver until a normal scoring club can cover what remains.
-        from ai_caddie.caddie.decision import SCORING_WINDOW_MAX_M
-
         while remaining > SCORING_WINDOW_MAX_M and approach_ladder and len(steps) < 5:
             effective = plays_like(remaining)
             used_clubs = {
