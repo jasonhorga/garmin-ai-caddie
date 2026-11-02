@@ -1639,7 +1639,12 @@ def first_hole_lightweight_course_prep(
                                     build_if_missing=True,
                                 )
                             else:
-                                enqueue_vector_hole(source_global_id, source_local_hole, selected_set)
+                                enqueue_vector_hole(
+                                    source_global_id,
+                                    source_local_hole,
+                                    selected_set,
+                                    revision=str(coverage.get("geometryRevision") or ""),
+                                )
                         if vector is None and not map_only and not selected_vector_pending:
                             prep_call_kwargs = dict(prep_kwargs)
                             if selected_tee_box:
@@ -1685,9 +1690,25 @@ def first_hole_lightweight_course_prep(
         if source_key in pending_sources:
             # Reuse the existing client package-polling mechanism even when physical geometry
             # itself is installed and only the selected Tee vector is still warming.
-            package_hole["geometryState"] = "pending"
-            # The HTTP route re-judges this using the in-flight provider cadence (30 seconds).
-            package_hole["retryAfterEpoch"] = time.time() + _GEOMETRY_INSTALL_POLL_SECONDS
+            plan = None
+            try:
+                from ai_caddie.courses.vector_prep import selected_vector_plan
+
+                plan = selected_vector_plan(source_global_id, source_local_hole)
+            except Exception:
+                plan = None
+            if plan and plan.get("state") == "unavailable":
+                package_hole["geometryState"] = "unavailable"
+                package_hole["retryAfterEpoch"] = None
+            else:
+                package_hole["geometryState"] = "pending"
+                # The HTTP route re-judges this using the in-flight provider cadence (30 seconds)
+                # or the failed vector's bounded retry schedule.
+                package_hole["retryAfterEpoch"] = (
+                    plan.get("retryAfterEpoch")
+                    if plan and plan.get("state") == "scheduled"
+                    else time.time() + _GEOMETRY_INSTALL_POLL_SECONDS
+                )
 
         if not _has_drawable_route_seed(prep):
             missing_rows.append({

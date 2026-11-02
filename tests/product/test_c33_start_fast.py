@@ -454,7 +454,9 @@ class ReworkContractTests(ServiceLoggingIsolationMixin, unittest.TestCase):
 
         try:
             with patch.object(vp, "_BACKGROUND_VECTOR_POOL", pool), \
-                 patch.object(vp, "cached_vector_hole", side_effect=build):
+                 patch.object(vp, "cached_vector_hole", side_effect=build), \
+                 patch.object(vp, "_VECTOR_FUTURES", {}, create=True), \
+                 patch.object(vp, "_VECTOR_RETRY_STATE", {}, create=True):
                 with priority_work.FOREGROUND_GATE.foreground():
                     vp.enqueue_vector_hole(136, 1, 2)
                     self.assertFalse(started.wait(.2), "background vector bypassed package admission")
@@ -478,7 +480,9 @@ class ReworkContractTests(ServiceLoggingIsolationMixin, unittest.TestCase):
 
         pool = RecordingPool()
         with patch.object(vp, "_BACKGROUND_VECTOR_POOL", pool), \
-             patch.object(vp, "cached_vector_hole", return_value=None):
+             patch.object(vp, "cached_vector_hole", return_value=None), \
+             patch.object(vp, "_VECTOR_FUTURES", {}, create=True), \
+             patch.object(vp, "_VECTOR_RETRY_STATE", {}, create=True):
             vp.enqueue_vector_hole(136, 1, 2)
         self.assertEqual(pool.priority, SELECTED_COURSE)
 
@@ -539,7 +543,9 @@ class ReworkContractTests(ServiceLoggingIsolationMixin, unittest.TestCase):
         ):
             result = ml.first_hole_lightweight_course_prep(package, map_only=True)
         self.assertIsNone(result)
-        enqueue.assert_called_once_with(123, 1, 4)
+        enqueue.assert_called_once()
+        self.assertEqual(enqueue.call_args.args, (123, 1, 4))
+        self.assertIn("revision", enqueue.call_args.kwargs)
 
     def test_j4_4_failed_selected_tee_vector_stops_polling_until_revision_changes(self):
         """J4.4: repeated selected-Tee vector failures become unavailable and stop requeueing."""
@@ -566,13 +572,14 @@ class ReworkContractTests(ServiceLoggingIsolationMixin, unittest.TestCase):
                            side_effect=[{"geometryRevision": "r1"}] * 3 +
                                        [{"geometryRevision": "r2"}]),
               patch.object(vp, "cached_vector_hole", return_value=None)):
-            for now in (0.0, 31.0, 92.0, 93.0):
+            for now in (0.0, 31.0, 92.0):
                 clock[0] = now
-                vp.enqueue_vector_hole(136, 1, 2)
+                vp.enqueue_vector_hole(9136, 1, 2)
             self.assertEqual(3, len(pool.calls),
                              "a permanently failing vector must stop requeueing after the bound")
-            self.assertEqual("unavailable", vp.selected_vector_plan(136, 1)["state"])
-            vp.enqueue_vector_hole(136, 1, 2)
+            self.assertEqual("unavailable", vp.selected_vector_plan(9136, 1)["state"])
+            clock[0] = 93.0
+            vp.enqueue_vector_hole(9136, 1, 2)
             self.assertEqual(4, len(pool.calls),
                              "a new geometry revision must reopen a previously unavailable Tee")
 
