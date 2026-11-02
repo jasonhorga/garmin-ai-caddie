@@ -456,7 +456,8 @@ def _same_day_matching_boundary_score_holes(
         while len(timed_holes) >= 2:
             first_display = timed_holes[0][1]
             predecessor = (first_display - 2) % ring_size + 1
-            if first_display == baseline_display or predecessor not in timed_by_display:
+            if (first_display == baseline_display or predecessor not in timed_by_display
+                    or predecessor not in card["display_by_key"].values()):
                 break
             timed_holes.pop(0)
         start_time, start_display = timed_holes[0]
