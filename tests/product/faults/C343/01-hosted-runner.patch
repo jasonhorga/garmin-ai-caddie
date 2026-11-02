@@ -1,5 +1,5 @@
 diff --git a/.github/workflows/ios-testflight.yml b/.github/workflows/ios-testflight.yml
-index c5d2b0c2..08879433 100644
+index c5d2b0c2..a35b754d 100644
 --- a/.github/workflows/ios-testflight.yml
 +++ b/.github/workflows/ios-testflight.yml
 @@ -36,7 +36,7 @@ concurrency:
@@ -11,3 +11,24 @@ index c5d2b0c2..08879433 100644
      timeout-minutes: 90
      steps:
        - uses: actions/checkout@v4
+@@ -88,7 +88,7 @@ jobs:
+         shell: bash
+         run: |
+           set -euo pipefail
+-          keychain_path="$RUNNER_TEMP/aicaddie-signing-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.keychain-db"
++          keychain_path="$RUNNER_TEMP/aicaddie-signing-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+           keychain_snapshot="$RUNNER_TEMP/aicaddie-keychains-before.txt"
+           security list-keychains -d user > "$keychain_snapshot"
+           printf 'MATCH_KEYCHAIN_NAME=%s\n' "$keychain_path" >> "$GITHUB_ENV"
+@@ -183,6 +183,10 @@ jobs:
+             fi
+           fi
+           if [[ -n "${MATCH_KEYCHAIN_NAME:-}" ]]; then
+-            security delete-keychain "$MATCH_KEYCHAIN_NAME" >/dev/null 2>&1 || true
++            for suffix in "-db" ".keychain-db" ""; do
++              if security delete-keychain "${MATCH_KEYCHAIN_NAME}${suffix}" >/dev/null 2>&1; then
++                break
++              fi
++            done
+           fi
+           exit "$restore_status"
