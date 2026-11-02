@@ -1,13 +1,19 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index 8199a077..abf8fc1f 100644
+index 11887897..a6184722 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -1900,7 +1900,7 @@ def _strategy(
-             interval
-             for interval in (hazards or {}).get("water_carry") or []
-             if isinstance(interval, (list, tuple)) and len(interval) >= 2
+@@ -1896,13 +1896,7 @@ def _strategy(
+     # Preserve the original spans for display and cautions below.
+     planning_hazards = {
+         **(hazards or {}),
+-        "water_carry": [
+-            [min(float(interval[0]), float(interval[1])),
+-             min(max(float(interval[0]), float(interval[1])), float(route_len_m))]
+-            for interval in (hazards or {}).get("water_carry") or []
+-            if isinstance(interval, (list, tuple)) and len(interval) >= 2
 -            and _water_span_affects_scoring_route(interval, route_len_m)
-+            and True
-         ],
+-        ],
++        "water_carry": list((hazards or {}).get("water_carry") or []),
      }
      real_driver_row = next(
+         (

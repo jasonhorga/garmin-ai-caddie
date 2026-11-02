@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 11887897..566a9a42 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2127,6 +2127,7 @@ def _strategy(
+             # so the safety fallback cannot reintroduce a short-then-long sequence.
+             # Apply the same clipped constraints in the fallback while keeping the original
+             # hazards for the measured display facts and cautions after planning finishes.
++            hazards = planning_hazards
+             safe_ladder = [
+                 (name, distance)
+                 for name, distance in approach_ladder

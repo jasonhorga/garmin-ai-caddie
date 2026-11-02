@@ -77,6 +77,20 @@
       "kind": "python",
       "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_water_layup_keeps_the_three_shot_route",
       "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C305-12-M1-drop-pin-water",
+      "patch": "tests/product/faults/C305/12-M1-drop-pin-water.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_water_ending_at_pin_keeps_safe_landings_and_cautions",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C305-13-M2-overwrite-display-hazards",
+      "patch": "tests/product/faults/C305/13-M2-overwrite-display-hazards.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_water_caution_keeps_original_clear_distance_after_fallback",
+      "promise": "4.6"
     }
   ]
 }
