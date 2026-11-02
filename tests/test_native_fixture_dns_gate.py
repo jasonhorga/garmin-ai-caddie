@@ -80,6 +80,13 @@ class NativeFixtureDNSGateTests(unittest.TestCase):
             findings[0][2],
         )
 
+    def test_non_fixture_tls_failure_is_ignored(self) -> None:
+        log = (
+            'Task finished with error [-1200] Error Domain=NSURLErrorDomain '
+            'Code=-1200 NSErrorFailingURLStringKey=https://api.garmin.com/course/topo.png\n'
+        )
+        self.assertEqual([], _GATE.find_unhandled_fixture_dns(log))
+
     def test_interleaved_line_of_route_marked_task_is_allowed(self) -> None:
         # CI 40980906665: another process's log line was spliced into the
         # error, so Code=-1003 and route=shared landed on separate lines.

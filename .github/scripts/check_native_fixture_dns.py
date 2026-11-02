@@ -16,16 +16,35 @@ import argparse
 import re
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
-_DNS_MARKERS = (
-    "A server with the specified hostname could not be found",
-    "NSURLErrorDomain Code=-1003",
-    "error code: -1003",
+_NSURLError_RE = re.compile(
+    r"(?:NSURLErrorDomain Code=|error code:\s*|finished with error \[)(-\d+)"
 )
-_URL_RE = re.compile(r"(?:NSErrorFailingURL(?:String)?Key=)(https?://[^,\s}]+)")
+_URL_RE = re.compile(
+    r"(?:NSErrorFailingURL(?:String)?Key=)([A-Za-z][A-Za-z0-9+.-]*://[^,\s}]+)"
+)
 _TASK_RE = re.compile(r"Task <([0-9A-Fa-f-]{36})>\.<(\d+)>")
 _ROUTE_MARKER_RE = re.compile(r"(?<![?\w])route=(?:shared|explicit)(?![\w-])|CaddieTestRoute=")
+
+
+def _is_fixture_host(url: str) -> bool:
+    """Return whether ``url`` names one of the native fixture's reserved hosts."""
+
+    try:
+        host = (urlsplit(url).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+    reserved_roots = ("test", "example", "invalid", "example.com", "example.net", "example.org")
+    return host == "evilgarmin.com" or any(
+        host == root or host.endswith("." + root) for root in reserved_roots
+    )
+
+
+def _is_fixture_url(url: str) -> bool:
+    # A marker without a URL is fail-closed: the gate cannot prove it was safe.
+    return url == "<unknown URL>" or _is_fixture_host(url)
 
 
 def _is_shim_route_line(line: str) -> bool:
@@ -46,7 +65,7 @@ def _is_shim_route_line(line: str) -> bool:
     # A split shim continuation can carry only the marker and its Task/UserInfo
     # fields. It is safe when it has no DNS error or URL of its own; a marker
     # spliced into a real CFNetwork error remains actionable.
-    return not any(marker in line for marker in _DNS_MARKERS) and _URL_RE.search(line) is None
+    return _NSURLError_RE.search(line) is None and _URL_RE.search(line) is None
 
 
 def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]:
@@ -81,10 +100,10 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
             ]
             continue
         match = _URL_RE.search(line)
-        has_dns_marker = any(marker in line for marker in _DNS_MARKERS)
-        if not has_dns_marker and match is None:
+        has_network_error = _NSURLError_RE.search(line) is not None
+        if not has_network_error and match is None:
             continue
-        if not has_dns_marker:
+        if not has_network_error:
             # A URL-only continuation is actionable only when it follows a
             # marker we kept pending above; ordinary log lines contain URLs too.
             recent = [
@@ -95,7 +114,7 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
             if not recent:
                 continue
             url = match.group(1).rstrip(")]")
-            if url not in seen_urls:
+            if _is_fixture_url(url) and url not in seen_urls:
                 seen_urls.add(url)
                 findings.append(("<log>", line_number, url, line.rstrip()))
             pending_without_url = [
@@ -110,6 +129,13 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
             pending_without_url.append((line_number, line.rstrip(), task_ids))
             continue
         url = match.group(1).rstrip(")]")
+        if not _is_fixture_url(url):
+            pending_without_url = [
+                pending
+                for pending in pending_without_url
+                if line_number - pending[0] > 4
+            ]
+            continue
         if url in seen_urls:
             pending_without_url = [
                 pending

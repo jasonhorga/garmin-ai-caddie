@@ -10,6 +10,41 @@ import XCTest
 /// collects `Documents/design-snapshots/*.png` from the simulator container and
 /// uploads them as the `design-snapshots` artifact.
 final class DesignSnapshotTests: XCTestCase {
+    private static let snapshotFixtureBaseURL = URL(string: "https://caddie.example.test")!
+
+    @MainActor
+    private static func transparentSnapshotImage() -> UIImage {
+        var format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1), format: format).image { _ in }
+    }
+
+    @MainActor
+    private static func preloadSnapshotTopoImages(for package: LiveRoundPackage, baseURL: URL) {
+        let image = transparentSnapshotImage()
+        for hole in package.holes {
+            guard let url = SyncClient.topoImageURL(
+                baseURL: baseURL,
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole
+            ) else { continue }
+            TopoHoleImageStore.preload(image, for: url)
+        }
+    }
+
+    @MainActor
+    private static func snapshotOfflineThumbnailURL() -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("c345-snapshot", isDirectory: true)
+        let url = directory.appendingPathComponent("topo-thumbnail.png")
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try? transparentSnapshotImage().pngData()?.write(to: url, options: [.atomic])
+        }
+        return url
+    }
+
     override func setUp() {
         super.setUp()
         ensureC156TopoBundleStub()
@@ -332,8 +367,7 @@ final class DesignSnapshotTests: XCTestCase {
             dots.append(HubHoleDot(hole: hole, toPar: toPar, isCurrent: hole == 7))
         }
         let scores: [Int] = [92, 89, 91, 88, 90, 86, 87, 85]
-        let topoURL = SyncClient.topoImageURL(
-            baseURL: URL(string: "https://caddie.example")!, globalId: 3881, localHole: 1)
+        let topoURL = Self.snapshotOfflineThumbnailURL()
         let heroes = VStack(spacing: 10) {
             HubInProgressCard(courseName: "北京丽宫", activeHole: 7, recorded: 6, toPar: 2, dots: dots)
             HubStartPlayCard()
@@ -368,11 +402,7 @@ final class DesignSnapshotTests: XCTestCase {
             toPar: 26,
             holesCompleted: 18,
             par: 75,
-            topoURL: SyncClient.topoImageURL(
-                baseURL: URL(string: "https://caddie.example")!,
-                globalId: 3881,
-                localHole: 1
-            )
+            topoURL: Self.snapshotOfflineThumbnailURL()
         )
         .frame(width: 358)
         let host = UIHostingController(rootView: card)
@@ -662,6 +692,10 @@ final class DesignSnapshotTests: XCTestCase {
             .deletingLastPathComponent()
             .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
         let package = try JSONDecoder().decode(LiveRoundPackage.self, from: Data(contentsOf: fixtureURL))
+        // The package deliberately contains no topo bytes. Seed every URL used by the captures so
+        // TopoHoleBaseImage never starts a real URLSession request; transparent pixels preserve the
+        // existing neutral fixture surface while keeping the snapshot deterministic.
+        Self.preloadSnapshotTopoImages(for: package, baseURL: Self.snapshotFixtureBaseURL)
 
         // 黑骑士 = A/B/C 三个 9 洞环 + 北湖 = 单一 18 洞,验证按球场列环的选场 UI。
         let blackKnightTees = ["Gold", "Blue", "White", "Red"]
@@ -672,9 +706,10 @@ final class DesignSnapshotTests: XCTestCase {
             MobileCourseOption(globalId: 41825, name: "北京北湖九号国际高尔夫俱乐部", roundCount: 40, suggestedLiveRoundId: "live-41825", holes: 18, teeBox: "blue", geometryCoverage: "ready", venueName: "北京北湖九号国际高尔夫俱乐部", segmentLabel: nil, segmentHoles: 18, tees: ["Black", "Blue", "White", "Red"]),
         ]
 
-        // Pass a non-nil apiBaseURL so the 备战 tile (gated on apiBaseURL) renders — without it
-        // the snapshot hides 备战 and misrepresents the real app.
-        let apiBaseURL = URL(string: "https://caddie.example")
+        // Pass a non-nil, non-network URL so the 备战 tile (gated on apiBaseURL) renders — without
+        // it the snapshot hides 备战 and misrepresents the real app. A file URL also covers the
+        // Hub's AsyncImage thumbnail path, which cannot use the injected URLProtocol session.
+        let apiBaseURL = URL(fileURLWithPath: "/snapshot-fixture")
         // No course here and no last course → "今天去哪打？" + search (the package course is not 上次).
         try captureScreen(RoundHomeView(package: package, apiBaseURL: apiBaseURL, courseOptions: courses), named: "full-home")
         let recentBlackKnightB = MobileCourseOption(globalId: 31795, name: "北京天竺黑骑士球员俱乐部 ~ B", holes: 9, teeBox: "blue", venueName: "北京天竺黑骑士球员俱乐部", segmentLabel: "B", segmentHoles: 9, tees: ["blue"])
@@ -1045,7 +1080,7 @@ final class DesignSnapshotTests: XCTestCase {
                         package: mappedPackage,
                         hole: firstHole,
                         snapshotState: .init(caddieRoutes: routes),
-                        caddieBaseURL: URL(string: "https://caddie.example")
+                        caddieBaseURL: URL(string: "https://caddie.example.test")
                     )
                 },
                 named: "full-hole-map-garmin-default",
@@ -1079,7 +1114,7 @@ final class DesignSnapshotTests: XCTestCase {
             ))
             // Partial snapshots use a deterministic Garmin fixture so the pending/factual states
             // exercise the real raster path instead of falling through to the numeric placeholder.
-            let partialRasterBaseURL = URL(string: "https://caddie.example")!
+            let partialRasterBaseURL = URL(string: "https://caddie.example.test")!
             let partialRasterDescriptor = GarminRasterResponse(
                 available: true,
                 imageUrl: "/api/v2/courses/\(firstHole.sourceGlobalId)/holes/\(firstHole.sourceLocalHole)/garmin-raster.jpg?v=snapshot-partial-454",
@@ -1685,7 +1720,7 @@ final class DesignSnapshotTests: XCTestCase {
         // + 删除, the club pills (guess first) and the lie grid; with none selected 推杆 / 罚杆 −/+.
         let editModel = RoundEditModel(
             map: shotMap,
-            sync: SyncClient(baseURL: URL(string: "https://caddie.example")!),
+            sync: SyncClient(baseURL: URL(string: "https://caddie.example.test")!),
             roundRef: "r1",
             putts: 2
         )
@@ -1765,7 +1800,7 @@ final class DesignSnapshotTests: XCTestCase {
             UIColor(red: 0.58, green: 0.72, blue: 0.35, alpha: 1).setFill()
             context.cgContext.fillEllipse(in: CGRect(x: 430, y: 120, width: 380, height: 260))
         }
-        let baseURL = URL(string: "https://caddie.example")!
+        let baseURL = URL(string: "https://caddie.example.test")!
         let rasterProjection = CoursePrepHoleImageProjection(
             available: true,
             widthPx: 1242,
