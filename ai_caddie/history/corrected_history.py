@@ -26,6 +26,7 @@ from copy import copy
 from concurrent.futures import Future
 from dataclasses import dataclass
 from types import TracebackType
+from datetime import datetime, timezone
 import threading
 
 from ai_caddie.core.data import OWNER_ID
@@ -312,11 +313,6 @@ def _same_day_matching_boundary_score_holes(
         use the first displayed hole after the largest missing run. Timestamps never reorder
         the remaining holes: late entries and missing shots need not follow play order.
         """
-        # A nine-hole course can be played twice and Garmin then displays 1..18 on one card.
-        # Those display numbers require the full ring; otherwise the out-of-ring second lap is
-        # appended after the inferred tail and boundary matching counts restored holes twice.
-        if ring_size == 9 and any(display > 9 for display in display_by_key.values()):
-            ring_size = 18
         by_display: dict[int, list[tuple[int, int]]] = {}
         for key in scores:
             display = display_by_key.get(key)
@@ -340,13 +336,53 @@ def _same_day_matching_boundary_score_holes(
         ]
         return ordered + sorted(set(scores) - set(ordered))
 
+    def normalize_shot_time(value: Any) -> int | None:
+        """Return a positive shot timestamp in milliseconds.
+
+        Garmin has emitted both Unix seconds and milliseconds over the years.  Keep the
+        source value untouched and normalize only the comparison key; bools and malformed
+        values remain absent so they cannot become an artificial start.
+        """
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            return None
+        return value * 1000 if value < 100_000_000_000 else value
+
+    def row_datetime(row: dict[str, Any]) -> datetime | None:
+        raw = str(row.get("date") or "").strip().replace("Z", "+00:00")
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def date_reasonable(row: dict[str, Any], timestamp: int) -> bool:
+        """Reject clocks wildly unrelated to the scorecard date.
+
+        Garmin can upload a card long after it was played, so retain a generous one-year
+        ingest window.  The tighter same-day ordering check below handles a device clock that
+        moved backwards while the two cards were being played.
+        """
+        parsed = row_datetime(row)
+        if parsed is None:
+            return False
+        played = datetime.fromtimestamp(timestamp / 1000, timezone.utc)
+        return abs((played - parsed).total_seconds()) <= 366 * 24 * 3600
+
     by_day: dict[str, list[tuple[str, dict[tuple[int, int], set[int]], list[tuple[int, int]]]]] = {}
+    card_rows: dict[str, dict[str, Any]] = {}
     start_times: dict[str, int] = {}
+    timed_cards: set[str] = set()
     cards_by_day: dict[str, int] = {}
     for row in rounds:
         day = str(row.get("date") or "")[:10]
         if day:
             cards_by_day[day] = cards_by_day.get(day, 0) + 1
+    # Build the score geometry first.  Loading source shots is relatively expensive; only a
+    # pair with a one/two-hole boundary can use time to resolve an otherwise ambiguous match.
     for row in rounds:
         day = str(row.get("date") or "")[:10]
         if not day:
@@ -378,24 +414,101 @@ def _same_day_matching_boundary_score_holes(
         # Match ring_order's second-lap promotion before filtering source shot displays.
         if ring_size == 9 and any(display > 9 for display in display_by_key.values()):
             ring_size = 18
-        timed_holes = []
-        # A lone card cannot match a same-day boundary; avoid copying its source shots.
-        source_shots = (
-            round_source_shots(source_data, row)
-            if source_data is not None and cards_by_day[day] >= 2 else []
-        )
-        for _position, shot in source_shots:
-            time = shot.get("shotTime")
-            display = _int(shot.get("hole"))
-            if (isinstance(time, int) and not isinstance(time, bool) and time > 0
-                    and display is not None and 1 <= display <= ring_size):
-                timed_holes.append((time, display))
-        start_display = min(timed_holes)[1] if timed_holes else None
-        if timed_holes:
-            start_times[str(row.get("id"))] = min(timed_holes)[0]
+        round_id = str(row.get("id"))
+        card_rows[round_id] = {
+            "row": row, "day": day, "scores": scores, "display_by_key": display_by_key,
+            "ring_size": ring_size,
+            "legacy_order": ring_order(scores, display_by_key, ring_size, None),
+        }
         by_day.setdefault(day, []).append((
-            str(row.get("id")), scores, ring_order(scores, display_by_key, ring_size, start_display)
+            round_id, scores, card_rows[round_id]["legacy_order"]
         ))
+
+    for cards in by_day.values():
+        for index, (round_id, own, _own_order) in enumerate(cards):
+            for other_id, other, _other_order in cards[index + 1:]:
+                overlap = own.keys() & other.keys()
+                if not (1 <= len(overlap) <= 2 and len(overlap) < min(len(own), len(other))):
+                    continue
+                if not all(len(own[key]) == 1 and own[key] == other[key] for key in overlap):
+                    continue
+                timed_cards.update((round_id, other_id))
+
+    for row in rounds:
+        round_id = str(row.get("id"))
+        if round_id not in timed_cards:
+            continue
+        card = card_rows[round_id]
+        row, ring_size = card["row"], card["ring_size"]
+        timed_by_display: dict[int, int] = {}
+        source_shots = round_source_shots(source_data, row) if source_data is not None else []
+        for _position, shot in source_shots:
+            time = normalize_shot_time(shot.get("shotTime"))
+            display = _int(shot.get("hole"))
+            if time is not None and display is not None and 1 <= display <= ring_size:
+                previous = timed_by_display.get(display)
+                if previous is None or time < previous:
+                    timed_by_display[display] = time
+        if not timed_by_display:
+            continue
+        timed_holes = sorted((time, display) for display, time in timed_by_display.items())
+        legacy_order = card["legacy_order"]
+        legacy_displays = [card["display_by_key"][key] for key in legacy_order
+                           if key in card["display_by_key"]]
+        baseline_display = legacy_displays[0] if legacy_displays else None
+        # A single very early sample is a clock glitch when the next samples are effectively
+        # adjacent while the normal hole-to-hole interval is much larger.  Remove it before
+        # selecting the card start; a genuine first hole is still accepted at the geometry edge.
+        while len(timed_holes) >= 3:
+            gaps = [right[0] - left[0] for left, right in zip(timed_holes, timed_holes[1:])]
+            ordered_gaps = sorted(gaps)
+            median_gap = ordered_gaps[len(ordered_gaps) // 2]
+            first_time, first_display = timed_holes[0]
+            if (baseline_display is None or first_display == baseline_display
+                    or gaps[0] >= median_gap * 0.25):
+                break
+            timed_holes.pop(0)
+        start_time, start_display = timed_holes[0]
+        # If the watch started recording after play began, the preceding scored holes have no
+        # shot rows.  Move to the first hole in that contiguous run, preserving an unscored
+        # first-shot hole as the explicit anchor used by C338.
+        if start_display in card["display_by_key"].values() and legacy_displays:
+            try:
+                anchor = legacy_displays.index(start_display)
+            except ValueError:
+                anchor = min(range(len(legacy_displays)),
+                             key=lambda i: (legacy_displays[i] - start_display) % ring_size)
+            while anchor > 0:
+                previous_display = legacy_displays[anchor - 1]
+                if previous_display in timed_by_display:
+                    break
+                anchor -= 1
+            start_display = legacy_displays[anchor]
+        card["timed_order"] = ring_order(card["scores"], card["display_by_key"], ring_size, start_display)
+        start_times[round_id] = start_time
+
+    # A timestamp is trusted for chronology only when both card starts are plausible for their
+    # scorecard dates and their order agrees with the card-level start times.  Otherwise the
+    # geometry-only rule remains the safe fallback (including a device clock moving backwards).
+    chronology_pairs: set[frozenset[str]] = set()
+    for cards in by_day.values():
+        for index, (round_id, _own, _own_order) in enumerate(cards):
+            for other_id, _other, _other_order in cards[index + 1:]:
+                if round_id not in start_times or other_id not in start_times:
+                    continue
+                pair = frozenset((round_id, other_id))
+                if not (date_reasonable(card_rows[round_id]["row"], start_times[round_id])
+                        and date_reasonable(card_rows[other_id]["row"], start_times[other_id])):
+                    continue
+                left_date = row_datetime(card_rows[round_id]["row"])
+                right_date = row_datetime(card_rows[other_id]["row"])
+                if left_date is None or right_date is None:
+                    continue
+                card_order = (left_date <= right_date)
+                shot_order = (start_times[round_id] <= start_times[other_id])
+                if card_order == shot_order:
+                    chronology_pairs.add(pair)
+
     candidates: dict[str, set[tuple[int, int]]] = {}
     for cards in by_day.values():
         for round_id, own, own_order in cards:
@@ -405,17 +518,21 @@ def _same_day_matching_boundary_score_holes(
                     continue
                 # A geometrically matching boundary cannot reverse known shot chronology.
                 # If either card is untimed, preserve the legacy ring-only decision.
-                if (round_id in start_times and other_id in start_times
+                if (frozenset((round_id, other_id)) in chronology_pairs
                         and start_times[other_id] < start_times[round_id]):
                     continue
                 overlap = own.keys() & other.keys()
-                own_boundary = set(own_order[-len(overlap):]) if overlap else set()
-                other_boundary = set(other_order[:len(overlap)]) if overlap else set()
-                if overlap != own_boundary or overlap != other_boundary:
-                    continue
                 if (1 <= len(overlap) <= 2
                         and len(overlap) < min(len(own), len(other))
                         and all(len(own[key]) == 1 and own[key] == other[key] for key in overlap)):
+                    effective_other_order = card_rows[other_id].get("timed_order", other_order)
+                    effective_own_order = card_rows[round_id].get("timed_order", own_order)
+                    # Timing rotates only the cards whose boundary is genuinely ambiguous.
+                    # Recompute the boundary after the optional timed order is selected.
+                    own_boundary = set(effective_own_order[-len(overlap):]) if overlap else set()
+                    other_boundary = set(effective_other_order[:len(overlap)]) if overlap else set()
+                    if overlap != own_boundary or overlap != other_boundary:
+                        continue
                     covered.update(other.keys() - own.keys())
     return candidates
 

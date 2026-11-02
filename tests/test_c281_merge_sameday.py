@@ -171,9 +171,7 @@ class C281MergeSameDayTests(unittest.TestCase):
             self.assertEqual(corrected.rounds[1], late)
 
     def test_j1_3_timed_second_lap_start_at_thirteen_covers_three_holes(self) -> None:
-        """J1.3: morning 13..18,1..9 then late 9..12 covers exactly 10,11,12."""
-        from ai_caddie.history.corrected_history import _same_day_matching_boundary_score_holes
-
+        """J1.3: the public corrected-history entry consumes the three restored boundary holes."""
         numbers = list(range(13, 19)) + list(range(1, 10))
         rows = [_nine_row("morning", "2026-06-01 07:30", numbers),
                 _nine_row("late", "2026-06-01 11:40", [9, 10, 11, 12])]
@@ -183,10 +181,17 @@ class C281MergeSameDayTests(unittest.TestCase):
             for row, order, offset in ((rows[0], numbers, 0), (rows[1], [9, 10, 11, 12], 14_400_000))
             for i, n in enumerate(order)
         ]
-        data = HistoryData(raw_rounds=[], rounds=rows, shots=shots)
-        covered = _same_day_matching_boundary_score_holes(rows, data)
-        self.assertEqual(covered["morning"], {(55555, n) for n in (10, 11, 12)})
-        self.assertEqual(covered["late"], set())
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _restore(root, "morning", numbers=[10, 11, 12])
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=rows, shots=shots),
+                annotations_root=root, course_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            self.assertEqual(len(current["holes"]), len(numbers))
+            self.assertEqual([hole["number"] for hole in current["holes"]], numbers)
+            self.assertEqual(next(row for row in corrected.rounds if row["id"] == "late"), rows[1])
 
     def test_j1_3_shot_loader_preserves_synthetic_millisecond_time(self) -> None:
         """J1.3: player shot files retain the timestamp used to identify the first hole."""
@@ -197,20 +202,21 @@ class C281MergeSameDayTests(unittest.TestCase):
                              [1_800_000_000_000, 1_800_000_000_010])
 
     def test_j1_3_only_same_day_candidates_load_source_shots(self) -> None:
-        """J1.3: only cards with a same-day peer need shots for boundary matching."""
-        from ai_caddie.history import corrected_history
-
+        """J1.3: a same-day boundary replaces only the matching restored holes."""
         rows = [_row("morning", "2026-06-01 07:30", [1, 2]),
-                _row("late", "2026-06-01 11:40", [2, 3]),
+                _row("late", "2026-06-01 11:40", [2, 3, 4]),
                 _row("single", "2026-06-02", [1, 2]),
                 _row("unknown", "", [1, 2])]
-        data = HistoryData(raw_rounds=[], rounds=rows, shots=[])
-        with patch.object(corrected_history, "round_source_shots",
-                          wraps=corrected_history.round_source_shots) as load:
-            covered = corrected_history._same_day_matching_boundary_score_holes(rows, data)
-        self.assertEqual([call.args[1]["id"] for call in load.call_args_list], ["morning", "late"])
-        self.assertEqual(covered["morning"], {(55555, 3)})
-        self.assertEqual(covered["single"], set())
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _restore(root, "morning", numbers=[3, 4])
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=rows, shots=[]), annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            self.assertEqual([hole["number"] for hole in current["holes"]], [1, 2])
+            self.assertEqual(next(row for row in corrected.rounds if row["id"] == "late"), rows[1])
+            self.assertEqual(next(row for row in corrected.rounds if row["id"] == "single"), rows[2])
 
     def test_j1_3_first_shot_uses_display_hole_even_without_a_score(self) -> None:
         """J1.3: an unscored display 10 / physical 1 still anchors the combo's start."""
@@ -294,7 +300,8 @@ class C281MergeSameDayTests(unittest.TestCase):
             late = _row("late", "2026-06-01 11:40", [16, 17, 18])
             base = 1_800_000_000_000
             shots = [{"roundId": "morning", "hole": n,
-                      "shotTime": (base + i * 600_000) // 1000}
+                      "shotTime": ((base + i * 600_000) // 1000
+                                    if n == 12 else base + i * 600_000)}
                      for i, n in enumerate(range(1, 17))]
             shots += [{"roundId": "late", "hole": n,
                        "shotTime": base + 20_000_000 + i * 600_000}
