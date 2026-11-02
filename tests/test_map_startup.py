@@ -260,6 +260,51 @@ class FactualVectorTests(unittest.TestCase):
 
 
 class ColdPriorityTests(unittest.TestCase):
+    def test_j4_2_foreground_geometry_starts_while_background_vector_lane_is_full(self):
+        """J4.2: foreground geometry starts within a bound while a supplement lane is occupied."""
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.caddie.round_loops import CourseShape
+        from ai_caddie.courses import vector_prep as vp
+        from server_v2 import map_startup as ms
+
+        background_pool = PriorityExecutor(1, name="test-vector-background")
+        geometry_pool = PriorityExecutor(1, name="test-foreground-geometry")
+        vector_entered = threading.Event()
+        release_vector = threading.Event()
+        foreground_started = threading.Event()
+
+        def blocked_vector(*_args, **_kwargs):
+            vector_entered.set()
+            self.assertTrue(release_vector.wait(2))
+            return None
+
+        def foreground_geometry(*_args, **_kwargs):
+            foreground_started.set()
+            return {"ok": True}
+
+        try:
+            with (
+                patch.object(vp, "_BACKGROUND_VECTOR_POOL", background_pool),
+                patch.object(vp, "cached_vector_hole", side_effect=blocked_vector),
+                patch.object(mobile_live, "_GEOMETRY_INSTALL_POOL", geometry_pool),
+                patch.object(ms, "courseview_release_info", return_value={"holes": 9}),
+                patch.object(mobile_live, "course_shape_from_release", return_value=CourseShape(9, "venue")),
+                patch.object(ms, "ensure_startup_course_data", return_value=None),
+                patch("ai_caddie.geometry.geometry_sync.ensure_prodgeometry",
+                      side_effect=foreground_geometry),
+                patch("ai_caddie.caddie.analysis.tee_set_for_box", return_value=2),
+            ):
+                vp.enqueue_vector_hole(123, 1, 2)
+                self.assertTrue(vector_entered.wait(2))
+                result = ms.prepare_priority_hole([(123, "all")], wait=False)
+                self.assertTrue(result["pending"])
+                self.assertTrue(foreground_started.wait(.5),
+                                "foreground geometry waited behind a background vector")
+        finally:
+            release_vector.set()
+            background_pool.shutdown()
+            geometry_pool.shutdown()
+
     def test_map_package_draws_without_history_stats_recommendations_or_rasters(self):
         from ai_caddie.caddie import mobile_live as ml
         from server_v2 import mobile
