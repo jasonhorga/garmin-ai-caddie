@@ -107,6 +107,8 @@ class J7LogPrivacyTests(unittest.TestCase):
         for private in ("PRIVATEPLAYER", "PRIVATEROUND"):
             with self.subTest(private=private):
                 self.assertNotIn(private, output)
+        self.assertIn('"round_id":"[redacted]","reason":"intent_unreadable"', output)
+        self.assertIn("'player_id': '[redacted]'", output)
         self.assertEqual(output.count("intent_unreadable"), 2)
         self.assertEqual(output.count("status=200"), 2)
 

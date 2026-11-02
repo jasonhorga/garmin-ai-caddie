@@ -20,8 +20,8 @@ _SENSITIVE_KEY = re.compile(
 )
 _IDENTITY = re.compile(
     r"(?i)\b(player_?id|round_?id|player_?name|display_?name|nickname|player|round|"
-    r"[\w-]*token|cookie|csrf|authorization|[\w-]*secret|api_?key)\s*[:=]\s*"
-    r"(?:\[redacted\]|\"[^\"\n]*\"|'[^'\n]*'|[^\s,;&#\)\}\]]+)"
+    r"[\w-]*token|cookie|csrf|authorization|[\w-]*secret|api_?key)([\"']?\s*[:=]\s*)"
+    r"(\[redacted\]|\"[^\"\n]*\"|'[^'\n]*'|[^\s,;&#\)\}\]]+)"
 )
 _URL = re.compile(r"https?://[^\s\"'<>;,]+|(?<![\w/])/(?:api|p)/[^\s\"'<>;,]+")
 _PRIVATE_PATH = re.compile(r"https?://[^\s\"'<>;,\)]+|(?<![\w/])(?:[A-Za-z]:[\\/]|/|\bdata/)[^\s\"'<>;,\)]+")
@@ -32,7 +32,12 @@ def _text(value: str) -> str:
     # URL helpers expect ONE URL; applying them to a whole log line eats fields
     # after a share capability or query parameter.
     value = _URL.sub(lambda match: redact_url(match[0]), value)
-    value = _IDENTITY.sub(lambda match: match[1] + "=" + _REDACTED, value)
+    def identity(match):
+        original = match[3]
+        quote = original[0] if original[0] in "\"'" else ""
+        return match[1] + match[2] + quote + _REDACTED + quote
+
+    value = _IDENTITY.sub(identity, value)
     value = re.sub(r"(?i)\b(player|round)\s+(?:id\s+)?[^\s,;]+", r"\1=" + _REDACTED, value)
     value = re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer " + _REDACTED, value)
 
