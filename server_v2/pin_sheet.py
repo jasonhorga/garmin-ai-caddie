@@ -49,7 +49,7 @@ def read_pin_sheet_response(request: PinSheetRequest) -> dict:
         provider = build_media_vision_provider()
         result = read_pin_sheet(images, provider)
     except ProviderConfigurationError as exc:
-        logger.warning("pin_sheet not_configured images=%s bytes=%s error=%s", len(images), total_bytes, redact_secret_text(exc))
+        logger.warning("pin_sheet not_configured images=%s bytes=%s error=%s", len(images), total_bytes, exc)
         raise HTTPException(status_code=503, detail=f"pin sheet reading is not configured: {redact_secret_text(exc)}")
     except PinSheetReadError as exc:
         logger.warning("pin_sheet unreadable images=%s bytes=%s error=%s", len(images), total_bytes, exc)
@@ -57,7 +57,7 @@ def read_pin_sheet_response(request: PinSheetRequest) -> dict:
     except Exception as exc:  # provider transport / runtime failure
         logger.warning(
             "pin_sheet provider_failed images=%s bytes=%s error=%s: %s",
-            len(images), total_bytes, type(exc).__name__, redact_secret_text(exc),
+            len(images), total_bytes, type(exc).__name__, exc,
         )
         raise HTTPException(status_code=502, detail=f"pin sheet reading failed: {redact_secret_text(exc)}")
     logger.info(

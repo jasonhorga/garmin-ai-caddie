@@ -24,7 +24,7 @@ _IDENTITY = re.compile(
 )
 _PLAYER_ID = re.compile(r"(?i)\bp_[0-9a-f]{8,16}\b")
 _URL = re.compile(r"https?://[^\s\"'<>;,]+|(?<![\w/])/(?:api|p)/[^\s\"'<>;,]+")
-_PRIVATE_PATH = re.compile(r"https?://[^\s\"'<>;,\)]+|(?<![\w/])(?:[A-Za-z]:[\\/]|/|\bdata/)[^\s\"'<>;,\)]+")
+_PRIVATE_PATH = re.compile(r"https?://[^\s\"'<>;,\)]+|(?<![\w/])(?:[A-Za-z]:[\\/]|/|\bdata/|\bplayers/)[^\s\"'<>;,\)]+")
 _FRAME = re.compile(r'^(\s*File ")(.+)(", line \d+, in .+)$')
 
 
@@ -38,23 +38,24 @@ def _text(value: str) -> str:
         return match[1] + match[2] + quote + _REDACTED + quote
 
     value = _IDENTITY.sub(identity, value)
-    # Player ids also reach warning/error calls as a bare %-argument (without
-    # a ``player_id=`` label), so redact their stable shape independently.
-    value = _PLAYER_ID.sub(_REDACTED, value)
-    value = re.sub(r"(?i)\b(player|round)\s+[pr]_[\w.-]+", r"\1=" + _REDACTED, value)
-    value = re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer " + _REDACTED, value)
-
     def path(match):
         candidate = match[0]
         if candidate.startswith(("https://", "http://")):
             return candidate
+        if candidate.startswith("players/"):
+            _, _, tail = candidate.partition("/")
+            _, separator, suffix = tail.partition("/")
+            return "players/" + _REDACTED + separator + suffix
         if candidate.startswith("/api/") and (
             route_template(candidate) == candidate or ":token" in candidate
         ):
             return candidate
         return _REDACTED
 
-    return _PRIVATE_PATH.sub(path, value)
+    value = _PRIVATE_PATH.sub(path, value)
+    # Bare arguments and non-sensitive extras use the same player-id shape.
+    value = _PLAYER_ID.sub(_REDACTED, value)
+    return re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer " + _REDACTED, value)
 
 
 def _context(value, key=""):
@@ -178,8 +179,9 @@ def protect_handler(handler: logging.Handler) -> None:
 
 
 def protect_future_handlers() -> None:
-    """Protect handlers attached after startup, including propagate=False exits."""
+    """Protect handlers attached after startup, including direct list mutations."""
     original = logging.Logger.addHandler
+    original_call_handlers = logging.Logger.callHandlers
     if getattr(original, "_privacy_guard", False):
         return
 
@@ -190,3 +192,17 @@ def protect_future_handlers() -> None:
 
     add_handler._privacy_guard = True
     logging.Logger.addHandler = add_handler
+
+    def call_handlers(logger, record):
+        current = logger
+        while current:
+            if current.name.startswith(("server_v2", "ai_caddie", "uvicorn")) or current is logging.getLogger():
+                for handler in current.handlers:
+                    protect_handler(handler)
+            if not current.propagate:
+                break
+            current = current.parent
+        return original_call_handlers(logger, record)
+
+    call_handlers._privacy_guard = True
+    logging.Logger.callHandlers = call_handlers

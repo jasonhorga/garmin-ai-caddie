@@ -116,6 +116,9 @@ def baseline_cached(name):
     return signature(getattr(module, "__spec__", None)) == signature(
         import_spec(top, baseline_path))
 
+# The probe must resolve targets in its worktree even with PYTHONSAFEPATH enabled.
+# Keep the caller's PYTHONPATH unchanged so target path-order changes remain observable.
+sys.path.insert(0, str(Path.cwd()))
 baseline_directories = directories(sys.path)
 observed_paths = []
 batch_tainted = False
@@ -425,13 +428,17 @@ def _run_target(record: dict[str, Any], repo: Path,
     kind = record["kind"]
     target = record["target"]
     env = {**os.environ, "AI_CADDIE_DATA_MODE": "fixture", "PYTHONDONTWRITEBYTECODE": "1"}
+    # Safe-path interpreters omit cwd; resolve tests in the mutant worktree explicitly.
+    env["PYTHONPATH"] = os.pathsep.join(
+        value for value in (str(repo.resolve()), env.get("PYTHONPATH", "")) if value
+    )
     if kind == "python":
         assert report_directory is not None
         reporter = "_caddie_fault_reporter"
         (report_directory / (reporter + ".py")).write_text(PYTHON_RUN_REPORTER, encoding="utf-8")
         report_path = report_directory / "result.json"
         env.update(CADDIE_FAULT_TARGET=target, CADDIE_FAULT_REPORT=str(report_path),
-                   PYTHONPATH=os.pathsep.join([str(report_directory), env.get("PYTHONPATH", "")]))
+                   PYTHONPATH=os.pathsep.join([str(report_directory), env["PYTHONPATH"]]))
         target = reporter
     if kind == "python-script":
         script = shlex.split(target)
