@@ -1,0 +1,13 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+index 35d9b0f1..496f0e9c 100644
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -263,8 +263,6 @@ def protect_future_handlers(*, all_loggers=False) -> ExitStack:
+             current = current.parent
+         # lastResort is outside the propagation chain and may be replaced after
+         # startup. Protect it at dispatch time, just like directly assigned exits.
+-        if logging.lastResort is not None:
+-            protect(logging.lastResort)
+         return original_call_handlers(logger, record)
+ 
+     call_handlers._privacy_guard = True

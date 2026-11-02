@@ -1,8 +1,8 @@
 diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
-index f9e4b807..0b6092e4 100644
+index 35d9b0f1..063b25a4 100644
 --- a/server_v2/log_privacy.py
 +++ b/server_v2/log_privacy.py
-@@ -31,7 +31,7 @@ _FRAME = re.compile(r'^(\s*File ")(.+)(", line \d+, in .+)$')
+@@ -33,7 +33,7 @@ _FRAME = re.compile(r'^(\s*File ")(.+)(", line \d+, in .+)$')
  def _text(value: str) -> str:
      # URL helpers expect ONE URL; applying them to a whole log line eats fields
      # after a share capability or query parameter.
@@ -10,4 +10,4 @@ index f9e4b807..0b6092e4 100644
 +    value = redact_url(value)
      def identity(match):
          original = match[3]
-         quote = original[0] if original[0] in "\"'" else ""
+         # Only the documented partition label is public; a bare player field

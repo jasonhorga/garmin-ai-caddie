@@ -1,10 +1,10 @@
 diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
-index 6782f771..f26ed57c 100644
+index 35d9b0f1..b909a755 100644
 --- a/server_v2/log_privacy.py
 +++ b/server_v2/log_privacy.py
-@@ -125,23 +125,6 @@ def _arguments(value):
+@@ -149,23 +149,6 @@ class LogPrivacyFilter(logging.Filter):
+         self.all_loggers = all_loggers
  
- class LogPrivacyFilter(logging.Filter):
      def filter(self, record: logging.LogRecord) -> bool:
 -        try:
 -            return self._filter(record)
@@ -23,6 +23,6 @@ index 6782f771..f26ed57c 100644
 -            return True
 -
 -    def _filter(self, record: logging.LogRecord) -> bool:
-         if not record.name.startswith(("server_v2", "ai_caddie", "uvicorn.error")):
+         if not self.all_loggers and not record.name.startswith(("server_v2", "ai_caddie", "uvicorn.error")):
              return True
          record.args = _arguments(record.args)

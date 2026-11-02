@@ -1,0 +1,14 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+index 76b26ca4..cf51c12c 100644
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -429,9 +429,6 @@ def _run_target(record: dict[str, Any], repo: Path,
+     target = record["target"]
+     env = {**os.environ, "AI_CADDIE_DATA_MODE": "fixture", "PYTHONDONTWRITEBYTECODE": "1"}
+     # Safe-path interpreters omit cwd; resolve tests in the mutant worktree explicitly.
+-    env["PYTHONPATH"] = os.pathsep.join(
+-        value for value in (str(repo.resolve()), env.get("PYTHONPATH", "")) if value
+-    )
+     if kind == "python":
+         assert report_directory is not None
+         reporter = "_caddie_fault_reporter"

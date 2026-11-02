@@ -1,0 +1,13 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+index 35d9b0f1..5ac45872 100644
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -41,7 +41,7 @@ def _text(value: str) -> str:
+         if (match[1].lower() == "player" and match[2] == ":"
+                 and re.fullmatch(r"[0-9a-fA-F]{12}", original)
+                 and re.search(r"\bpartition=$", value[:match.start()])):
+-            return match[0]
++            return "player:" + _REDACTED
+         quote = original[0] if original[0] in "\"'" else ""
+         return match[1] + match[2] + quote + _REDACTED + quote
+ 
