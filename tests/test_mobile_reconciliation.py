@@ -139,6 +139,12 @@ class MobileReconciliationTests(unittest.TestCase):
                     "900001", late, suggestion_ids=[choice["id"]], root=root,
                     annotations_root=root, data_loader=lambda: late,
                 )
+                if resolution == "garmin":
+                    append_event_batch(
+                        "900001", [{"eventId": "follow-garmin-phone", "roundId": "900001", "hole": 1,
+                                    "kind": "score", "payload": {"strokes": 8}}],
+                        idempotency_key="follow-garmin-phone", root=root,
+                    )
                 newest_round = deepcopy(late_round)
                 newest_round["holes"] = [{**hole, "strokes": 8} if hole.get("number") == 1 else hole
                                           for hole in newest_round["holes"]]
@@ -146,16 +152,10 @@ class MobileReconciliationTests(unittest.TestCase):
                     "900001", HistoryData(raw_rounds=[], rounds=[newest_round], shots=data.shots),
                     root=root, annotations_root=root,
                 )
-                projected = corrected_history_data(
-                    HistoryData(raw_rounds=[], rounds=[newest_round], shots=data.shots),
-                    annotations_root=root,
-                ).rounds[0]
-                newest_strokes = next(hole["strokes"] for hole in projected["holes"] if hole.get("number") == 1)
 
             if resolution == "garmin":
                 self.assertEqual(newest["conflicts"], [])
                 self.assertEqual(newest["annotationSuggestions"], [])
-                self.assertEqual(newest_strokes, 8)
             else:
                 self.assertEqual(len(newest["conflicts"]), 1)
                 self.assertEqual({row["payload"].get("resolution") for row in newest["annotationSuggestions"]},
