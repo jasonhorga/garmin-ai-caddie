@@ -2629,6 +2629,86 @@ final class WatchDesignSnapshotTests: XCTestCase {
         }
     }
 
+    /// J4.5: absent a Garmin projection, show the raster independently of precise anchors and
+    /// explicitly say routes wait. The 200x240 fixture aspect-fits 198x242 at (0, 2.2), 198x237.6.
+    @MainActor
+    func testGarminBitmapUsesItsOwnFrameAndShowsPendingRouteNotice() throws {
+        let image = try XCTUnwrap(Self.card438MapImage)
+        let base = WatchHoleMapSample.geometry
+        func geometry(shift: CGFloat) -> WatchHoleMapGeometry {
+            WatchHoleMapGeometry(
+                image: nil, imageSize: base.imageSize,
+                youPx: CGPoint(x: base.youPx.x + shift, y: base.youPx.y + shift),
+                pinPx: base.pinPx, layupPx: base.layupPx, apexPx: base.apexPx,
+                greenCtrlPx: base.greenCtrlPx, routePx: [base.youPx, base.pinPx],
+                greenOutlinePx: WatchHoleMapSample.greenOutlinePx
+            )
+        }
+        func pixels(_ view: some View) throws -> [UInt8] {
+            let framed = view.watchSnapshotFrame(width: 198, height: 242)
+            return renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: framed).cgImage))
+        }
+        func map(shift: CGFloat) -> WatchHoleMapView {
+            WatchHoleMapView(ringPips: [], showTextOverlay: false, showHoleIdentity: false,
+                             fullMap: true, geometry: geometry(shift: shift), garminImage: image)
+        }
+        let expected = ZStack {
+            Canvas { context, _ in
+                context.fill(Path(CGRect(x: 0, y: 0, width: 198, height: 242)), with: .color(.black))
+                context.draw(context.resolve(Image(uiImage: image)),
+                             in: CGRect(x: 0, y: 2.2, width: 198, height: 237.6))
+            }
+            Text("路线等精细地图出来后显示")
+                .font(.system(size: 10, weight: .semibold))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white)
+                .padding(6)
+                .background(.black.opacity(0.65), in: Capsule())
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .padding(.bottom, 36)
+        }.ignoresSafeArea()
+        let garmin = try pixels(map(shift: 0))
+        XCTAssertEqual(garmin, try pixels(expected), "J4.5: Garmin raster and pending-route notice are visible")
+        XCTAssertEqual(garmin, try pixels(map(shift: 200)),
+                       "J4.5: precise anchors cannot position an unprojected Garmin bitmap")
+    }
+
+    /// J4.5: green/hazard pages retain their displayed rasters on a transient nil input.
+    @MainActor
+    func testGreenAndHazardRetainDisplayedBitmapsWithoutWaitingOverlay() throws {
+        let base = WatchHoleMapSample.geometry
+        let image = try XCTUnwrap(base.image)
+        let detail = try XCTUnwrap(WatchHoleMapSample.greenDetailImage)
+        func geometry(image: UIImage?, detail: UIImage? = nil) -> WatchHoleMapGeometry {
+            WatchHoleMapGeometry(
+                image: image, greenDetailImage: detail,
+                greenDetailRectPx: CGRect(x: 375, y: 225, width: 120, height: 120),
+                imageSize: base.imageSize, youPx: base.youPx, pinPx: base.pinPx,
+                layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx,
+                greenOutlinePx: WatchHoleMapSample.greenOutlinePx
+            )
+        }
+        func pixels(_ view: some View) throws -> [UInt8] {
+            let framed = view.watchSnapshotFrame(width: 198, height: 242)
+            return renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: framed).cgImage))
+        }
+        let missing = geometry(image: nil)
+        for full in [geometry(image: image), geometry(image: nil, detail: detail)] {
+            let retained = WatchGreenPreviewView(geometry: missing).snapshottingRetainedGeometry(full)
+            XCTAssertEqual(try pixels(retained), try pixels(WatchGreenPreviewView(geometry: full)),
+                           "J4.5: green retains both whole-hole and detail-only imagery")
+        }
+        let route = [[435.0, 981.0, 0.0], [435.0, 279.0, 518.8]]
+        let hazard = WatchHazard(kind: "water", label: "水障碍", startM: 190, endM: 210,
+                                 frontPx: [435, 724], backPx: [435, 697])
+        let full = geometry(image: image)
+        let retained = WatchHazardMapView(geometry: missing, route: route, hazards: [hazard],
+                                          centerGreenYards: 320).snapshottingRetainedGeometry(full)
+        let precise = WatchHazardMapView(geometry: full, route: route, hazards: [hazard], centerGreenYards: 320)
+        XCTAssertEqual(try pixels(retained), try pixels(precise),
+                       "J4.5: retained hazard bitmap keeps contours and has no waiting overlay")
+    }
+
     /// J4.5: one waiting notice, and none over an already displayed precise bitmap. The retained
     /// bitmap and the directly supplied bitmap must render the same whole production view.
     @MainActor

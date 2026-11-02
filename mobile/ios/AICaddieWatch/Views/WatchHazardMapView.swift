@@ -205,7 +205,9 @@ extension EnvironmentValues {
 /// Crown zooms (1–4×) and a drag pans once zoomed; tapping "1 / N" selects the next upcoming hazard,
 /// and while zoomed that keeps the current zoom and pan instead of re-framing (IMG-8050).
 public struct WatchHazardMapView: View {
-    public let geometry: WatchHoleMapGeometry
+    private let sourceGeometry: WatchHoleMapGeometry
+    @State private var retainedGeometry: WatchHoleMapGeometry?
+    public var geometry: WatchHoleMapGeometry { sourceGeometry.retainingBitmaps(from: retainedGeometry) }
     public let route: [[Double]]
     public let hazards: [WatchHazard]
     public let centerGreenYards: Int?
@@ -243,7 +245,8 @@ public struct WatchHazardMapView: View {
         edgeBackEnabled: Bool = true,
         onBack: @escaping () -> Void = {}
     ) {
-        self.geometry = geometry
+        self.sourceGeometry = geometry
+        _retainedGeometry = State(initialValue: geometry)
         self.route = route
         self.hazards = hazards
         self.centerGreenYards = centerGreenYards
@@ -295,6 +298,15 @@ public struct WatchHazardMapView: View {
         selection = (selectedIndex + 1) % upcoming.count
     }
 
+    #if DEBUG
+    /// Seed the same per-hole retained bitmap state used by a transient nil update.
+    func snapshottingRetainedGeometry(_ geometry: WatchHoleMapGeometry) -> Self {
+        var snapshot = self
+        snapshot._retainedGeometry = State(initialValue: geometry)
+        return snapshot
+    }
+    #endif
+
     public var body: some View {
         GeometryReader { geo in
             switch display {
@@ -311,6 +323,7 @@ public struct WatchHazardMapView: View {
         }
         .background(Color.black)
         .task(id: display) { displayReporter?(display) }
+        .onChange(of: sourceGeometry.image) { _, _ in retainedGeometry = geometry }
         .onChange(of: viewport.isZoomed) { _, zoomed in
             frozenFrame = zoomed && !upcoming.isEmpty ? frame(for: upcoming[selectedIndex]) : nil
         }
@@ -389,6 +402,7 @@ public struct WatchHazardMapView: View {
         scale: CGFloat,
         focusPoint: CGPoint
     ) {
+        guard geometry.hasUsableBitmap else { return }
         let focusCanvas = CGPoint(x: size.width * 0.52 + viewport.pan.width,
                                   y: size.height * 0.52 + viewport.pan.height)
         func canvas(_ point: CGPoint) -> CGPoint {
