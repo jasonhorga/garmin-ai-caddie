@@ -1,6 +1,8 @@
+diff --git a/mobile/ios/AICaddie/Services/SyncClient.swift b/mobile/ios/AICaddie/Services/SyncClient.swift
+index 60cee8f8..ecbfda12 100644
 --- a/mobile/ios/AICaddie/Services/SyncClient.swift
 +++ b/mobile/ios/AICaddie/Services/SyncClient.swift
-@@ -632,6 +632,7 @@
+@@ -658,6 +658,7 @@ public final class SyncClient {
              await gate(timedRequest)
          }
          #endif
@@ -8,11 +10,11 @@
          // Capture cheap raw clocks before the final cancellation check. Formatting a date here
          // would put avoidable work between that check and URLSession's transport handoff.
          let startedAt = Date()
-@@ -640,7 +641,6 @@
+@@ -666,7 +667,6 @@ public final class SyncClient {
              try Task.checkCancellation()
-             return try await urlSession.data(for: timedRequest)
+             return try await data(for: timedRequest, in: urlSession)
          }
 -        try Task.checkCancellation()
          do {
-             let result = try await urlSession.data(for: timedRequest)
+             let result = try await data(for: timedRequest, in: urlSession)
              let finished = monotonicNow()

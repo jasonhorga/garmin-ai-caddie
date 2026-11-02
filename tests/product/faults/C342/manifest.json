@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C342-01-invalidated-session-guard",
+      "patch": "tests/product/faults/C342/01-invalidated-session-guard.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59InvalidatedSessionRejectsARequestPastPreflight",
+      "promise": "Product spec 5.9",
+      "kills": "Removing the synchronized invalidation guard recreates the URLSession task-after-invalidation crash."
+    }
+  ]
+}

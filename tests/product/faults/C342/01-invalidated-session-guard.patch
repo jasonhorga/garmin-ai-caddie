@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Services/SyncClient.swift b/mobile/ios/AICaddie/Services/SyncClient.swift
+index 60cee8f8..27e99cd2 100644
+--- a/mobile/ios/AICaddie/Services/SyncClient.swift
++++ b/mobile/ios/AICaddie/Services/SyncClient.swift
+@@ -704,7 +704,7 @@ public final class SyncClient {
+             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(Data, URLResponse), Error>) in
+                 roundStartSessionLock.lock()
+                 #if DEBUG
+-                if invalidatedForTesting {
++                if false {
+                     roundStartSessionLock.unlock()
+                     continuation.resume(throwing: CancellationError())
+                     return
