@@ -23,13 +23,6 @@
       "promise": "J4.5"
     },
     {
-      "id": "tests-product-faults-C241-04-line-when-both-missing",
-      "patch": "tests/product/faults/C241/04-line-when-both-missing.patch",
-      "kind": "native-unit",
-      "target": "AICaddieTests/GarminRasterTests/testJ45NoBitmapNeverDrawsLightweightFacts",
-      "promise": "J4.5"
-    },
-    {
       "id": "tests-product-faults-C241-05-c33-retry-neutral",
       "patch": "tests/product/faults/C241/05-c33-retry-placeholder.patch",
       "kind": "native-unit",
@@ -37,24 +30,10 @@
       "promise": "J4.5"
     },
     {
-      "id": "tests-product-faults-C241-06-partial-neutral",
-      "patch": "tests/product/faults/C241/06-partial-numeric-placeholder.patch",
-      "kind": "native-unit",
-      "target": "AICaddieTests/GarminRasterTests/testPartialWithoutCachedTopoDoesNotEnterPreciseOrReuseProjection",
-      "promise": "J4.5"
-    },
-    {
       "id": "tests-product-faults-C241-07-first-frame-garmin",
       "patch": "tests/product/faults/C241/07-first-frame-pending.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/LiveMapFirstFrameTests/testKnownPreciseTopoNeverFallsBackToGarminBeforeDecode",
-      "promise": "J4.5"
-    },
-    {
-      "id": "tests-product-faults-C241-08-descriptor-neutral",
-      "patch": "tests/product/faults/C241/08-descriptor-numeric.patch",
-      "kind": "native-unit",
-      "target": "AICaddieTests/RoundPlayOrderTests/testGarminDescriptorNeedsDecodedImageBeforeRasterState",
       "promise": "J4.5"
     },
     {

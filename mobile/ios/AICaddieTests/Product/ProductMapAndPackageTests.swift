@@ -145,6 +145,105 @@ final class ProductMapAndPackageTests: XCTestCase {
                        "J4.5 cached Garmin must pass the production liveMapInputs display boundary")
     }
 
+    /// J4.5: an already precise neighbour page keeps that authority when selected again. Exercise
+    /// the mounted page's onChange/task wiring and its real map failure callback, not the policy seam.
+    func test_j4_5_mounted_precise_page_retains_map_across_selection_and_decode_failure() async throws {
+        let baseURL = try XCTUnwrap(URL(string: "https://retention-\(UUID().uuidString).example.test"))
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { context in
+            UIColor.green.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        }
+        let png = try XCTUnwrap(image.pngData())
+        var root = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(try c136Package(garmin: true))
+        ) as? [String: Any])
+        var holes = try XCTUnwrap(root["holes"] as? [[String: Any]])
+        holes[0]["geometryCoverage"] = "ready"
+        holes[0]["geometryRevision"] = "retention-fixture"
+        root["holes"] = holes
+        var coursePrep = try XCTUnwrap(root["coursePrep"] as? [String: Any])
+        var prepHoles = try XCTUnwrap(coursePrep["holes"] as? [[String: Any]])
+        prepHoles[0]["geometryCoverage"] = "ready"
+        prepHoles[0]["geometryRevision"] = "retention-fixture"
+        var map = try XCTUnwrap(prepHoles[0]["map"] as? [String: Any])
+        map["image"] = "data:image/png;base64,\(png.base64EncodedString())"
+        prepHoles[0]["map"] = map
+        coursePrep["holes"] = prepHoles
+        root["coursePrep"] = coursePrep
+        let package: LiveRoundPackage = try ProductSharedVectors.decode(root)
+        let hole = try XCTUnwrap(package.holes.first)
+        let prep = try XCTUnwrap(package.coursePrep?.holes.first)
+        let rasterPath = try XCTUnwrap(hole.garminRaster?.imageUrl)
+        let descriptor = GarminRasterResponse(available: true, imageUrl: rasterPath)
+        let rasterURL = try XCTUnwrap(descriptor.resolvedImageURL(relativeTo: baseURL))
+        let topoURL = try XCTUnwrap(LiveTopoAvailability.url(
+            hole: hole, prep: prep, localURL: nil, baseURL: baseURL
+        ))
+        TopoHoleImageStore.preload(image, for: topoURL)
+        GarminRasterImageStore.preload(image, for: rasterURL)
+        defer {
+            TopoHoleImageStore.evict(topoURL)
+            GarminRasterImageStore.evict(rasterURL)
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [C33URLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let prepData = try JSONEncoder().encode(prep)
+        let descriptorData = try JSONEncoder().encode(descriptor)
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == baseURL.host else { proto.reply(404); return }
+            let path = proto.request.url?.path ?? ""
+            if path.hasSuffix("/prep") {
+                proto.reply(200, prepData)
+            } else if path.contains("garmin-raster") {
+                proto.reply(200, descriptorData)
+            } else {
+                proto.reply(404)
+            }
+        })
+        let probe = LiveHoleLoadingProbe()
+        let cache = LiveHoleSessionCache()
+        let mounted = expectation(description: "precise neighbour mounted")
+        probe.didMount = { mounted.fulfill() }
+        func page(selected: Bool) -> CurrentHoleView {
+            CurrentHoleView(
+                package: package, hole: hole, caddieBaseURL: baseURL, networkSession: session,
+                caddieClient: CaddieDecisionClient(baseURL: baseURL, session: session),
+                sessionCache: cache, isSelected: selected
+            ).observingLoadingForTesting(probe)
+        }
+        let hosted = hostCurrentHole(page(selected: false))
+        defer {
+            hosted.window.isHidden = true
+            hosted.window.rootViewController = nil
+            probe.detach()
+        }
+        await fulfillment(of: [mounted], timeout: productEventWait)
+        hosted.controller.view.layoutIfNeeded()
+        let read = try XCTUnwrap(probe.read)
+        let failPreciseImage = try XCTUnwrap(probe.failPreciseImage)
+        XCTAssertEqual(read().displayState, .precise, "fixture starts precise before selection")
+        XCTAssertEqual(read().retainedMapState, .precise,
+                       "J4.5 the initial onChange must retain the already precise neighbour")
+
+        let selected = expectation(description: "selected-page bootstrap ran")
+        probe.didBootstrap = { selected.fulfill() }
+        hosted.controller.rootView = page(selected: true)
+        await fulfillment(of: [selected], timeout: productEventWait)
+        XCTAssertEqual(read().displayState, .precise)
+        XCTAssertEqual(read().retainedMapState, .precise,
+                       "J4.5 selection must not erase the already visible precise tier")
+        XCTAssertTrue(read().garminImageReady, "the downgrade alternative is decoded and ready")
+
+        // Invoke exactly the failure callback wired into liveHoleImageMap, after the selection task.
+        failPreciseImage()
+        XCTAssertNotEqual(read().displayState, .garminRaster,
+                          "J4.5 a precise page must not downgrade to ready Garmin after decode failure")
+        XCTAssertEqual(read().displayState, .factualPending)
+        XCTAssertFalse(read().hasMapOverlay, "the neutral decode frame has no geographic layers")
+    }
+
     /// J4.5-2: Garmin is prefetched by default so a later hole can show its raster immediately.
     func test_j4_5_garmin_default_model_prefetches_raster() async throws {
         let package = try c136Package(garmin: true)
@@ -582,9 +681,13 @@ final class ProductMapAndPackageTests: XCTestCase {
         let success = await LiveHolePrepProbe.run(
             fetch: { ready }, publishInterim: { _ in }, wait: { _ in }
         )
-        XCTAssertEqual(LiveMapDisplayState.resolve(prep: partial, pending: true), .waiting)
+        XCTAssertEqual(LiveMapDisplayState.resolvePrep(
+            prep: partial, hasLocalTopo: false, isStale: false, downloadActive: true
+        ), .waiting)
         XCTAssertEqual(
-            LiveMapDisplayState.resolve(prep: success, pending: false), .precise,
+            LiveMapDisplayState.resolvePrep(
+                prep: success, hasLocalTopo: true, isStale: false, downloadActive: false
+            ), .precise,
             "successful prep ends the spinner and promotes the map"
         )
 
@@ -598,7 +701,9 @@ final class ProductMapAndPackageTests: XCTestCase {
         )
         XCTAssertNil(terminal)
         XCTAssertEqual(
-            LiveMapDisplayState.resolve(prep: failed, pending: false), .waiting,
+            LiveMapDisplayState.resolvePrep(
+                prep: failed, hasLocalTopo: false, isStale: false, downloadActive: false
+            ), .waiting,
             "terminal failure keeps the neutral surface without line facts"
         )
         XCTAssertFalse(
@@ -692,7 +797,10 @@ final class ProductMapAndPackageTests: XCTestCase {
             ("no-hole", nil, false, .waiting),
         ]
         for (id, prep, pending, expected) in rows {
-            XCTAssertEqual(LiveMapDisplayState.resolve(prep: prep, pending: pending), expected, id)
+            let hasLocalTopo = id == "precise"
+            XCTAssertEqual(LiveMapDisplayState.resolvePrep(
+                prep: prep, hasLocalTopo: hasLocalTopo, isStale: false, downloadActive: pending
+            ), expected, id)
         }
         XCTAssertEqual(LiveMapDisplayState.resolvePrep(prep: ready, hasLocalTopo: true, isStale: false, downloadActive: false), .precise)
         XCTAssertEqual(LiveMapDisplayState.resolvePrep(prep: ready, hasLocalTopo: true, isStale: true, downloadActive: true), .waiting)

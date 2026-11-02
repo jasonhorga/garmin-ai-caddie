@@ -2235,8 +2235,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("showsHazards: false", current_hole)
         self.assertIn("public let showsFactualRoute: Bool", hole_map_view)
         self.assertIn("showsFactualRoute: Bool = true", hole_map_view)
-        # J4.5 removed the temporary CourseView line-map path from both live and prep screens.
-        self.assertNotIn("drawLightweightFacts(", hole_map_view)
         # Device review (build 77): no thin centreline over the map, only the caddie's white route.
         self.assertNotIn("drawFactualRoute", hole_map_view)
         self.assertNotIn("showsRoute: showsRecommendedRoute", hole_map_view)
@@ -2700,7 +2698,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("static func resolvePrep(", live_components)
         self.assertIn("var fadesInHoleStrip: Bool", live_components)
         self.assertIn("case garminRaster", live_components)
-        self.assertIn("case numericPlaceholder", live_components)
         self.assertIn("struct PrepHoleMapSession: Equatable", prep_presentation)
         self.assertIn("struct HoleMapViewportState: Equatable", prep_presentation)
         self.assertIn("enum PrepMapLayout", prep_presentation)

@@ -160,32 +160,29 @@ final class LiveMapCarryOverTests: XCTestCase {
     }
 
     func testNoDrawableRouteIsTheWaitingPage() throws {
-        XCTAssertEqual(LiveMapDisplayState.resolve(prep: nil, pending: false), .waiting)
-        XCTAssertEqual(LiveMapDisplayState.resolve(prep: try prep(coverage: "partial", withMap: false), pending: true), .waiting)
+        XCTAssertEqual(LiveMapDisplayState.resolvePrep(
+            prep: nil, hasLocalTopo: false, isStale: false, downloadActive: false
+        ), .waiting)
+        XCTAssertEqual(LiveMapDisplayState.resolvePrep(
+            prep: try prep(coverage: "partial", withMap: false),
+            hasLocalTopo: false, isStale: false, downloadActive: true
+        ), .waiting)
     }
 
-    func testPartialMapDrawsAtOnceAndIsPendingOnlyWhileAPreciseMapIsExpected() throws {
+    func testPartialMapWaitsWithoutItsPreciseBitmap() throws {
         let partial = try prep(coverage: "partial", withMap: true)
-        let pending = LiveMapDisplayState.isPrecisePending(
-            geometryCoverage: partial.geometryCoverage, timedOut: false, hasBaseURL: true, hasCachedTopo: false
-        )
-        XCTAssertTrue(pending)
-        XCTAssertEqual(LiveMapDisplayState.resolve(prep: partial, pending: pending), .waiting)
-        for (timedOut, hasBaseURL, cached) in [(true, true, false), (false, false, false), (false, true, true)] {
-            let settled = LiveMapDisplayState.isPrecisePending(
-                geometryCoverage: partial.geometryCoverage,
-                timedOut: timedOut, hasBaseURL: hasBaseURL, hasCachedTopo: cached
-            )
-            XCTAssertFalse(settled)
-            XCTAssertEqual(LiveMapDisplayState.resolve(prep: partial, pending: settled), .waiting)
-        }
+        XCTAssertEqual(LiveMapDisplayState.resolvePrep(
+            prep: partial, hasLocalTopo: false, isStale: false, downloadActive: true
+        ), .waiting)
     }
 
-    func testReadyMapIsNeverPending() throws {
+    func testReadyMapIsPreciseOnlyWithItsBitmap() throws {
         let ready = try prep(coverage: "ready", withMap: true)
-        XCTAssertFalse(LiveMapDisplayState.isPrecisePending(
-            geometryCoverage: ready.geometryCoverage, timedOut: false, hasBaseURL: true, hasCachedTopo: false
-        ))
-        XCTAssertEqual(LiveMapDisplayState.resolve(prep: ready, pending: false), .precise)
+        XCTAssertEqual(LiveMapDisplayState.resolvePrep(
+            prep: ready, hasLocalTopo: false, isStale: false, downloadActive: false
+        ), .waiting)
+        XCTAssertEqual(LiveMapDisplayState.resolvePrep(
+            prep: ready, hasLocalTopo: true, isStale: false, downloadActive: false
+        ), .precise)
     }
 }

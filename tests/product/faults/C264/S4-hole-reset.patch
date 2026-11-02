@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
+index 4b7bf4ae..87e60b01 100644
+--- a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
++++ b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
+@@ -2518,7 +2518,7 @@ enum LiveMapRetentionPolicy {
+     }
+ 
+     static func stateAfterHoleChange() -> LiveMapDisplayState? {
+-        nil
++        return .precise
+     }
+ }
+ 

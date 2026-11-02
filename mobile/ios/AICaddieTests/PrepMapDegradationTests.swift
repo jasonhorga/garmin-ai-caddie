@@ -4,9 +4,8 @@ import UIKit
 import XCTest
 @testable import AICaddie
 
-/// B4c: 备战 and the README 地图降级契约 — which state each hole shows (precise / factual route /
-/// the one waiting page), the faded hole strip, and that a background precise map replacing a
-/// factual one keeps the player's hole, plan, zoom and pan.
+/// B4c: 备战 and the README 三档地图契约 — which state each hole shows (precise / Garmin / waiting),
+/// the faded hole strip, and that a background precise map keeps the player's hole, plan, zoom and pan.
 final class PrepMapDegradationTests: XCTestCase {
     private let overlayJSON = #""map":{"overlay":{"w":240,"h":360,"ppm":1,"ln":300,"route":[[120,330,0],[120,30,300]]}}"#
 
@@ -79,7 +78,7 @@ final class PrepMapDegradationTests: XCTestCase {
 
     func testOnlyThePreciseMapIsUnfadedInTheHoleStrip() {
         XCTAssertFalse(LiveMapDisplayState.precise.fadesInHoleStrip)
-        for state in [LiveMapDisplayState.factual, .factualPending, .waiting, .garminRaster] {
+        for state: LiveMapDisplayState in [.factualPending, .waiting, .garminRaster] {
             XCTAssertTrue(state.fadesInHoleStrip, "\(state) is not ready and is faded")
         }
     }
@@ -159,8 +158,7 @@ final class PrepMapDegradationTests: XCTestCase {
     /// Device review (build 77): switching 蓝 T → 白 T dropped the map. The topo is keyed by the
     /// hole's geometry revision, not the Tee, so a lightweight row still gets the downloaded bitmap.
     /// C89 (build 96): the bitmap is shown on its own — the lightweight row's route, tee and flag
-    /// are in the CourseView frame, not the topo's, and README 地图降级契约 shows the factual route
-    /// only until the precise map arrives.
+    /// are in the CourseView frame, not the topo's; without a bitmap the screen stays neutral.
     func testLightweightRowStillShowsTheDownloadedTopo() throws {
         let package = try fixturePackage()
         let first = try XCTUnwrap(package.holes.min { $0.number < $1.number })
@@ -180,7 +178,7 @@ final class PrepMapDegradationTests: XCTestCase {
         let map = HoleImageMapView(hole: try XCTUnwrap(rows[0].prep), topoURL: rows[0].topoURL)
         XCTAssertTrue(map.hasMap, "the bitmap is the map")
         XCTAssertFalse(map.drawsFactLayer, "without the lightweight route, tee and flag drawn over it")
-        XCTAssertFalse(map.drawsLightweightFacts)
+        XCTAssertFalse(map.drawsCanvas, "a mismatched frame has no Canvas overlay")
     }
 
     /// Device review (build 77): a second start of an already-downloaded course re-waited on every
@@ -279,7 +277,7 @@ final class PrepMapDegradationTests: XCTestCase {
             holeNumbers: preciseRows.map(\.number),
             planCount: preciseRows[1].plans.count
         )
-        XCTAssertEqual(session, before, "a precise map replacing the factual one resets nothing")
+        XCTAssertEqual(session, before, "a precise map upgrading the fallback resets nothing")
         XCTAssertFalse(session.viewport.isFitted)
 
         // Only an explicit hole change starts the next hole fitted.

@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/HoleImageMapView.swift b/mobile/ios/AICaddie/Views/HoleImageMapView.swift
+index 548edd03..7c9f3106 100644
+--- a/mobile/ios/AICaddie/Views/HoleImageMapView.swift
++++ b/mobile/ios/AICaddie/Views/HoleImageMapView.swift
+@@ -292,7 +292,7 @@ public struct HoleImageMapView: View {
+     /// Whether this view would mount its Canvas layer. A factual overlay without a bitmap has no
+     /// valid pixel frame and must stay completely blank until a bitmap tier is available.
+     var drawsCanvas: Bool {
+-        displayOverlay != nil && hasBitmapAsset
++        displayOverlay != nil
+     }
+ 
+     /// Whether this row's route, tee, flag and plan are drawn over the base bitmap at all.

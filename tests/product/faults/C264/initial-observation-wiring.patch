@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+index 1a8b081d..5fd86851 100644
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -1517,7 +1517,7 @@ public struct CurrentHoleView: View {
+         .onChange(of: holePrep) { previous, next in
+             carryOverMapInteraction(from: previous, to: next)
+         }
+-        .onChange(of: liveMapDisplayState, initial: true) { previous, next in
++        .onChange(of: liveMapDisplayState) { previous, next in
+             retainedLiveMapDisplayState = LiveMapRetentionPolicy.stateAfterDisplayChange(
+                 retained: retainedLiveMapDisplayState,
+                 observedPrevious: previous,

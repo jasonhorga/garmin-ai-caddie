@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C264-N1-canvas-without-bitmap",
+      "patch": "tests/product/faults/C264/N1-canvas-without-bitmap.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testJ45NoBitmapNeverDrawsLightweightFacts",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C264-N2-decode-failure-downgrades",
+      "patch": "tests/product/faults/C264/N2-decode-failure-downgrades.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testJ45PreciseDecodeFailureUsesNeutralFrameWithoutOverlay",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C264-S1-retention-assignment",
+      "patch": "tests/product/faults/C264/S1-retention-assignment.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testPreciseRetentionKeepsAuthorityAcrossNeutralDecodeFrame",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C264-S4-hole-reset",
+      "patch": "tests/product/faults/C264/S4-hole-reset.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminRasterTests/testPreciseRetentionKeepsAuthorityAcrossNeutralDecodeFrame",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C264-initial-observation-wiring",
+      "patch": "tests/product/faults/C264/initial-observation-wiring.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_mounted_precise_page_retains_map_across_selection_and_decode_failure",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C264-S1-retention-assignment-wiring",
+      "patch": "tests/product/faults/C264/S1-retention-assignment-wiring.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_mounted_precise_page_retains_map_across_selection_and_decode_failure",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C264-S4-unconditional-reset-wiring",
+      "patch": "tests/product/faults/C264/S4-unconditional-reset-wiring.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_mounted_precise_page_retains_map_across_selection_and_decode_failure",
+      "promise": "J4.5"
+    }
+  ]
+}

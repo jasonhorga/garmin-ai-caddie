@@ -95,8 +95,8 @@ final class C89HoleMapFrameTests: XCTestCase {
             plannedShots: shots,
             drawsPlannedRouteInMap: false
         )
-        // README 地图降级契约: the factual route is shown only until the precise map arrives.
-        XCTAssertFalse(overTopo.drawsLightweightFacts, "no CourseView fairway band over the topo")
+        // J4.5: a mismatched row has no bitmap frame for its CourseView overlay.
+        XCTAssertFalse(overTopo.drawsCanvas, "a mismatched frame has no Canvas overlay")
         XCTAssertFalse(overTopo.drawsFactLayer, "no tee dot, route or flag in the CourseView frame")
         XCTAssertTrue(overTopo.plannedLegs().isEmpty, "the viewport route layer gets no CourseView legs")
         XCTAssertNil(overTopo.teeDistanceArcPixels())
@@ -104,8 +104,9 @@ final class C89HoleMapFrameTests: XCTestCase {
         // J4.5: without a bitmap the temporary line map is removed entirely.
         let factual = HoleImageMapView(hole: lightweight, showsCardChrome: false, plannedShots: shots,
                                        drawsPlannedRouteInMap: false)
-        XCTAssertFalse(factual.drawsLightweightFacts)
-        XCTAssertTrue(factual.drawsFactLayer)
+        XCTAssertFalse(factual.drawsCanvas, "no bitmap means no Canvas at all")
+        XCTAssertFalse(factual.drawsFactLayer)
+        // Leg geometry is pure; only the Canvas mount is gated on a bitmap.
         XCTAssertEqual(factual.plannedLegs().count, 2)
     }
 
@@ -120,7 +121,7 @@ final class C89HoleMapFrameTests: XCTestCase {
             showsCardChrome: false
         )
         XCTAssertTrue(map.drawsFactLayer, "tee, plan and flag share the topo frame")
-        XCTAssertFalse(map.drawsLightweightFacts, "the bitmap itself shows the fairway and green")
+        XCTAssertTrue(map.drawsCanvas, "a registered bitmap owns the Canvas frame")
     }
 
     // MARK: - A cached topo does not stop the row upgrade
@@ -162,17 +163,17 @@ final class C89HoleMapFrameTests: XCTestCase {
         XCTAssertNil(LiveHazardMapFrame.notice(for: drawable, requestInFlight: false))
 
         let routeOnly = LiveHazardMapFrame.resolve(
-            state: .factual, hole: hole, prep: sameFrame, row: sameFrameHazard, garminProjection: nil
+            state: .waiting, hole: hole, prep: sameFrame, row: sameFrameHazard, garminProjection: nil
         )
-        XCTAssertEqual(routeOnly, .drawable(hole: sameFrame, row: sameFrameHazard),
-                       "product spec 4.5 route tier can map known obstacles")
+        XCTAssertEqual(routeOnly, .needsMapping(.noMap),
+                       "J4.5 no bitmap keeps the hazard layer off the map")
 
         let courseViewHazard = try XCTUnwrap(LiveHazardDisplayItem.rows(for: lightweight, liveReadouts: nil).first)
         let courseViewRoute = LiveHazardMapFrame.resolve(
-            state: .factual, hole: hole, prep: lightweight, row: courseViewHazard, garminProjection: nil
+            state: .waiting, hole: hole, prep: lightweight, row: courseViewHazard, garminProjection: nil
         )
-        XCTAssertEqual(courseViewRoute, .drawable(hole: lightweight, row: courseViewHazard),
-                       "product spec 4.5 factual route uses its own CourseView frame")
+        XCTAssertEqual(courseViewRoute, .needsMapping(.noMap),
+                       "J4.5 no bitmap keeps CourseView-frame hazards off the map")
     }
 
     func testSelectedHazardOverGarminRasterUsesTheRegistrationOrSaysWhy() throws {
@@ -215,7 +216,7 @@ final class C89HoleMapFrameTests: XCTestCase {
 
         // The numeric placeholder has no map: the bar's distances stay, with a notice.
         let mapless = LiveHazardMapFrame.resolve(
-            state: .numericPlaceholder, hole: hole, prep: sameFrame, row: row, garminProjection: garmin
+            state: .waiting, hole: hole, prep: sameFrame, row: row, garminProjection: garmin
         )
         XCTAssertEqual(mapless, .needsMapping(.noMap))
         XCTAssertNotNil(LiveHazardMapFrame.notice(for: mapless, requestInFlight: false))

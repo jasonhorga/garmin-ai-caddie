@@ -414,10 +414,8 @@ enum LiveHazardMapFrame {
                 hole: replacingFrame(of: prep, overlay: garminOverlay, projection: garminProjection),
                 row: garminRow
             )
-        case .waiting, .factualPending, .numericPlaceholder:
+        case .waiting, .factualPending:
             return .needsMapping(.noMap)
-        case .factual:
-            return .drawable(hole: prep, row: row)
         }
     }
 
@@ -566,6 +564,9 @@ final class LiveHoleLoadingProbe {
         let surfaceFailed: Bool
         let displayState: LiveMapDisplayState
         let greenRange: LiveGreenRangeYards
+        let retainedMapState: LiveMapDisplayState?
+        let garminImageReady: Bool
+        let hasMapOverlay: Bool
     }
 
     var didMount: (() -> Void)?
@@ -573,6 +574,8 @@ final class LiveHoleLoadingProbe {
     var load: (() async -> Void)?
     var retry: (() async -> Bool)?
     var loadGarmin: (() async -> Void)?
+    var failPreciseImage: (() -> Void)?
+    var didBootstrap: (() -> Void)?
 
     func detach() {
         didMount = nil
@@ -580,6 +583,8 @@ final class LiveHoleLoadingProbe {
         load = nil
         retry = nil
         loadGarmin = nil
+        failPreciseImage = nil
+        didBootstrap = nil
     }
 }
 
@@ -841,6 +846,8 @@ public struct CurrentHoleView: View {
     /// Once a precise bitmap is visible it remains authoritative for this physical hole. This
     /// prevents a late image/decode failure callback from downgrading the screen to Garmin.
     @State private var retainedLiveMapDisplayState: LiveMapDisplayState?
+    /// Selection restarts the load task but does not change the hole that owns map retention.
+    @State private var retainedLiveMapHoleNumber: Int
     /// Garmin CN's fallback descriptor/image for this physical hole. It is deliberately separate
     /// from `holePrep`: the CourseView facts can be retained offline while the raster request fails.
     @State private var garminDescriptorLoadingKey: String?
@@ -896,6 +903,7 @@ public struct CurrentHoleView: View {
     ) {
         self.package = package
         self.hole = hole
+        self._retainedLiveMapHoleNumber = State(initialValue: hole.number)
         self.onEvent = onEvent
         self.caddieClient = caddieClient ?? caddieBaseURL.map { CaddieDecisionClient(baseURL: $0, adminToken: adminToken) }
         self.mediaUploadClient = caddieBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: adminToken) }
@@ -1224,12 +1232,19 @@ public struct CurrentHoleView: View {
                         hasPrep: holePrep != nil, hasRoute: liveHasRoute
                     ),
                     displayState: liveMapDisplayState,
-                    greenRange: displayedGreenRangeYards
+                    greenRange: displayedGreenRangeYards,
+                    retainedMapState: retainedLiveMapDisplayState,
+                    garminImageReady: garminImageReadyForDisplay,
+                    hasMapOverlay: liveMapOverlay != nil
                 )
             }
             loadingProbe?.load = { await loadCurrentHole() }
             loadingProbe?.retry = { await loadHoleMap() }
             loadingProbe?.loadGarmin = { await loadGarminRasterIfNeeded() }
+            if let holePrep {
+                // Exercise the callback supplied to the real map, using this mounted State.
+                loadingProbe?.failPreciseImage = liveHoleImageMap(holePrep).onPreciseImageFailed
+            }
             loadingProbe?.didMount?()
             bindDecisionProbe()
             UITestPagerTrace.shared.metric(.currentHoleAppear)
@@ -1418,7 +1433,6 @@ public struct CurrentHoleView: View {
                 ?? Self.packageGarminRaster(for: hole)
             preciseTopoImageReady = false
             preciseTopoDecodeFailed = false
-            retainedLiveMapDisplayState = nil
             garminRasterImageFailed = false
             garminRasterImageReady = false
             if let url = liveGarminRasterURL {
@@ -1426,6 +1440,13 @@ public struct CurrentHoleView: View {
             }
             garminRasterImageRetrying = false
             garminRasterImageReloadID = 0
+            if retainedLiveMapHoleNumber != hole.number {
+                // Only a different hole drops the previous tier. Reseed after installing this
+                // hole's inputs: an already precise bitmap may produce no subsequent onChange.
+                retainedLiveMapDisplayState = LiveMapRetentionPolicy.stateAfterHoleChange()
+                retainedLiveMapDisplayState = liveMapDisplayState
+                retainedLiveMapHoleNumber = hole.number
+            }
             GarminRasterImageStore.resetRetryCursors()
             garminVersionConflictURL = nil
             pinSheetMessage = nil
@@ -1437,6 +1458,7 @@ public struct CurrentHoleView: View {
             reconcileCaddieRoutes()
             applySnapshotState()
             #if DEBUG
+            loadingProbe?.didBootstrap?()
             // The package already carries factual Tee coordinates for every ready hole. Move the
             // deterministic multi-hole simulator journey before waiting on the per-hole prep GET;
             // otherwise the new hole can appear with shot capture disabled for the whole request.
@@ -1495,9 +1517,13 @@ public struct CurrentHoleView: View {
         .onChange(of: holePrep) { previous, next in
             carryOverMapInteraction(from: previous, to: next)
         }
-        .onChange(of: liveMapDisplayState) { previous, next in
-            retainedLiveMapDisplayState = next
-            if next == .numericPlaceholder || next == .waiting {
+        .onChange(of: liveMapDisplayState, initial: true) { previous, next in
+            retainedLiveMapDisplayState = LiveMapRetentionPolicy.stateAfterDisplayChange(
+                retained: retainedLiveMapDisplayState,
+                observedPrevious: previous,
+                next: next
+            )
+            if next == .waiting {
                 heroMapScale = 1
                 heroMapOffset = .zero
                 heroMapTransientDragOffset = .zero
@@ -2521,7 +2547,7 @@ public struct CurrentHoleView: View {
                 state = value
             }
             .onEnded { value in
-                guard liveMapDisplayState != .numericPlaceholder,
+                guard liveMapDisplayState != .factualPending,
                       liveMapDisplayState != .waiting else {
                     heroMapScale = 1
                     heroMapOffset = .zero
@@ -2552,7 +2578,7 @@ public struct CurrentHoleView: View {
                     pinchScale: heroMapPinchScale
                 ),
                       liveMapDisplayState != .waiting,
-                      liveMapDisplayState != .numericPlaceholder,
+                      liveMapDisplayState != .factualPending,
                       !heroTargetDragging,
                       !heroTargetHit(at: value.startLocation, in: viewport) else { return }
                 heroMapTransientDragOffset = value.translation
@@ -2563,7 +2589,7 @@ public struct CurrentHoleView: View {
                     pinchScale: heroMapPinchScale
                 ),
                       liveMapDisplayState != .waiting,
-                      liveMapDisplayState != .numericPlaceholder,
+                      liveMapDisplayState != .factualPending,
                       !heroTargetDragging,
                       !heroTargetHit(at: value.startLocation, in: viewport) else {
                     heroMapTransientDragOffset = .zero
@@ -3116,10 +3142,8 @@ public struct CurrentHoleView: View {
                                  }
                              },
                              showsCardChrome: false,
-                             // CourseView already supplies a factual route and pixel projection.
-                             // Draw that lightweight map immediately while precise topo/hazard
-                             // assets continue in the background; the selected caddie sequence
-                             // replaces the restrained centreline as soon as it is available.
+                             // CourseView supplies the route and pixel projection used only when a
+                             // bitmap owns the frame; no line-map fallback is drawn while assets load.
                              showsRecommendedRoute: true,
                              // The selected obstacle is rendered once by the viewport-plane
                              // `LiveHazardOverlayRenderer` below. Keep HoleImageMapView's legacy
@@ -3133,8 +3157,8 @@ public struct CurrentHoleView: View {
                              // `LivePlannedRouteRenderer` draws the route with its "杆名 码数"
                              // labels in the viewport plane (screen-size type at every zoom).
                              drawsPlannedRouteInMap: false,
-                             // Garmin owns the bitmap frame while it is active; placing the
-                             // numeric card underneath would cover its factual route/loading state.
+                             // Garmin owns the bitmap frame while it is active; placing the numeric
+                             // card underneath would cover its raster/loading state.
                              placeholder: liveMapDisplayState == .garminRaster ? nil : liveMapPlaceholder)
     }
 
