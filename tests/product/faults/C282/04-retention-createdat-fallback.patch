@@ -1,0 +1,29 @@
+diff --git a/ai_caddie/ops/retention.py b/ai_caddie/ops/retention.py
+index aaa12d18..bd7d25b6 100644
+--- a/ai_caddie/ops/retention.py
++++ b/ai_caddie/ops/retention.py
+@@ -92,12 +92,19 @@ def _clean_topo_cache(cache_root: Path, *, remove_empty: bool = False) -> None:
+ 
+ def _parse_snapshot_time(name: str, manifest: Path) -> datetime | None:
+     match = _SNAPSHOT_ID_RE.match(name)
+-    if not match:
+-        return None
++    if match:
++        try:
++            return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
++        except ValueError:
++            return None
+     try:
+-        return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+-    except ValueError:
+-        return None
++        payload = __import__("json").loads(manifest.read_text(encoding="utf-8"))
++        value = payload.get("createdAt") if isinstance(payload, dict) else None
++        if value:
++            return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(timezone.utc)
++    except (OSError, ValueError, TypeError):
++        pass
++    return None
+ 
+ 
+ def _clean_garmin_snapshots(root: Path) -> None:

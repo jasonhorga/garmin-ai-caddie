@@ -1,0 +1,25 @@
+diff --git a/ai_caddie/ops/retention.py b/ai_caddie/ops/retention.py
+index aaa12d18..90645fdb 100644
+--- a/ai_caddie/ops/retention.py
++++ b/ai_caddie/ops/retention.py
+@@ -69,17 +69,10 @@ def _clean_topo_cache(cache_root: Path, *, remove_empty: bool = False) -> None:
+                     expired_versions.append(path)
+         except OSError:
+             logger.warning("retention could not remove topo cache entry %s", path, exc_info=True)
+-    for version_root in sorted(expired_versions, key=lambda path: len(path.parts), reverse=True):
++    for version_root in expired_versions:
+         try:
+-            children = sorted(version_root.rglob("*"), key=lambda path: len(path.parts), reverse=True)
+-            for child in children:
+-                if child.is_dir() and not child.is_symlink():
+-                    try:
+-                        child.rmdir()
+-                    except OSError:
+-                        # A non-empty or concurrently-written directory remains protected.
+-                        pass
+-            version_root.rmdir()
++            if not any(version_root.iterdir()):
++                version_root.rmdir()
+         except OSError:
+             logger.warning("retention could not remove topo cache entry %s", version_root, exc_info=True)
+     if remove_empty:
