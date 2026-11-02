@@ -81,6 +81,47 @@ class PrepWaterRouteTests(unittest.TestCase):
                     self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20)
                     self.assertEqual(steps[-1]["role"], "scoring")
 
+    def test_j4_6_water_ending_at_pin_keeps_safe_landings_and_cautions(self):
+        # J4.6: projected water can end exactly at the pin. The last metre is the
+        # endpoint tolerance, not permission to land in the preceding 39 m of water.
+        cases = [("OWNER", 4, 216), ("GAP", 4, 274)]
+        cases += [
+            (bag, par, length)
+            for bag in self.BAGS
+            for par, lengths in ((3, range(110, 231, 3)),
+                                 (4, range(200, 521, 4)),
+                                 (5, range(420, 621, 5)))
+            for length in lengths
+        ]
+        for bag, par, length in cases:
+            water = [length - 40, length]
+            with self.subTest(bag=bag, par=par, length=length):
+                steps, cautions, *_ = course_prep._strategy(
+                    par, length, {"water_carry": [water]}, self.BAGS[bag],
+                )
+                self.assertTrue(steps)
+                for step in steps:
+                    self.assertFalse(
+                        water[0] <= step["routeOffset_m"] < length - 1,
+                        f"{step['club']} lands at {step['routeOffset_m']} in {water}",
+                    )
+                self.assertTrue(any("水障碍" in caution for caution in cautions), cautions)
+
+    def test_j4_6_water_caution_keeps_original_clear_distance_after_fallback(self):
+        # J4.6: clipping the planning route must preserve the measured display facts.
+        # Divide the measured endpoints by 0.9144 and round to whole yards. The
+        # 306 m route exercises the distance fallback even with clipped planning water.
+        for length, water, expected in (
+            (274, [234, 300], "水障碍：进水前约 256y，过水需 328y"),
+            (306, [291, 316], "水障碍：进水前约 318y，过水需 346y"),
+        ):
+            with self.subTest(length=length, water=water):
+                steps, cautions, *_ = course_prep._strategy(
+                    4, length, {"water_carry": [water]}, self.BAGS["GAP"],
+                )
+                self.assertTrue(steps)
+                self.assertIn(expected, cautions)
+
     def test_j4_6_water_layup_keeps_the_three_shot_route(self):
         # 3W@180 then 5I@330 clears water at 200--225; 7I reaches the 428 m green.
         # At 476 m, repeating 5I reaches the green at 480 m. Both are three-shot routes;
