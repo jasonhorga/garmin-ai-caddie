@@ -2727,8 +2727,8 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(after["annotationSuggestions"], [])
 
     def test_same_hole_score_reconciliation_uses_latest_mobile_event(self) -> None:
-        # J1.3: for each hole and score/putt/penalty kind, only the latest effective mobile value
-        # is reconciled; an earlier value superseded by a later event is evidence, not a suggestion.
+        # BACKLOG C228 definition + J3.3: reconcile the latest effective value while retaining
+        # earlier values as evidence; build_round_state uses later serverSequence as the winner.
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             append_event_batch(
@@ -2781,7 +2781,7 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(applied["appliedCount"], 1)
         self.assertEqual(len(result["conflicts"]), 1)
         self.assertEqual(result["conflicts"][0]["garminValue"], 7)
-        self.assertEqual({row["payload"]["resolution"] for row in score_suggestions}, {"garmin", "mobile"})
+        self.assertEqual({row.get("payload", {}).get("resolution") for row in score_suggestions}, {"garmin", "mobile"})
         self.assertEqual(len({row["id"] for row in score_suggestions}), 2)
 
     def test_j3_3_stacked_score_corrections_use_previous_effective_value(self) -> None:
@@ -2869,6 +2869,7 @@ class MobileReconciliationTests(unittest.TestCase):
                 conflict = reconcile_mobile_round_events(row["id"], late, root=root, annotations_root=root)
                 choices = [item for item in conflict["annotationSuggestions"]
                            if item["payload"].get("resolution") == resolution]
+                self.assertEqual(len(choices), 1)
                 applied = apply_mobile_reconciliation_suggestions(
                     row["id"], late, suggestion_ids=[choices[0]["id"]],
                     root=root, annotations_root=root, data_loader=lambda: late,
@@ -2878,7 +2879,6 @@ class MobileReconciliationTests(unittest.TestCase):
                 hole10 = next(hole for hole in corrected["holes"] if hole["number"] == 10)
 
             self.assertEqual(len(conflict["conflicts"]), 1)
-            self.assertEqual(len(choices), 1)
             self.assertEqual(len({item["id"] for item in conflict["annotationSuggestions"]
                                  if item["kind"] == "score_correction"}), 2)
             self.assertEqual(applied["appliedCount"], 1)
@@ -2976,7 +2976,7 @@ class MobileReconciliationTests(unittest.TestCase):
 
         score_conflicts = [row for row in result["conflicts"] if row["kind"] == "score"]
         self.assertEqual([row["garminValue"] for row in score_conflicts], [4])
-        self.assertEqual({item["payload"]["resolution"] for item in result["annotationSuggestions"]},
+        self.assertEqual({item.get("payload", {}).get("resolution") for item in result["annotationSuggestions"]},
                          {"garmin", "mobile"})
 
     def test_apply_reconciliation_resolves_online_decision_id_without_embedded_copy(self) -> None:

@@ -917,6 +917,7 @@ export interface MobileReconciliationResponse {
   localOnly: Array<Record<string, unknown>>
   garminOnly: Array<Record<string, unknown>>
   conflicts: Array<Record<string, unknown>>
+  evidence?: Array<Record<string, unknown>>
   candidateDecisionAudits: Array<Record<string, unknown>>
   annotationSuggestions: MobileReconciliationSuggestion[]
 }

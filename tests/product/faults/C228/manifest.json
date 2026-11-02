@@ -2,7 +2,7 @@
   "schema": 1,
   "records": [
     {
-      "id": "tests-product-faults-C228-feedback-annotation-only",
+      "id": "tests-product-faults-C228-feedback-audit-only",
       "patch": "tests/product/faults/C228/C228-feedback-audit-only.patch",
       "kind": "python",
       "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_applied_feedback_annotation_suppresses_repeat_without_decision_audit",

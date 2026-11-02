@@ -17,6 +17,7 @@ from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
 from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.caddie.mobile_live import mobile_event_log
 from ai_caddie.caddie.mobile_round_identity import MobileRoundIdentityError, load_mobile_round_identity
+from ai_caddie.rounds.correction_audit import CorrectionConflict
 
 
 def _safe_int(value: Any) -> int | None:
@@ -61,14 +62,18 @@ def _latest_effective_score_events(events: list[dict[str, Any]]) -> list[dict[st
         previous = latest.get(key)
         if previous is None or (order, index) > previous:
             latest[key] = (order, index)
-    return [
-        event for index, event in enumerate(events)
-        if (
-            str(event.get("kind") or "") not in {"score", "putt", "penalty"}
-            or (_safe_int(event.get("hole")) or 0) <= 0
-            or latest.get((str(event.get("kind") or ""), _safe_int(event.get("hole")) or 0), (None, index))[1] == index
-        )
-    ]
+    result: list[dict[str, Any]] = []
+    for index, event in enumerate(events):
+        kind = str(event.get("kind") or "")
+        hole = _safe_int(event.get("hole")) or 0
+        latest_index = latest.get((kind, hole), (None, index))[1]
+        if kind in {"score", "putt", "penalty"} and hole > 0 and latest_index != index:
+            # Keep superseded rows as evidence.  Reconciliation skips them as candidates below,
+            # while summary.eventCount still describes the complete append-only stream.
+            result.append({**event, "superseded": True})
+        else:
+            result.append(event)
+    return result
 
 
 def _round_row(round_id: str, data: HistoryData) -> dict[str, Any]:
@@ -137,34 +142,72 @@ def _hole_scores(
         )
         source_hole = source_holes.get(number) or {}
         source_strokes = _safe_int(source_hole.get("strokes"))
+        source_putts = _safe_int(source_hole.get("putts"))
+        source_penalties = _safe_int(source_hole.get("penalties"))
         score_correction_conflict = False
+        putt_correction_conflict = False
+        penalty_correction_conflict = False
         resolved_event_id = None
-        if (isinstance(total_winner, dict)
-                and total_winner.get("kind") == "score_correction"
-                and isinstance(total_winner.get("payload"), dict)):
-            winner_payload = total_winner["payload"]
+        target_ids = {f"{ref}:{number}" for ref in [
+            str(source_round_row.get("id")), *[str(item) for item in (source_round_row.get("ids") or [])]
+        ]}
+        hole_annotations = [
+            record for record in annotation_records
+            if record.get("targetType") == "hole" and str(record.get("targetId")) in target_ids
+        ]
+
+        def correction_chain(kind: str, source_value: int | None, effective_value: int | None) -> tuple[bool, dict[str, Any] | None]:
+            records = [record for record in hole_annotations if record.get("kind") == kind]
+            records.sort(key=lambda record: (record.get("auditSeq") if isinstance(record.get("auditSeq"), int) else -1))
+            prior = source_value
+            conflict = False
+            winner: dict[str, Any] | None = None
+            for record in records:
+                payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+                from_value = _safe_int(payload.get("from"))
+                to_value = _safe_int(payload.get("to" if kind != "penalty_correction" else "strokes"))
+                resolution = payload.get("resolution") if kind == "score_correction" else None
+                if payload.get("restore") is True and source_value is not None:
+                    continue
+                if resolution == "garmin":
+                    # This choice deliberately follows the current Garmin source forever.
+                    prior = source_value
+                elif from_value is not None and prior is not None and from_value != prior:
+                    conflict = True
+                    prior = to_value
+                else:
+                    prior = to_value
+                winner = record
+            # A source that has converged to the effective corrected value is not a conflict,
+            # even when an earlier link in the chain was superseded by that convergence.
+            if source_value is not None and effective_value is not None and source_value == effective_value:
+                conflict = False
+            return conflict, winner
+
+        score_correction_conflict, score_winner = correction_chain(
+            "score_correction", source_strokes, _safe_int(total)
+        )
+        putt_correction_conflict, _ = correction_chain("putt_correction", source_putts, _safe_int(putts))
+        penalty_correction_conflict, _ = correction_chain("penalty_correction", source_penalties, _safe_int(penalty))
+
+        if score_winner is not None and isinstance(score_winner.get("payload"), dict):
+            winner_payload = score_winner["payload"]
             resolution = winner_payload.get("resolution")
             resolved_event_id = str(winner_payload.get("resolvedEventId") or "") or None
-            # A resolution annotation is an explicit user choice and must remain effective even
-            # when its from value differs from the current Garmin source.
-            if resolution not in {"garmin", "mobile"}:
-                prior_annotations = [record for record in all_annotation_records if record is not total_winner]
-                if source_strokes is not None:
-                    prior_annotations = [
-                        record for record in prior_annotations
-                        if not (record.get("kind") == "score_correction"
-                                and isinstance(record.get("payload"), dict)
-                                and record["payload"].get("restore") is True)
-                    ]
-                prior_total, _ = effective_hole(
-                    source_round_row, number, prior_annotations, correction_events,
-                )[0]
+            if resolution == "garmin":
+                total = source_strokes
+                score_correction_conflict = False
+            elif resolution == "mobile":
                 from_value = _safe_int(winner_payload.get("from"))
-                to_value = _safe_int(winner_payload.get("to"))
-                if (from_value is not None and source_strokes is not None
-                        and prior_total != from_value and source_strokes != to_value):
+                if source_strokes is not None and from_value is not None and source_strokes != from_value:
                     total = source_strokes
                     score_correction_conflict = True
+            elif score_correction_conflict and source_strokes is not None:
+                total = source_strokes
+        if putt_correction_conflict and source_putts is not None:
+            putts = source_putts
+        if penalty_correction_conflict and source_penalties is not None:
+            penalty = source_penalties
         scores[number] = {
             "strokes": total,
             "putts": putts,
@@ -174,6 +217,10 @@ def _hole_scores(
         }
         if score_correction_conflict:
             scores[number]["scoreCorrectionConflict"] = True
+        if putt_correction_conflict:
+            scores[number]["puttCorrectionConflict"] = True
+        if penalty_correction_conflict:
+            scores[number]["penaltyCorrectionConflict"] = True
         if resolved_event_id:
             scores[number]["resolvedEventId"] = resolved_event_id
     return scores
@@ -684,6 +731,7 @@ def reconcile_mobile_round_events(
     matched: list[dict[str, Any]] = []
     local_only: list[dict[str, Any]] = []
     conflicts: list[dict[str, Any]] = []
+    evidence: list[dict[str, Any]] = []
     candidate_audits: list[dict[str, Any]] = []
     phone_holes: dict[str, int] = {}
     if identity is None and any((_safe_int(event.get("hole")) or 0) not in scores for event in events):
@@ -723,13 +771,25 @@ def reconcile_mobile_round_events(
             local_only.append(_unmapped_local_only_row(event, payload, kind=kind, hole=hole))
             continue
 
+        if event.get("superseded") is True:
+            evidence.append({
+                "eventId": event.get("eventId"),
+                "roundId": event.get("roundId"),
+                "kind": kind,
+                "hole": hole,
+                "localValue": _payload_value(payload, "strokes", "putts", "penalties", "count", "score"),
+                "superseded": True,
+            })
+            continue
+
         if kind == "score":
             local_value = _payload_value(payload, "strokes", "score")
             garmin = scores.get(hole)
             garmin_value = garmin.get("strokes") if garmin else None
-            if garmin and garmin.get("resolvedEventId") == event_id:
+            if (garmin and garmin.get("resolvedEventId") == event_id
+                    and not garmin.get("scoreCorrectionConflict")):
                 matched.append({"eventId": event.get("eventId"), "kind": kind, "hole": hole,
-                                "ref": garmin["ref"], "resolution": True})
+                                "ref": garmin["ref"], "resolved": True, "resolution": True})
                 continue
             if garmin_value is None:
                 local_only.append(
@@ -782,6 +842,7 @@ def reconcile_mobile_round_events(
                         "localValue": local_value,
                         "garminValue": garmin_value,
                         "ref": garmin["ref"],
+                        "correctionConflict": bool(garmin.get("puttCorrectionConflict")),
                     }
                 )
             continue
@@ -811,6 +872,7 @@ def reconcile_mobile_round_events(
                         "localValue": local_value,
                         "garminValue": garmin_value,
                         "ref": garmin["ref"],
+                        "correctionConflict": bool(garmin.get("penaltyCorrectionConflict")),
                     }
                 )
             continue
@@ -946,6 +1008,7 @@ def reconcile_mobile_round_events(
         "garminOnly": garmin_only,
         "conflicts": conflicts,
         "candidateDecisionAudits": candidate_audits,
+        "evidence": evidence,
         "annotationSuggestions": annotation_suggestions,
     }
 
@@ -1000,6 +1063,21 @@ def apply_mobile_reconciliation_suggestions(
             continue
         existing_ids.add(str(suggestion_id))
         selected.append(row)
+
+    # A score conflict exposes two mutually exclusive resolutions. Reject the entire conflict
+    # group before validation or annotation writes when a stale client submits both choices.
+    conflict_choices: dict[str, set[str]] = {}
+    for row in selected:
+        payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+        resolution = payload.get("resolution")
+        source_event_id = str(payload.get("sourceEventId") or "")
+        if resolution in {"garmin", "mobile"} and source_event_id:
+            conflict_choices.setdefault(source_event_id, set()).add(str(resolution))
+    for source_event_id, resolutions in conflict_choices.items():
+        if resolutions == {"garmin", "mobile"}:
+            raise CorrectionConflict(
+                f"reconciliation_conflict_mutually_exclusive: choose one resolution for {source_event_id}"
+            )
 
     from ai_caddie.rounds import correction_audit  # lazy, as in annotations: the audit reads history
 

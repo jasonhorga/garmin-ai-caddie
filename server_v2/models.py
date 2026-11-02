@@ -1428,6 +1428,7 @@ class MobileReconciliationResponse(BaseModel):
     localOnly: list[dict[str, Any]] = Field(default_factory=list)
     garminOnly: list[dict[str, Any]] = Field(default_factory=list)
     conflicts: list[dict[str, Any]] = Field(default_factory=list)
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
     candidateDecisionAudits: list[dict[str, Any]] = Field(default_factory=list)
     annotationSuggestions: list[MobileReconciliationSuggestion] = Field(default_factory=list)
 
