@@ -1045,12 +1045,10 @@ public struct WatchHoleMapView: View {
         "\(geometry.image != nil)|\(garminImage != nil)"
     }
 
-    /// J4.5: the notices presented by this map, including the legacy overlay until it is removed.
+    /// J4.5: this list drives the actual notice views, so the accessibility count follows the
+    /// resolved display state even when the original image input temporarily becomes nil.
     var mapPreparingAccessibilityIdentifiers: [String] {
-        var identifiers: [String] = []
-        if mapDisplayState == .waiting { identifiers.append("watch-map-preparing") }
-        if geometry.image == nil { identifiers.append("watch-map-preparing") }
-        return identifiers
+        mapDisplayState == .waiting ? ["watch-map-preparing"] : []
     }
 
     #if DEBUG
@@ -1086,14 +1084,14 @@ public struct WatchHoleMapView: View {
                 Canvas { context, size in
                     drawMap(&context, size: size)
                 }
-                if mapDisplayState == .waiting {
+                ForEach(mapPreparingAccessibilityIdentifiers.indices, id: \.self) { index in
                     Text(Self.mapPreparingTitle)
                         .font(.system(size: 14, weight: .black))
                         .foregroundStyle(.white.opacity(0.88))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
                         .background(.black.opacity(0.55), in: Capsule())
-                        .accessibilityIdentifier("watch-map-preparing")
+                        .accessibilityIdentifier(mapPreparingAccessibilityIdentifiers[index])
                 }
                 if interactionMode == .touchTarget,
                    let focus = measuredDragLocation,
@@ -1364,19 +1362,6 @@ public struct WatchHoleMapView: View {
                               y: Self.rootCaddieChipFrame(in: size).midY)
                 }
             }
-            if geometry.image == nil {
-                Text("地图准备中")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.82))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(Capsule().fill(.black.opacity(0.68)))
-                    .position(
-                        x: size.width * 0.5,
-                        y: safeRect.maxY - 8
-                    )
-                    .accessibilityIdentifier("watch-map-preparing")
-            }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
     }
@@ -1484,13 +1469,6 @@ public struct WatchHoleMapView: View {
         case precise
     }
 
-    enum MapRenderLayer: Equatable {
-        case neutral
-        case garminBitmap
-        case preciseBitmap
-        case lightweightMapFacts
-    }
-
     static let mapPreparingTitle = "地图准备中"
 
     static func resolveMapDisplayState(
@@ -1502,22 +1480,6 @@ public struct WatchHoleMapView: View {
         if previous == .precise { return .precise }
         if garminImageReady { return .garmin }
         return .waiting
-    }
-
-    static func mapRenderLayers(
-        preciseImageReady: Bool,
-        garminImageReady: Bool,
-        previous: MapDisplayState? = nil
-    ) -> [MapRenderLayer] {
-        switch resolveMapDisplayState(
-            preciseImageReady: preciseImageReady,
-            garminImageReady: garminImageReady,
-            previous: previous
-        ) {
-        case .precise: return [.preciseBitmap]
-        case .garmin: return [.garminBitmap]
-        case .waiting: return [.neutral]
-        }
     }
 
     // MARK: - Canvas drawing

@@ -214,18 +214,11 @@ final class WatchHolePagesTests: XCTestCase {
 
     /// J4.5: the Watch hole map is precise bitmap > Garmin bitmap > neutral waiting. A missing
     /// bitmap must not expose the old route/fairway/green-outline sketch as a fourth map state.
+    /// Canvas pixel coverage lives in testRestingRootWithoutBitmapIgnoresRouteFacts.
     func testHoleMapDegradationNeverUsesLineFactsAndShowsPreparingSurface() {
         XCTAssertEqual(
             WatchHoleMapView.resolveMapDisplayState(preciseImageReady: false, garminImageReady: false),
             .waiting
-        )
-        XCTAssertEqual(
-            WatchHoleMapView.mapRenderLayers(preciseImageReady: false, garminImageReady: false),
-            [.neutral]
-        )
-        XCTAssertFalse(
-            WatchHoleMapView.mapRenderLayers(preciseImageReady: false, garminImageReady: false)
-                .contains(.lightweightMapFacts)
         )
         XCTAssertEqual(WatchHoleMapView.mapPreparingTitle, "地图准备中")
     }
@@ -238,16 +231,8 @@ final class WatchHolePagesTests: XCTestCase {
             .garmin
         )
         XCTAssertEqual(
-            WatchHoleMapView.mapRenderLayers(preciseImageReady: false, garminImageReady: true),
-            [.garminBitmap]
-        )
-        XCTAssertEqual(
             WatchHoleMapView.resolveMapDisplayState(preciseImageReady: true, garminImageReady: true),
             .precise
-        )
-        XCTAssertEqual(
-            WatchHoleMapView.mapRenderLayers(preciseImageReady: true, garminImageReady: true),
-            [.preciseBitmap]
         )
     }
 
@@ -263,12 +248,12 @@ final class WatchHolePagesTests: XCTestCase {
             .precise
         )
         XCTAssertEqual(
-            WatchHoleMapView.mapRenderLayers(
+            WatchHoleMapView.resolveMapDisplayState(
                 preciseImageReady: false,
                 garminImageReady: false,
                 previous: .precise
             ),
-            [.preciseBitmap]
+            .precise
         )
     }
 
