@@ -77,6 +77,13 @@
       "kind": "native-unit",
       "target": "AICaddieTests/CoursePrepTests/test_j4_4_courseViewWaterPastPinIsHiddenFromPhoneListAndReadout",
       "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C344-second-long-advance-search",
+      "patch": "tests/product/faults/C344/second-long-advance-search.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_second_search_rechecks_long_advance_at_three_hundred_metres",
+      "promise": "4.6"
     }
   ]
 }
