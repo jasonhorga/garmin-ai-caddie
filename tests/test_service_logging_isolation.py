@@ -70,6 +70,7 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
             module = Path(tmp) / "logging_state_probe.py"
             module.write_text(
                 "import logging, unittest\n"
+                "target = logging.getLogger('logging_state_probe.named')\n"
                 "class Probe(unittest.TestCase):\n"
                 "    def test_leak(self):\n"
                 "        root = logging.getLogger()\n"
@@ -82,13 +83,14 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
             )
             observer = Path(tmp) / "logging_state_observer.py"
             observer.write_text(
-                "import logging, unittest\n"
+                "import logging, unittest, logging_state_probe\n"
                 "class Observer(unittest.TestCase):\n"
                 "    def test_restored(self):\n"
                 "        root = logging.getLogger()\n"
                 "        self.assertEqual(root.level, logging.WARNING)\n"
                 "        self.assertEqual(root.filters, [])\n"
                 "        target = logging.getLogger('logging_state_probe.named')\n"
+                "        self.assertIs(target, logging_state_probe.target)\n"
                 "        self.assertEqual(target.handlers, [])\n"
                 "        self.assertEqual(target.level, logging.NOTSET)\n"
                 "        self.assertTrue(target.propagate)\n"
