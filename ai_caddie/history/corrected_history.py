@@ -283,13 +283,53 @@ def _same_day_matching_boundary_score_holes(
     Compare source scores, never restored/corrected scores: manual edits cannot
     manufacture evidence that two Garmin cards describe the same outing.
     """
-    by_day: dict[str, list[tuple[str, dict[tuple[int, int], set[int]]]]] = {}
+    def ring_order(
+        scores: dict[tuple[int, int], set[int]],
+        display_by_key: dict[tuple[int, int], int],
+    ) -> list[tuple[int, int]]:
+        """Return each card's holes in play order inferred from physical ring gaps.
+
+        Garmin scorecards use a fixed hole-number layout, so ``holes`` list order is not a
+        reliable play sequence.  A combo card's front and back loops share one displayed 1..18
+        ring even when their physical global ids differ.  The largest missing run is where play
+        started; the first displayed hole after that run is therefore the sequence origin.
+        """
+        by_display: dict[int, list[tuple[int, int]]] = {}
+        for key in scores:
+            display = display_by_key.get(key)
+            if display is not None and 1 <= display <= 18:
+                by_display.setdefault(display, []).append(key)
+        displays = sorted(by_display)
+        if not displays:
+            return sorted(scores)
+        gaps = [
+            ((displays[(index + 1) % len(displays)] - display - 1) % 18, index)
+            for index, display in enumerate(displays)
+        ]
+        start = (max(gaps)[1] + 1) % len(displays)
+        ordered = [
+            key
+            for display in displays[start:] + displays[:start]
+            for key in sorted(by_display[display])
+        ]
+        return ordered + sorted(set(scores) - set(ordered))
+
+    by_day: dict[str, list[tuple[str, dict[tuple[int, int], set[int]], list[tuple[int, int]]]]] = {}
     for row in rounds:
         day = str(row.get("date") or "")[:10]
         if not day:
             continue
         scores: dict[tuple[int, int], set[int]] = {}
-        for hole, _display, physical, side in hole_sides(row):
+        physical_by_hole = {
+            id(hole): (display, physical, side)
+            for hole, display, physical, side in hole_sides(row)
+        }
+        display_by_key: dict[tuple[int, int], int] = {}
+        for hole in row.get("holes") or []:
+            physical_side = physical_by_hole.get(id(hole))
+            if physical_side is None:
+                continue
+            display, physical, side = physical_side
             strokes = _int(hole.get("strokes"))
             if strokes is None:
                 continue
@@ -299,16 +339,22 @@ def _same_day_matching_boundary_score_holes(
                 gid = gid or front_course_global_id(row)
             local = _int(hole.get("sourceLocalHole") or hole.get("localHole")) or physical
             if gid is not None and local > 0:
-                scores.setdefault((gid, local), set()).add(strokes)
-        by_day.setdefault(day, []).append((str(row.get("id")), scores))
+                key = (gid, local)
+                scores.setdefault(key, set()).add(strokes)
+                display_by_key.setdefault(key, display)
+        by_day.setdefault(day, []).append((str(row.get("id")), scores, ring_order(scores, display_by_key)))
     candidates: dict[str, set[tuple[int, int]]] = {}
     for cards in by_day.values():
-        for round_id, own in cards:
+        for round_id, own, own_order in cards:
             covered = candidates.setdefault(round_id, set())
-            for other_id, other in cards:
+            for other_id, other, other_order in cards:
                 if other_id == round_id:
                     continue
                 overlap = own.keys() & other.keys()
+                own_boundary = set(own_order[-len(overlap):]) if overlap else set()
+                other_boundary = set(other_order[:len(overlap)]) if overlap else set()
+                if overlap != own_boundary or overlap != other_boundary:
+                    continue
                 if (1 <= len(overlap) <= 2
                         and len(overlap) < min(len(own), len(other))
                         and all(len(own[key]) == 1 and own[key] == other[key] for key in overlap)):

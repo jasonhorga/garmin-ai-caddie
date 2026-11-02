@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C309-01-x10-drop-position-check",
+      "patch": "tests/product/faults/C309/01-x10-drop-position-check.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_boundary_overlap_must_follow_play_order",
+      "promise": "1.3",
+      "kills": "The X10 overlap must be at the card tail and next card head; removing the position check merges the morning restore into nine holes."
+    },
+    {
+      "id": "tests-product-faults-C309-02-t3-drop-both-non-overlap-guard",
+      "patch": "tests/product/faults/C309/02-t3-drop-both-non-overlap-guard.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_both_cards_need_non_overlapping_holes",
+      "promise": "1.3",
+      "kills": "A two-hole card and a complete card must not consume the short card's restored holes."
+    },
+    {
+      "id": "tests-product-faults-C309-03-t6-ignore-calendar-day",
+      "patch": "tests/product/faults/C309/03-t6-ignore-calendar-day.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_boundary_index_requires_same_calendar_day",
+      "promise": "1.3",
+      "kills": "A 9..17 card on another calendar day must not replace same-day restores."
+    },
+    {
+      "id": "tests-product-faults-C309-04-t9-rebuild-boundary-index-per-round",
+      "patch": "tests/product/faults/C309/04-t9-rebuild-boundary-index-per-round.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_builds_boundary_index_once_per_history",
+      "promise": "1.3",
+      "kills": "The boundary evidence index must be built once per history, not once for every round."
+    },
+    {
+      "id": "tests-product-faults-C309-05-t5-drop-single-score-guard",
+      "patch": "tests/product/faults/C309/05-t5-drop-single-score-guard.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_repeated_physical_hole_requires_one_score",
+      "promise": "1.3",
+      "kills": "A repeated physical hole with multiple source scores cannot prove one outing."
+    },
+    {
+      "id": "tests-product-faults-C309-06-number-order-boundary",
+      "patch": "tests/product/faults/C309/06-number-order.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_sorted_garmin_card_starts_after_physical_ring_gap",
+      "promise": "1.3",
+      "kills": "A Garmin card sorted by hole number must still use the physical ring start; replacing ring order with numeric order rejects the valid 10-start continuation."
+    },
+    {
+      "id": "tests-product-faults-C309-07-gid-order-reversed",
+      "patch": "tests/product/faults/C309/07-gid-order-reversed.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_combo_ring_order_uses_display_holes_across_global_ids",
+      "promise": "1.3",
+      "kills": "A combo course continuation follows displayed holes 1..18 even when the front and back global ids are reversed; ordering the two loops by descending gid must fail."
+    }
+  ]
+}

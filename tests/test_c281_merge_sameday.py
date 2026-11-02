@@ -37,11 +37,28 @@ def _row(round_id: str, date: str, holes: list[int], *, course: int = 55555) -> 
     }
 
 
+def _combo_row(round_id: str, date: str, holes: list[int], front: int, back: int) -> dict:
+    row = _row(round_id, date, holes, course=front)
+    row.update(frontNineGlobalCourseId=front, backNineGlobalCourseId=back)
+    return row
+
+
 def _restore(root: Path, round_id: str, numbers=range(10, 19)) -> None:
     for number in numbers:
         add_annotation(
             "hole", f"{round_id}:{number}", "score_correction",
             {"to": 5, "restore": True, "restoreGlobalId": 55555, "restoreLocalHole": number},
+            root=root,
+        )
+
+
+def _restore_combo(root: Path, round_id: str, numbers, front: int, back: int) -> None:
+    for number in numbers:
+        add_annotation(
+            "hole", f"{round_id}:{number}", "score_correction",
+            {"to": 5, "restore": True,
+             "restoreGlobalId": front if number <= 9 else back,
+             "restoreLocalHole": number},
             root=root,
         )
 
@@ -70,6 +87,175 @@ class C281MergeSameDayTests(unittest.TestCase):
             )
             first_corrected = corrected.rounds[0]
             self.assertEqual((first_corrected["holesCompleted"], len(first_corrected["holes"])), (18, 18))
+
+    def test_j1_3_boundary_overlap_must_follow_play_order(self) -> None:
+        """J1.3: a repeated hole must be this card's tail and the later card's head.
+
+        The morning card is 1..9 plus restored 10..18.  A second outing starts on
+        10 and records 10..18, then 1..2 before the watch dies.  The repeated 1..2
+        are equal in score, but they are the first holes of the later card rather
+        than the morning card's last holes, so the outings must stay separate.
+        """
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _row("morning", "2026-06-01 07:30", list(range(1, 10)))
+            afternoon = _row("afternoon", "2026-06-01 13:30", list(range(10, 19)) + [1, 2])
+            _restore(root, "morning")
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, afternoon], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (18, 18))
+            self.assertEqual(
+                next(row for row in corrected.rounds if row["id"] == "afternoon")["holesCompleted"],
+                11,
+            )
+
+    def test_j1_3_sorted_garmin_card_starts_after_physical_ring_gap(self) -> None:
+        """J1.3: a Garmin card sorted by hole number still starts after the largest ring gap.
+
+        The morning card starts on 10 and restores 1..9.  The later card is stored in Garmin's
+        fixed hole-number order [1..8, 18], although play resumed at physical hole 18.  Hole 18
+        is the one-hole boundary overlap, so only the restored 1..8 scores are replaced.
+        """
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _row("morning", "2026-06-01 07:30", list(range(10, 19)))
+            late = _row("late", "2026-06-01 13:30", list(range(1, 9)) + [18])
+            _restore(root, "morning", numbers=range(1, 10))
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (10, 10))
+
+    def test_j1_3_combo_ring_order_uses_display_holes_across_global_ids(self) -> None:
+        """J1.3: a combo course follows display holes 1..18, regardless of gid ordering."""
+        front_holes = list(range(1, 10))
+        back_holes = list(range(10, 19))
+        cases = (
+            (back_holes, [18] + list(range(1, 9)), 10),
+            (back_holes, list(range(1, 9)) + [18], 10),
+            (back_holes, list(range(1, 8)) + [17, 18], 11),
+            ([1] + back_holes, front_holes, 10),
+        )
+        for front, back in ((7101, 7102), (7102, 7101)):
+            for morning_holes, late_holes, expected in cases:
+                with self.subTest(front=front, back=back, morning=morning_holes, late=late_holes), TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    morning = _combo_row("morning", "2026-06-01 07:30", morning_holes, front, back)
+                    late = _combo_row("late", "2026-06-01 09:40", late_holes, front, back)
+                    restored = front_holes if morning_holes == back_holes else list(range(2, 10))
+                    _restore_combo(root, "morning", restored, front, back)
+                    corrected = corrected_history_data(
+                        HistoryData(raw_rounds=[], rounds=[morning, late], shots=[]),
+                        annotations_root=root,
+                    )
+                    current = next(row for row in corrected.rounds if row["id"] == "morning")
+                    self.assertEqual((current["holesCompleted"], len(current["holes"])), (expected, expected))
+
+    def test_j1_3_sorted_x10_card_keeps_the_morning_restore(self) -> None:
+        """J1.3: sorted [1, 2, 10..18] cannot consume a 1..9 restore from a 10-start outing."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _row("morning", "2026-06-01 07:30", list(range(1, 10)))
+            late = _row("late", "2026-06-01 13:30", [1, 2] + list(range(10, 19)))
+            _restore(root, "morning", numbers=range(10, 19))
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (18, 18))
+
+    def test_j1_3_overlap_must_also_be_own_card_tail(self) -> None:
+        """J1.3: matching the later card's head cannot replace restores from this card's head."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _row("morning", "2026-06-01 07:30", [1, 2, 3])
+            late = _row("late", "2026-06-01 13:30", [1, 2, 4])
+            _restore(root, "morning", numbers=range(4, 19))
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (18, 18))
+
+    def test_j1_3_overlap_must_also_be_other_card_head(self) -> None:
+        """J1.3: matching this card's tail cannot replace restores when the other card starts elsewhere."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _row("morning", "2026-06-01 07:30", [7, 8, 9])
+            late = _row("late", "2026-06-01 13:30", [1, 8, 9, 10])
+            _restore(root, "morning", numbers=list(range(1, 7)) + list(range(10, 19)))
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (18, 18))
+
+    def test_j1_3_both_cards_need_non_overlapping_holes(self) -> None:
+        """J1.3: two cards that only repeat their two holes cannot replace restores."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            short = _row("short", "2026-06-01 08:00", [1, 2])
+            complete = _row("complete", "2026-06-01 13:00", list(range(1, 19)))
+            _restore(root, "short", numbers=range(3, 19))
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[short, complete], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "short")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (18, 18))
+
+    def test_j1_3_boundary_index_requires_same_calendar_day(self) -> None:
+        """J1.3: a 9..17 card on another day cannot consume this day's restores."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = _row("first", "2026-06-01 08:00", list(range(1, 10)))
+            other_day = _row("other-day", "2026-06-15 11:00", list(range(9, 18)))
+            _restore(root, "first")
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[first, other_day], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "first")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (18, 18))
+
+    def test_j1_3_boundary_index_is_not_global_across_dates(self) -> None:
+        """J1.3: date order cannot make an earlier 9..17 card replace restores."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = _row("first", "2026-06-15 08:00", list(range(1, 10)))
+            earlier = _row("earlier", "2026-06-01 11:00", list(range(9, 18)))
+            _restore(root, "first")
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[first, earlier], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "first")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (18, 18))
+
+    def test_j1_3_repeated_physical_hole_requires_one_score(self) -> None:
+        """J1.3: duplicate source scores cannot prove that two cards are one outing."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = _row("first", "2026-06-01 08:00", list(range(1, 10)))
+            first["holes"].append({"number": 9, "strokes": 6, "par": 4})
+            late = _row("late", "2026-06-01 11:00", list(range(9, 18)))
+            late["holes"].insert(1, {"number": 9, "strokes": 6, "par": 4})
+            _restore(root, "first")
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[first, late], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "first")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (19, 19))
+            self.assertEqual(sum(h["number"] == 18 for h in current["holes"]), 1)
 
 
     def test_j1_3_late_card_boundary_overlap_replaces_only_covered_restore(self) -> None:
@@ -266,3 +452,17 @@ class C281MergeSameDayTests(unittest.TestCase):
                 )
         self.assertLessEqual(CountingDict.scans, 2)
         self.assertLessEqual(CountingDict.lookups, len(rows))
+
+    def test_j1_3_builds_boundary_index_once_per_history(self) -> None:
+        """J1.3: boundary evidence is indexed once and reused for every round."""
+        from ai_caddie.history import corrected_history as module
+
+        rows = [_row(f"round-{i}", f"2026-06-{i + 1:02d} 08:00", list(range(1, 19))) for i in range(4)]
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _restore(root, "round-0", numbers=[18])
+            with patch.object(module, "_same_day_matching_boundary_score_holes", wraps=module._same_day_matching_boundary_score_holes) as index:
+                corrected_history_data(
+                    HistoryData(raw_rounds=[], rounds=rows, shots=[]), annotations_root=root,
+                )
+        self.assertEqual(index.call_count, 1)
