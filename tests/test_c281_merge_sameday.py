@@ -355,6 +355,36 @@ class C281MergeSameDayTests(unittest.TestCase):
                 current = corrected.rounds[0]
                 self.assertEqual((current["holesCompleted"], len(current["holes"])), (16, 16))
 
+    def test_j1_3_unscored_start_one_ignores_stray_predecessor_shot(self) -> None:
+        """J1.3: a stray shot on unscored ring predecessor 18 keeps start hole 1."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _row("morning", "2026-06-01 07:30", list(range(1, 17)))
+            for hole in morning["holes"]:
+                if hole["number"] in {5, 6, 7}:
+                    hole["strokes"] = None
+            late = _row("late", "2026-06-01 11:40", [16, 17, 18])
+            base = 1_780_300_000_000
+            played = [number for number in range(1, 17) if number not in {5, 6, 7}]
+            shots = ([{"roundId": "morning", "hole": number,
+                       "shotTime": base + index * 13 * 60_000}
+                      for index, number in enumerate(played)]
+                     + [{"roundId": "morning", "hole": 18,
+                         "shotTime": base + 17 * 13 * 60_000}]
+                     + [{"roundId": "late", "hole": number,
+                         "shotTime": base + 5 * 3_600_000 + index * 13 * 60_000}
+                        for index, number in enumerate([16, 17, 18])])
+            _restore(root, "morning", numbers=[17, 18])
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=shots),
+                annotations_root=root, course_root=root,
+            )
+            current = corrected.rounds[0]
+            # J1.3 requires the real 16-hole card to survive; the stray 18 shot is not a
+            # scored hole on this card and must not rotate the inferred start to 18.
+            self.assertEqual(len(current["holes"]), 16)
+            self.assertEqual([hole["number"] for hole in current["holes"]], list(range(1, 17)))
+
     def test_j1_3_normalizes_mixed_shot_time_units(self) -> None:
         """J1.3: seconds and milliseconds compare in one normalized unit."""
         with TemporaryDirectory() as tmp:
