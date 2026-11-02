@@ -1,14 +1,21 @@
 """J7.3: runtime log exits exclude identities, including structured errors.
 
-Imported by the J7 product suite; no assertions inspect implementation text.
+Discovered once with the J7 product tests; assertions exercise rendered output.
 """
+from collections import namedtuple
+from decimal import Decimal
+import hashlib
 import io
+import logging.config
 import logging
 import sys
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+
+import numpy as np
+from uvicorn.config import LOGGING_CONFIG
 
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route
@@ -37,16 +44,117 @@ class J7LogPrivacyTests(unittest.TestCase):
         request_timing.clear_route_template_cache()
         self.addCleanup(request_timing.clear_route_template_cache)
 
-    def capture_service(self):
-        stream = io.StringIO()
-        handler = logging.StreamHandler(stream)
-        handler.setFormatter(_FullFormatter("%(levelname)s:%(name)s:%(message)s"))
-        # Exercise the production root exit and the separate non-propagating service exits.
-        for name in ("", *main.SERVICE_INFO_LOGGERS):
+    def capture_production(self):
+        # J7.3: model uvicorn's real topology: no root handler, independent
+        # service exits and a dynamic-stderr lastResort for ordinary children.
+        logging.config.dictConfig(LOGGING_CONFIG)
+        logging.getLogger().handlers[:] = []
+        streams = {}
+        for name in (*main.SERVICE_INFO_LOGGERS, "uvicorn"):
+            streams[name] = io.StringIO()
+            handler = logging.StreamHandler(streams[name])
+            handler.setFormatter(_FullFormatter("%(levelname)s:%(name)s:%(message)s"))
             logging.getLogger(name).handlers[:] = [handler]
+        streams["lastResort"] = io.StringIO()
+        self.enterContext(patch("sys.stderr", streams["lastResort"]))
+        self.enterContext(patch.object(logging, "lastResort", logging._StderrHandler()))
+        logging.lastResort.setFormatter(_FullFormatter("%(levelname)s:%(name)s:%(message)s"))
         main.configure_request_timing_logging()
-        main.configure_request_timing_logging()  # startup is idempotent
-        return stream
+        main.configure_request_timing_logging()
+        return streams
+
+    def capture_service(self):
+        streams = self.capture_production()
+        class Combined:
+            def getvalue(self):
+                return "\n".join(stream.getvalue() for stream in streams.values())
+        return Combined()
+
+    def test_J73_each_production_exit_redacts_identity_and_preserves_diagnostics(self):
+        # J7.3 + RUNBOOK migration diagnostics: these literal codes are public;
+        # player/round/token values and local paths must disappear at every exit.
+        streams = self.capture_production()
+        targets = {name: name for name in main.SERVICE_INFO_LOGGERS}
+        targets["lastResort"] = "server_v2.privacy_future"
+        for exit_name, logger_name in targets.items():
+            with self.subTest(exit=exit_name):
+                target = logging.getLogger(logger_name)
+                target.error("mobile_event_migration_intent_unrecoverable partition=%s reason=%s",
+                             "main:0123456789ab", "log_and_backup_mismatch")
+                target.warning("geometry_derivatives failed gid=%s hole=%d stage=distances error_type=%s",
+                               "public-course-42", 7, "ValueError")
+                target.info("course_install gid=%s", "public-course-42")
+                try:
+                    raise OSError(28, "No space left on device", "data/players/PRIVATEPLAYER/events")
+                except OSError as exc:
+                    target.warning("storage failed: %r player_id=%s round_id=%s token=%s",
+                                   exc, "PRIVATEPLAYER", "PRIVATEROUND", "PRIVATETOKEN", exc_info=True)
+                output = streams[exit_name].getvalue()
+                for public in ("log_and_backup_mismatch", "ValueError", "OSError", "28",
+                               "No space left on device", "main:0123456789ab"):
+                    self.assertIn(public, output)
+                self.assertEqual(output.count("public-course-42"), 2)
+                for private in ("PRIVATEPLAYER", "PRIVATEROUND", "PRIVATETOKEN", "data/players"):
+                    self.assertNotIn(private, output)
+
+    def test_J73_filter_failure_never_escapes_business_logging(self):
+        streams = self.capture_production()
+        target = logging.getLogger(main.SERVICE_INFO_LOGGERS[0])
+        Point = namedtuple("Point", "x y")
+        cases = (("numpy=%d", (np.int64(7),)), ("decimal=%d", (Decimal(8),)),
+                 ("point=%s", (Point(1, 2),)), ("mismatch=%s %s", ("PRIVATEPLAYER",)))
+        for message, args in cases:
+            with self.subTest(message=message):
+                try:
+                    target.warning(message, *args)
+                except Exception as exc:
+                    self.fail("business logging raised " + type(exc).__name__)
+        output = streams[main.SERVICE_INFO_LOGGERS[0]].getvalue()
+        for public in ("numpy=7", "decimal=8", "point=", "log record redaction failed"):
+            self.assertIn(public, output)
+        self.assertNotIn("PRIVATEPLAYER", output)
+
+    def test_J73_sensitive_values_do_not_swallow_neighboring_timing_fields(self):
+        streams = self.capture_production()
+        target = logging.getLogger(main.SERVICE_INFO_LOGGERS[0])
+        for path in ("/api/v2/share/PRIVATETOKEN", "https://example.invalid/p/PRIVATETOKEN",
+                     "https://example.invalid/api?token=PRIVATETOKEN"):
+            target.info("path=%s player_id=%s status=200 total_ms=12 stages=geometry:3 holes=3/18",
+                        path, "PRIVATEPLAYER")
+        output = streams[main.SERVICE_INFO_LOGGERS[0]].getvalue()
+        for public in ("status=200", "total_ms=12", "stages=geometry:3", "holes=3/18"):
+            self.assertEqual(output.count(public), 3, output)
+        for private in ("PRIVATETOKEN", "PRIVATEPLAYER"):
+            self.assertNotIn(private, output)
+
+    def test_J73_uvicorn_unhandled_exception_and_stack_keep_only_frame_locations(self):
+        streams = self.capture_production()
+        try:
+            raise ValueError("data/players/PRIVATEPLAYER/PRIVATEROUND")
+        except ValueError:
+            logging.getLogger("uvicorn.error").error("Exception in ASGI application", exc_info=True)
+        logging.getLogger(main.SERVICE_INFO_LOGGERS[0]).warning("stack diagnostic", stack_info=True)
+        output = streams["uvicorn"].getvalue()
+        self.assertIn("ValueError", output)
+        self.assertIn("test_c295_log_privacy.py", output)
+        self.assertNotIn("PRIVATEPLAYER", output)
+        stack = streams[main.SERVICE_INFO_LOGGERS[0]].getvalue()
+        self.assertIn("test_c295_log_privacy.py", stack)
+        self.assertIn("test_J73_uvicorn_unhandled_exception_and_stack_keep_only_frame_locations", stack)
+        self.assertRegex(stack, r"line \d+")
+        for rendered in (output, stack):
+            self.assertNotIn(str(Path(__file__).parent), rendered)
+            self.assertNotIn('raise ValueError(', rendered)
+
+    def test_J73_handlers_added_after_startup_are_protected(self):
+        self.capture_production()
+        stream = io.StringIO()
+        target = logging.getLogger("ai_caddie.privacy_late")
+        target.propagate = False
+        target.addHandler(logging.StreamHandler(stream))
+        target.warning("player_id=%s status=200", "PRIVATEPLAYER")
+        self.assertNotIn("PRIVATEPLAYER", stream.getvalue())
+        self.assertIn("status=200", stream.getvalue())
 
     def test_J73_real_failure_redacts_extras_arguments_and_chained_exceptions(self):
         from ai_caddie.history import stats_cache
@@ -137,6 +245,8 @@ class J7LogPrivacyTests(unittest.TestCase):
         output = "\n".join(captured.output)
         self.assertNotIn("SENTINELREVISION", output)
         self.assertIn("RuntimeError", output)
+        expected = hashlib.sha256(str(directory.resolve()).encode("utf-8")).hexdigest()[:12]
+        self.assertIn("partition=player:" + expected, output)
 
     def test_J73_retention_omits_private_root_without_service_startup(self):
         with tempfile.TemporaryDirectory() as tmp:

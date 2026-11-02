@@ -9,8 +9,9 @@ def preserve_service_logging():
     from server_v2.main import SERVICE_INFO_LOGGERS
 
     snapshots = []
-    for name in (*SERVICE_INFO_LOGGERS, "uvicorn.access", "uvicorn.error", "", "alembic"):
-        logger = logging.getLogger(name)
+    existing = {name: value for name, value in logging.Logger.manager.loggerDict.items()
+                if isinstance(value, logging.Logger)}
+    for logger in (logging.getLogger(), *existing.values()):
         snapshots.append((logger, logger.handlers[:], logger.filters[:],
                           logger.level, logger.propagate, logger.disabled))
     handler_filters = {handler: handler.filters[:] for value in logging.Logger.manager.loggerDict.values()
@@ -21,6 +22,13 @@ def preserve_service_logging():
     try:
         yield
     finally:
+        for name, logger in logging.Logger.manager.loggerDict.copy().items():
+            if isinstance(logger, logging.Logger) and name not in existing:
+                logger.handlers[:] = []
+                logger.filters[:] = []
+                logger.setLevel(logging.NOTSET)
+                logger.propagate = True
+                logger.disabled = False
         for handler, filters in handler_filters.items():
             handler.filters[:] = filters
         for logger, handlers, filters, level, propagate, disabled in snapshots:
