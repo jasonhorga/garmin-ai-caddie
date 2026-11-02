@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
+index fb1399f2..7bdeeb67 100644
+--- a/.github/workflows/native-mobile.yml
++++ b/.github/workflows/native-mobile.yml
+@@ -194,7 +194,7 @@ jobs:
+           path: native-quick-results/
+           if-no-files-found: warn
+       - name: Shut down quick simulators on self-hosted runner
+-        if: ${{ always() && runner.environment == 'self-hosted' }}
++        if: ${{ runner.environment == 'self-hosted' }}
+         run: |
+           for udid in "${NATIVE_QUICK_IOS_UDID:-}" "${NATIVE_QUICK_WATCH_UDID:-}"; do
+             if [ -n "$udid" ]; then

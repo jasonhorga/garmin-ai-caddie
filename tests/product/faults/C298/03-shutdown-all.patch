@@ -1,0 +1,11 @@
+diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
+index fb1399f2..97218b31 100644
+--- a/.github/workflows/native-mobile.yml
++++ b/.github/workflows/native-mobile.yml
+@@ -199,5 +199,5 @@ jobs:
+           for udid in "${NATIVE_QUICK_IOS_UDID:-}" "${NATIVE_QUICK_WATCH_UDID:-}"; do
+             if [ -n "$udid" ]; then
+-              xcrun simctl shutdown "$udid" || true
++              xcrun simctl shutdown all || true
+             fi
+           done

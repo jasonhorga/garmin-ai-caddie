@@ -218,6 +218,24 @@ DEVICES = {
 }
 
 
+# C298 native-quick runner inventory: only the newer model names exist.
+# Keep DEVICES above unchanged so the GitHub-hosted assertions keep their golden UDIDs.
+MAC_IOS_UDID = "6C2B1E8A-3F4D-4E5A-9B7C-1D2E3F4A5B17"
+MAC_WATCH_UDID = "8A7B6C5D-4E3F-4A2B-8C1D-0E9F8A7B6C12"
+MAC_DEVICES = {
+    _runtime("iOS", 27, 2): [
+        _sim("iPhone 17", MAC_IOS_UDID), _sim("iPhone 17 Pro", IOS_PRO),
+    ],
+    _runtime("iOS", 27, 10): [_sim("iPhone 17 Pro", IOS_PLUS), _sim("iPhone 17", IOS_GONE, False)],
+    _runtime("iOS", 27, 1): [_sim("iPhone 17", IOS_OLD)],
+    _runtime("watchOS", 27, 10): [
+        _sim("Apple Watch Series 12 (46mm)", MAC_WATCH_UDID),
+        _sim("Apple Watch Series 12 (42mm)", WATCH_42),
+    ],
+    _runtime("watchOS", 27, 2): [_sim("Apple Watch Series 12 (46mm)", WATCH_OLD)],
+}
+
+
 def _without_available(devices: dict, name: str) -> dict:
     # G2 G3: the sample simulator list without any available device called `name`; unavailable ones
     # and devices with similar names (iPhone 16 Plus, Series 10 (42mm)) stay.

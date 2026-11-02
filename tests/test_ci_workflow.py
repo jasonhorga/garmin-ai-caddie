@@ -175,7 +175,7 @@ class CIWorkflowTests(unittest.TestCase):
                 script.chmod(0o755)
             (root / "native-quick-results").mkdir()
             result = subprocess.run(["bash", "-eu", "-c", step["run"]], cwd=root, text=True, capture_output=True,
-                                    env={**os.environ, **workflow["jobs"]["native-quick"]["env"],
+                                    env={**os.environ, **workflow["jobs"]["native-quick"].get("env", {}),
                                          "RUNNER_TEMP": tmp, "NATIVE_QUICK_IOS_UDID": "chosen-device",
                                          "PATH": tmp + os.pathsep + os.environ["PATH"], "ARGS": str(root / "args")})
             self.assertEqual(0, result.returncode, result.stderr)
