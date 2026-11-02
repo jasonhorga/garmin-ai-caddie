@@ -460,7 +460,11 @@ class UvicornLogExitTests(unittest.TestCase):
         )
 
     def test_application_error_logs_do_not_include_player_or_round_ids(self) -> None:
-        """J7.3: application failure diagnostics omit opaque player and round identifiers."""
+        """J7.3: application failure diagnostics omit opaque player and round identifiers.
+
+        ``course_prep.py`` line 51 remains a known C255 follow-up; C178 leaves that path
+        untouched and the post-C255 cleanup must extend this runtime guard to it.
+        """
         from server_v2 import main as server_main
 
         with patch.object(server_main, "cached_load_history_data", side_effect=RuntimeError("db down")):
