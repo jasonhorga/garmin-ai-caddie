@@ -1151,6 +1151,8 @@ def _undrawable_hole_state(global_id: int | None, local_hole: int | None) -> dic
             continue
         if plan.get("state") == "in_flight":
             return {"geometryState": "pending", "retryAfterEpoch": now + _GEOMETRY_INSTALL_POLL_SECONDS}
+        if plan.get("state") == "unavailable":
+            continue
         try:
             scheduled.append(float(plan.get("retryAfterEpoch")))
         except (TypeError, ValueError):
