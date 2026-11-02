@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/core/request_timing.py b/ai_caddie/core/request_timing.py
+index 7a4ff654..da710348 100644
+--- a/ai_caddie/core/request_timing.py
++++ b/ai_caddie/core/request_timing.py
+@@ -157,7 +157,7 @@ class WebSocketHandshakeFilter(logging.Filter):
+     """
+ 
+     def filter(self, record: logging.LogRecord) -> bool:
+-        if isinstance(record.msg, str) and record.msg.startswith("No supported WebSocket library detected"):
++        if record.levelno >= logging.WARNING:
+             return False
+         args = record.args
+         if isinstance(record.msg, str) and '"WebSocket %s"' in record.msg and isinstance(args, tuple) and len(args) >= 2:

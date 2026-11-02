@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/core/request_timing.py b/ai_caddie/core/request_timing.py
+index 7a4ff654..5fdb9a76 100644
+--- a/ai_caddie/core/request_timing.py
++++ b/ai_caddie/core/request_timing.py
+@@ -81,7 +81,7 @@ def route_template(path: str, method: str | None = None) -> str | None:
+     key = (hashlib.blake2b(route_path.encode("utf-8", "surrogatepass"), digest_size=16).digest(), route_method)
+     with _ROUTE_TEMPLATE_LOCK:
+         if key in _ROUTE_TEMPLATE_CACHE:
+-            _ROUTE_TEMPLATE_CACHE.move_to_end(key)
++            pass
+             return _ROUTE_TEMPLATE_CACHE[key]
+     template = _match_route_template(route_path, route_method)
+     with _ROUTE_TEMPLATE_LOCK:

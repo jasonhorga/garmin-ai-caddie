@@ -1,0 +1,13 @@
+diff --git a/server_v2/mobile.py b/server_v2/mobile.py
+index be7dfcd0..776f6b53 100644
+--- a/server_v2/mobile.py
++++ b/server_v2/mobile.py
+@@ -820,7 +820,7 @@ def append_mobile_events_response(
+         except Exception:
+             # append_event_batch already committed and fsynced. Never lie to the client that its
+             # accepted event failed merely because the derived history view needs a later retry.
+-            logger.exception("late-event history refresh failed")
++            logger.exception("late-event history refresh failed", extra={"round_id": round_id})
+     return LiveRoundEventBatchResponse(**result)
+ 
+ 

@@ -1,0 +1,15 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+index 4d7f2a14..f84f5b80 100644
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -53,9 +53,7 @@ def _exception_text(exc_info) -> str:
+         # Notes and source snippets can contain arbitrary user input as well.
+         item.__notes__ = None
+         if item.exc_type is not None and issubclass(item.exc_type, SyntaxError):
+-            item.filename = _REDACTED
+-            item.text = None
+-            item.msg = _REDACTED
++            pass
+         for frame in item.stack:
+             frame.filename = Path(frame.filename).name
+             frame._line = ""

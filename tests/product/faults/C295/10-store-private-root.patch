@@ -1,0 +1,15 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
+index cd6d30d3..6d6ad058 100644
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -2568,8 +2568,8 @@ class FileEventStore:
+             # next identity lookup, so an index filesystem issue cannot turn a committed batch
+             # into a client-visible append failure.
+             logger.warning(
+-                "mobile_event_round_index update failed partition=%s; will rebuild lazily",
+-                _log_partition(self.root),
++                "mobile_event_round_index update failed root=%s; will rebuild lazily",
++                self.root,
+                 exc_info=True,
+             )
+         finally:
