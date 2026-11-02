@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddieWatch/Views/WatchHazardMapView.swift b/mobile/ios/AICaddieWatch/Views/WatchHazardMapView.swift
+index cbf52d58..4ac39d11 100644
+--- a/mobile/ios/AICaddieWatch/Views/WatchHazardMapView.swift
++++ b/mobile/ios/AICaddieWatch/Views/WatchHazardMapView.swift
+@@ -400,7 +400,7 @@ public struct WatchHazardMapView: View {
+         scale: CGFloat,
+         focusPoint: CGPoint
+     ) {
+-        guard displayState == .precise else { return }
++        guard geometry.hasUsableBitmap else { return }
+         let focusCanvas = CGPoint(x: size.width * 0.52 + viewport.pan.width,
+                                   y: size.height * 0.52 + viewport.pan.height)
+         func canvas(_ point: CGPoint) -> CGPoint {

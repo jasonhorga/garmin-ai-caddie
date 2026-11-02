@@ -1,0 +1,22 @@
+diff --git a/mobile/ios/AICaddieWatch/Views/WatchRoundContainerView.swift b/mobile/ios/AICaddieWatch/Views/WatchRoundContainerView.swift
+index 21378a87..80a8c267 100644
+--- a/mobile/ios/AICaddieWatch/Views/WatchRoundContainerView.swift
++++ b/mobile/ios/AICaddieWatch/Views/WatchRoundContainerView.swift
+@@ -864,7 +864,7 @@ public struct WatchRoundContainerView: View {
+             playerMarker: .chevron,
+             lastShotPlacement: .facts,
+             geometry: renderedGeometry,
+-            garminImage: garminImage,
++            garminImage: nil,
+             pinImagePoint: selectedPin,
+             measuredPxOverride: measuredPxOverride,
+             interactionMode: .measure,
+@@ -1020,7 +1020,7 @@ public struct WatchRoundContainerView: View {
+             fullMap: true,
+             mapScale: CGFloat(holeMapCrownScale),
+             geometry: geometry,
+-            garminImage: garminImage,
++            garminImage: nil,
+             pinImagePoint: selectedPin,
+             measuredPxOverride: measuredPxOverride,
+             interactionMode: .touchTarget,
