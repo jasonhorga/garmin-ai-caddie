@@ -30,27 +30,6 @@
       "promise": "C307 CI infrastructure contract"
     },
     {
-      "id": "tests-product-faults-C307-05-no-host-lock",
-      "patch": "tests/product/faults/C307/05-no-host-lock.patch",
-      "kind": "python",
-      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_host_lock_waits_for_other_job_and_releases_after_cancellation",
-      "promise": "C307 CI infrastructure contract"
-    },
-    {
-      "id": "tests-product-faults-C307-06-foreign-health",
-      "patch": "tests/product/faults/C307/06-foreign-health.patch",
-      "kind": "python",
-      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_start_rejects_health_from_another_fixture",
-      "promise": "C307 CI infrastructure contract"
-    },
-    {
-      "id": "tests-product-faults-C307-07-no-stop-port-check",
-      "patch": "tests/product/faults/C307/07-no-stop-port-check.patch",
-      "kind": "python",
-      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_stop_checks_port_after_terminating_its_own_fixture",
-      "promise": "C307 CI infrastructure contract"
-    },
-    {
       "id": "tests-product-faults-C307-08-erase-all",
       "patch": "tests/product/faults/C307/08-erase-all.patch",
       "kind": "python",
@@ -58,10 +37,45 @@
       "promise": "C307 CI infrastructure contract"
     },
     {
-      "id": "tests-product-faults-C307-09-no-product-port-check",
-      "patch": "tests/product/faults/C307/09-no-product-port-check.patch",
+      "id": "tests-product-faults-C307-10-fixed-port",
+      "patch": "tests/product/faults/C307/10-fixed-port.patch",
       "kind": "python",
-      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_product_ui_rejects_an_already_listening_port",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_runner_ports_are_distinct_and_hosted_retains_9000",
+      "promise": "C307 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-11-any-app-port",
+      "patch": "tests/product/faults/C307/11-any-app-port.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/BackendConfigurationStoreTests/testFixtureLoopbackUsesOnlyReservedRunnerPorts",
+      "promise": "C307 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-12-unknown-runner",
+      "patch": "tests/product/faults/C307/12-unknown-runner.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_unknown_self_hosted_runner_fails_with_mapping_instructions",
+      "promise": "C307 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-13-no-residual-cleanup",
+      "patch": "tests/product/faults/C307/13-no-residual-cleanup.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_prepare_cleans_only_selected_runner_port",
+      "promise": "C307 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-14-no-stop-port-check",
+      "patch": "tests/product/faults/C307/14-no-stop-port-check.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_stop_kills_own_pid_even_when_health_is_unavailable_and_checks_port",
+      "promise": "C307 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-15-shutdown-transition",
+      "patch": "tests/product/faults/C307/15-shutdown-transition.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_selection_tolerates_shutdown_transition_before_erase",
       "promise": "C307 CI infrastructure contract"
     }
   ]

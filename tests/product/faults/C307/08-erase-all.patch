@@ -1,10 +1,10 @@
 diff --git a/.github/scripts/select-sim.sh b/.github/scripts/select-sim.sh
-index eca953df..84e7b199 100755
+index 98c04cbb..e3d24ea0 100755
 --- a/.github/scripts/select-sim.sh
 +++ b/.github/scripts/select-sim.sh
 @@ -121,7 +121,7 @@ if prefix and os.environ.get('GITHUB_ENV'):
          if selected[0].get('state', 'Shutdown') != 'Shutdown':
-             subprocess.run(['xcrun', 'simctl', 'shutdown', udid], check=True,
+             subprocess.run(['xcrun', 'simctl', 'shutdown', udid], check=False,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 -        subprocess.run(['xcrun', 'simctl', 'erase', udid], check=True, stdout=subprocess.DEVNULL)
 +        subprocess.run(['xcrun', 'simctl', 'erase', 'all'], check=True, stdout=subprocess.DEVNULL)

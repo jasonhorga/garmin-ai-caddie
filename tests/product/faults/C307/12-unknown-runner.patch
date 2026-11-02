@@ -1,0 +1,16 @@
+diff --git a/.github/scripts/fixture-port.py b/.github/scripts/fixture-port.py
+index 40c1d091..b067bcc1 100644
+--- a/.github/scripts/fixture-port.py
++++ b/.github/scripts/fixture-port.py
+@@ -35,8 +35,9 @@ def select():
+         runner = os.environ.get('RUNNER_NAME', '')
+         mapping = json.loads(MAPPING.read_text())
+         if runner not in mapping:
+-            raise SystemExit(f'Unknown self-hosted runner {runner!r}; add its unique reserved port '
+-                             'to .github/caddie-runner-ports.json before scheduling fixture jobs')
++            with open(os.environ['GITHUB_ENV'], 'a') as handle:
++                handle.write('CADDIE_FIXTURE_PORT=9000\n')
++            return
+         ports = [reserved_port(value) for value in mapping.values()]
+         if 9000 in ports or len(set(ports)) != len(ports):
+             raise SystemExit('caddie-runner-ports.json must assign unique ports in 9001..9009')

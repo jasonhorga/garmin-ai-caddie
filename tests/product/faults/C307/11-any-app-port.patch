@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Services/BackendConfigurationStore.swift b/mobile/ios/AICaddie/Services/BackendConfigurationStore.swift
+index ca16390d..2a069df7 100644
+--- a/mobile/ios/AICaddie/Services/BackendConfigurationStore.swift
++++ b/mobile/ios/AICaddie/Services/BackendConfigurationStore.swift
+@@ -40,7 +40,7 @@ public struct BackendConfigurationStore {
+         let scheme = components.scheme?.lowercased()
+         let isFixtureLoopback = allowFixtureLoopback
+             && scheme == "http"
+-            && components.port.map { fixturePorts.contains($0) } == true
++            && components.port != nil
+             && ["127.0.0.1", "localhost", "::1"].contains(components.host?.lowercased() ?? "")
+             && (components.percentEncodedPath.isEmpty || components.percentEncodedPath == "/")
+         guard (scheme == "https" || isFixtureLoopback),
