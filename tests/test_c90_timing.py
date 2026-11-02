@@ -8,6 +8,8 @@ import json
 import logging
 from pathlib import Path
 import tempfile
+import threading
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -64,6 +66,10 @@ def _access_record(method: str, path: str, status: int) -> logging.LogRecord:
 
 
 class C90TimingPersistenceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        request_timing.clear_route_template_cache()
+        self.addCleanup(request_timing.clear_route_template_cache)
+
     def test_uvicorn_access_filter_uses_method_route_templates_and_unmatched_marker(self) -> None:
         """J7.3: access diagnostics retain method/status but never retain opaque URL segments."""
         cases = [
@@ -412,6 +418,104 @@ class UvicornLogExitTests(unittest.TestCase):
         cached = repr(list(request_timing._ROUTE_TEMPLATE_CACHE.items()))
         self.assertNotIn("CACHETOKEN", cached)
         self.assertNotIn("CACHESECRET", cached)
+
+    def test_route_cache_has_bounded_lru_capacity(self) -> None:
+        """J7.3: route diagnostics retain at most 1024 hashed path/method entries."""
+        for index in range(1025):
+            request_timing.route_template(f"/c178-cache/{index}", "GET")
+        self.assertEqual(len(request_timing._ROUTE_TEMPLATE_CACHE), 1024)
+        first_key = (
+            __import__("hashlib").blake2b(b"/c178-cache/0", digest_size=16).digest(),
+            "GET",
+        )
+        self.assertNotIn(first_key, request_timing._ROUTE_TEMPLATE_CACHE)
+
+    def test_route_cache_clear_helper_resets_fixture_state(self) -> None:
+        """J7.3: test fixture teardown can reset route diagnostics state."""
+        request_timing.route_template("/c178-clear", "GET")
+        self.assertTrue(request_timing._ROUTE_TEMPLATE_CACHE)
+        request_timing.clear_route_template_cache()
+        self.assertFalse(request_timing._ROUTE_TEMPLATE_CACHE)
+
+    def test_route_cache_lock_serializes_lookup_and_write(self) -> None:
+        """J7.3: concurrent diagnostic requests cannot bypass the route cache lock."""
+        finished = threading.Event()
+        request_timing._ROUTE_TEMPLATE_LOCK.acquire()
+        try:
+            worker = threading.Thread(
+                target=lambda: (request_timing.route_template("/c178-lock", "GET"), finished.set()),
+                daemon=True,
+            )
+            worker.start()
+            self.assertFalse(finished.wait(0.05))
+        finally:
+            request_timing._ROUTE_TEMPLATE_LOCK.release()
+        self.assertTrue(finished.wait(1.0))
+
+    def test_route_template_discards_fragment_before_matching(self) -> None:
+        """J7.3: client timing fragments never change the privacy-safe route template."""
+        self.assertEqual(
+            request_timing.route_template("/api/v2/players/p_C178SECRET/clubs/bag#frag", "GET"),
+            "/api/v2/players/{player_id}/clubs/bag",
+        )
+
+    def test_application_error_logs_do_not_include_player_or_round_ids(self) -> None:
+        """J7.3: application failure diagnostics omit opaque player and round identifiers.
+
+        ``course_prep.py`` line 51 remains a known C255 follow-up; C178 leaves that path
+        untouched and the post-C255 cleanup must extend this runtime guard to it.
+        """
+        from server_v2 import main as server_main
+
+        with patch.object(server_main, "cached_load_history_data", side_effect=RuntimeError("db down")):
+            with self.assertLogs("server_v2.main", level="WARNING") as captured:
+                server_main._load_player_course_history_rows("C178PLAYERSECRET")
+        output = "\n".join(captured.output)
+        self.assertNotIn("C178PLAYERSECRET", output)
+
+    def test_history_warm_error_logs_do_not_include_player_id(self) -> None:
+        """J7.3: background history warm diagnostics omit the player identifier."""
+        from server_v2 import main as server_main
+
+        stop = threading.Event()
+        calls = iter([False, True])
+        with (
+            patch.object(server_main, "_history_input_signature", side_effect=[("before",), RuntimeError("db down")]),
+            patch.object(server_main, "start_render_backfill"),
+            self.assertLogs("server_v2.main", level="WARNING") as captured,
+        ):
+            thread = server_main._start_history_signature_monitor(
+                stop_event=stop, interval_s=0.01, player_id="C178WARMPLAYER",
+                wait=lambda _timeout: next(calls),
+            )
+            thread.join(timeout=1)
+        output = "\n".join(captured.output)
+        self.assertNotIn("C178WARMPLAYER", output)
+
+    def test_prepare_recent_error_logs_do_not_include_player_id(self) -> None:
+        """J7.3: prepare-recent failures keep traceback diagnostics without player identity."""
+        from ai_caddie.history import stats_cache
+        from server_v2 import main as server_main
+
+        with patch.object(
+            stats_cache,
+            "cached_load_history_data",
+            side_effect=RuntimeError("C178 prepare-recent fixture failure"),
+        ):
+            with self.assertLogs("server_v2.main", level="ERROR") as captured:
+                server_main._prepare_recent_work("C178PREPSECRET")
+        output = "\n".join(captured.output)
+        self.assertNotIn("C178PREPSECRET", output)
+        self.assertIn("RuntimeError: C178 prepare-recent fixture failure", output)
+
+    def test_websocket_dependency_warning_is_filtered(self) -> None:
+        """J7.3: --ws none's expected dependency warning is suppressed as log noise."""
+        record = logging.LogRecord(
+            "uvicorn.error", logging.WARNING, __file__, 0,
+            "No supported WebSocket library detected. Please use pip install 'uvicorn[standard]'",
+            (), None,
+        )
+        self.assertFalse(request_timing.WebSocketHandshakeFilter().filter(record))
 
     def test_access_template_follows_starlette_method_dispatch(self) -> None:
         """J7.3: access diagnostics name the route Starlette dispatches to, including its 405."""

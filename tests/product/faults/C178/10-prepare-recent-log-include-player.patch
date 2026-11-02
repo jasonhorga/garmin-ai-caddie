@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 14eacf6c..b155097b 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -1529,7 +1529,7 @@ def _prepare_recent_work(player_id: str, prep_warm_delay_s: float = 0.0) -> None
+     except Exception:  # noqa: BLE001 - best-effort;绝不弄崩触发它的线程
+         import logging
+ 
+-        logging.getLogger(__name__).exception("prepare-recent failed")
++        logging.getLogger(__name__).exception("prepare-recent failed for %s", player_id)
+ 
+ 
+ @app.post("/api/v2/history/prepare-recent")

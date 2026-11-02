@@ -53,6 +53,12 @@ TIMING_ROOT: Path | None = None
 TIMING_CLOCK: Callable[[], datetime] | None = None
 
 
+def clear_route_template_cache() -> None:
+    """Clear route diagnostics state for test fixture teardown and process resets."""
+    with _ROUTE_TEMPLATE_LOCK:
+        _ROUTE_TEMPLATE_CACHE.clear()
+
+
 def redact_url(value: str | None) -> str:
     """Remove capability values from a URL before it reaches logs or timing storage."""
     text = str(value or "")
@@ -151,6 +157,8 @@ class WebSocketHandshakeFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str) and record.msg.startswith("No supported WebSocket library detected"):
+            return False
         args = record.args
         if isinstance(record.msg, str) and '"WebSocket %s"' in record.msg and isinstance(args, tuple) and len(args) >= 2:
             record.args = (args[0], "<unmatched>", *args[2:])

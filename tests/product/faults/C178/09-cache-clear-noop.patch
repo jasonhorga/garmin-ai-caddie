@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/core/request_timing.py b/ai_caddie/core/request_timing.py
+index 7a4ff654..1e05f024 100644
+--- a/ai_caddie/core/request_timing.py
++++ b/ai_caddie/core/request_timing.py
+@@ -56,7 +56,7 @@ TIMING_CLOCK: Callable[[], datetime] | None = None
+ def clear_route_template_cache() -> None:
+     """Clear route diagnostics state for test fixture teardown and process resets."""
+     with _ROUTE_TEMPLATE_LOCK:
+-        _ROUTE_TEMPLATE_CACHE.clear()
++        pass
+ 
+ 
+ def redact_url(value: str | None) -> str:
