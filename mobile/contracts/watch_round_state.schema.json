@@ -186,6 +186,9 @@
     "globalId": {
       "type": ["integer", "null"]
     },
+    "garminAssetVersion": {
+      "type": ["string", "null"]
+    },
     "holeMap": {
       "type": ["object", "null"],
       "description": "watch P1b: five hole-map overlay anchors in /topo.png px space (phone-computed from the centreline route).",
