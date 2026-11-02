@@ -1,6 +1,11 @@
 """Classes exercising startup must restore process logging, regardless of run order."""
 
 import io
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import logging
 import unittest
 from unittest.mock import patch
@@ -32,6 +37,43 @@ LOGGING_GUARD_TARGETS = {
 
 
 class ServiceLoggingIsolationTests(unittest.TestCase):
+    def test_J73_unregistered_module_leaks_are_rejected_at_module_boundary(self):
+        """J7.3: CI's base runner catches any module, after module cleanups."""
+        for method in ("addHandler", "callHandlers"):
+            for restore in (False, True):
+                with self.subTest(method=method, restore=restore), tempfile.TemporaryDirectory() as tmp:
+                    module = Path(tmp) / "logging_boundary_probe.py"
+                    module.write_text(
+                        "import logging, unittest\n"
+                        f"original = logging.Logger.{method}\n"
+                        "class Probe(unittest.TestCase):\n"
+                        "    def test_leak(self):\n"
+                        f"        logging.Logger.{method} = lambda *args: None\n"
+                        + (f"def tearDownModule():\n    logging.Logger.{method} = original\n"
+                           if restore else "")
+                    )
+                    following = Path(tmp) / "logging_boundary_observer.py"
+                    following.write_text(
+                        "import logging, unittest\n"
+                        f"original = logging.Logger.{method}\n"
+                        "class Observer(unittest.TestCase):\n"
+                        "    def test_restored(self):\n"
+                        f"        self.assertIs(logging.Logger.{method}, original)\n"
+                    )
+                    result = subprocess.run(
+                        [sys.executable, "-m", "tests.check_isolation",
+                         "logging_boundary_probe", "logging_boundary_observer"],
+                        env={**os.environ, "PYTHONPATH": os.pathsep.join(
+                            [tmp, str(Path(__file__).resolve().parents[1])])},
+                        capture_output=True, text=True, timeout=30)
+                    output = result.stdout + result.stderr
+                    if restore:
+                        self.assertEqual(result.returncode, 0, output)
+                    else:
+                        self.assertNotEqual(result.returncode, 0, output)
+                        self.assertIn(f"logging_boundary_probe leaked Logger.{method}", output)
+                        self.assertNotIn("FAIL: test_restored", output)
+
     def test_J73_isolation_guard_rejects_leaked_logger_methods(self):
         """J7.3: detect process hooks even if handlers and levels were restored."""
         for method in ("addHandler", "callHandlers"):

@@ -86,6 +86,119 @@ class J7LogPrivacyTests(unittest.TestCase):
             self.assertNotIn("PRIVATEPLAYER", stream.getvalue())
         self.assertEqual((logging.Logger.addHandler, logging.Logger.callHandlers), before)
 
+    def test_J73_player_partition_hash_survives_service_exit(self):
+        """J7.3: the documented 12-hex partition is public, player ids are private."""
+        streams = self.capture_production()
+        target = logging.getLogger(main.SERVICE_INFO_LOGGERS[0])
+        target.warning("partition=player:0123456789ab player_id=PRIVATEPLAYER status=200")
+        target.warning("player:0123456789ab partition=player:0123456789abc")
+        output = streams[main.SERVICE_INFO_LOGGERS[0]].getvalue()
+        self.assertIn("partition=player:0123456789ab player_id=[redacted] status=200", output)
+        self.assertNotIn("PRIVATEPLAYER", output)
+        self.assertNotIn("partition=player:0123456789abc", output)
+        self.assertNotIn("\nWARNING:" + target.name + ":player:0123456789ab", output)
+
+    def test_J73_bearer_credentials_are_private_in_every_spelling(self):
+        """J7.3: key/value, serialized dictionaries and bare Bearer all hide tokens."""
+        streams = self.capture_production()
+        target = logging.getLogger(main.SERVICE_INFO_LOGGERS[0])
+        for value in ("Authorization: Bearer PRIVATEBEARER",
+                      "authorization=Bearer PRIVATEBEARER",
+                      "api_key: Bearer PRIVATEBEARER",
+                      {"Authorization": "Bearer PRIVATEBEARER"},
+                      "Bearer PRIVATEBEARER"):
+            with self.subTest(value=value):
+                streams[target.name].seek(0)
+                streams[target.name].truncate()
+                target.warning("credential=%s status=200", value)
+                output = streams[target.name].getvalue()
+                self.assertNotIn("PRIVATEBEARER", output)
+                self.assertIn("status=200", output)
+
+    def test_J73_cron_other_loggers_redact_root_and_last_resort(self):
+        """J7.3: cron protects every ai_caddie exit, including fallback logging."""
+        from ai_caddie import pipeline
+
+        root = logging.getLogger()
+        root.handlers[:] = []
+        target = logging.getLogger("ai_caddie.connectors.privacy_cron")
+        target.handlers[:] = []
+        target.setLevel(logging.WARNING)
+        target.propagate = True
+        for parent in (logging.getLogger("ai_caddie.connectors"), logging.getLogger("ai_caddie")):
+            parent.handlers[:] = []
+            parent.propagate = True
+        stream = io.StringIO()
+        with patch.object(logging, "lastResort", logging.StreamHandler(stream)):
+            pipeline._configure_sync_logging()
+            for exit_name in ("lastResort", "root"):
+                with self.subTest(exit=exit_name):
+                    if exit_name == "root":
+                        root.handlers[:] = [logging.StreamHandler(stream)]
+                    stream.seek(0)
+                    stream.truncate()
+                    target.warning("cron failed p_0123456789abcdef token=PRIVATECRON status=200")
+                    output = stream.getvalue()
+                    self.assertIn("cron failed", output)
+                    self.assertIn("status=200", output)
+                    self.assertNotIn("p_0123456789abcdef", output)
+                    self.assertNotIn("PRIVATECRON", output)
+
+    def test_J73_unhashable_and_nonweak_handlers_remain_safe_and_reversible(self):
+        """J7.3: unusual handler identities cannot break or bypass log exits."""
+        from server_v2.log_privacy import protect_future_handlers
+
+        class UnhashableHandler(logging.StreamHandler):
+            def __eq__(self, other):
+                return self is other
+
+            # Handler's fork lock registry also hashes handlers; keep this
+            # fixture focused on the privacy guard, not that unrelated registry.
+            def createLock(self):
+                self.lock = None
+
+        class NonweakHandler:
+            __slots__ = ("delegate", "filters", "level")
+
+            def __init__(self, stream):
+                self.delegate = logging.StreamHandler(stream)
+                self.filters = self.delegate.filters
+                self.level = logging.NOTSET
+
+            def addFilter(self, value):
+                self.delegate.addFilter(value)
+
+            def removeFilter(self, value):
+                self.delegate.removeFilter(value)
+
+            def handle(self, record):
+                return self.delegate.handle(record)
+
+        target = logging.getLogger("ai_caddie.unusual_handler")
+        target.setLevel(logging.WARNING)
+        target.propagate = False
+        for handler_type in (UnhashableHandler, NonweakHandler):
+            for attachment in ("addHandler", "direct"):
+                with self.subTest(handler=handler_type.__name__, attachment=attachment):
+                    stream = io.StringIO()
+                    handler = handler_type(stream)
+                    target.handlers[:] = []
+                    with protect_future_handlers():
+                        try:
+                            if attachment == "addHandler":
+                                target.addHandler(handler)
+                            else:
+                                target.handlers[:] = [handler]
+                            target.warning("player_id=PRIVATEHANDLER status=200")
+                            target.warning("token=PRIVATEHANDLER status=201")
+                        except TypeError as exc:
+                            self.fail("privacy guard rejected handler: " + str(exc))
+                        self.assertNotIn("PRIVATEHANDLER", stream.getvalue())
+                        self.assertIn("status=200", stream.getvalue())
+                        self.assertIn("status=201", stream.getvalue())
+                    self.assertEqual(handler.filters, [])
+                    target.handlers[:] = []
+
     def capture_production(self):
         # J7.3: model uvicorn's real topology: no root handler, independent
         # service exits and a dynamic-stderr lastResort for ordinary children.
