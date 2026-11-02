@@ -2493,6 +2493,34 @@ describe('App navigation', () => {
     )
   })
 
+  it('reloads reconciliation from the App wiring when an apply reports an expired suggestion', async () => {
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => ({
+      ok: true,
+      json: async () => {
+        if (String(path).startsWith('/api/v2/history/stats')) return statsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        if (path === '/api/v2/readiness') return readinessPayload()
+        if (path === '/api/v2/mobile/rounds/900001/reconciliation') return mobileReconciliationPayload()
+        if (path === '/api/v2/mobile/rounds/900001/reconciliation/apply' && init?.method === 'POST') {
+          return { ...mobileReconciliationApplyPayload(), appliedCount: 0, missingSuggestionIds: ['score-conflict:score-correction'] }
+        }
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: '成绩' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '设置' }))
+    expect(await screen.findByRole('heading', { name: '离线对账' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '核对离线事件' }))
+    await screen.findByText('Local score input can correct the derived score for this hole.')
+    await userEvent.click(screen.getByRole('button', { name: '应用所选建议' }))
+
+    expect(await screen.findByText('建议已过期')).toBeInTheDocument()
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/mobile/rounds/900001/reconciliation')).toHaveLength(2))
+  })
+
   it('keeps mobile package admin token input available when sync status cannot load', async () => {
     const fetchMock = vi.fn(async (path: string) => {
       if (path === '/api/v2/sync/status') {
