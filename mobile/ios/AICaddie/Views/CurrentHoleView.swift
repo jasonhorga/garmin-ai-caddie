@@ -2433,7 +2433,7 @@ public struct CurrentHoleView: View {
                         width: max(greenBounds.width, 1),
                         height: max(greenBounds.height, 1)
                     )
-                    .position(x: greenBounds.midX, y: greenBounds.midY)
+                    .position(x: greenPath.boundingRect.midX, y: greenPath.boundingRect.midY)
                     .accessibilityLabel("调整旗位")
                     .accessibilityIdentifier("live-open-green-from-hero")
                     // Keep the accessibility activation point on the actual green contour.  The
