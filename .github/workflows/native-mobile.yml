@@ -45,6 +45,8 @@ on:
       - 'ops/write_native_build_evidence.py'
       - '.github/scripts/preflight_live_course_catalogue.py'
       - '.github/scripts/retry-transient-command.sh'
+      - '.github/caddie-runner-ports.json'
+      - '.github/scripts/fixture-port.py'
       - '.github/scripts/select-sim.sh'
       - '.github/scripts/shutdown-owned-sims.sh'
       - '.github/scripts/check_native_fixture_dns.py'
