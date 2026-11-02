@@ -773,6 +773,36 @@ final class C33EventTests: XCTestCase {
         XCTAssertTrue(model.finishErrorMessage?.contains("第 3 洞成绩被服务器拒绝") == true)
     }
 
+    /// Product spec 5.9 / C342: a request already past its preflight check must not create a task
+    /// after the account session is invalidated during Watch reconciliation teardown.
+    func testProductSpec59InvalidatedSessionRejectsARequestPastPreflight() async throws {
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://c342-session.example.test")!, session: session)
+        let gate = C33StartSleepGate()
+        let entered = expectation(description: "request construction gate entered")
+        client.requestDataGateForTesting = { _ in
+            entered.fulfill()
+            await gate.wait()
+        }
+        let request = Task {
+            try await client.fetchCoursePrep(globalId: 32850, render: false)
+        }
+        await fulfillment(of: [entered], timeout: 10)
+
+        // The request has passed requestData's first invalidation check but has not handed off to
+        // URLSession. This is the same teardown window as prepareCourseRound's late offline work.
+        client.invalidateForTesting()
+        session.invalidateAndCancel()
+        await gate.release()
+
+        do {
+            _ = try await request.value
+            XCTFail("a request released after session invalidation answered")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "expected cancellation, got \(error)")
+        }
+    }
+
     func testReplacementPuttClearsQuarantineAndAllowsFinish() async throws {
         try await assertReplacementScoringEventAllowsFinish(
             kind: .putt, payload: ["putts": .number(2)], replacement: ["putts": .number(1)]
