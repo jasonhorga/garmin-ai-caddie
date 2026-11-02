@@ -125,6 +125,42 @@ class PrepWaterRouteTests(unittest.TestCase):
                     self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20)
                     self.assertEqual(steps[-1]["role"], "scoring")
 
+    def test_j4_6_water_past_pin_and_reversed_span_keep_a_complete_safe_route(self):
+        # J4.6: planning clips either endpoint order to [160, 200].
+        # 5I@142 is before 160-8; 50@226 is beyond 200+8. Keeping the
+        # raw far edge at 300 would incorrectly prevent this finish.
+        for water in ([160, 300], [300, 160]):
+            with self.subTest(water=water):
+                steps, *_ = course_prep._strategy(
+                    4, 200, {"water_carry": [water]}, self.BAGS["OWNER"],
+                )
+                self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20)
+                self.assertEqual(steps[-1]["role"], "scoring")
+                for step in steps:
+                    self.assertFalse(160 <= step["routeOffset_m"] < 199)
+
+    def test_j4_6_distance_fallback_clips_water_past_pin(self):
+        # J4.6: a missing shared-tail candidate must not restore raw [160, 300]
+        # constraints. The same physical 142+84 m finish remains available.
+        with patch.object(course_prep, "_shared_sequence_tail", return_value=[]):
+            steps, *_ = course_prep._strategy(
+                4, 200, {"water_carry": [[160, 300]]}, self.BAGS["OWNER"],
+            )
+        self.assertEqual(steps[-1]["expectedRemaining_m"], 0)
+        self.assertEqual(steps[-1]["role"], "scoring")
+        self.assertEqual(sum(step["targetCarry_m"] for step in steps), 226)
+
+    def test_j4_6_layup_cannot_choose_the_wedge_leave_inside_water(self):
+        # J4.6: at route station 100, 9I@100 leaves the preferred 80 m
+        # wedge but lands at 200 inside [190, 210]. PW@80 leaves 100 m,
+        # 30 m away from the shortest full wedge (70), outside the 15 m
+        # error allowance. No water-safe full-wedge layup is available.
+        layup = course_prep._layup_position_club(
+            180, [("7I", 120), ("9I", 100), ("PW", 80), ("SW", 70)],
+            start_m=100, hazards={"water_carry": [[190, 210]]},
+        )
+        self.assertIsNone(layup)
+
     def test_j4_6_water_ending_at_pin_keeps_safe_landings_and_cautions(self):
         # J4.6: projected water can end exactly at the pin. The last metre is the
         # endpoint tolerance, not permission to land in the preceding 39 m of water.
