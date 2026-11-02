@@ -1,5 +1,5 @@
 diff --git a/mobile/ios/AICaddieWatch/Views/WatchGreenPreviewView.swift b/mobile/ios/AICaddieWatch/Views/WatchGreenPreviewView.swift
-index 7c1f74cb..3e2d642c 100644
+index 1b395788..9b76c5fb 100644
 --- a/mobile/ios/AICaddieWatch/Views/WatchGreenPreviewView.swift
 +++ b/mobile/ios/AICaddieWatch/Views/WatchGreenPreviewView.swift
 @@ -725,6 +725,16 @@ public struct WatchGreenPreviewView: View {
@@ -16,6 +16,6 @@ index 7c1f74cb..3e2d642c 100644
 +                                    context.fill(outline, with: .color(Color(red: 0.43, green: 0.93, blue: 0.22)))
 +                                }
 +                            }
+                         rangeHeader(in: safeRect)
                          WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
                              .position(
-                                 x: safeRect.minX + WatchDisplayGeometry.instrumentControlSize / 2,
