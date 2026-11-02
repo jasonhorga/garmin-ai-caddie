@@ -1,0 +1,12 @@
+diff --git a/server_v2/readiness.py b/server_v2/readiness.py
+--- a/server_v2/readiness.py
++++ b/server_v2/readiness.py
+@@ -1042,7 +1042,7 @@
+                 package = build_mobile_round_package_response(
+                     round_id,
+                     stats_data=value,
+-                    allow_weather_fetch=False,
++                    allow_weather_fetch=True,
+                 )
+                 state, evidence = _mobile_readiness_evidence(package)
+             except Exception as exc:  # noqa: BLE001 - readiness reports background failure

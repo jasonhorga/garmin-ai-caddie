@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -124,7 +125,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
              patch("server_v2.readiness.warm_stats_cache_in_background") as warm:
             payload = build_readiness_response()
         history = next(row for row in payload["checks"] if row["label"] == "history")
-        self.assertEqual(history["state"], "degraded")
+        self.assertEqual(history["state"], "warming")
         self.assertIn("corrupt snapshot", str(history["evidence"]["lastWarmFailure"]))
         warm.assert_called_once_with()
 
@@ -163,6 +164,37 @@ class ServerV2ReadinessTests(unittest.TestCase):
             release.set()
             worker.join(timeout=5)
 
+    def test_C263_readiness_snapshot_hit_only_reports_mobile_status(self) -> None:
+        """C263: history hit must not synchronously rebuild corrections or mobile seeds."""
+        stats = {"summary": {"totalRounds": 1}, "drillDown": {"roundIds": ["900001"]}, "dataMode": "fixture"}
+        builder_entered = threading.Event()
+        release_builder = threading.Event()
+
+        def background_builder(*args, **kwargs):
+            builder_entered.set()
+            release_builder.wait(timeout=2)
+            raise RuntimeError("controlled mobile warm stop")
+
+        started = time.perf_counter()
+        with patch.object(readiness, "load_history_stats_snapshot", side_effect=lambda *, window="all": {
+            "value": stats,
+            "revision": "fixture-revision",
+            "stale": False,
+            "dataMode": "fixture",
+            "source": "memory",
+        }), patch.object(readiness, "build_mobile_round_package_response",
+                         side_effect=background_builder) as builder:
+            payload = build_readiness_response()
+        elapsed = time.perf_counter() - started
+        mobile = next(row for row in payload["checks"] if row["label"] == "mobile_package")
+        self.assertEqual(mobile["state"], "warming")
+        self.assertTrue(mobile["evidence"]["stale"])
+        self.assertLess(elapsed, 0.5, f"readiness waited for background mobile warm: {elapsed:.3f}s")
+        self.assertTrue(builder_entered.wait(timeout=2), "mobile warm did not move to the background")
+        builder.assert_called_once()
+        self.assertFalse(builder.call_args.kwargs["allow_weather_fetch"])
+        release_builder.set()
+
     def test_G7_readiness_accepts_warming_as_non_failing_runtime_state(self) -> None:
         """G7: history warming is visible but does not close the readiness gate."""
         with patch("server_v2.readiness.load_history_stats_snapshot", return_value=None), \
@@ -177,6 +209,51 @@ class ServerV2ReadinessTests(unittest.TestCase):
         ])
         self.assertEqual(overall, "ready")
         self.assertEqual(runtime, "ready")
+
+    def test_G7_mobile_warm_recovers_after_transient_failure_at_same_revision(self) -> None:
+        """G7: retrying mobile warm stays warming and eventually opens the TF gate."""
+        snapshot = {
+            "value": {"summary": {"totalRounds": 1}, "drillDown": {"roundIds": ["900001"]}},
+            "revision": "mobile-transient-retry",
+            "stale": False,
+            "dataMode": "fixture",
+            "source": "memory",
+        }
+        package = SimpleNamespace(
+            schema_="ai-caddie-live-round-package-v2", roundId="900001", holes=[],
+            caddieDecisionEndpoint="/api/v2/caddie/decision", offlinePackageStatus={},
+            sourceCoverage={"state": "ready"}, geometryCoverage={"state": "ready"},
+            readinessChecks=[], caddieContextSeeds=[], cachedCaddieRules={}, missingData=[],
+        )
+        start_warm = readiness.warm_mobile_readiness_in_background
+        workers = []
+
+        def start_and_finish(snapshot):
+            worker = start_warm(snapshot)
+            if worker is not None:
+                workers.append(worker)
+                # Complete this poll's real worker before the next poll; no scheduling/sleep race.
+                worker.join()
+            return worker
+
+        with patch.object(readiness, "_MOBILE_READINESS", {}), \
+             patch.object(readiness, "_MOBILE_READINESS_THREADS", {}), \
+             patch.dict("os.environ", {"AI_CADDIE_READINESS_TRACE": "0"}), \
+             patch.object(readiness, "load_history_stats_snapshot", return_value=snapshot), \
+             patch.object(readiness, "build_mobile_round_package_response",
+                          side_effect=[RuntimeError("transient package failure"), package]) as builder, \
+             patch.object(readiness, "warm_mobile_readiness_in_background", side_effect=start_and_finish):
+            polls = []
+            for _ in range(4):
+                payload = build_readiness_response()
+                polls.append(next(row for row in payload["checks"] if row["label"] == "mobile_package"))
+
+        # G7: the failed attempt and its retry wait; the completed retry and later polls are ready.
+        self.assertEqual([row["state"] for row in polls], ["warming", "warming", "ready", "ready"])
+        self.assertIn("transient package failure", polls[1]["evidence"]["reason"])
+        self.assertNotIn("reason", polls[2]["evidence"])
+        self.assertEqual(builder.call_count, 2, "successful mobile evidence must stay cached at the same revision")
+        self.assertEqual(len(workers), 2)
 
     def _write_backup_manifest(self, path: Path, created_at: datetime) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -418,6 +495,15 @@ class ServerV2ReadinessTests(unittest.TestCase):
                     side_effect=AssertionError("readiness must consume accepted evidence, not rescan private data"),
                 ),
             ):
+                from server_v2.history_stats import warm_stats_cache
+
+                # C263: make the background package projection complete before probing readiness,
+                # so the assertions below exercise seed/source evidence instead of a race window.
+                warm_stats_cache()
+                package_snapshot = readiness.load_history_stats_snapshot(window="last20")
+                package_thread = readiness.warm_mobile_readiness_in_background(package_snapshot)
+                if package_thread is not None:
+                    package_thread.join()
                 response = client.get("/api/v2/readiness")
 
         self.assertEqual(response.status_code, 200)
@@ -444,9 +530,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertNotIn("csrf", str(payload).lower())
         self.assertNotIn("token", str(payload).lower())
         checks = {check["label"]: check for check in payload["checks"]}
-        self.assertIn(checks["mobile_package"]["state"], {"warming", "degraded"})
-        if checks["mobile_package"]["state"] == "warming":
-            self.assertNotIn("source coverage", checks["mobile_package"]["detail"])
+        self.assertIn(checks["mobile_package"]["state"], {"ready", "degraded"})
         self.assertEqual(checks["mobile_events"]["state"], "ready")
         self.assertEqual(checks["media_context"]["state"], "ready")
         self.assertIn(checks["reports"]["state"], {"ready", "warming"})
@@ -471,26 +555,23 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(checks["operations"]["evidence"]["deploymentManifests"], ["render.yaml", "web_v2/vercel.json"])
 
         mobile_package = checks["mobile_package"]["evidence"]
-        if checks["mobile_package"]["state"] == "warming":
-            self.assertTrue(mobile_package["stale"])
-        else:
-            self.assertEqual(mobile_package["contractSchema"], "mobile/contracts/live_round_package.schema.json")
-            self.assertEqual(mobile_package["offlinePackageStatus"]["state"], "degraded")
-            self.assertEqual(mobile_package["sourceCoverage"]["state"], "ready")
-            self.assertTrue(mobile_package["sourceCoverage"]["roundFound"])
-            self.assertGreaterEqual(mobile_package["caddieSeedCount"], 1)
-            self.assertEqual(mobile_package["offlineSeedQuality"]["schema"], "ai-caddie-offline-seed-quality-v1")
-            self.assertEqual(mobile_package["offlineSeedQuality"]["seedCount"], mobile_package["caddieSeedCount"])
-            self.assertEqual(mobile_package["offlineSeedQuality"]["selectedOptionCount"], mobile_package["caddieSeedCount"])
-            self.assertGreaterEqual(mobile_package["offlineSeedQuality"]["optionCount"], mobile_package["caddieSeedCount"])
-            self.assertIn(mobile_package["offlineSeedQuality"]["state"], {"ready", "degraded"})
-            self.assertIn("medium", mobile_package["offlineSeedQuality"]["selectedConfidenceCounts"])
-            self.assertGreaterEqual(mobile_package["offlineSeedQuality"]["avgSelectedCoveragePct"], 0)
-            self.assertLessEqual(mobile_package["offlineSeedQuality"]["avgSelectedCoveragePct"], 100)
-            self.assertTrue(mobile_package["cachedCaddieRules"]["offlineCapable"])
-            self.assertGreater(mobile_package["missingDataCount"], 0)
-            self.assertIn("geometry", mobile_package["missingDataLabels"])
-            self.assertIn("weather", mobile_package["missingDataLabels"])
+        self.assertEqual(mobile_package["contractSchema"], "mobile/contracts/live_round_package.schema.json")
+        self.assertEqual(mobile_package["offlinePackageStatus"]["state"], "degraded")
+        self.assertEqual(mobile_package["sourceCoverage"]["state"], "ready")
+        self.assertTrue(mobile_package["sourceCoverage"]["roundFound"])
+        self.assertGreaterEqual(mobile_package["caddieSeedCount"], 1)
+        self.assertEqual(mobile_package["offlineSeedQuality"]["schema"], "ai-caddie-offline-seed-quality-v1")
+        self.assertEqual(mobile_package["offlineSeedQuality"]["seedCount"], mobile_package["caddieSeedCount"])
+        self.assertEqual(mobile_package["offlineSeedQuality"]["selectedOptionCount"], mobile_package["caddieSeedCount"])
+        self.assertGreaterEqual(mobile_package["offlineSeedQuality"]["optionCount"], mobile_package["caddieSeedCount"])
+        self.assertIn(mobile_package["offlineSeedQuality"]["state"], {"ready", "degraded"})
+        self.assertIn("medium", mobile_package["offlineSeedQuality"]["selectedConfidenceCounts"])
+        self.assertGreaterEqual(mobile_package["offlineSeedQuality"]["avgSelectedCoveragePct"], 0)
+        self.assertLessEqual(mobile_package["offlineSeedQuality"]["avgSelectedCoveragePct"], 100)
+        self.assertTrue(mobile_package["cachedCaddieRules"]["offlineCapable"])
+        self.assertGreater(mobile_package["missingDataCount"], 0)
+        self.assertIn("geometry", mobile_package["missingDataLabels"])
+        self.assertIn("weather", mobile_package["missingDataLabels"])
 
         mobile_events = checks["mobile_events"]["evidence"]
         self.assertEqual(mobile_events["contractSchema"], "mobile/contracts/live_round_event.schema.json")
@@ -586,7 +667,18 @@ class ServerV2ReadinessTests(unittest.TestCase):
             missingData=[{"label": "weather", "reason": "historical weather is not cached"}],
         )
 
-        with patch("server_v2.readiness.build_mobile_round_package_response", return_value=package):
+        snapshot = {
+            "value": {"summary": {"totalRounds": 1}, "drillDown": {"roundIds": ["historical-round"]}},
+            "revision": "c263-weather",
+            "stale": False,
+            "dataMode": "fixture",
+            "source": "memory",
+        }
+        with patch("server_v2.readiness.load_history_stats_snapshot", return_value=snapshot), \
+             patch("server_v2.readiness.build_mobile_round_package_response", return_value=package):
+            thread = readiness.warm_mobile_readiness_in_background(snapshot)
+            if thread is not None:
+                thread.join()
             payload = build_readiness_response()
 
         check = next(row for row in payload["checks"] if row["label"] == "mobile_package")
@@ -841,6 +933,13 @@ class ServerV2ReadinessTests(unittest.TestCase):
                 patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", side_effect=ready_geometry),
                 patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", side_effect=ready_route),
             ):
+                from server_v2.history_stats import warm_stats_cache
+
+                warm_stats_cache()
+                package_snapshot = readiness.load_history_stats_snapshot(window="last20")
+                package_thread = readiness.warm_mobile_readiness_in_background(package_snapshot)
+                if package_thread is not None:
+                    package_thread.join()
                 response = client.get("/api/v2/readiness")
 
         self.assertEqual(response.status_code, 200)

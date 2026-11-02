@@ -13,8 +13,25 @@ import unittest
 
 import yaml
 
+from ops.fastlane_readiness import preflight_gate
+
 
 class CIWorkflowTests(unittest.TestCase):
+    def test_C263_fastlane_gate_waits_for_any_runtime_warming_check(self) -> None:
+        readiness = {
+            "runtimeStatus": "ready",
+            "checks": [
+                {"label": "history", "state": "ready"},
+                {"label": "mobile_package", "state": "warming"},
+            ],
+        }
+        self.assertEqual(preflight_gate(readiness), "wait")
+
+    def test_C263_fastlane_gate_allows_degraded_only_with_opt_in(self) -> None:
+        readiness = {"runtimeStatus": "degraded", "checks": []}
+        self.assertEqual(preflight_gate(readiness), "error")
+        self.assertEqual(preflight_gate(readiness, allow_degraded=True), "pass")
+
     def test_native_artifacts_download_only_shards_and_replace_previous_attempt(self) -> None:
         """J3/J4: summary excludes unrelated/combined artifacts and consumes latest uploads."""
         jobs = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())["jobs"]
