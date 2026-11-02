@@ -30,6 +30,8 @@ READINESS_TOTAL_TIMEOUT = 720.0
 READINESS_POLL_INTERVAL = 15.0
 READINESS_READ_TIMEOUT = 60.0
 READINESS_OPEN_TIMEOUT = 20.0
+HEALTH_MAX_ATTEMPTS = 3
+HEALTH_RETRY_INTERVALS = [5.0, 15.0].freeze
 BackendRetryableError = Class.new(StandardError)
 
 platform :ios do
@@ -135,6 +137,40 @@ platform :ios do
     UI.user_error!("App Store Connect returned an invalid latest TestFlight build number: #{latest.inspect}")
   end
 
+  def fetch_backend_json!(origin:, token:, path:, read_timeout: 20, open_timeout: 20, error_context: "backend preflight")
+    uri = URI.parse(origin + path)
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = true
+    http.open_timeout = open_timeout
+    http.read_timeout = read_timeout
+    request = Net::HTTP::Get.new(uri)
+    request["Accept"] = "application/json"
+    request["X-AI-Caddie-Admin-Token"] = token
+    response = http.request(request)
+    if response.code.to_i >= 500
+      raise BackendRetryableError, "#{error_context} HTTP #{response.code}"
+    end
+    UI.user_error!("#{error_context} HTTP #{response.code}") unless response.code.to_i == 200
+    JSON.parse(response.body)
+  end
+
+  def fetch_backend_health!(origin:, token:, error_context: "backend preflight")
+    attempts = 0
+    begin
+      attempts += 1
+      attempt_started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      fetch_backend_json!(origin: origin, token: token, path: "/api/v2/health", error_context: error_context)
+    rescue Net::OpenTimeout, Net::ReadTimeout, Errno::ECONNRESET, Errno::ECONNREFUSED,
+           EOFError, OpenSSL::SSL::SSLError, SocketError, BackendRetryableError => e
+      elapsed_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - attempt_started) * 1000).round(1)
+      UI.important("backend health attempt #{attempts} elapsed_ms=#{elapsed_ms} error=#{e.class}")
+      raise if attempts >= HEALTH_MAX_ATTEMPTS
+
+      sleep(HEALTH_RETRY_INTERVALS.fetch(attempts - 1))
+      retry
+    end
+  end
+
   def preflight_backend!(allow_degraded_readiness: false)
     origin = ENV["AI_CADDIE_API_BASE_URL"].to_s.strip
     UI.user_error!("AI_CADDIE_API_BASE_URL must be a public HTTPS origin for upload") if origin.empty?
@@ -153,24 +189,7 @@ platform :ios do
     token = ENV["AI_CADDIE_ADMIN_TOKEN"].to_s.strip
     UI.user_error!("AI_CADDIE_ADMIN_TOKEN is required for authenticated backend preflight") if token.empty?
 
-    fetch_json = lambda do |path, read_timeout: 20, open_timeout: 20|
-      uri = URI.parse(origin + path)
-      http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = true
-      http.open_timeout = open_timeout
-      http.read_timeout = read_timeout
-      req = Net::HTTP::Get.new(uri)
-      req["Accept"] = "application/json"
-      req["X-AI-Caddie-Admin-Token"] = token
-      response = http.request(req)
-      if response.code.to_i >= 500
-        raise BackendRetryableError, "backend preflight HTTP #{response.code}"
-      end
-      UI.user_error!("backend preflight HTTP #{response.code}") unless response.code.to_i == 200
-      JSON.parse(response.body)
-    end
-
-    health = fetch_json.call("/api/v2/health")
+    health = fetch_backend_health!(origin: origin, token: token)
     UI.user_error!("backend health schema mismatch") unless health["schema"] == "ai-caddie-health-v2"
     readiness_started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     readiness = nil
@@ -182,7 +201,7 @@ platform :ios do
       begin
         timeout = [READINESS_READ_TIMEOUT, remaining].min
         open_timeout = [READINESS_OPEN_TIMEOUT, remaining].min
-        readiness = fetch_json.call("/api/v2/readiness", read_timeout: timeout, open_timeout: open_timeout)
+        readiness = fetch_backend_json!(origin: origin, token: token, path: "/api/v2/readiness", read_timeout: timeout, open_timeout: open_timeout)
       rescue Net::ReadTimeout, Net::OpenTimeout, BackendRetryableError, Errno::ECONNRESET, SocketError => e
         elapsed_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - attempt_started) * 1000).round(1)
         UI.important("backend readiness attempt #{attempts} elapsed_ms=#{elapsed_ms} error=#{e.class}")
@@ -238,17 +257,7 @@ platform :ios do
   def backend_revision!(expected:)
     origin = ENV.fetch("AI_CADDIE_API_BASE_URL").to_s.strip
     token = ENV.fetch("AI_CADDIE_ADMIN_TOKEN").to_s.strip
-    uri = URI.parse(origin + "/api/v2/health")
-    http = Net::HTTP.new(uri.host, uri.port)
-    http.use_ssl = true
-    http.open_timeout = 20
-    http.read_timeout = 20
-    request = Net::HTTP::Get.new(uri)
-    request["Accept"] = "application/json"
-    request["X-AI-Caddie-Admin-Token"] = token
-    response = http.request(request)
-    UI.user_error!("backend health HTTP #{response.code}") unless response.code.to_i == 200
-    payload = JSON.parse(response.body)
+    payload = fetch_backend_health!(origin: origin, token: token, error_context: "backend health")
     revision = payload["revision"].to_s.strip.downcase
     UI.user_error!("backend health schema mismatch") unless payload["schema"] == "ai-caddie-health-v2"
     UI.user_error!("backend revision changed during build") unless revision == expected
