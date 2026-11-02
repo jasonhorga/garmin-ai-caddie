@@ -1348,7 +1348,7 @@ export default function App() {
               state={mobileReconciliationState}
               applyState={mobileReconciliationApplyState}
               onLoad={(roundId) => void handleLoadMobileReconciliation(roundId)}
-              onApply={(roundId, suggestionIds) => void handleApplyMobileReconciliation(roundId, suggestionIds)}
+              onApply={(roundId, suggestionIds) => handleApplyMobileReconciliation(roundId, suggestionIds)}
             />
             {readinessState.status === 'ready' ? <ReadinessPanel readiness={readinessState.data} /> : null}
             {readinessState.status === 'error' ? <ReadinessPanel readiness={null} error={readinessState.message} /> : null}

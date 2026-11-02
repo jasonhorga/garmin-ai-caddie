@@ -148,6 +148,8 @@ def _hole_scores(
         putt_correction_conflict = False
         penalty_correction_conflict = False
         resolved_event_id = None
+        putt_resolved_event_id = None
+        penalty_resolved_event_id = None
         target_ids = {f"{ref}:{number}" for ref in [
             str(source_round_row.get("id")), *[str(item) for item in (source_round_row.get("ids") or [])]
         ]}
@@ -166,16 +168,24 @@ def _hole_scores(
                 payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
                 from_value = _safe_int(payload.get("from"))
                 to_value = _safe_int(payload.get("to" if kind != "penalty_correction" else "strokes"))
-                resolution = payload.get("resolution") if kind == "score_correction" else None
+                resolution = payload.get("resolution")
                 if payload.get("restore") is True and source_value is not None:
                     continue
                 if resolution == "garmin":
                     # This choice deliberately follows the current Garmin source forever.
                     prior = source_value
+                    conflict = False
+                elif resolution == "mobile":
+                    # A user-selected mobile resolution establishes a new clean baseline.  A
+                    # later Garmin change is checked separately against this record's from value.
+                    prior = to_value
+                    conflict = False
                 elif from_value is not None and prior is not None and from_value != prior:
                     conflict = True
                     prior = to_value
                 else:
+                    if from_value is not None and source_value is not None and from_value == source_value:
+                        conflict = False
                     prior = to_value
                 winner = record
             # A source that has converged to the effective corrected value is not a conflict,
@@ -187,8 +197,8 @@ def _hole_scores(
         score_correction_conflict, score_winner = correction_chain(
             "score_correction", source_strokes, _safe_int(total)
         )
-        putt_correction_conflict, _ = correction_chain("putt_correction", source_putts, _safe_int(putts))
-        penalty_correction_conflict, _ = correction_chain("penalty_correction", source_penalties, _safe_int(penalty))
+        putt_correction_conflict, putt_winner = correction_chain("putt_correction", source_putts, _safe_int(putts))
+        penalty_correction_conflict, penalty_winner = correction_chain("penalty_correction", source_penalties, _safe_int(penalty))
 
         if score_winner is not None and isinstance(score_winner.get("payload"), dict):
             winner_payload = score_winner["payload"]
@@ -204,6 +214,42 @@ def _hole_scores(
                     score_correction_conflict = True
             elif score_correction_conflict and source_strokes is not None:
                 total = source_strokes
+        for winner, source_value, field_value in (
+            (putt_winner, source_putts, "putts"),
+            (penalty_winner, source_penalties, "penalties"),
+        ):
+            if winner is None or not isinstance(winner.get("payload"), dict):
+                continue
+            winner_payload = winner["payload"]
+            resolution = winner_payload.get("resolution")
+            resolved_id = str(winner_payload.get("resolvedEventId") or "") or None
+            if resolution == "garmin":
+                if field_value == "putts":
+                    putts = source_value
+                else:
+                    penalty = source_value
+                if field_value == "putts":
+                    putt_correction_conflict = False
+                else:
+                    penalty_correction_conflict = False
+            elif resolution == "mobile":
+                from_value = _safe_int(winner_payload.get("from"))
+                if source_value is not None and from_value is not None and source_value != from_value:
+                    if field_value == "putts":
+                        putts = source_value
+                        putt_correction_conflict = True
+                    else:
+                        penalty = source_value
+                        penalty_correction_conflict = True
+            elif (putt_correction_conflict if field_value == "putts" else penalty_correction_conflict) and source_value is not None:
+                if field_value == "putts":
+                    putts = source_value
+                else:
+                    penalty = source_value
+            if field_value == "putts":
+                putt_resolved_event_id = resolved_id
+            else:
+                penalty_resolved_event_id = resolved_id
         if putt_correction_conflict and source_putts is not None:
             putts = source_putts
         if penalty_correction_conflict and source_penalties is not None:
@@ -223,6 +269,10 @@ def _hole_scores(
             scores[number]["penaltyCorrectionConflict"] = True
         if resolved_event_id:
             scores[number]["resolvedEventId"] = resolved_event_id
+        if putt_resolved_event_id:
+            scores[number]["puttResolvedEventId"] = putt_resolved_event_id
+        if penalty_resolved_event_id:
+            scores[number]["penaltyResolvedEventId"] = penalty_resolved_event_id
     return scores
 
 
@@ -512,16 +562,31 @@ def _annotation_suggestions(
         if not event_id or not ref:
             continue
         if kind == "putt":
-            suggestions.append(
-                _suggestion(
-                    f"{event_id}:putt-correction",
-                    target_type="hole",
-                    target_id=ref,
-                    kind="putt_correction",
-                    payload={"from": garmin_value, "to": local_value, "sourceEventId": event_id},
-                    reason="Local putting input differs from the synced Garmin scorecard.",
+            if conflict.get("correctionConflict"):
+                for resolution, target_value, reason in (
+                    ("garmin", garmin_value, "Keep the later Garmin putt count for this hole."),
+                    ("mobile", local_value, "Keep the mobile putt count for this hole."),
+                ):
+                    suggestions.append(
+                        _suggestion(
+                            f"{event_id}:putt-correction-conflict:{resolution}:{garmin_value}:{local_value}",
+                            target_type="hole", target_id=ref, kind="putt_correction",
+                            payload={
+                                "from": local_value if resolution == "garmin" else garmin_value,
+                                "to": target_value, "sourceEventId": event_id,
+                                "resolvedEventId": event_id, "resolution": resolution,
+                            }, reason=reason,
+                        )
+                    )
+            else:
+                suggestions.append(
+                    _suggestion(
+                        f"{event_id}:putt-correction", target_type="hole", target_id=ref,
+                        kind="putt_correction",
+                        payload={"from": garmin_value, "to": local_value, "sourceEventId": event_id},
+                        reason="Local putting input differs from the synced Garmin scorecard.",
+                    )
                 )
-            )
         elif kind == "score":
             if conflict.get("correctionConflict"):
                 for resolution, target_value, reason in (
@@ -563,16 +628,31 @@ def _annotation_suggestions(
                     )
                 )
         elif kind == "penalty":
-            suggestions.append(
-                _suggestion(
-                    f"{event_id}:penalty-correction",
-                    target_type="hole",
-                    target_id=ref,
-                    kind="penalty_correction",
-                    payload={"from": garmin_value, "strokes": local_value, "sourceEventId": event_id},
-                    reason="Local penalty input differs from the synced Garmin scorecard.",
+            if conflict.get("correctionConflict"):
+                for resolution, target_value, reason in (
+                    ("garmin", garmin_value, "Keep the later Garmin penalty count for this hole."),
+                    ("mobile", local_value, "Keep the mobile penalty count for this hole."),
+                ):
+                    suggestions.append(
+                        _suggestion(
+                            f"{event_id}:penalty-correction-conflict:{resolution}:{garmin_value}:{local_value}",
+                            target_type="hole", target_id=ref, kind="penalty_correction",
+                            payload={
+                                "from": local_value if resolution == "garmin" else garmin_value,
+                                "strokes": target_value, "sourceEventId": event_id,
+                                "resolvedEventId": event_id, "resolution": resolution,
+                            }, reason=reason,
+                        )
+                    )
+            else:
+                suggestions.append(
+                    _suggestion(
+                        f"{event_id}:penalty-correction", target_type="hole", target_id=ref,
+                        kind="penalty_correction",
+                        payload={"from": garmin_value, "strokes": local_value, "sourceEventId": event_id},
+                        reason="Local penalty input differs from the synced Garmin scorecard.",
+                    )
                 )
-            )
 
     garmin_shots_by_hole: dict[int, list[dict[str, Any]]] = {}
     for row in garmin_only:
@@ -821,6 +901,11 @@ def reconcile_mobile_round_events(
             local_value = _payload_value(payload, "putts", "count")
             garmin = scores.get(hole)
             garmin_value = garmin.get("putts") if garmin else None
+            if (garmin and garmin.get("puttResolvedEventId") == event_id
+                    and not garmin.get("puttCorrectionConflict")):
+                matched.append({"eventId": event.get("eventId"), "kind": kind, "hole": hole,
+                                "ref": garmin["ref"], "resolved": True, "resolution": True})
+                continue
             if garmin_value is None:
                 local_only.append(
                     {
@@ -851,6 +936,11 @@ def reconcile_mobile_round_events(
             local_value = _payload_value(payload, "penalties", "count")
             garmin = scores.get(hole)
             garmin_value = garmin.get("penalties") if garmin else None
+            if (garmin and garmin.get("penaltyResolvedEventId") == event_id
+                    and not garmin.get("penaltyCorrectionConflict")):
+                matched.append({"eventId": event.get("eventId"), "kind": kind, "hole": hole,
+                                "ref": garmin["ref"], "resolved": True, "resolution": True})
+                continue
             if garmin_value is None:
                 local_only.append(
                     {

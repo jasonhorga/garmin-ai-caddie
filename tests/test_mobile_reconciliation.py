@@ -272,11 +272,10 @@ class MobileReconciliationTests(unittest.TestCase):
             result = reconcile_mobile_round_events("900001", late, root=root, annotations_root=root)
 
         self.assertEqual(len(result["conflicts"]), 1)
-        self.assertEqual({row["payload"].get("resolution") for row in result["annotationSuggestions"]},
-                         {"garmin", "mobile"})
-        garmin = next(row for row in result["annotationSuggestions"]
-                      if row["payload"].get("resolution") == "garmin")
-        self.assertEqual(garmin["payload"].get("to"), 7)
+        self.assertFalse(result["conflicts"][0].get("correctionConflict"))
+        self.assertEqual(len(result["annotationSuggestions"]), 1)
+        self.assertIsNone(result["annotationSuggestions"][0]["payload"].get("resolution"))
+        self.assertEqual(result["annotationSuggestions"][0]["payload"].get("to"), 8)
 
     def test_j3_3_putt_and_penalty_late_garmin_changes_are_conflicts(self) -> None:
         # J3.3/N6: putt and penalty corrections use the same late-Garmin conflict rule as total score.
@@ -298,7 +297,7 @@ class MobileReconciliationTests(unittest.TestCase):
                     data_loader=lambda: data,
                 )
                 late_round = deepcopy(data.rounds[0])
-                late_round["holes"] = [{**hole, late_key: late_value} if hole.get("number") == 1 else hole
+                late_round["holes"] = [{**hole, late_key: late_value, "strokes": 6} if hole.get("number") == 1 else hole
                                         for hole in late_round["holes"]]
                 result = reconcile_mobile_round_events(
                     "900001", HistoryData(raw_rounds=[], rounds=[late_round], shots=data.shots),
