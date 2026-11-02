@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/ops/retention.py b/ai_caddie/ops/retention.py
+index aaa12d18..dc886fe3 100644
+--- a/ai_caddie/ops/retention.py
++++ b/ai_caddie/ops/retention.py
+@@ -111,7 +111,7 @@ def _clean_garmin_snapshots(root: Path) -> None:
+                 continue
+             manifest = snapshot_root / f"{directory.name}.json"
+             if not manifest.is_file():
+-                continue
++                pass
+             timestamp = _parse_snapshot_time(directory.name, manifest)
+             if timestamp is not None:
+                 pairs.append((timestamp, directory.name, directory, manifest))

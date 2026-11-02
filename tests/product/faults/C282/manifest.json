@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C282-N1-nested-topo-dirs",
+      "patch": "tests/product/faults/C282/01-retention-nested-dirs.patch",
+      "kind": "python",
+      "target": "tests.test_retention.PrivateVolumeRetentionTests.test_G2_expired_topo_version_removes_empty_nested_directories",
+      "promise": "G2: expired topo versions remove empty generated detail directories"
+    },
+    {
+      "id": "tests-product-faults-C282-N2-follow-snapshot-symlink",
+      "patch": "tests/product/faults/C282/02-retention-follow-snapshot-symlink.patch",
+      "kind": "python",
+      "target": "tests.test_retention.PrivateVolumeRetentionTests.test_G2_cleanup_does_not_follow_topo_or_snapshot_symlinks",
+      "promise": "G2: retention never follows cache or snapshot symlinks"
+    },
+    {
+      "id": "tests-product-faults-C282-N3-orphan-directory-ranking",
+      "patch": "tests/product/faults/C282/03-retention-orphan-dir-ranked.patch",
+      "kind": "python",
+      "target": "tests.test_retention.PrivateVolumeRetentionTests.test_G2_snapshot_ranking_requires_complete_standard_timestamp_pairs",
+      "promise": "G2: only complete snapshot directory and manifest pairs rank"
+    },
+    {
+      "id": "tests-product-faults-C282-N5-createdat-fallback",
+      "patch": "tests/product/faults/C282/04-retention-createdat-fallback.patch",
+      "kind": "python",
+      "target": "tests.test_retention.PrivateVolumeRetentionTests.test_G2_snapshot_ranking_requires_complete_standard_timestamp_pairs",
+      "promise": "G2: non-standard snapshot IDs do not rank through manifest timestamps"
+    },
+    {
+      "id": "tests-product-faults-C282-N4-startup-wiring",
+      "patch": "tests/product/faults/C282/05-startup-retention-wiring.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_cache_warmup.AppStartupTests.test_background_entry_starts_all_four_workers",
+      "promise": "G2: service startup schedules retention cleanup"
+    }
+  ]
+}

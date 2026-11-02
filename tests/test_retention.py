@@ -1,4 +1,4 @@
-"""C10 retention behavior; startup cleanup is covered by the G2 boot contract."""
+"""C10/G2 retention behavior and safety guards."""
 from __future__ import annotations
 
 import os
@@ -109,6 +109,75 @@ class PrivateVolumeRetentionTests(unittest.TestCase):
             with patch.dict(os.environ, {"AI_CADDIE_TOPO_CACHE_DIR": str(override)}, clear=False):
                 cleanup_private_volume(root=root)
             self.assertFalse(legacy.exists())
+
+    def test_G2_expired_topo_version_removes_empty_nested_directories(self) -> None:
+        """G2: an expired topo version is removed after its empty detail directories drain."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = root / "output" / "topo_render_cache" / "topo-v10"
+            (old / "green-detail" / "nested").mkdir(parents=True)
+            (old / "green-detail" / "nested" / "old.png").write_bytes(b"x")
+            cleanup_private_volume(root=root)
+            self.assertFalse(old.exists())
+
+    def test_G2_cleanup_does_not_follow_topo_or_snapshot_symlinks(self) -> None:
+        """G2: cleanup never follows links from private caches into an outside volume."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside_tmp:
+            root, outside = Path(tmp), Path(outside_tmp)
+            topo_outside = outside / "topo-v3"
+            topo_outside.mkdir()
+            topo_victim = topo_outside / "victim.png"
+            topo_victim.write_bytes(b"keep")
+            topo = root / "output" / "topo_render_cache"
+            topo.mkdir(parents=True)
+            (topo / "topo-v3").symlink_to(topo_outside, target_is_directory=True)
+
+            snapshot_outside = outside / "snapshot-old"
+            snapshot_outside.mkdir()
+            snapshot_victim = snapshot_outside / "normalized" / "history.json"
+            snapshot_victim.parent.mkdir()
+            snapshot_victim.write_text("{}")
+            snapshots = root / "data" / "snapshots"
+            snapshots.mkdir(parents=True)
+            snapshot_link = snapshots / "garmin_cn_20200101T000000Z"
+            snapshot_link.symlink_to(snapshot_outside, target_is_directory=True)
+            (snapshots / "garmin_cn_20200101T000000Z.json").write_text("{}")
+            for stamp in ("20261001T000000Z", "20261002T000000Z", "20261003T000000Z", "20261004T000000Z"):
+                self._make_snapshot(root, stamp)
+
+            cleanup_private_volume(root=root)
+
+            self.assertTrue(topo_victim.exists())
+            self.assertTrue(snapshot_victim.exists())
+            self.assertTrue(snapshot_link.is_symlink())
+
+    def test_G2_snapshot_ranking_requires_complete_standard_timestamp_pairs(self) -> None:
+        """G2: only complete standard timestamp pairs rank; unknown times stay untouched."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for stamp in ("20261001T000000Z", "20261002T000000Z", "20261003T000000Z", "20261004T000000Z"):
+                self._make_snapshot(root, stamp)
+            snapshots = root / "data" / "snapshots"
+            self._make_snapshot(root, "custom")
+            (snapshots / "garmin_cn_custom.json").write_text('{"createdAt":"2099-01-01T00:00:00Z"}')
+            self._make_snapshot(root, "20261399T000000Z")
+            (snapshots / "garmin_cn_20261008T000000Z.json").write_text("{}")
+            (snapshots / "garmin_cn_20261009T000000Z").mkdir()
+
+            cleanup_private_volume(root=root)
+
+            for stamp in ("20261002T000000Z", "20261003T000000Z", "20261004T000000Z"):
+                self.assertTrue((snapshots / f"garmin_cn_{stamp}").exists())
+            self.assertFalse((snapshots / "garmin_cn_20261001T000000Z").exists())
+            for name in (
+                "garmin_cn_custom",
+                "garmin_cn_custom.json",
+                "garmin_cn_20261399T000000Z",
+                "garmin_cn_20261399T000000Z.json",
+                "garmin_cn_20261008T000000Z.json",
+                "garmin_cn_20261009T000000Z",
+            ):
+                self.assertTrue((snapshots / name).exists(), name)
 
 
 if __name__ == "__main__":

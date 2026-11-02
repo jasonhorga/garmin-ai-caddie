@@ -6,7 +6,6 @@ service can schedule it without coupling startup to filesystem details.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import json
 import logging
 import os
 from pathlib import Path
@@ -54,6 +53,7 @@ def _clean_topo_cache(cache_root: Path, *, remove_empty: bool = False) -> None:
     except OSError:
         logger.warning("retention could not inspect topo cache %s", cache_root, exc_info=True)
         return
+    expired_versions: list[Path] = []
     for path in entries:
         try:
             relative = path.relative_to(cache_root)
@@ -62,12 +62,26 @@ def _clean_topo_cache(cache_root: Path, *, remove_empty: bool = False) -> None:
                 if version is not None and version not in supported:
                     path.unlink()
             elif path.is_dir() and _STYLE_VERSION_RE.fullmatch(path.name):
-                # Remove an expired version directory only after recognized files have gone;
-                # unknown files inside it remain protected by the same rule as loose files.
-                if version is not None and version not in supported and not any(path.iterdir()):
-                    path.rmdir()
+                # Remove an expired version directory only after recognized files have gone.
+                # Its generated detail trees can be empty but have arbitrary names, so drain
+                # those empty directories before removing the version root.
+                if version is not None and version not in supported:
+                    expired_versions.append(path)
         except OSError:
             logger.warning("retention could not remove topo cache entry %s", path, exc_info=True)
+    for version_root in sorted(expired_versions, key=lambda path: len(path.parts), reverse=True):
+        try:
+            children = sorted(version_root.rglob("*"), key=lambda path: len(path.parts), reverse=True)
+            for child in children:
+                if child.is_dir() and not child.is_symlink():
+                    try:
+                        child.rmdir()
+                    except OSError:
+                        # A non-empty or concurrently-written directory remains protected.
+                        pass
+            version_root.rmdir()
+        except OSError:
+            logger.warning("retention could not remove topo cache entry %s", version_root, exc_info=True)
     if remove_empty:
         try:
             if not any(cache_root.iterdir()):
@@ -78,19 +92,12 @@ def _clean_topo_cache(cache_root: Path, *, remove_empty: bool = False) -> None:
 
 def _parse_snapshot_time(name: str, manifest: Path) -> datetime | None:
     match = _SNAPSHOT_ID_RE.match(name)
-    if match:
-        try:
-            return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
-        except ValueError:
-            return None
+    if not match:
+        return None
     try:
-        payload = json.loads(manifest.read_text(encoding="utf-8"))
-        value = payload.get("createdAt") if isinstance(payload, dict) else None
-        if value:
-            return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(timezone.utc)
-    except (OSError, ValueError, TypeError, json.JSONDecodeError):
-        pass
-    return None
+        return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
 
 
 def _clean_garmin_snapshots(root: Path) -> None:

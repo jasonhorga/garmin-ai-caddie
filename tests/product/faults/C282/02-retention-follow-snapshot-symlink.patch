@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/ops/retention.py b/ai_caddie/ops/retention.py
+index aaa12d18..d5f03b38 100644
+--- a/ai_caddie/ops/retention.py
++++ b/ai_caddie/ops/retention.py
+@@ -122,7 +122,7 @@ def _clean_garmin_snapshots(root: Path) -> None:
+     pairs.sort(key=lambda item: (item[0], item[1]), reverse=True)
+     for _timestamp, _name, directory, manifest in pairs[3:]:
+         try:
+-            shutil.rmtree(directory)
++            shutil.rmtree(directory.resolve())
+         except OSError:
+             logger.warning("retention could not remove Garmin snapshot %s", directory, exc_info=True)
+             continue

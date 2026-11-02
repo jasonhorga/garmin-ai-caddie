@@ -243,11 +243,13 @@ class AppStartupTests(ServiceLoggingIsolationMixin, unittest.TestCase):
             boot.assert_called_once_with()
 
     def test_background_entry_starts_all_four_workers(self) -> None:
+        """G2: boot schedules retention before the other background workers."""
         from server_v2 import main
 
         resume, prepare, monitor = Mock(), Mock(), Mock()
         with (
             patch.object(main, "warm_stats_cache_in_background") as warm_mock,
+            patch.object(main, "start_retention_cleanup") as retention_mock,
             patch.object(main._garmin_sync_jobs, "start") as sync_start,
             patch.object(main, "threading") as threads,
         ):
@@ -255,6 +257,7 @@ class AppStartupTests(ServiceLoggingIsolationMixin, unittest.TestCase):
             main._start_boot_background_work()
 
         warm_mock.assert_called_once_with()
+        retention_mock.assert_called_once_with(root=main.ROOT)
         sync_start.assert_called_once_with(main._run_garmin_sync_job)
         self.assertEqual(threads.Thread.call_args_list[:2], [
             call(target=main.course_install.resume_pending_jobs,
