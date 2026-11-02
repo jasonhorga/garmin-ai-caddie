@@ -479,7 +479,9 @@ def simctl(args):
     if args[:1] == ["create"]:
         name, model, runtime = args[1:]
         udid = "C3070000-0000-4000-8000-" + ("000000000001" if name.endswith("-iphone") else "000000000002")
-        CONFIG["devices"].setdefault(runtime, []).append(dict(name=name, udid=udid, isAvailable=True))
+        CONFIG["devices"].setdefault(runtime, []).append(dict(
+            name=name, udid=udid, isAvailable=True, state="Shutdown",
+            dataPath=str(STATE / "simulators" / udid / "data")))
         (STATE / "config.json").write_text(json.dumps(CONFIG))
         print(udid)
         return 0
@@ -1466,7 +1468,8 @@ class NativeMutantWorkflowTests(NativeMutantReplayCase):
         self.assertEqual(len(jobs), 1, list(jobs))
         job = next(iter(jobs.values()))
         self.assertEqual(job.get("permissions", {"contents": "read"}), {"contents": "read"})
-        native_runner = yaml.safe_load(NATIVE_MOBILE.read_text(encoding="utf-8"))["jobs"]["native-unit-watch"]["runs-on"]
+        # C307 r4: SDK-affected Watch UI stays hosted; mutants retain the Mac route.
+        native_runner = yaml.safe_load(NATIVE_MOBILE.read_text(encoding="utf-8"))["jobs"]["native-real-flow"]["runs-on"]
         self.assertEqual(job.get("runs-on"), native_runner)
         self.assertNotIn("if", job)
         self.assertNotIn("continue-on-error", job)
