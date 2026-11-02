@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index 2190af69..947821c1 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -256,7 +256,7 @@ def _restore_is_superseded(
+     payload = score["payload"]
+     gid = _int(payload.get("restoreGlobalId"))
+     local = _int(payload.get("restoreLocalHole"))
+-    return gid is not None and local is not None and (gid, local) in other_real_score_holes
++    return local is not None and any(physical == local for _global_id, physical in other_real_score_holes)
+ 
+ 
+ def _penalty_reason(winner: dict[str, Any] | None) -> str:

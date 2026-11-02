@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index 2190af69..f9aa142e 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -295,7 +295,7 @@ def corrected_rounds(
+         other_real_score_holes = {
+             key
+             for round_id, (other_day, keys) in real_score_holes.items()
+-            if round_id != row_id and (not row_day or not other_day or row_day == other_day)
++            if round_id != row_id
+             for key in keys
+         }
+         refs = _round_refs(row)

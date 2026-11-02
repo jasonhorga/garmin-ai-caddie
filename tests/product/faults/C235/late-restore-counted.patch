@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index 648bb30f..4ad00734 100644
+--- a/ai_caddie/history/corrected_history.py
++++ b/ai_caddie/history/corrected_history.py
+@@ -354,7 +354,7 @@ def corrected_rounds(
+             (total, _total_winner), (putts, _putts_winner), (penalty, penalty_winner) = effective_hole(
+                 row, number, records, penalty_events
+             )
+-            if _restore_is_superseded(records, other_real_score_holes):
++            if False:
+                 continue
+             # A hole without a score is not a materialized history hole.  Its putt and
+             # penalty evidence remains in the annotation log, but cannot enter any

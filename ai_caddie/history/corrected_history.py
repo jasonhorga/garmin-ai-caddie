@@ -217,6 +217,48 @@ def restore_hole_par(
         return None
 
 
+def _real_score_hole_keys(
+    rounds: list[dict[str, Any]],
+) -> dict[str, tuple[str, set[tuple[int, int]]]]:
+    """Physical scorecard holes grouped by Garmin outing date and round id.
+
+    Garmin's normalized ``date`` comes from ``formattedStartTime``/``startTime``.  The history
+    merger defines one outing as the same calendar date and course; before a merge, scorecard ids
+    are separate, so the date day is the stable relationship available to corrected history.
+    """
+    keys_by_round: dict[str, tuple[str, set[tuple[int, int]]]] = {}
+    for row in rounds:
+        round_id = str(row.get("id"))
+        day = str(row.get("date") or "")[:10]
+        keys = keys_by_round.setdefault(round_id, (day, set()))[1]
+        for hole, _display, physical, side in hole_sides(row):
+            if _int(hole.get("strokes")) is None:
+                continue
+            gid = _int(hole.get("sourceGlobalId") or hole.get("globalId"))
+            if gid is None:
+                gid = _int(row.get("backNineGlobalCourseId")) if side == "back" else None
+                gid = gid or front_course_global_id(row)
+            local = _int(hole.get("sourceLocalHole") or hole.get("localHole")) or physical
+            if gid is not None and local > 0:
+                keys.add((gid, local))
+    return keys_by_round
+
+
+def _restore_is_superseded(
+    records: list[dict[str, Any]], other_real_score_holes: set[tuple[int, int]]
+) -> bool:
+    score = next((item for item in records
+                  if item.get("kind") == "score_correction"
+                  and isinstance(item.get("payload"), dict)
+                  and item["payload"].get("restore") is True), None)
+    if score is None:
+        return False
+    payload = score["payload"]
+    gid = _int(payload.get("restoreGlobalId"))
+    local = _int(payload.get("restoreLocalHole"))
+    return gid is not None and local is not None and (gid, local) in other_real_score_holes
+
+
 def _penalty_reason(winner: dict[str, Any] | None) -> str:
     """The reason attached to the record that won the effective penalty value."""
     reason = _payload_value(winner, "reason", "issue", "tag") if winner and winner.get("kind") == "penalty_correction" else None
@@ -245,8 +287,17 @@ def corrected_rounds(
             hole_annotations.setdefault(str(record.get("targetId") or ""), []).append(record)
     if not hole_annotations and not events_by_round:
         return rounds
+    real_score_holes = _real_score_hole_keys(rounds)
     out: list[dict[str, Any]] = []
     for row in rounds:
+        row_id = str(row.get("id"))
+        row_day = str(row.get("date") or "")[:10]
+        other_real_score_holes = {
+            key
+            for round_id, (other_day, keys) in real_score_holes.items()
+            if round_id != row_id and (not row_day or not other_day or row_day == other_day)
+            for key in keys
+        }
         refs = _round_refs(row)
         events = events_by_round.get(str(row.get("id"))) or []
         penalty_events = [e for e in events if e.get("op") in PENALTY_EVENT_OPS] if "penalty" in fields else []
@@ -323,6 +374,8 @@ def corrected_rounds(
             (total, _total_winner), (putts, _putts_winner), (penalty, penalty_winner) = effective_hole(
                 row, number, records, penalty_events
             )
+            if _restore_is_superseded(records, other_real_score_holes):
+                continue
             # A hole without a score is not a materialized history hole.  Its putt and
             # penalty evidence remains in the annotation log, but cannot enter any
             # aggregate denominator on its own.  Synthetic holes also deliberately carry
