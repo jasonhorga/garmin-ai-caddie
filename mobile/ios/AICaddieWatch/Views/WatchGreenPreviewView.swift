@@ -647,7 +647,9 @@ private struct WatchGreenRotationButton: View {
 /// disappear, but the approach apron and adjacent hazards remain visible around the green. Crown zoom
 /// is the default; the compact rotate control temporarily maps Crown input to paper-pin-sheet alignment.
 public struct WatchGreenPreviewView: View {
-    public let geometry: WatchHoleMapGeometry
+    private let sourceGeometry: WatchHoleMapGeometry
+    @State private var retainedGeometry: WatchHoleMapGeometry?
+    public var geometry: WatchHoleMapGeometry { sourceGeometry.retainingBitmaps(from: retainedGeometry) }
     public let centerGreenYards: Int?
     /// True while the Watch has no qualified wrist fix. Geometry/editing remains usable, but any
     /// player-to-pin or edge distance must be replaced by an explicit acquiring state.
@@ -690,7 +692,8 @@ public struct WatchGreenPreviewView: View {
         edgeBackEnabled: Bool = true,
         onBack: @escaping () -> Void = {}
     ) {
-        self.geometry = geometry
+        self.sourceGeometry = geometry
+        _retainedGeometry = State(initialValue: geometry)
         self.centerGreenYards = centerGreenYards
         self.rangeUnavailable = rangeUnavailable
         self.onPlacementChange = onPlacementChange
@@ -704,7 +707,76 @@ public struct WatchGreenPreviewView: View {
         _rotationDegrees = State(initialValue: WatchRoundModel.wrappedGreenRotation(initialRotationDegrees))
     }
 
+    #if DEBUG
+    /// Seed the same per-hole retained bitmap state used by a transient nil update.
+    func snapshottingRetainedGeometry(_ geometry: WatchHoleMapGeometry) -> Self {
+        var snapshot = self
+        snapshot._retainedGeometry = State(initialValue: geometry)
+        return snapshot
+    }
+    #endif
+
     public var body: some View {
+        Group {
+            if geometry.hasUsableBitmap || geometry.hasUsableGreenDetail {
+                mappedContent
+            } else {
+                GeometryReader { proxy in
+                    let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
+                    ZStack {
+                        WatchNeutralMapSurface()
+                        rangeHeader(in: safeRect)
+                        WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
+                            .position(
+                                x: safeRect.minX + WatchDisplayGeometry.instrumentControlSize / 2,
+                                y: safeRect.maxY - WatchDisplayGeometry.instrumentControlSize / 2
+                            )
+                    }
+                }
+                .ignoresSafeArea()
+            }
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { value in
+                    guard WatchEdgeBackGesture.shouldTrigger(
+                        startX: value.startLocation.x,
+                        translation: value.translation
+                    ) else { return }
+                    onBack()
+                },
+            including: edgeBackEnabled ? .all : .subviews
+        )
+        .accessibilityAction(named: Text("返回菜单"), onBack)
+        .onChange(of: sourceGeometry.image) { _, _ in retainedGeometry = geometry }
+        .onChange(of: sourceGeometry.greenDetailImage) { _, _ in retainedGeometry = geometry }
+    }
+
+    @ViewBuilder
+    private func rangeHeader(in safeRect: CGRect) -> some View {
+        if rangeUnavailable {
+            VStack(spacing: 1) {
+                Text("999")
+                    .font(.system(size: 22, weight: .black, design: .rounded))
+                    .monospacedDigit()
+                Text("等待定位")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(AICaddieDesignTokens.hudYellow)
+            }
+            .position(x: safeRect.midX, y: safeRect.minY + 18)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("999 码，等待定位")
+        } else if let distanceText {
+            Text(distanceText)
+                .font(.system(size: 16, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+                .position(x: safeRect.midX, y: safeRect.minY + 13)
+                .accessibilityLabel(metricsAccessibilityLabel ?? "到旗 \(distanceText) 码")
+        }
+    }
+
+    private var mappedContent: some View {
         GeometryReader { proxy in
             let viewport = WatchGreenPreviewLayout.viewport(
                 geometry: geometry,
@@ -744,36 +816,17 @@ public struct WatchGreenPreviewView: View {
                     .allowsHitTesting(false)
                 }
 
-                if rangeUnavailable {
-                    VStack(spacing: 1) {
-                        Text("999")
-                            .font(.system(size: 22, weight: .black, design: .rounded))
-                            .monospacedDigit()
-                        Text("等待定位")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(AICaddieDesignTokens.hudYellow)
-                    }
-                    .position(x: safeRect.midX, y: safeRect.minY + 18)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("999 码，等待定位")
-                } else if let distanceText {
-                    Text(distanceText)
-                        .font(.system(size: 16, weight: .heavy, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(.white)
-                        .position(x: safeRect.midX, y: safeRect.minY + 13)
-                        .accessibilityLabel(metricsAccessibilityLabel ?? "到旗 \(distanceText) 码")
-                }
+                rangeHeader(in: safeRect)
 
                 if !hasFocusedGreenDetail {
-                    Text("仅显示果岭几何边界")
+                    Text("详细果岭图准备中")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.78))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
                         .background(.black.opacity(0.62), in: Capsule())
                         .position(x: safeRect.midX, y: safeRect.maxY - 12)
-                        .accessibilityLabel("详细果岭图尚未下载，仅显示几何边界")
+                        .accessibilityLabel("详细果岭图准备中，显示已下载地图")
                 }
 
                 // The flag's own drag target. Unzoomed it is the only drag on this page, so every
@@ -865,26 +918,17 @@ public struct WatchGreenPreviewView: View {
             if placementChanged { persistPlacement() }
         }
         .ignoresSafeArea()
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 24)
-                .onEnded { value in
-                    guard WatchEdgeBackGesture.shouldTrigger(
-                        startX: value.startLocation.x,
-                        translation: value.translation
-                    ) else { return }
-                    onBack()
-                },
-            including: edgeBackEnabled ? .all : .subviews
-        )
-        .accessibilityAction(named: Text("返回菜单"), onBack)
+
     }
 
     private var pin: CGPoint { selectedPin ?? geometry.pinPx }
-    private var canMoveFlag: Bool { geometry.greenOutlinePx.count >= 3 }
+    private var canMoveFlag: Bool {
+        (geometry.hasUsableBitmap || geometry.hasUsableGreenDetail) && geometry.greenOutlinePx.count >= 3
+    }
 
     private var hasFocusedGreenDetail: Bool {
         #if canImport(UIKit)
-        return geometry.greenDetailImage != nil
+        return geometry.hasUsableGreenDetail
         #else
         return false
         #endif
@@ -1022,9 +1066,10 @@ public struct WatchGreenPreviewView: View {
         size: CGSize,
         viewport: WatchGreenViewport
     ) {
-        context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
+        context.fill(Path(CGRect(origin: .zero, size: size)),
+                     with: .color(Color(red: 0.08, green: 0.20, blue: 0.12)))
+        guard geometry.hasUsableBitmap || geometry.hasUsableGreenDetail else { return }
 
-        var drewTopo = false
         #if canImport(UIKit)
         if let image = geometry.image {
             let rect = CGRect(
@@ -1051,7 +1096,6 @@ public struct WatchGreenPreviewView: View {
                     )
                     layer.draw(layer.resolve(source), in: rect)
                 }
-                drewTopo = true
             }
         }
         #endif
@@ -1066,9 +1110,8 @@ public struct WatchGreenPreviewView: View {
         // trees enlarged from the low-resolution whole-hole bitmap.  green-v3 is a larger geometry
         // render whose alpha fades at the crop edge, so it preserves genuine context detail while
         // blending back into the continuous base without a square seam or rotated black corner.
-        if let detail = geometry.greenDetailImage,
-           let sourceRect = geometry.greenDetailRectPx,
-           sourceRect.width > 0, sourceRect.height > 0 {
+        if geometry.hasUsableGreenDetail, let detail = geometry.greenDetailImage,
+           let sourceRect = geometry.greenDetailRectPx {
             let detailRect = CGRect(
                 x: viewport.imageOrigin.x + sourceRect.minX * viewport.scale,
                 y: viewport.imageOrigin.y + sourceRect.minY * viewport.scale,
@@ -1105,29 +1148,6 @@ public struct WatchGreenPreviewView: View {
                 transform: viewport.canvasPoint
             )
             let bounds = outline.boundingRect
-            // Never paint over a real focused bitmap. The previous branch accidentally sent
-            // `greenDetailImage != nil` through the opaque fallback and hid every high-resolution
-            // pixel we had just drawn. Synthetic colour is only for old/offline caches that do not
-            // have the focused asset yet.
-            if geometry.greenDetailImage == nil {
-                let colors = drewTopo
-                    ? [
-                        Color(red: 0.46, green: 0.96, blue: 0.26).opacity(0.72),
-                        Color(red: 0.28, green: 0.80, blue: 0.18).opacity(0.62),
-                    ]
-                    : [
-                        Color(red: 0.43, green: 0.93, blue: 0.22),
-                        Color(red: 0.24, green: 0.78, blue: 0.18),
-                    ]
-                context.fill(
-                    outline,
-                    with: .linearGradient(
-                        Gradient(colors: colors),
-                        startPoint: CGPoint(x: bounds.midX, y: bounds.minY),
-                        endPoint: CGPoint(x: bounds.midX, y: bounds.maxY)
-                    )
-                )
-            }
             // This is a neutral instrument grid, not invented slope/contour data. It provides the
             // same move-the-pin spatial cue as S70. It follows the selected flag so each line ends at
             // the same measured boundary used by the four directional yardages.

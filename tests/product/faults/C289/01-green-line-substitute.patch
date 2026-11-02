@@ -1,0 +1,21 @@
+diff --git a/mobile/ios/AICaddieWatch/Views/WatchGreenPreviewView.swift b/mobile/ios/AICaddieWatch/Views/WatchGreenPreviewView.swift
+index 1b395788..9b76c5fb 100644
+--- a/mobile/ios/AICaddieWatch/Views/WatchGreenPreviewView.swift
++++ b/mobile/ios/AICaddieWatch/Views/WatchGreenPreviewView.swift
+@@ -725,6 +725,16 @@ public struct WatchGreenPreviewView: View {
+                     let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
+                     ZStack {
+                         WatchNeutralMapSurface()
++                            .overlay {
++                                Canvas { context, size in
++                                    guard geometry.greenOutlinePx.count >= 3 else { return }
++                                    let viewport = WatchGreenPreviewLayout.viewport(geometry: geometry, size: size)
++                                    let outline = WatchGreenPreviewLayout.smoothPath(
++                                        polygon: geometry.greenOutlinePx, transform: viewport.canvasPoint
++                                    )
++                                    context.fill(outline, with: .color(Color(red: 0.43, green: 0.93, blue: 0.22)))
++                                }
++                            }
+                         rangeHeader(in: safeRect)
+                         WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
+                             .position(

@@ -1,0 +1,17 @@
+diff --git a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
+index 2519bcff..44df892c 100644
+--- a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
++++ b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
+@@ -1547,10 +1547,8 @@ public struct WatchHoleMapView: View {
+             let width = image.size.width * fit
+             let height = image.size.height * fit
+             if [width, height].allSatisfy({ $0.isFinite && $0 > 0 }) {
+-                context.draw(context.resolve(Image(uiImage: image)), in: CGRect(
+-                    x: (size.width - width) / 2, y: (size.height - height) / 2,
+-                    width: width, height: height
+-                ))
++                context.draw(context.resolve(Image(uiImage: image)),
++                             in: preciseImageRect(in: size) ?? .zero)
+             }
+             return
+         }

@@ -49,7 +49,7 @@ public struct WatchHoleMapGeometry {
     public let routePx: [CGPoint]
     public let greenOutlinePx: [CGPoint]
     public let hazardSpans: [WatchHoleMapHazardGeometry]
-    /// Real surfaces for the vector map, drawn only while no bitmap is (empty when the server sent none).
+    /// Factual surfaces in image pixels; never drawn as a temporary bitmap substitute.
     public let surfaces: [WatchHoleMapSurfaceGeometry]
 
     public init(
@@ -82,6 +82,35 @@ public struct WatchHoleMapGeometry {
         self.surfaces = surfaces
     }
 
+    /// J4.5: vector geometry is never a substitute for a drawable raster.
+    var hasUsableImageFrame: Bool {
+        [imageSize.width, imageSize.height].allSatisfy { $0.isFinite && $0 > 0 }
+            && [youPx.x, youPx.y, pinPx.x, pinPx.y].allSatisfy { $0.isFinite }
+    }
+
+    var hasUsableBitmap: Bool { image?.hasUsableMapPixels == true && hasUsableImageFrame }
+
+    var hasUsableGreenDetail: Bool {
+        guard greenDetailImage?.hasUsableMapPixels == true, hasUsableImageFrame, let rect = greenDetailRectPx else { return false }
+        return [rect.minX, rect.minY, rect.width, rect.height].allSatisfy { $0.isFinite }
+            && rect.width > 0 && rect.height > 0
+    }
+
+    /// Preserve already displayed rasters during a transient nil update on this instrument.
+    /// The container's per-hole identity owns resetting this state on a hole change.
+    func retainingBitmaps(from previous: WatchHoleMapGeometry?) -> WatchHoleMapGeometry {
+        let base = hasUsableBitmap ? self : (previous?.hasUsableBitmap == true ? previous : nil)
+        let detail = hasUsableGreenDetail ? self : (previous?.hasUsableGreenDetail == true ? previous : nil)
+        return WatchHoleMapGeometry(
+            image: base?.image, greenDetailImage: detail?.greenDetailImage,
+            greenDetailRectPx: detail?.greenDetailRectPx,
+            imageSize: base?.imageSize ?? detail?.imageSize ?? imageSize,
+            youPx: youPx, pinPx: pinPx, layupPx: layupPx, apexPx: apexPx,
+            greenCtrlPx: greenCtrlPx, routePx: routePx, greenOutlinePx: greenOutlinePx,
+            hazardSpans: hazardSpans, surfaces: surfaces
+        )
+    }
+
     /// watch P3: a copy with YOU relocated — used when the watch's own GPS places the player (the pin /
     /// lay-up / route anchors are unchanged, only where "you" stand).
     public func withYou(_ px: CGPoint) -> WatchHoleMapGeometry {
@@ -112,7 +141,7 @@ extension WatchHoleMapSample {
 extension WatchHoleMapGeometry {
     /// watch P1b: build the render geometry from a phone-pushed `WatchHoleMap` (pre-computed overlay
     /// anchors in /topo.png px) and the cached topo image when available. A CourseView-only package
-    /// intentionally has no bitmap yet; its factual route/green/hazard vectors still form a usable map.
+    /// intentionally has no bitmap yet; its geometry is retained while the UI shows neutral waiting.
     public static func from(
         holeMap: WatchHoleMap?,
         image: UIImage?,
@@ -170,3 +199,11 @@ extension WatchHoleMapGeometry {
         )
     }
 }
+
+#if canImport(UIKit)
+extension UIImage {
+    var hasUsableMapPixels: Bool {
+        [size.width, size.height].allSatisfy { $0.isFinite && $0 > 0 }
+    }
+}
+#endif

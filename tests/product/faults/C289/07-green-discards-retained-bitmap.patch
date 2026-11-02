@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddieWatch/Views/WatchGreenPreviewView.swift b/mobile/ios/AICaddieWatch/Views/WatchGreenPreviewView.swift
+index 7c1f74cb..ccfda5ff 100644
+--- a/mobile/ios/AICaddieWatch/Views/WatchGreenPreviewView.swift
++++ b/mobile/ios/AICaddieWatch/Views/WatchGreenPreviewView.swift
+@@ -649,7 +649,7 @@ private struct WatchGreenRotationButton: View {
+ public struct WatchGreenPreviewView: View {
+     private let sourceGeometry: WatchHoleMapGeometry
+     @State private var retainedGeometry: WatchHoleMapGeometry?
+-    public var geometry: WatchHoleMapGeometry { sourceGeometry.retainingBitmaps(from: retainedGeometry) }
++    public var geometry: WatchHoleMapGeometry { sourceGeometry }
+     public let centerGreenYards: Int?
+     /// True while the Watch has no qualified wrist fix. Geometry/editing remains usable, but any
+     /// player-to-pin or edge distance must be replaced by an explicit acquiring state.

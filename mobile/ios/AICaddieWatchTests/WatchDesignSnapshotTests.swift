@@ -2524,7 +2524,13 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let withFacts = WatchHoleMapGeometry(
             image: nil, imageSize: base.imageSize, youPx: base.youPx, pinPx: base.pinPx,
             layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx,
-            routePx: route
+            routePx: route,
+            greenOutlinePx: WatchHoleMapSample.greenOutlinePx,
+            hazardSpans: [WatchHoleMapHazardGeometry(kind: "water", frontPx: route[0], backPx: route[1])],
+            surfaces: [WatchHoleMapSurfaceGeometry(kind: "fairway", outer: [
+                CGPoint(x: 400, y: 950), CGPoint(x: 480, y: 950),
+                CGPoint(x: 480, y: 300), CGPoint(x: 400, y: 300)
+            ])]
         )
 
         func render(_ geometry: WatchHoleMapGeometry) throws -> [UInt8] {
@@ -2541,6 +2547,177 @@ final class WatchDesignSnapshotTests: XCTestCase {
             try render(withFacts),
             "a bitmapless resting root must stay neutral instead of drawing route facts as lines"
         )
+        XCTAssertNotEqual(try render(noFacts), try render(base),
+                          "J4.5: waiting differs from a real precise bitmap")
+    }
+
+    /// J4.5: no temporary green polygon/grid or hazard contour replaces a missing bitmap.
+    /// Expected equality comes from the neutral waiting rule, independent of vector facts.
+    @MainActor
+    func testGreenWithoutBitmapIgnoresOutlineAndHasBitmapControl() throws {
+        let base = WatchHoleMapSample.geometry
+        func geometry(outline: [CGPoint], image: UIImage? = nil) -> WatchHoleMapGeometry {
+            WatchHoleMapGeometry(
+                image: image, imageSize: base.imageSize, youPx: base.youPx, pinPx: base.pinPx,
+                layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx,
+                greenOutlinePx: outline
+            )
+        }
+        func pixels(_ geometry: WatchHoleMapGeometry) throws -> [UInt8] {
+            let view = WatchGreenPreviewView(geometry: geometry)
+                .watchSnapshotFrame(width: 198, height: 242)
+            return renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: view).cgImage))
+        }
+        let waiting = try pixels(geometry(outline: []))
+        XCTAssertEqual(waiting, try pixels(geometry(outline: WatchHoleMapSample.greenOutlinePx)),
+                       "J4.5: missing green bitmap must not draw polygon, grid, flag or edge labels")
+        XCTAssertNotEqual(waiting, try pixels(geometry(outline: WatchHoleMapSample.greenOutlinePx,
+                                                      image: try XCTUnwrap(base.image))),
+                          "J4.5: precise imagery replaces the neutral waiting surface")
+    }
+
+    /// J4.5: the hazard page uses the same neutral waiting rule as the hole root.
+    @MainActor
+    func testHazardWithoutBitmapIgnoresContourAndHasBitmapControl() throws {
+        let base = WatchHoleMapSample.geometry
+        let route = [[435.0, 981.0, 0.0], [435.0, 279.0, 518.8]]
+        func pixels(outline: [[Double]], image: UIImage? = nil) throws -> [UInt8] {
+            let geometry = WatchHoleMapGeometry(
+                image: image, imageSize: base.imageSize, youPx: base.youPx, pinPx: base.pinPx,
+                layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx
+            )
+            let hazard = WatchHazard(kind: "water", label: "水障碍", startM: 190, endM: 210,
+                                     frontPx: [435, 724], backPx: [435, 697], outlinePx: outline)
+            let view = WatchHazardMapView(geometry: geometry, route: route, hazards: [hazard],
+                                          centerGreenYards: 320)
+                .watchSnapshotFrame(width: 198, height: 242)
+            return renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: view).cgImage))
+        }
+        let outline = [[410.0, 724.0], [460.0, 724.0], [460.0, 697.0], [410.0, 697.0]]
+        let waiting = try pixels(outline: [])
+        XCTAssertEqual(waiting, try pixels(outline: outline),
+                       "J4.5: missing hazard bitmap must not draw a red contour")
+        XCTAssertNotEqual(waiting, try pixels(outline: outline, image: try XCTUnwrap(base.image)),
+                          "J4.5: hazard precise bitmap must be visible")
+    }
+
+    /// J4.5: compare actual waiting pixels with an independently specified single notice.
+    /// Also catches extra Text outside the identifier list, missing notices and empty renders.
+    @MainActor
+    func testWaitingMapRendersExactlyOneNoticeEvenWithUnusableBitmap() throws {
+        let base = WatchHoleMapSample.geometry
+        let expected = ZStack {
+            Color(red: 0.08, green: 0.20, blue: 0.12)
+            Text("地图准备中")
+                .font(.system(size: 14, weight: .black))
+                .foregroundStyle(.white.opacity(0.88))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(.black.opacity(0.55), in: Capsule())
+        }.ignoresSafeArea().watchSnapshotFrame(width: 198, height: 242)
+        let expectedPixels = renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: expected).cgImage))
+        for (image, size) in [(nil as UIImage?, base.imageSize), (base.image, CGSize.zero)] {
+            let geometry = WatchHoleMapGeometry(
+                image: image, imageSize: size, youPx: base.youPx, pinPx: base.pinPx,
+                layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx
+            )
+            let map = WatchHoleMapView(ringPips: [], showTextOverlay: false, showHoleIdentity: false,
+                                      fullMap: true, geometry: geometry)
+                .watchSnapshotFrame(width: 198, height: 242)
+            assertPixelsMatch(renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: map).cgImage)),
+                              expectedPixels, "J4.5: waiting has exactly one visible preparing notice")
+
+            // 198x242 uses the existing 10 pt content inset and 50 pt Back target: (35, 207).
+            let expectedGreen = expected.overlay {
+                WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: {})
+                    .position(x: 35, y: 207)
+            }
+            let green = WatchGreenPreviewView(geometry: geometry)
+                .watchSnapshotFrame(width: 198, height: 242)
+            XCTAssertEqual(renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: green).cgImage)),
+                           renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: expectedGreen).cgImage)),
+                           "J4.5: the actual green waiting page has one preparing notice and Back")
+        }
+    }
+
+    /// J4.5: absent a Garmin projection, show the raster independently of precise anchors and
+    /// explicitly say routes wait. The 200x240 fixture aspect-fits 198x242 at (0, 2.2), 198x237.6.
+    @MainActor
+    func testGarminBitmapUsesItsOwnFrameAndShowsPendingRouteNotice() throws {
+        let image = try XCTUnwrap(Self.card438MapImage)
+        let base = WatchHoleMapSample.geometry
+        func geometry(shift: CGFloat) -> WatchHoleMapGeometry {
+            WatchHoleMapGeometry(
+                image: nil, imageSize: base.imageSize,
+                youPx: CGPoint(x: base.youPx.x + shift, y: base.youPx.y + shift),
+                pinPx: base.pinPx, layupPx: base.layupPx, apexPx: base.apexPx,
+                greenCtrlPx: base.greenCtrlPx, routePx: [base.youPx, base.pinPx],
+                greenOutlinePx: WatchHoleMapSample.greenOutlinePx
+            )
+        }
+        func pixels(_ view: some View) throws -> [UInt8] {
+            let framed = view.watchSnapshotFrame(width: 198, height: 242)
+            return renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: framed).cgImage))
+        }
+        func map(shift: CGFloat) -> WatchHoleMapView {
+            WatchHoleMapView(ringPips: [], showTextOverlay: false, showHoleIdentity: false,
+                             fullMap: true, geometry: geometry(shift: shift), garminImage: image)
+        }
+        let expected = ZStack {
+            Canvas { context, _ in
+                context.fill(Path(CGRect(x: 0, y: 0, width: 198, height: 242)), with: .color(.black))
+                context.draw(context.resolve(Image(uiImage: image)),
+                             in: CGRect(x: 0, y: 2.2, width: 198, height: 237.6))
+            }
+            Text("路线等精细地图出来后显示")
+                .font(.system(size: 10, weight: .semibold))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white)
+                .padding(6)
+                .background(.black.opacity(0.65), in: Capsule())
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .padding(.bottom, 36)
+        }.ignoresSafeArea()
+        let garmin = try pixels(map(shift: 0))
+        XCTAssertEqual(garmin, try pixels(expected), "J4.5: Garmin raster and pending-route notice are visible")
+        XCTAssertEqual(garmin, try pixels(map(shift: 200)),
+                       "J4.5: precise anchors cannot position an unprojected Garmin bitmap")
+    }
+
+    /// J4.5: green/hazard pages retain their displayed rasters on a transient nil input.
+    @MainActor
+    func testGreenAndHazardRetainDisplayedBitmapsWithoutWaitingOverlay() throws {
+        let base = WatchHoleMapSample.geometry
+        let image = try XCTUnwrap(base.image)
+        let detail = try XCTUnwrap(WatchHoleMapSample.greenDetailImage)
+        func geometry(image: UIImage?, detail: UIImage? = nil) -> WatchHoleMapGeometry {
+            WatchHoleMapGeometry(
+                image: image, greenDetailImage: detail,
+                greenDetailRectPx: CGRect(x: 375, y: 225, width: 120, height: 120),
+                imageSize: base.imageSize, youPx: base.youPx, pinPx: base.pinPx,
+                layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx,
+                greenOutlinePx: WatchHoleMapSample.greenOutlinePx
+            )
+        }
+        func pixels(_ view: some View) throws -> [UInt8] {
+            let framed = view.watchSnapshotFrame(width: 198, height: 242)
+            return renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: framed).cgImage))
+        }
+        let missing = geometry(image: nil)
+        for full in [geometry(image: image), geometry(image: nil, detail: detail)] {
+            let retained = WatchGreenPreviewView(geometry: missing).snapshottingRetainedGeometry(full)
+            assertPixelsMatch(try pixels(retained), try pixels(WatchGreenPreviewView(geometry: full)),
+                              "J4.5: green retains both whole-hole and detail-only imagery")
+        }
+        let route = [[435.0, 981.0, 0.0], [435.0, 279.0, 518.8]]
+        let hazard = WatchHazard(kind: "water", label: "水障碍", startM: 190, endM: 210,
+                                 frontPx: [435, 724], backPx: [435, 697])
+        let full = geometry(image: image)
+        let retained = WatchHazardMapView(geometry: missing, route: route, hazards: [hazard],
+                                          centerGreenYards: 320).snapshottingRetainedGeometry(full)
+        let precise = WatchHazardMapView(geometry: full, route: route, hazards: [hazard], centerGreenYards: 320)
+        XCTAssertEqual(try pixels(retained), try pixels(precise),
+                       "J4.5: retained hazard bitmap keeps contours and has no waiting overlay")
     }
 
     /// J4.5: one waiting notice, and none over an already displayed precise bitmap. The retained
@@ -3236,6 +3413,27 @@ final class WatchDesignSnapshotTests: XCTestCase {
         }
         XCTAssertTrue(rendered, "could not decode rendered pixels")
         return pixels
+    }
+
+    /// Two compositing paths for the same picture can round a channel by 1; anything a real
+    /// regression draws (extra notice, contour, dropped bitmap) differs far more than this.
+    private func assertPixelsMatch(
+        _ actual: [UInt8], _ expected: [UInt8], maxChannelDelta: Int = 2, _ message: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        guard actual.count == expected.count else {
+            XCTFail("\(message): pixel buffer size \(actual.count) != \(expected.count)", file: file, line: line)
+            return
+        }
+        var worst = 0
+        var off = 0
+        for index in actual.indices {
+            let delta = abs(Int(actual[index]) - Int(expected[index]))
+            worst = max(worst, delta)
+            if delta > maxChannelDelta { off += 1 }
+        }
+        XCTAssertEqual(off, 0, "\(message): \(off) channels differ by more than \(maxChannelDelta) (worst \(worst))",
+                       file: file, line: line)
     }
 }
 

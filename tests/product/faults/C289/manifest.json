@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C289-01-green-line-substitute",
+      "patch": "tests/product/faults/C289/01-green-line-substitute.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testGreenWithoutBitmapIgnoresOutlineAndHasBitmapControl",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C289-02-hazard-contour-without-bitmap",
+      "patch": "tests/product/faults/C289/02-hazard-contour-without-bitmap.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testHazardWithoutBitmapIgnoresContourAndHasBitmapControl",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C289-03-duplicate-visible-waiting-notice",
+      "patch": "tests/product/faults/C289/03-duplicate-visible-waiting-notice.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testWaitingMapRendersExactlyOneNoticeEvenWithUnusableBitmap",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C289-04-unusable-bitmap-missing-notice",
+      "patch": "tests/product/faults/C289/04-unusable-bitmap-missing-notice.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testWaitingMapRendersExactlyOneNoticeEvenWithUnusableBitmap",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C289-05-garmin-missing-route-notice",
+      "patch": "tests/product/faults/C289/05-garmin-missing-route-notice.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testGarminBitmapUsesItsOwnFrameAndShowsPendingRouteNotice",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C289-06-garmin-uses-precise-projection",
+      "patch": "tests/product/faults/C289/06-garmin-uses-precise-projection.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testGarminBitmapUsesItsOwnFrameAndShowsPendingRouteNotice",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C289-07-green-discards-retained-bitmap",
+      "patch": "tests/product/faults/C289/07-green-discards-retained-bitmap.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testGreenAndHazardRetainDisplayedBitmapsWithoutWaitingOverlay",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C289-08-hazard-discards-retained-bitmap",
+      "patch": "tests/product/faults/C289/08-hazard-discards-retained-bitmap.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchDesignSnapshotTests/testGreenAndHazardRetainDisplayedBitmapsWithoutWaitingOverlay",
+      "promise": "J4.5"
+    }
+  ]
+}

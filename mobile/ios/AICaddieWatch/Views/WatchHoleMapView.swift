@@ -756,8 +756,8 @@ public struct WatchHoleMapView: View {
     // the real playing view builds it from the fetched /topo.png + holeImageProjection.
     public let geometry: WatchHoleMapGeometry
     /// Optional Garmin fallback bitmap. The Watch currently receives the precise topo through
-    /// `geometry.image`; this seam lets a Garmin raster be shown while precise imagery is pending
-    /// without reviving vector line facts.
+    /// `geometry.image`; callers must supply a Garmin raster separately. Without a Garmin
+    /// projection contract it is aspect-fitted independently of precise-map anchors, with no vectors.
     public let garminImage: UIImage?
     public let interactionMode: WatchHoleMapInteractionMode
     /// B6 Crown zoom (1–4×) and drag pan applied on top of the page's own framing.
@@ -770,6 +770,7 @@ public struct WatchHoleMapView: View {
     @State private var liveMeasuredPx: CGPoint?
     @State private var retainedMapDisplayState: MapDisplayState?
     @State private var retainedPreciseImage: UIImage?
+    @State private var retainedGarminImage: UIImage?
     /// Transient screen-space focus used only while the Touch Target handle is being dragged.
     @State private var measuredDragLocation: CGPoint?
     @State private var isDraggingMeasuredPoint = false
@@ -867,6 +868,7 @@ public struct WatchHoleMapView: View {
         _liveMeasuredPx = State(initialValue: measuredPxOverride)
         _retainedMapDisplayState = State(initialValue: nil)
         _retainedPreciseImage = State(initialValue: geometry.image)
+        _retainedGarminImage = State(initialValue: garminImage)
         self.interactionMode = interactionMode
         self.userZoom = WatchHoleZoom.clampedZoom(userZoom)
         self.userPan = userPan
@@ -1033,12 +1035,47 @@ public struct WatchHoleMapView: View {
         restingPlayerAnchorFraction ?? Self.rootPlayerAnchorFraction(forHeight: size.height)
     }
 
+    private var availablePreciseImage: UIImage? {
+        if let image = geometry.image, image.hasUsableMapPixels { return image }
+        if let image = retainedPreciseImage, image.hasUsableMapPixels { return image }
+        return nil
+    }
+
+    private var availableGarminImage: UIImage? {
+        if let image = garminImage, image.hasUsableMapPixels { return image }
+        if let image = retainedGarminImage, image.hasUsableMapPixels { return image }
+        return nil
+    }
+
     private var mapDisplayState: MapDisplayState {
-        Self.resolveMapDisplayState(
-            preciseImageReady: geometry.image != nil || retainedPreciseImage != nil,
-            garminImageReady: garminImage != nil,
+        let resolved = Self.resolveMapDisplayState(
+            preciseImageReady: availablePreciseImage != nil,
+            garminImageReady: availableGarminImage != nil,
             previous: retainedMapDisplayState
         )
+        if resolved == .precise, !geometry.hasUsableImageFrame || availablePreciseImage == nil {
+            return availableGarminImage != nil ? .garmin : .waiting
+        }
+        return resolved
+    }
+
+    /// The notice and Canvas use the exact same drawable-rectangle check.
+    private func mapDisplayState(in size: CGSize) -> MapDisplayState {
+        let state = mapDisplayState
+        if state == .precise, preciseImageRect(in: size) == nil {
+            return availableGarminImage != nil ? .garmin : .waiting
+        }
+        return state
+    }
+
+    private func preciseImageRect(in size: CGSize) -> CGRect? {
+        guard geometry.hasUsableImageFrame else { return nil }
+        let origin = anchors(size).t(.zero)
+        let scale = currentScale(size)
+        let width = geometry.imageSize.width * scale
+        let height = geometry.imageSize.height * scale
+        guard [origin.x, origin.y, width, height].allSatisfy({ $0.isFinite }), width > 0, height > 0 else { return nil }
+        return CGRect(x: origin.x, y: origin.y, width: width, height: height)
     }
 
     private var mapInputKey: String {
@@ -1084,14 +1121,23 @@ public struct WatchHoleMapView: View {
                 Canvas { context, size in
                     drawMap(&context, size: size)
                 }
-                ForEach(mapPreparingAccessibilityIdentifiers.indices, id: \.self) { index in
-                    Text(Self.mapPreparingTitle)
-                        .font(.system(size: 14, weight: .black))
-                        .foregroundStyle(.white.opacity(0.88))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(.black.opacity(0.55), in: Capsule())
-                        .accessibilityIdentifier(mapPreparingAccessibilityIdentifiers[index])
+                let preparingIdentifiers = mapPreparingAccessibilityIdentifiers.isEmpty
+                    && mapDisplayState(in: geo.size) == .waiting
+                    ? ["watch-map-preparing"] : mapPreparingAccessibilityIdentifiers
+                ForEach(preparingIdentifiers.indices, id: \.self) { index in
+                    WatchMapPreparingNotice()
+                        .accessibilityIdentifier(preparingIdentifiers[index])
+                }
+                if mapDisplayState(in: geo.size) == .garmin {
+                    Text("路线等精细地图出来后显示")
+                        .font(.system(size: 10, weight: .semibold))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white)
+                        .padding(6)
+                        .background(.black.opacity(0.65), in: Capsule())
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 36)
+                        .accessibilityIdentifier("watch-map-garmin-pending-route")
                 }
                 if interactionMode == .touchTarget,
                    let focus = measuredDragLocation,
@@ -1139,18 +1185,20 @@ public struct WatchHoleMapView: View {
         .background(Color.black)
         .ignoresSafeArea()
         .onAppear {
-            retainedPreciseImage = geometry.image ?? retainedPreciseImage
+            retainedPreciseImage = availablePreciseImage
+            retainedGarminImage = availableGarminImage
             retainedMapDisplayState = Self.resolveMapDisplayState(
-                preciseImageReady: geometry.image != nil || retainedPreciseImage != nil,
-                garminImageReady: garminImage != nil,
+                preciseImageReady: availablePreciseImage != nil,
+                garminImageReady: availableGarminImage != nil,
                 previous: retainedMapDisplayState
             )
         }
         .onChange(of: mapInputKey) { _, _ in
-            retainedPreciseImage = geometry.image ?? retainedPreciseImage
+            retainedPreciseImage = availablePreciseImage
+            retainedGarminImage = availableGarminImage
             retainedMapDisplayState = Self.resolveMapDisplayState(
-                preciseImageReady: geometry.image != nil || retainedPreciseImage != nil,
-                garminImageReady: garminImage != nil,
+                preciseImageReady: availablePreciseImage != nil,
+                garminImageReady: availableGarminImage != nil,
                 previous: retainedMapDisplayState
             )
         }
@@ -1270,7 +1318,6 @@ public struct WatchHoleMapView: View {
         // An unavailable range is a sentinel, so never apply plays-like math to 999.
         let pl = showPlaysLike && !rangeUnavailable
         let d = pl ? playsLikeDelta : 0
-        let safeRect = WatchDisplayGeometry.contentRect(in: size)
         // IA prototype faces (≤ 42 mm) tighten the facts so a corner control fits below them.
         // Larger faces too while 等待定位 adds a line, so the facts never reach the ≡ button.
         let compactFacts = lastShotPlacement == .facts && (size.height < 230 || rangeUnavailable)
@@ -1486,7 +1533,7 @@ public struct WatchHoleMapView: View {
     private func drawMap(_ context: inout GraphicsContext, size: CGSize) {
         context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
 
-        let displayState = mapDisplayState
+        let displayState = mapDisplayState(in: size)
         guard displayState != .waiting else {
             context.fill(
                 Path(CGRect(origin: .zero, size: size)),
@@ -1495,31 +1542,26 @@ public struct WatchHoleMapView: View {
             return
         }
 
-        let scale = currentScale(size)
+        if displayState == .garmin, let image = availableGarminImage {
+            let fit = min(size.width / image.size.width, size.height / image.size.height)
+            let width = image.size.width * fit
+            let height = image.size.height * fit
+            if [width, height].allSatisfy({ $0.isFinite && $0 > 0 }) {
+                context.draw(context.resolve(Image(uiImage: image)), in: CGRect(
+                    x: (size.width - width) / 2, y: (size.height - height) / 2,
+                    width: width, height: height
+                ))
+            }
+            return
+        }
+
         let a = anchors(size)
         let player = a.you
         let green = a.t(pinImagePoint)
-
-        var drew = false
-        #if canImport(UIKit)
-        let mapImage = displayState == .precise ? (geometry.image ?? retainedPreciseImage) : garminImage
-        if let ui = mapImage {
-            let o = a.t(.zero)
-            let w = geometry.imageSize.width * scale
-            let h = geometry.imageSize.height * scale
-            let rect = CGRect(x: o.x, y: o.y, width: w, height: h)
-            if [o.x, o.y, w, h].allSatisfy({ $0.isFinite }), w > 0, h > 0 {
-                context.draw(context.resolve(Image(uiImage: ui)), in: rect)
-                drew = true
-            }
-        }
-        #endif
-        if !drew {
-            context.fill(Path(CGRect(origin: .zero, size: size)),
-                         with: .color(Color(red: 0.08, green: 0.20, blue: 0.12)))
-            return
-        } else if displayState == .precise, Self.drawsRouteAndPlan(fullMap: fullMap) {
-            // Full-map instruments keep the tee-to-green route over the factual course art.
+        guard let image = availablePreciseImage,
+              let rect = preciseImageRect(in: size) else { return }
+        context.draw(context.resolve(Image(uiImage: image)), in: rect)
+        if Self.drawsRouteAndPlan(fullMap: fullMap) {
             drawFactualRoute(&context, transform: a.t)
         }
 
@@ -2207,5 +2249,27 @@ private struct WatchTouchTargetMagnifierLoupe<Content: View>: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("拖动测距目标时的放大视图")
         .accessibilityIdentifier("watch-touch-target-magnifier")
+    }
+}
+
+/// J4.5: a single shared preparing notice for all Watch map instruments.
+struct WatchMapPreparingNotice: View {
+    var body: some View {
+        Text("地图准备中")
+            .font(.system(size: 14, weight: .black))
+            .foregroundStyle(.white.opacity(0.88))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(.black.opacity(0.55), in: Capsule())
+            .accessibilityIdentifier("watch-map-preparing")
+    }
+}
+
+struct WatchNeutralMapSurface: View {
+    var body: some View {
+        ZStack {
+            Color(red: 0.08, green: 0.20, blue: 0.12)
+            WatchMapPreparingNotice()
+        }
     }
 }
