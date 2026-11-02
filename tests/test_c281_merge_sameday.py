@@ -95,6 +95,65 @@ class C281MergeSameDayTests(unittest.TestCase):
                 11,
             )
 
+    def test_j1_3_both_cards_need_non_overlapping_holes(self) -> None:
+        """J1.3: two cards that only repeat their two holes cannot replace restores."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            short = _row("short", "2026-06-01 08:00", [1, 2])
+            complete = _row("complete", "2026-06-01 13:00", list(range(1, 19)))
+            _restore(root, "short", numbers=range(3, 19))
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[short, complete], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "short")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (18, 18))
+
+    def test_j1_3_boundary_index_requires_same_calendar_day(self) -> None:
+        """J1.3: a 9..17 card on another day cannot consume this day's restores."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = _row("first", "2026-06-01 08:00", list(range(1, 10)))
+            other_day = _row("other-day", "2026-06-15 11:00", list(range(9, 18)))
+            _restore(root, "first")
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[first, other_day], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "first")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (18, 18))
+
+    def test_j1_3_boundary_index_is_not_global_across_dates(self) -> None:
+        """J1.3: date order cannot make an earlier 9..17 card replace restores."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = _row("first", "2026-06-15 08:00", list(range(1, 10)))
+            earlier = _row("earlier", "2026-06-01 11:00", list(range(9, 18)))
+            _restore(root, "first")
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[first, earlier], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "first")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (18, 18))
+
+    def test_j1_3_repeated_physical_hole_requires_one_score(self) -> None:
+        """J1.3: duplicate source scores cannot prove that two cards are one outing."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = _row("first", "2026-06-01 08:00", list(range(1, 10)))
+            first["holes"].append({"number": 9, "strokes": 6, "par": 4})
+            late = _row("late", "2026-06-01 11:00", list(range(9, 18)))
+            late["holes"].insert(1, {"number": 9, "strokes": 6, "par": 4})
+            _restore(root, "first")
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[first, late], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "first")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (19, 19))
+            self.assertEqual(sum(h["number"] == 18 for h in current["holes"]), 1)
+
 
     def test_j1_3_late_card_boundary_overlap_replaces_only_covered_restore(self) -> None:
         """J1.3: 1..9 + restore 10..18 + matching 9..17 has one sample per back hole."""
@@ -290,3 +349,17 @@ class C281MergeSameDayTests(unittest.TestCase):
                 )
         self.assertLessEqual(CountingDict.scans, 2)
         self.assertLessEqual(CountingDict.lookups, len(rows))
+
+    def test_j1_3_builds_boundary_index_once_per_history(self) -> None:
+        """J1.3: boundary evidence is indexed once and reused for every round."""
+        from ai_caddie.history import corrected_history as module
+
+        rows = [_row(f"round-{i}", f"2026-06-{i + 1:02d} 08:00", list(range(1, 19))) for i in range(4)]
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _restore(root, "round-0", numbers=[18])
+            with patch.object(module, "_same_day_matching_boundary_score_holes", wraps=module._same_day_matching_boundary_score_holes) as index:
+                corrected_history_data(
+                    HistoryData(raw_rounds=[], rounds=rows, shots=[]), annotations_root=root,
+                )
+        self.assertEqual(index.call_count, 1)
