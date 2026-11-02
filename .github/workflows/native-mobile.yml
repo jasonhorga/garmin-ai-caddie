@@ -48,6 +48,7 @@ on:
       - '.github/caddie-runner-ports.json'
       - '.github/scripts/fixture-port.py'
       - '.github/scripts/select-sim.sh'
+      - '.github/scripts/set-sim-locale.py'
       - '.github/scripts/shutdown-owned-sims.sh'
       - '.github/scripts/check_native_fixture_dns.py'
       - '.github/scripts/scan_artifacts_for_secrets.py'
@@ -835,6 +836,9 @@ jobs:
           echo "NATIVE_WATCH_UDID=$NATIVE_WATCH_UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$NATIVE_WATCH_UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$NATIVE_WATCH_UDID" -b
+          if [ -n "${CADDIE_SIM_PREFIX:-}" ]; then
+            xcrun simctl privacy "$NATIVE_WATCH_UDID" grant location com.ai-caddie.mobile.watchkitapp
+          fi
       - &test_watch_app_target
         name: Test Watch app target
         id: test_watch_app
@@ -915,6 +919,7 @@ jobs:
           # fresh simulator so they prove the app UI rather than capturing stale system state.
           xcrun simctl shutdown "$WATCH_UDID" 2>/dev/null || true
           xcrun simctl erase "$WATCH_UDID"
+          python3 .github/scripts/set-sim-locale.py "$WATCH_UDID"
           xcrun simctl boot "$WATCH_UDID"
           xcrun simctl bootstatus "$WATCH_UDID" -b
           xcrun simctl uninstall "$WATCH_UDID" "$BID" 2>/dev/null || true
@@ -1044,7 +1049,9 @@ jobs:
 
   native-unit-watch:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
-    runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
+    # Keep on GitHub until C332 fixes iOS/watchOS 27 SDK transparent green
+    # button hit testing and Watch vertical paging; then move back to Mac.
+    runs-on: macos-15
     timeout-minutes: 45
     env:
       NATIVE_CAPTURE_SHARD: unit-watch
@@ -1133,7 +1140,9 @@ jobs:
 
   native-screenshots:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
-    runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
+    # Keep on GitHub until C332 fixes iOS/watchOS 27 SDK transparent green
+    # button hit testing and Watch vertical paging; then move back to Mac.
+    runs-on: macos-15
     timeout-minutes: 45
     env:
       NATIVE_CAPTURE_SHARD: screenshots
@@ -1171,7 +1180,9 @@ jobs:
   # the tests launch the app with synthetic credentials against the in-process server.
   native-product-ui:
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit' }}
-    runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
+    # Keep on GitHub until C332 fixes iOS/watchOS 27 SDK transparent green
+    # button hit testing and Watch vertical paging; then move back to Mac.
+    runs-on: macos-15
     # "Test iOS app target" (build + unit tests) took 12 min on run 40187234659. This scheme also
     # builds the UI-test bundle and then runs 13 serial tests with about 20 app launches, so about
     # 25 min is expected; 45 stops a hung simulator at roughly twice that.

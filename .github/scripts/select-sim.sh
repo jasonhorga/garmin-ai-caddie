@@ -1,7 +1,7 @@
 #!/bin/bash
 # Print one UDID. Hosted runners retain exact shared names; Mac runners own names.
 set -euo pipefail
-exec python3 - "$@" <<'PY'
+udid=$(python3 - "$@" <<'PY'
 import json
 import os
 import re
@@ -126,3 +126,7 @@ if prefix and os.environ.get('GITHUB_ENV'):
         handle.write('CADDIE_SIM_UDIDS=' + ' '.join(dict.fromkeys([*recorded, udid])) + '\n')
 print(udid)
 PY
+)
+# erase restores host defaults, so configure only after selection/reset and before boot.
+python3 "$(dirname "$0")/set-sim-locale.py" "$udid"
+printf '%s\n' "$udid"

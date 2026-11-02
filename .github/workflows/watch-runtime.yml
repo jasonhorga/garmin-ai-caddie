@@ -37,6 +37,7 @@ on:
     paths:
       - '.github/workflows/watch-runtime.yml'
       - '.github/scripts/select-sim.sh'
+      - '.github/scripts/set-sim-locale.py'
       - '.github/scripts/shutdown-owned-sims.sh'
       - '.github/scripts/preflight_live_course_catalogue.py'
       - '.github/scripts/scan_artifacts_for_secrets.py'
@@ -76,6 +77,9 @@ jobs:
           set -euo pipefail
           xcrun simctl boot "$WATCH_UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$WATCH_UDID" -b
+          if [ -n "${CADDIE_SIM_PREFIX:-}" ]; then
+            xcrun simctl privacy "$WATCH_UDID" grant location com.ai-caddie.mobile.watchkitapp
+          fi
 
       - name: Test Watch app on the resolved simulator
         run: |
@@ -319,6 +323,7 @@ jobs:
           # simulator at this boundary so runtime screenshots start from a clean device.
           xcrun simctl shutdown "$WATCH_UDID" 2>/dev/null || true
           xcrun simctl erase "$WATCH_UDID"
+          python3 .github/scripts/set-sim-locale.py "$WATCH_UDID"
           xcrun simctl boot "$WATCH_UDID"
           xcrun simctl bootstatus "$WATCH_UDID" -b
           xcrun simctl uninstall "$WATCH_UDID" "$BID" 2>/dev/null || true

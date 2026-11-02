@@ -165,6 +165,12 @@ jobs:
         env:
           ONLY_TESTING: ${{ inputs.only_testing }}
         run: |
+          set -euo pipefail
+          if [ -n "${CADDIE_SIM_PREFIX:-}" ]; then
+            xcrun simctl boot "$WATCH_UDID" 2>/dev/null || true
+            xcrun simctl bootstatus "$WATCH_UDID" -b
+            xcrun simctl privacy "$WATCH_UDID" grant location com.ai-caddie.mobile.watchkitapp
+          fi
           args=(test \
             -derivedDataPath "$RUNNER_TEMP/NativeMutantDerivedData" \
             -parallel-testing-enabled NO \

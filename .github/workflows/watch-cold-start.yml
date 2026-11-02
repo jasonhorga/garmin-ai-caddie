@@ -34,6 +34,7 @@ on:
     paths:
       - '.github/workflows/watch-cold-start.yml'
       - '.github/scripts/select-sim.sh'
+      - '.github/scripts/set-sim-locale.py'
       - '.github/scripts/shutdown-owned-sims.sh'
       - 'mobile/ios/AICaddieWatch/**'
 
