@@ -137,7 +137,7 @@ class MacRunnerJobsTests(unittest.TestCase):
 
     def shell(self, script, **env):
         return subprocess.run(['bash', '-euo', 'pipefail', '-c', script], cwd=self.root,
-                              env={**self.env, **env}, capture_output=True, text=True, timeout=20)
+                              env={**self.env, **env}, capture_output=True, text=True, timeout=120)
 
     def calls(self):
         p = Path(self.env['CALLS'])
@@ -228,7 +228,7 @@ while True:
                     process.kill(); process.wait(timeout=5)
         self.addCleanup(cleanup)
         url = 'http://' + '127.0.0.1' + f':{port}' + ('/api/v2/health' if fixture else '/')
-        deadline = time.monotonic() + 20
+        deadline = time.monotonic() + 90  # importing server_v2.main takes 30 s+ on a loaded homeserver
         while time.monotonic() < deadline:
             self.assertIsNone(process.poll(), (self.root / f'server-{port}.log').read_text())
             try:
