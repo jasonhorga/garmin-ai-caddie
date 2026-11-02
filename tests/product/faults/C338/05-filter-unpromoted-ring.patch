@@ -1,8 +1,0 @@
-diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
---- a/ai_caddie/history/corrected_history.py
-+++ b/ai_caddie/history/corrected_history.py
-@@ -414,4 +414,2 @@
-         # Match ring_order's second-lap promotion before filtering source shot displays.
--        if ring_size == 9 and any(display > 9 for display in display_by_key.values()):
--            ring_size = 18
-         round_id = str(row.get("id"))

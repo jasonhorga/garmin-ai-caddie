@@ -1,8 +1,15 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index 980f3d9b..72ec23be 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -336,3 +336,3 @@
+@@ -334,7 +334,9 @@ def _same_day_matching_boundary_score_holes(
+             for display in displays[start:] + displays[:start]
+             for key in sorted(by_display[display])
          ]
 -        return ordered + sorted(set(scores) - set(ordered))
-+        return sorted(scores)
++        remainder = sorted(set(scores) - set(ordered))
++        return ([key for gid in sorted({key[0] for key in ordered}, reverse=True)
++                 for key in ordered if key[0] == gid] + remainder)
  
+     def normalize_shot_time(value: Any) -> int | None:
+         """Return a positive shot timestamp in milliseconds.

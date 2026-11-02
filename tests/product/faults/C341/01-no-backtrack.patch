@@ -1,8 +1,13 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
+index 980f3d9b..0e01fea1 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -480,3 +480,3 @@
-                              key=lambda i: (legacy_displays[i] - start_display) % ring_size)
+@@ -465,7 +465,7 @@ def _same_day_matching_boundary_score_holes(
+         # first-shot hole as the explicit anchor used by C338.
+         if start_display in card["display_by_key"].values() and legacy_displays:
+             anchor = legacy_displays.index(start_display)
 -            while anchor > 0:
 +            while False:
                  previous_display = legacy_displays[anchor - 1]
+                 if (previous_display in timed_by_display
+                         or previous_display != (legacy_displays[anchor] - 2) % ring_size + 1):
