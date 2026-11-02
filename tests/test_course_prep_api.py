@@ -71,7 +71,7 @@ class CoursePrepApiTests(unittest.TestCase):
         self.assertIsNone(default.json()["teeSet"])
         self.assertIsNone(red.json()["teeSet"])
         # The resolver now lives in prep_nine so every hole can apply the same release default.
-        self.assertEqual([call.kwargs["tee_box"] for call in prep_nine.call_args_list], [None, "red", "unknown"])
+        self.assertEqual([call.kwargs.get("tee_box") for call in prep_nine.call_args_list], [None, "red", "unknown"])
 
     def test_prep_endpoint_resolves_tee_from_release_metadata_only(self) -> None:
         red_release = [{"name": "Red", "gender": "MEN", "index": 4}]

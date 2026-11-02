@@ -70,15 +70,16 @@ class PrepWaterRouteTests(unittest.TestCase):
                             self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20)
                             self.assertEqual(steps[-1]["role"], "scoring")
 
-        # Water crossing the pin is inconsistent source geometry, rather than a genuine
-        # pre-green crossing. Keep the usable route complete instead of stopping at 38 m.
+        # Water covering or beyond the pin is inconsistent source geometry, rather than a
+        # genuine pre-green crossing. Keep the usable route complete instead of stopping short.
         for par in (4, 5):
-            with self.subTest(par=par, pin_covering=True):
-                steps, *_ = course_prep._strategy(
-                    par, 288, {"water_carry": [[300, 330]]}, self.BAGS["GAP"],
-                )
-                self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20)
-                self.assertEqual(steps[-1]["role"], "scoring")
+            for water in ([278, 308], [300, 330]):
+                with self.subTest(par=par, water=water):
+                    steps, *_ = course_prep._strategy(
+                        par, 288, {"water_carry": [water]}, self.BAGS["GAP"],
+                    )
+                    self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20)
+                    self.assertEqual(steps[-1]["role"], "scoring")
 
     def test_j4_6_water_layup_keeps_the_three_shot_route(self):
         # 3W@180 clears the first landing; 5I@330 clears water at 200--225;

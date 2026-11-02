@@ -1723,9 +1723,9 @@ def _strategy_water_safe(carry_m: float, hazards: dict) -> bool:
     return True
 
 
-def _water_span_affects_scoring_route(interval, route_len_m: float, scoring_window_m: float) -> bool:
+def _water_span_affects_scoring_route(interval, route_len_m: float) -> bool:
     try:
-        return float(interval[0]) < float(route_len_m) - float(scoring_window_m)
+        return max(float(interval[0]), float(interval[1])) < float(route_len_m)
     except (TypeError, ValueError, OverflowError, IndexError):
         return False
 
@@ -1891,16 +1891,16 @@ def _strategy(
         for name, distance in ladder
         if club_bag_service.canonical_club_name(name) != "putter"
     ]
-    # A water span that starts beyond the route end cannot affect a landing on this hole. Keep the
-    # original hazard list for the displayed caution, while excluding post-green spans from carry
-    # feasibility checks.
+    # A span covering the pin (or beyond it) is inconsistent with a playable route endpoint.
+    # Keep it for display, but omit it from carry feasibility. Every span wholly before the
+    # endpoint remains a planning constraint, including water inside the last 20 metres.
     planning_hazards = {
         **(hazards or {}),
         "water_carry": [
             interval
             for interval in (hazards or {}).get("water_carry") or []
             if isinstance(interval, (list, tuple)) and len(interval) >= 2
-            and _water_span_affects_scoring_route(interval, route_len_m, SCORING_WINDOW_MAX_M)
+            and _water_span_affects_scoring_route(interval, route_len_m)
         ],
     }
     real_driver_row = next(
@@ -2026,10 +2026,13 @@ def _strategy(
             }
             previous_carry = float(steps[-1].get("targetCarry_m") or math.inf)
             scoring_max_overshoot = TEE_SEQUENCE_MAX_OVERSHOOT_M
-            if approach_ladder and effective <= max(float(distance) for _name, distance in approach_ladder):
-                # A short remainder can be closed by one measured scoring club whose carry is
-                # just beyond the route window; prefer that GIR candidate to two short fallback
-                # swings. Long advances keep the online 20 m tolerance and lay-up ranking.
+            if approach_ladder and (
+                effective <= max(float(distance) for _name, distance in approach_ladder)
+                or (planning_hazards.get("water_carry") and tee_club != (real_driver_row or (None,))[0])
+            ):
+                # A short scoring remainder, or a water-forced shorter tee, can leave a
+                # narrow gap between measured carries. Keep a bounded GIR candidate ahead of
+                # repeated short swings; ordinary long advances retain the lay-up ranking.
                 scoring_max_overshoot += 15.0
             shared_tail = _shared_sequence_tail(
                 effective,
@@ -2037,39 +2040,33 @@ def _strategy(
                 start_m=route_offset_m,
                 hazards=planning_hazards,
                 exclude_club_keys=used_clubs,
-                maximum_carry_m=previous_carry + 15.0,
+                maximum_carry_m=previous_carry,
                 forbid_repeated_clubs=True,
                 max_overshoot_m=scoring_max_overshoot,
                 sample_size=None,
                 player_id=player_id,
             )
-            # CoursePrep follows the same tail order as the online sequence option: first try the
-            # exact GIR window, then permit one bounded re-plan gap, and finally permit repeated
-            # clubs.  The old distance fallback chose a fresh short club before trying the online
-            # alternatives, which added a stroke in sparse bags (for example TRIG at 408 m).
+            # Keep the distinct GIR candidate first; only a non-converging candidate needs
+            # the online repeat fallback. A separate distinct re-plan-gap pass selected no
+            # accepted route that the initial pass did not already select.
             if not shared_tail or effective - sum(distance for _club, distance in shared_tail) > SCORING_WINDOW_MAX_M:
-                for allow_gap, forbid_repeats, excluded in (
-                    (True, True, used_clubs),
-                    (True, False, set()),
-                ):
-                    replanned_tail = _shared_sequence_tail(
-                        effective,
-                        approach_ladder,
-                        start_m=route_offset_m,
-                        hazards=planning_hazards,
-                        exclude_club_keys=excluded,
-                        maximum_carry_m=previous_carry + 15.0,
-                        allow_replan_gap=allow_gap,
-                        forbid_repeated_clubs=forbid_repeats,
-                        max_overshoot_m=scoring_max_overshoot,
-                        sample_size=None,
-                        player_id=player_id,
-                    )
-                    if replanned_tail and effective - sum(
-                        distance for _club, distance in replanned_tail
-                    ) <= SCORING_WINDOW_MAX_M:
-                        shared_tail = replanned_tail
-                        break
+                replanned_tail = _shared_sequence_tail(
+                    effective,
+                    approach_ladder,
+                    start_m=route_offset_m,
+                    hazards=planning_hazards,
+                    exclude_club_keys=set(),
+                    maximum_carry_m=previous_carry,
+                    allow_replan_gap=True,
+                    forbid_repeated_clubs=False,
+                    max_overshoot_m=scoring_max_overshoot,
+                    sample_size=None,
+                    player_id=player_id,
+                )
+                if replanned_tail and effective - sum(
+                    distance for _club, distance in replanned_tail
+                ) <= SCORING_WINDOW_MAX_M:
+                    shared_tail = replanned_tail
             if shared_tail:
                 candidate_remaining = effective - sum(
                     tail_distance for _tail_club, tail_distance in shared_tail
