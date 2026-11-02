@@ -1,0 +1,9 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 676106fd..721d4983 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -1150,3 +1150,3 @@ public struct StartRoundView: View {
+                             catalogue: courseOptions, downloads: prepCourseDownloads
+-                        ), status != Self.holeCaption(
++                        ), false, status != Self.holeCaption(
+                             for: row, downloaded: downloadedCourseOptions,

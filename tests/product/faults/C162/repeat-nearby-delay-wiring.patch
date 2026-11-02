@@ -1,0 +1,9 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 4f527c50..a21a7650 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -7584,3 +7584,3 @@ public final class LiveRoundAppModel: ObservableObject {
+         if let delay = ProcessInfo.processInfo.environment["UITEST_NEARBY_DELAY_MS"].flatMap(UInt64.init),
+-           StartRoundView.nearbyDelayMilliseconds(delay, radiusKm: radiusKm) > 0 {
++           delay > 0 {
+             try await Task.sleep(nanoseconds: delay * 1_000_000)

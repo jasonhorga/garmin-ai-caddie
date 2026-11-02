@@ -7,6 +7,8 @@ import re
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 from unittest.mock import patch
 
@@ -35,7 +37,193 @@ def rectangle(x1,y1,x2,y2):
     return mesh([(x1,y1),(x2,y1),(x2,y2),(x1,y2)], [[0,1,2],[0,2,3]])
 
 
+class CourseRefreshTests(unittest.TestCase):
+    def test_j4_2_replaced_mesh_is_visible_with_preserved_size_and_mtime(self):
+        """J4.2: a replacement map must replace the old in-process geometry too."""
+        from ai_caddie.geometry import hole_render
+        hole_render._load_mesh_cached.cache_clear()
+        self.addCleanup(hole_render._load_mesh_cached.cache_clear)
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "mesh.json"
+            # Handwritten replacement moves the green from north=100 to north=200.
+            def payload(north):
+                return json.dumps({"meshes": [{"name": "Green", "positions": [[0, 0, north]]}]})
+            path.write_text(payload(100))
+            before = path.stat()
+            with patch.object(hole_render, "mesh_path", return_value=path):
+                self.assertEqual(hole_render.load_mesh(81001, 1)[1]["Green"]["positions"], [[0, 0, 100]])
+                replacement = path.with_suffix(".new")
+                replacement.write_text(payload(200))
+                os.utime(replacement, ns=(before.st_atime_ns, before.st_mtime_ns))
+                os.replace(replacement, path)
+                self.assertEqual(path.stat().st_size, before.st_size)
+                self.assertEqual(path.stat().st_mtime_ns, before.st_mtime_ns)
+                self.assertEqual(hole_render.load_mesh(81001, 1)[1]["Green"]["positions"], [[0, 0, 200]])
+
+    def test_j4_2_release_metadata_write_failure_defers_refetch(self):
+        """J4.2: keep a usable map available while its refresh metadata cannot be saved."""
+        cr = course_reference
+        payload = (Path(__file__).parents[1] / "fixtures/courseview_release_31936.pb").read_bytes()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "data/courseview/31936_releases.pb"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(payload)
+            os.utime(path, (1, 1))
+            clock = [1000.0]
+            with patch.object(cr, "load_release_pb", return_value=payload) as fetch, \
+                 patch.object(cr, "atomic_write_json_if_changed", side_effect=OSError("metadata unavailable")), \
+                 patch.object(cr.time, "monotonic", side_effect=lambda: clock[0]):
+                for _ in range(3):
+                    self.assertEqual(cr.courseview_release_info(31936, root=root)["course_id"], 31936)
+                self.assertEqual(fetch.call_count, 1)
+                # Existing release retry policy is five minutes, including the boundary.
+                clock[0] += 300
+                self.assertEqual(cr.courseview_release_info(31936, root=root)["course_id"], 31936)
+                self.assertEqual(fetch.call_count, 2)
+                cr.courseview_release_info(31936, root=root, force_refresh=True)
+                self.assertEqual(fetch.call_count, 3)
+            self.assertEqual(path.read_bytes(), payload)
+            self.assertEqual(path.stat().st_mtime, 1)
+
+    def test_j4_2_geometry_release_publication_waits_for_reference_refresh(self):
+        """J4.2: concurrent map preparers publish complete release updates in lock order."""
+        from ai_caddie.geometry import geometry_sync
+        cr = course_reference
+        payload = (Path(__file__).parents[1] / "fixtures/courseview_release_31936.pb").read_bytes()
+        # Protobuf field 2 = release version; later values 129 and 130 win.
+        reference_pb, geometry_pb = payload + b"\x10\x81\x01", payload + b"\x10\x82\x01"
+        reference_fetching, finish_reference = threading.Event(), threading.Event()
+        geometry_waiting, geometry_fetched, geometry_decided = (threading.Event() for _ in range(3))
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lock = threading.Lock()
+            class ObservedLock:
+                def __enter__(self):
+                    if reference_fetching.is_set():
+                        geometry_waiting.set()
+                        geometry_decided.set()
+                    lock.acquire()
+                def __exit__(self, *args):
+                    lock.release()
+            def fetch_reference(*args, **kwargs):
+                reference_fetching.set()
+                if not finish_reference.wait(5):
+                    raise RuntimeError("test release barrier timed out")
+                return reference_pb
+            def fetch_geometry(*args, **kwargs):
+                geometry_fetched.set()
+                geometry_decided.set()
+                return geometry_pb
+            with patch.object(cr, "_release_lock", return_value=ObservedLock()), \
+                 patch.object(cr, "load_release_pb", side_effect=fetch_reference), \
+                 patch.object(geometry_sync, "COURSEVIEW", root / "data/courseview"), \
+                 patch.object(geometry_sync, "load_release_pb", side_effect=fetch_geometry), \
+                 ThreadPoolExecutor(max_workers=2) as pool:
+                reference = pool.submit(cr.courseview_release_info, 31936, root=root)
+                try:
+                    self.assertTrue(reference_fetching.wait(5))
+                    geometry = pool.submit(geometry_sync._release, 31936, live=True)
+                    # Either it waits on the shared lock or incorrectly fetches immediately.
+                    self.assertTrue(geometry_decided.wait(5))
+                    self.assertFalse(geometry_fetched.is_set())
+                    self.assertTrue(geometry_waiting.is_set())
+                finally:
+                    finish_reference.set()
+                self.assertEqual(reference.result(timeout=5)["release_version"], 129)
+                self.assertEqual(geometry.result(timeout=5)[0]["release_version"], 130)
+            self.assertEqual((root / "data/courseview/31936_releases.pb").read_bytes(), geometry_pb)
+
+
 class CourseHTTPTests(HTTPFixture, unittest.TestCase):
+    def test_j4_1_recent_catalogue_keeps_whole_venues_and_unplayed_loops(self):
+        """J4.1/J5.1: 24 venues, never 24 gids; every selectable nine survives."""
+        # Forty histories: the three nines rank 1/19/38, crossing the old gid cutoff.
+        gids = list(range(51000, 51040))
+        for rank, gid in [(0, 31832), (18, 31833), (37, 31834)]:
+            gids[rank] = gid
+        names = {gid: f"测试场地 {i}" for i, gid in enumerate(gids)}
+        names.update({31832: "沙河测试球会 ~ A", 31833: "沙河测试球会 ~ B",
+                      31834: "沙河测试球会 ~ C"})
+        rounds = [{"id": f"r{i}", "globalId": gid, "course": names[gid],
+                   "date": f"{2100-i}-01-01", "holesCompleted": 9 if gid < 40000 else 18}
+                  for i, gid in enumerate(gids)]
+        def options(rows):
+            return mobile_live.build_mobile_course_options(
+                HistoryData(raw_rounds=[], rounds=rows, shots=[]),
+                segment_resolver=lambda gid: (names[gid], 9 if gid < 40000 else 18),
+                tee_resolver=lambda gid: [])["courses"]
+        with TemporaryDirectory() as directory, patch.object(mobile_live, "ROOT", Path(directory)):
+            cache = Path(directory) / "data" / "courseview"
+            cache.mkdir(parents=True)
+            for gid in (31832, 31833, 31834):
+                (cache / f"{gid}_catalogue_name.json").write_text(json.dumps({
+                    "globalId": gid, "languageCode": "zh_CHS", "name": names[gid]}))
+            # A sidecar for an unrelated venue must never be imported into 沙河's sibling set.
+            (cache / "99999_catalogue_name.json").write_text(json.dumps({
+                "globalId": 99999, "languageCode": "zh_CHS", "name": "另一测试球会 ~ A"}))
+            result = options(rounds)
+            self.assertEqual({c["globalId"] for c in result if c["globalId"] < 40000},
+                             {31832, 31833, 31834})
+            self.assertNotIn(99999, {c["globalId"] for c in result})
+            # One 3-loop venue + 23 single-course venues = 26 rows (24 venue cap).
+            self.assertEqual(len(result), 26)
+            self.assertEqual(len({c["venueName"] for c in result}), 24)
+            unplayed = options([r for r in rounds if r["globalId"] != 31834])
+            c = next((c for c in unplayed if c["globalId"] == 31834), None)
+            self.assertIsNotNone(c, "a never-played sibling is still selectable")
+            self.assertEqual((c["segmentLabel"], c["segmentHoles"], c["roundCount"]), ("C", 9, 0))
+            self.assertEqual(c["sourceRefs"], [])
+            # The durable CourseView venue index also works without catalogue-name sidecars.
+            for path in cache.glob("*_catalogue_name.json"):
+                path.unlink()
+            (cache / "venue_loops.json").write_text(json.dumps({"venues": [{
+                "venueName": "沙河测试球会", "loops": [
+                    {"globalId": gid, "name": names[gid], "segmentLabel": label, "holeCount": 9}
+                    for gid, label in [(31832, "A"), (31833, "B"), (31834, "C")]]}]}))
+            indexed = options([r for r in rounds if r["globalId"] != 31834])
+            self.assertEqual({c["globalId"] for c in indexed if c["globalId"] < 40000},
+                             {31832, 31833, 31834})
+
+    def test_j4_1_unplayed_siblings_of_a_truncated_venue_stay_hidden(self):
+        """J4.1: a venue outside the 24-venue cap contributes no unplayed loop."""
+        rounds = [
+            {"id": f"r{i}", "globalId": 52000 + i, "course": f"场地 {i}",
+             "date": f"2026-{12 - (i % 9):02d}-01", "holesCompleted": 9}
+            for i in range(25)
+        ]
+        rounds[24]["course"] = "截断场地 ~ A"
+        with TemporaryDirectory() as directory, patch.object(mobile_live, "ROOT", Path(directory)):
+            cache = Path(directory) / "data" / "courseview"
+            cache.mkdir(parents=True)
+            (cache / "52024_catalogue_name.json").write_text(json.dumps({
+                "globalId": 52024, "languageCode": "zh_CHS", "name": "截断场地 ~ A"}))
+            (cache / "52025_catalogue_name.json").write_text(json.dumps({
+                "globalId": 52025, "languageCode": "zh_CHS", "name": "截断场地 ~ B"}))
+            result = mobile_live.build_mobile_course_options(
+                HistoryData(raw_rounds=[], rounds=rounds, shots=[]),
+                segment_resolver=lambda gid: ("截断场地 ~ A" if gid == 52024 else f"场地 {gid - 52000}", 9),
+                tee_resolver=lambda gid: [],
+            )["courses"]
+            self.assertNotIn(52025, {row["globalId"] for row in result})
+
+    def test_j4_1_sidecar_same_name_requires_matching_coordinates(self):
+        """J4.1: a same-name sidecar from another city cannot join the played venue."""
+        rows = [{"id": "r1", "globalId": 53001, "course": "同名球会 ~ A", "date": "2026-01-01",
+                 "holesCompleted": 9, "lat": 31.18, "lon": 121.37}]
+        with TemporaryDirectory() as directory, patch.object(mobile_live, "ROOT", Path(directory)):
+            cache = Path(directory) / "data" / "courseview"
+            cache.mkdir(parents=True)
+            (cache / "53002_catalogue_name.json").write_text(json.dumps({
+                "globalId": 53002, "languageCode": "zh_CHS", "name": "同名球会 ~ B",
+                "latitude": 40.04, "longitude": 116.55}))
+            result = mobile_live.build_mobile_course_options(
+                HistoryData(raw_rounds=[], rounds=rows, shots=[]),
+                segment_resolver=lambda gid: ("同名球会 ~ A", 9),
+                tee_resolver=lambda gid: [],
+            )["courses"]
+            self.assertEqual({row["globalId"] for row in result}, {53001})
+
     def catalogue(self):
         """Fake only cached provider facts, never a package or a hole mapping."""
         courses = {c["globalId"]: c for c in vectors("loop_map.json")["courses"]}

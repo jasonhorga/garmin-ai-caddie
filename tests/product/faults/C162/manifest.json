@@ -1,0 +1,194 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C162-sidecar-any-venue",
+      "patch": "tests/product/faults/C162/P1-sidecar-any-venue.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.CourseHTTPTests.test_j4_1_sidecar_same_name_requires_matching_coordinates",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-truncated-venue-leak",
+      "patch": "tests/product/faults/C162/P2-truncated-venue-leak.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.CourseHTTPTests.test_j4_1_unplayed_siblings_of_a_truncated_venue_stay_hidden",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-gid-cutoff",
+      "patch": "tests/product/faults/C162/gid-cutoff.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.CourseHTTPTests.test_j4_1_recent_catalogue_keeps_whole_venues_and_unplayed_loops",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-recent-tee-authority",
+      "patch": "tests/product/faults/C162/recent-tee-authority.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testRememberedTeeIsOnlyADefaultSelection",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-unbounded-tees",
+      "patch": "tests/product/faults/C162/unbounded-tees.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/SyncClientTests/testTeeLookupStopsAtItsTotalForegroundBudget",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-drop-cached-loops",
+      "patch": "tests/product/faults/C162/drop-cached-loops.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testRecentVenueIncludesCachedNearbyNinesWithoutAddingOtherVenues",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-hide-tee-loading",
+      "patch": "tests/product/faults/C162/hide-tee-loading.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testTeeLookupShowsLoadingThenFourRowsKeepingLastSelection",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-hide-recent-retry",
+      "patch": "tests/product/faults/C162/hide-recent-retry.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testRecentTeeLookupFailureOffersRetry",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-requesttees-state-writer",
+      "patch": "tests/product/faults/C162/S1-requesttees-state-writer.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testTeeLookupStateWriterMarksFailureAtTheRequestBoundary",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-remove-loading-status",
+      "patch": "tests/product/faults/C162/S2-remove-loading-status.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testTeeLookupShowsLoadingThenFourRowsKeepingLastSelection",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-remove-failure-state",
+      "patch": "tests/product/faults/C162/S3-remove-failure-state.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testTeeLookupStateWriterMarksFailureAtTheRequestBoundary",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-drop-recent-tee-gate",
+      "patch": "tests/product/faults/C162/S6-drop-recent-tee-gate.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testRecentTeeLookupFailureOffersRetry",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-ignore-cached-nearby",
+      "patch": "tests/product/faults/C162/S4-ignore-cached-nearby.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testRecentVenueIncludesCachedNearbyNinesWithoutAddingOtherVenues",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-drop-last-nearby-cache",
+      "patch": "tests/product/faults/C162/S5-drop-last-nearby-cache.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testRecentVenueIncludesCachedNearbyNinesWithoutAddingOtherVenues",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-drop-catalogue-loops",
+      "patch": "tests/product/faults/C162/drop-catalogue-loops.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testRecentVenueIncludesAllCatalogueNines",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-tee-before-setup",
+      "patch": "tests/product/faults/C162/tee-before-setup.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testTeeLookupBeginsWhenSetupBecomesVisible",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-repeat-nearby-delay",
+      "patch": "tests/product/faults/C162/repeat-nearby-delay.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyExpansionDoesNotRepeatInitialDiscoveryDelay",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-drop-main-download-status",
+      "patch": "tests/product/faults/C162/drop-main-download-status.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyVenueRetainsDownloadStatusAfterOfflineRowIsDeduplicated",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-installed-label-before-pending",
+      "patch": "tests/product/faults/C162/installed-label-before-pending.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testPartiallyInstalledVenueShowsPendingLoopStatusOnUpperRow",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-nearby-pending-never-ends",
+      "patch": "tests/product/faults/C162/nearby-pending-never-ends.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyPendingEndsAfterEveryExpansionSuccessOrFailure",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-tee-task-ignores-page",
+      "patch": "tests/product/faults/C162/tee-task-ignores-page.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/ProductPhoneUITests/test_j4_2_teeLoadingAndRetryKeepKnownRowsVisible",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-repeat-nearby-delay-wiring",
+      "patch": "tests/product/faults/C162/repeat-nearby-delay-wiring.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/TeeSelectionUITests/testDownloadedNearbyCourseStartsACompletelyNewRoundWithAllLiveServicesOffline",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-hide-main-download-status",
+      "patch": "tests/product/faults/C162/hide-main-download-status.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/RealFlowUITests/testCaptureRealAppFlow",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-empty-tee-refresh-boundary",
+      "patch": "tests/product/faults/C162/empty-tee-refresh-applied.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testTeeLookupStateWriterMarksFailureAtTheRequestBoundary",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-empty-tee-refresh-selection",
+      "patch": "tests/product/faults/C162/empty-tee-refresh-applied.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testEmptyTeeRefreshKeepsSelectionStartableAndOffersRetry",
+      "promise": "4.2"
+    },
+    {
+      "id": "C162-drop-main-download-action",
+      "patch": "tests/product/faults/C162/drop-main-download-action.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testVisibleVenueDownloadActionMatchesOfflineRecords",
+      "promise": "4.1"
+    },
+    {
+      "id": "C162-dedup-action-nil",
+      "patch": "tests/product/faults/C162/dedup-action-nil.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testVisibleVenueDownloadActionMatchesOfflineRecords",
+      "promise": "4.1"
+    }
+  ]
+}

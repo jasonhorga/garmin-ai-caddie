@@ -101,7 +101,8 @@ class CorrectedHistoryCacheTests(unittest.TestCase):
                     future.result(2)
                 errors.append(raised.exception)
             self.assertEqual(calls, 1)
-            self.assertTrue(all(item is error for item in errors))
+            self.assertEqual([str(item) for item in errors], ["fixture correction file is corrupt"] * 4)
+            self.assertEqual(len({id(item) for item in errors}), 4)
             with self.assertRaises(ValueError):
                 history.corrected_history_data(data, annotations_root=directory, corrections_root=directory)
             self.assertEqual(calls, 2, "a later request must start a fresh attempt, not reuse the failure")

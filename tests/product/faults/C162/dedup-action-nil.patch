@@ -1,0 +1,9 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 676106fd..40d4c8db 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -282,3 +282,3 @@ public struct StartRoundView: View {
+                 && !(candidate.isRoundPrefetch && candidate.phase != .ready)
+-                && samePhysicalVenue(candidate.course, venue)
++                && false
+         }

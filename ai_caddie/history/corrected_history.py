@@ -22,7 +22,10 @@ from pathlib import Path
 from typing import Any
 from dataclasses import replace
 from collections import OrderedDict
+from copy import copy
 from concurrent.futures import Future
+from dataclasses import dataclass
+from types import TracebackType
 import threading
 
 from ai_caddie.core.data import OWNER_ID
@@ -37,6 +40,12 @@ SHOT_ANNOTATION_KINDS = {"club_correction": "club", "lie_correction": "surface"}
 HOLE_ANNOTATION_FIELDS = {"score_correction": "total", "putt_correction": "putts", "penalty_correction": "penalty"}
 PENALTY_EVENT_OPS = {"setHolePenalty", "replaceHoleShots", "replaceHoleFacts"}
 ALL_HOLE_FIELDS = ("total", "putts", "penalty")
+
+
+@dataclass(frozen=True)
+class _ProjectionFailure:
+    error: BaseException
+    traceback: TracebackType | None
 
 # Loaded histories and their projections are read-only snapshots, as in stats_cache. Keep only
 # eight versions/players: a sync or edit must not retain arbitrarily many full shot lists.
@@ -514,6 +523,10 @@ def corrected_history_data(
             mark("history_corrected_wait")
             if result is _RETRY_PROJECTION:
                 continue
+            if isinstance(result, _ProjectionFailure):
+                # Future.result() would re-raise one shared exception and grow its traceback
+                # in every waiter. Publish a value instead, then raise a private copy.
+                raise copy(result.error).with_traceback(result.traceback)
             return result
         try:
             result = _build_corrected_history_data(data, **kwargs)
@@ -536,7 +549,9 @@ def corrected_history_data(
             if isinstance(exc, PrepCancelled):
                 future.set_result(_RETRY_PROJECTION)
             else:
-                future.set_exception(exc)
+                # The waiter adds its own corrected_history_data frame when raising. Keep
+                # the build frames, without also retaining this leader's boundary frame.
+                future.set_result(_ProjectionFailure(exc, exc.__traceback__.tb_next))
             raise
         finally:
             with _PROJECTION_LOCK:

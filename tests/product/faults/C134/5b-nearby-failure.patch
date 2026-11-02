@@ -1,13 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index cb182250..c434f70b 100644
 --- a/mobile/ios/AICaddie/Views/StartRoundView.swift
 +++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
-@@ -2258,9 +2258,9 @@
-                     let matches = try await request(latitude, longitude, radius)
-                     carriedTees.merge(StartRoundPresentation.carriedTees(in: matches)) { _, latest in latest }
-                     var seen = Set<Int>()
-                     providerOptions = matches.compactMap(resolve).filter { seen.insert($0.globalId).inserted }
+@@ -2374,7 +2374,7 @@ public struct StartRoundView: View {
+                     providerOptions = cappedNearbyOptions(
+                         StartRoundPresentation.sortedByDistance(resolved, latitude: latitude, longitude: longitude)
+                     )
 -                    publishedProviderResult = !providerOptions.isEmpty || publishedProviderResult
 +                    publishedProviderResult = true
-                     if !providerOptions.isEmpty || index == radii.count - 1 {
+                     if nearbyVenueCount(providerOptions) >= nearbyMinimumVenueCount || index == radii.count - 1 {
                          return NearbyDiscoveryLoopResult(
                              providerOptions: providerOptions,
-                             carriedTees: carriedTees,

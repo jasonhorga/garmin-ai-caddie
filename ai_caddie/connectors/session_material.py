@@ -118,13 +118,33 @@ def _current_generation_name(token_dir: Path) -> str | None:
 
 
 def read_session_material(token_dir: Path | str) -> tuple[str, str] | None:
+    """Read a complete pair; retry once if an import changes the selected generation."""
+    directory = Path(token_dir)
+    pointer = directory / CURRENT_FILE
+    for attempt in range(2):
+        try:
+            before = pointer.read_bytes()
+        except OSError:
+            before = None
+        result = _read_session_material_once(directory)
+        if attempt == 1:
+            return result
+        try:
+            after = pointer.read_bytes()
+        except OSError:
+            after = None
+        if before == after:
+            return result
+    return None
+
+
+def _read_session_material_once(directory: Path) -> tuple[str, str] | None:
     """Read cookie and CSRF from one immutable generation, with legacy fallback.
 
     A valid pointer is authoritative: if either member is missing, return no session rather
     than combining a generation member with a legacy file. Older flat layouts remain readable
     until their first successful generation write.
     """
-    directory = Path(token_dir)
     generation = _current_generation_dir(directory)
     pointer_exists = (directory / CURRENT_FILE).is_file()
     if pointer_exists and generation is not None:

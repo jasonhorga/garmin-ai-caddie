@@ -1,0 +1,16 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index e5eef8a8..9cf524b5 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -1389,11 +1389,6 @@ public struct StartRoundView: View {
+             Text("发球台")
+                 .font(.footnote.weight(.bold))
+                 .foregroundStyle(.secondary)
+-            if isLoadingTees {
+-                ProgressView("正在获取发球台…")
+-                    .controlSize(.small)
+-                    .accessibilityIdentifier("start-round-loading-course-tees")
+-            }
+             if !teeOptions.isEmpty {
+                 ScrollView(.horizontal, showsIndicators: false) {
+                     HStack(spacing: 12) {

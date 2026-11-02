@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_live.py b/ai_caddie/caddie/mobile_live.py
+index 9e86c08a..153dd07a 100644
+--- a/ai_caddie/caddie/mobile_live.py
++++ b/ai_caddie/caddie/mobile_live.py
+@@ -626,7 +626,7 @@ def build_mobile_course_options(
+             _haversine_km(sidecar_lat, sidecar_lon, lat, lon) <= 5.0
+             for lat, lon in coordinates
+         )
+-        if name and candidate_venue in known_venues and coordinate_match:
++        if name:
+             label = _segment_label_from_courseview_name(name)
+             if label and not is_composite_segment(label):
+                 sibling_facts.setdefault(gid, (name, 9))

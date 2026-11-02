@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index e5eef8a8..c9399a54 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -556,7 +556,7 @@ public struct StartRoundView: View {
+             return rows
+         }
+         // A remembered Tee is a default selection, not a completed catalogue lookup.
+-        setLoading(true)
++        setLoading(false)
+         setFailed(false)
+         let rows = await request(globalId)
+         setLoading(false)

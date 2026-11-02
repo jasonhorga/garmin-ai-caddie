@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 676106fd..60e35114 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -264,2 +264,3 @@ public struct StartRoundView: View {
+     ) -> CourseDownloadAction? {
++        return nil
+         let records = courseDownloadRecords(for: row, downloads: downloads)

@@ -793,7 +793,8 @@ def _geometry_inputs(
 ) -> tuple[tuple[float, float] | None, tuple[float, float] | None]:
     """``(gir_end, tee_point)``: the positions one hole classifies against its mesh, ``None`` when
     that classification does not run. ``gir_end`` is the regulation shot's end (none when the hole
-    was holed out in regulation); ``tee_point`` is the second recorded position on a par 4/5.
+    was holed out in regulation); ``tee_point`` is the second recorded position on a par 4/5
+    only when penalties and extra taps have not made its stroke index unreliable.
     Both :func:`_derive_gir_fairway` and the ingest's mesh-use count read them from here."""
     if par is None or par < 3:
         return None, None
@@ -807,7 +808,10 @@ def _geometry_inputs(
             if 0 <= reg_idx and reg_idx + 1 < len(shots):
                 landing = shots[reg_idx + 1]
                 gir_end = (landing["lat"], landing["lon"])
-    tee_point = (shots[1]["lat"], shots[1]["lon"]) if par >= 4 and len(shots) >= 2 else None
+    tee_point = (
+        (shots[1]["lat"], shots[1]["lon"])
+        if par >= 4 and len(shots) >= 2 and index_reliable else None
+    )
     return gir_end, tee_point
 
 

@@ -1,0 +1,7 @@
+--- a/ai_caddie/caddie/mobile_live.py
++++ b/ai_caddie/caddie/mobile_live.py
+@@ -680,3 +680,3 @@
+         retained.append(course)
+-    courses = retained
++    courses = courses[:COURSE_OPTION_LIMIT]
+     for course in courses:
