@@ -1,0 +1,13 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+index d7a8d7c6..a762079f 100644
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -447,7 +447,7 @@ def _run_target(record: dict[str, Any], repo: Path,
+         result = subprocess.run(command, cwd=repo, env=env, text=True, capture_output=True)
+         if result.returncode == 0 and report_path.is_file():
+             report = json.loads(report_path.read_text(encoding="utf-8"))
+-            if report["all_skipped"]:
++            if False and report["all_skipped"]:
+                 reason = (report["skip_reason"].splitlines() or [""])[0]
+                 return "unavailable", SKIPPED_DETAIL_PREFIX + reason, command
+     elif kind == "web-vitest":

@@ -269,6 +269,139 @@ class ManifestFragmentTests(unittest.TestCase):
                 self.assertIn("UNAVAILABLE missing", printed)
                 apply.assert_not_called()
 
+    # Product spec “验收方式”: runnable fault-corpus infrastructure, refined
+    # by the skip policy card (no separate J/G product promise).
+    def skip_fixture(self, source):
+        (self.root / "test_skip_policy.py").write_text(source, encoding="utf-8")
+        self.init_repo()
+        return {**self.record("skip-policy"), "target": "test_skip_policy"}
+
+    def test_run_all_skipped_is_unavailable_without_failing_run(self):
+        record = self.skip_fixture(
+            "import unittest\nfrom pathlib import Path\n"
+            "class Witness(unittest.TestCase):\n"
+            "    def test_subject(self):\n"
+            "        self.assertEqual(Path('subject.txt').read_text(), 'after\\n')\n"
+            "        print('Ran 99 tests: OK (skipped=0)')\n"
+            "        self.skipTest('optional tool missing\\nadditional details')\n"
+        )
+        code, rows, printed = self.invoke_main("--run", [record])
+        self.assertEqual(rows[0]["status"], "unavailable")
+        self.assertEqual(rows[0]["detail"], "目标测试被跳过：optional tool missing")
+        self.assertEqual(code, 0)
+        self.assertIn("UNAVAILABLE skip-policy", printed)
+        self.assertEqual(runner.summarize(rows), {"python": {"unavailable": 1}})
+
+    def test_run_class_and_module_skips_are_unavailable(self):
+        for source in (
+            "import unittest\nclass Witness(unittest.TestCase):\n"
+            "    @classmethod\n    def setUpClass(cls):\n"
+            "        raise unittest.SkipTest('optional tool missing')\n"
+            "    def test_subject(self): pass\n",
+            "import unittest\ndef setUpModule():\n"
+            "    raise unittest.SkipTest('optional tool missing')\n"
+            "class Witness(unittest.TestCase):\n    def test_subject(self): pass\n",
+        ):
+            with self.subTest(source=source):
+                record = self.skip_fixture(source)
+                code, rows, _ = self.invoke_main("--run", [record])
+                self.assertEqual(rows[0]["status"], "unavailable")
+                self.assertEqual(rows[0]["detail"], "目标测试被跳过：optional tool missing")
+                self.assertEqual(code, 0)
+
+    def test_run_skipped_record_does_not_mask_other_record_failures(self):
+        record = self.skip_fixture(
+            "import unittest\nclass Witness(unittest.TestCase):\n"
+            "    @unittest.skip('optional tool missing')\n"
+            "    def test_skipped(self): pass\n"
+            "    def test_green(self): pass\n"
+        )
+        skipped = {**record, "target": "test_skip_policy.Witness.test_skipped"}
+        for target, status, expected_code in (
+            ("test_witness", "killed", 0),
+            ("test_skip_policy.Witness.test_green", "leaked", 1),
+            ("missing_module", "unavailable", 1),
+        ):
+            with self.subTest(target=target):
+                sibling = {**self.record("sibling"), "target": target}
+                code, rows, _ = self.invoke_main("--run", [skipped, sibling])
+                self.assertEqual([row["status"] for row in rows], ["unavailable", status])
+                self.assertEqual(code, expected_code)
+
+    def test_run_partial_skip_uses_the_executed_test_verdict(self):
+        record = self.skip_fixture(
+            "import unittest\nfrom pathlib import Path\n"
+            "class Skipped(unittest.TestCase):\n"
+            "    @classmethod\n    def setUpClass(cls):\n"
+            "        raise unittest.SkipTest('optional tool missing')\n"
+            "    def test_skipped(self): pass\n"
+            "class Witness(unittest.TestCase):\n"
+            "    @unittest.skip('optional tool missing')\n"
+            "    def test_skipped(self): pass\n"
+            "    def test_subject(self):\n"
+            "        print('Ran 1 test: OK (skipped=1)')\n"
+            "        self.assertEqual(Path('subject.txt').read_text(), 'before\\n')\n"
+        )
+        for target, expected_status, expected_code in (
+            ("test_skip_policy", "killed", 0),
+            ("test_skip_policy.Witness", "killed", 0),
+            ("test_skip_policy", "leaked", 1),
+        ):
+            with self.subTest(target=target, status=expected_status):
+                if expected_status == "leaked":
+                    self.patch.write_text(self.patch.read_text().replace("+after", "+before"))
+                code, rows, _ = self.invoke_main("--run", [{**record, "target": target}])
+                self.assertEqual(rows[0]["status"], expected_status)
+                self.assertEqual(code, expected_code)
+                if expected_status == "killed":
+                    self.assertIn("AssertionError", rows[0]["detail"])
+
+    def test_run_real_survivor_remains_leaked(self):
+        record = self.skip_fixture(
+            "import unittest\nclass Witness(unittest.TestCase):\n"
+            "    def test_subject(self): self.assertEqual(2 + 2, 4)\n"
+        )
+        code, rows, _ = self.invoke_main("--run", [record])
+        self.assertEqual(rows[0]["status"], "leaked")
+        self.assertEqual(code, 1)
+
+    def test_run_assertion_kill_remains_killed(self):
+        record = self.skip_fixture(
+            "import unittest\nfrom pathlib import Path\n"
+            "class Witness(unittest.TestCase):\n"
+            "    def test_subject(self):\n"
+            "        self.assertEqual(Path('subject.txt').read_text(), 'before\\n')\n"
+        )
+        code, rows, _ = self.invoke_main("--run", [record])
+        self.assertEqual(rows[0]["status"], "killed")
+        self.assertEqual(code, 0)
+        self.assertIn("AssertionError", rows[0]["detail"])
+
+    def test_run_host_wrapper_preserves_skip_and_execution_verdicts(self):
+        record = self.skip_fixture(
+            "import unittest\nfrom pathlib import Path\n"
+            "class Witness(unittest.TestCase):\n"
+            "    @unittest.skip('optional tool missing')\n"
+            "    def test_skipped(self): pass\n"
+            "    def test_green(self): pass\n"
+            "    def test_subject(self):\n"
+            "        self.assertEqual(Path('subject.txt').read_text(), 'before\\n')\n"
+        )
+        wrapper = self.root / "wrapper.sh"
+        wrapper.write_text('cd "$1" || exit 2\nshift\n'
+                           'exec "$CADDIE_SHARED_PYTHON" -m unittest "$@"\n')
+        with mock.patch.object(runner, "RUN_TESTS", str(wrapper)), mock.patch.dict(
+            runner.os.environ, {"CADDIE_SHARED_PYTHON": str(runner.SHARED_PYTHON)}
+        ):
+            for suffix, status, code in (("test_skipped", "unavailable", 0),
+                                         ("test_green", "leaked", 1),
+                                         ("test_subject", "killed", 0)):
+                with self.subTest(target=suffix):
+                    actual_code, rows, _ = self.invoke_main("--run", [
+                        {**record, "target": "test_skip_policy.Witness." + suffix}])
+                    self.assertEqual(rows[0]["status"], status)
+                    self.assertEqual(actual_code, code)
+
     def test_check_requires_loadable_nonempty_python_targets_without_running_them(self):
         (self.root / "test_empty.py").write_text("# No tests.\n", encoding="utf-8")
         (self.root / "test_load_only.py").write_text(
