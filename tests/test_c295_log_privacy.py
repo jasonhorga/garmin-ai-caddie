@@ -22,6 +22,7 @@ from starlette.routing import Route
 
 from ai_caddie.caddie.mobile_event_store import FileEventStore
 from ai_caddie.core import request_timing, revisions
+from ai_caddie.courses import course_prep
 from ai_caddie.ops import retention
 from server_v2 import main
 from tests.service_logging import preserve_service_logging
@@ -112,6 +113,42 @@ class J7LogPrivacyTests(unittest.TestCase):
         self.assertIn("'player_id': '[redacted]'", output)
         self.assertEqual(output.count("intent_unreadable"), 2)
         self.assertEqual(output.count("status=200"), 2)
+
+    def test_J73_real_course_prep_failure_redacts_bare_player_id(self):
+        """J7.3: the production course-prep warning never emits a member id."""
+        streams = self.capture_production()
+        with patch("ai_caddie.history.stats_cache.cached_load_history_data",
+                   side_effect=RuntimeError("history unavailable")):
+            self.assertIsNone(course_prep._corrected_profile_history("p_deadbeef"))
+        output = streams["lastResort"].getvalue()
+        self.assertIn("failed to load corrected profile history", output)
+        self.assertNotIn("p_deadbeef", output)
+        self.assertIn("RuntimeError", output)
+
+    def test_J73_relative_player_path_is_redacted_without_swallowing_fields(self):
+        """J7.3: relative player partitions are private while adjacent fields survive."""
+        streams = self.capture_production()
+        logging.getLogger(main.SERVICE_INFO_LOGGERS[0]).warning(
+            "storage path=data/players/p_deadbeef/events status=503 reason=quota")
+        output = streams[main.SERVICE_INFO_LOGGERS[0]].getvalue()
+        self.assertNotIn("data/players/p_deadbeef/events", output)
+        self.assertNotIn("p_deadbeef", output)
+        self.assertIn("status=503", output)
+        self.assertIn("reason=quota", output)
+
+    def test_J73_oserror_strerror_redacts_private_payload(self):
+        """J7.3: retained OSError diagnostics still pass through text redaction."""
+        streams = self.capture_production()
+        try:
+            raise OSError(28, "quota data/players/p_deadbeef token=tok_deadbeef")
+        except OSError:
+            logging.getLogger(main.SERVICE_INFO_LOGGERS[0]).warning(
+                "storage failed", exc_info=True)
+        output = streams[main.SERVICE_INFO_LOGGERS[0]].getvalue()
+        self.assertIn("[Errno 28]", output)
+        self.assertIn("quota", output)
+        self.assertNotIn("p_deadbeef", output)
+        self.assertNotIn("tok_deadbeef", output)
 
     def test_J73_filter_failure_never_escapes_business_logging(self):
         streams = self.capture_production()
