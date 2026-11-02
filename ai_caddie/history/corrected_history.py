@@ -342,6 +342,11 @@ def _same_day_matching_boundary_score_holes(
 
     by_day: dict[str, list[tuple[str, dict[tuple[int, int], set[int]], list[tuple[int, int]]]]] = {}
     start_times: dict[str, int] = {}
+    cards_by_day: dict[str, int] = {}
+    for row in rounds:
+        day = str(row.get("date") or "")[:10]
+        if day:
+            cards_by_day[day] = cards_by_day.get(day, 0) + 1
     for row in rounds:
         day = str(row.get("date") or "")[:10]
         if not day:
@@ -370,8 +375,16 @@ def _same_day_matching_boundary_score_holes(
                 scores.setdefault(key, set()).add(strokes)
                 display_by_key.setdefault(key, display)
         ring_size = ring_length(row)
+        # Match ring_order's second-lap promotion before filtering source shot displays.
+        if ring_size == 9 and any(display > 9 for display in display_by_key.values()):
+            ring_size = 18
         timed_holes = []
-        for _position, shot in round_source_shots(source_data, row) if source_data is not None else []:
+        # A lone card cannot match a same-day boundary; avoid copying its source shots.
+        source_shots = (
+            round_source_shots(source_data, row)
+            if source_data is not None and cards_by_day[day] >= 2 else []
+        )
+        for _position, shot in source_shots:
             time = shot.get("shotTime")
             display = _int(shot.get("hole"))
             if (isinstance(time, int) and not isinstance(time, bool) and time > 0

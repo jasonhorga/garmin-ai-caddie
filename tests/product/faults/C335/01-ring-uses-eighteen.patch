@@ -1,13 +1,13 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index 05cbddd4..d7163cb3 100644
+index bd4343ae..092d5381 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -369,7 +369,7 @@ def _same_day_matching_boundary_score_holes(
+@@ -374,7 +374,7 @@ def _same_day_matching_boundary_score_holes(
                  key = (gid, local)
                  scores.setdefault(key, set()).add(strokes)
                  display_by_key.setdefault(key, display)
 -        ring_size = ring_length(row)
 +        ring_size = 18
-         timed_holes = []
-         for _position, shot in round_source_shots(source_data, row) if source_data is not None else []:
-             time = shot.get("shotTime")
+         # Match ring_order's second-lap promotion before filtering source shot displays.
+         if ring_size == 9 and any(display > 9 for display in display_by_key.values()):
+             ring_size = 18
