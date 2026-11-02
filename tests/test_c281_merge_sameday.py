@@ -362,10 +362,12 @@ class C281MergeSameDayTests(unittest.TestCase):
             morning = _row("morning", "2026-06-01 07:30", list(range(1, 17)))
             late = _row("late", "2026-06-01 11:40", [16, 17, 18])
             base = 1_800_000_000_000
+            # Hole 11 has no shot, so the seconds-valued hole 12 must be normalized
+            # before it can be recognized as a later sample rather than a new start.
             shots = [{"roundId": "morning", "hole": n,
                       "shotTime": ((base + i * 600_000) // 1000
                                     if n == 12 else base + i * 600_000)}
-                     for i, n in enumerate(range(1, 17))]
+                     for i, n in enumerate(range(1, 17)) if n != 11]
             shots += [{"roundId": "late", "hole": n,
                        "shotTime": base + 20_000_000 + i * 600_000}
                       for i, n in enumerate([16, 17, 18])]
