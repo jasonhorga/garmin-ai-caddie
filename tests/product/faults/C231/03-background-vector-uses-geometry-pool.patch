@@ -1,0 +1,14 @@
+diff --git a/ai_caddie/courses/vector_prep.py b/ai_caddie/courses/vector_prep.py
+index a27e17c7..a29d90e7 100644
+--- a/ai_caddie/courses/vector_prep.py
++++ b/ai_caddie/courses/vector_prep.py
+@@ -117,7 +117,8 @@ def enqueue_vector_hole(
+                 global_id, local_hole, tee_set=tee_set, use_process_pool=True,
+             )
+ 
+-    future = _BACKGROUND_VECTOR_POOL.submit_keyed(
++    from ai_caddie.caddie.mobile_live import _GEOMETRY_INSTALL_POOL
++    future = _GEOMETRY_INSTALL_POOL.submit_keyed(
+         ("selected-tee-vector",) + key, build, priority=SELECTED_COURSE,
+     )
+     with _VECTOR_FUTURES_LOCK:
