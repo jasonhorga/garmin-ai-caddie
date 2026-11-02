@@ -283,13 +283,38 @@ def _same_day_matching_boundary_score_holes(
     Compare source scores, never restored/corrected scores: manual edits cannot
     manufacture evidence that two Garmin cards describe the same outing.
     """
+    def ring_order(keys: set[tuple[int, int]]) -> list[tuple[int, int]]:
+        """Return each card's holes in play order inferred from physical ring gaps.
+
+        Garmin scorecards use a fixed hole-number layout, so ``holes`` list order is not a
+        reliable play sequence.  Within each physical course ring, the largest missing run is
+        where play started; the first hole after that run is therefore the sequence origin.
+        """
+        by_gid: dict[int, list[int]] = {}
+        for gid, local in keys:
+            by_gid.setdefault(gid, []).append(local)
+        ordered: list[tuple[int, int]] = []
+        for gid in sorted(by_gid):
+            locals_ = sorted(set(by_gid[gid]))
+            if not locals_:
+                continue
+            if len(locals_) == 1:
+                start = 0
+            else:
+                gaps = [
+                    ((locals_[(index + 1) % len(locals_)] - local - 1) % 18, index)
+                    for index, local in enumerate(locals_)
+                ]
+                start = (max(gaps)[1] + 1) % len(locals_)
+            ordered.extend((gid, local) for local in locals_[start:] + locals_[:start])
+        return ordered
+
     by_day: dict[str, list[tuple[str, dict[tuple[int, int], set[int]], list[tuple[int, int]]]]] = {}
     for row in rounds:
         day = str(row.get("date") or "")[:10]
         if not day:
             continue
         scores: dict[tuple[int, int], set[int]] = {}
-        ordered_keys: list[tuple[int, int]] = []
         physical_by_hole = {
             id(hole): (physical, side) for hole, _display, physical, side in hole_sides(row)
         }
@@ -309,8 +334,7 @@ def _same_day_matching_boundary_score_holes(
             if gid is not None and local > 0:
                 key = (gid, local)
                 scores.setdefault(key, set()).add(strokes)
-                ordered_keys.append(key)
-        by_day.setdefault(day, []).append((str(row.get("id")), scores, ordered_keys))
+        by_day.setdefault(day, []).append((str(row.get("id")), scores, ring_order(set(scores))))
     candidates: dict[str, set[tuple[int, int]]] = {}
     for cards in by_day.values():
         for round_id, own, own_order in cards:
