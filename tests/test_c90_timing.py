@@ -415,11 +415,13 @@ class UvicornLogExitTests(unittest.TestCase):
                     request_timing.route_template(f"/api/v2/players/p_CACHESECRET/clubs/bag?token={token}", "GET"),
                     "/api/v2/players/{player_id}/clubs/bag",
                 )
+            # Inspect live entries before the route fixture clears them at teardown.
+            cached = repr(list(request_timing._ROUTE_TEMPLATE_CACHE.items()))
+            self.assertTrue(request_timing._ROUTE_TEMPLATE_CACHE)
+            self.assertNotIn("CACHETOKEN", cached)
+            self.assertNotIn("CACHESECRET", cached)
         # One route-table walk (one cache entry); routing never reads the query, so the rest are hits.
         self.assertEqual(recorder.walked, ["/api/v2/players/p_CACHESECRET/clubs/bag"])
-        cached = repr(list(request_timing._ROUTE_TEMPLATE_CACHE.items()))
-        self.assertNotIn("CACHETOKEN", cached)
-        self.assertNotIn("CACHESECRET", cached)
 
     def test_route_cache_has_bounded_lru_capacity(self) -> None:
         """J7.3: route diagnostics retain at most 1024 hashed path/method entries."""
