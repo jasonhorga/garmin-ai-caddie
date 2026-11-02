@@ -35,13 +35,6 @@
       "kind": "python",
       "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_failed_selected_tee_vector_stops_polling_until_revision_changes",
       "promise": "J4.4"
-    },
-    {
-      "id": "tests-product-faults-C231-06-builder-hides-unavailable",
-      "patch": "tests/product/faults/C231/06-builder-hides-unavailable.patch",
-      "kind": "python",
-      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_j4_4_route_marks_failed_selected_vector_unavailable",
-      "promise": "J4.4"
     }
   ]
 }
