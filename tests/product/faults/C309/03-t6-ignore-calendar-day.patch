@@ -7,7 +7,7 @@ index 9470999c..d897718f 100644
          ))
      candidates: dict[str, set[tuple[int, int]]] = {}
 -    for cards in by_day.values():
-+    for cards in [sum(by_day.values(), [])]
++    for cards in [sum(by_day.values(), [])]:
          for round_id, own, own_order in cards:
              covered = candidates.setdefault(round_id, set())
              for other_id, other, other_order in cards:

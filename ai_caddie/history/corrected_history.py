@@ -309,6 +309,11 @@ def _same_day_matching_boundary_score_holes(
         1..9 ring. The largest missing run is where play started; the first displayed hole after
         that run is therefore the sequence origin.
         """
+        # A nine-hole course can be played twice and Garmin then displays 1..18 on one card.
+        # Those display numbers require the full ring; otherwise the out-of-ring second lap is
+        # appended after the inferred tail and boundary matching counts restored holes twice.
+        if ring_size == 9 and any(display > 9 for display in display_by_key.values()):
+            ring_size = 18
         by_display: dict[int, list[tuple[int, int]]] = {}
         for key in scores:
             display = display_by_key.get(key)
