@@ -2808,7 +2808,8 @@ class MobileReconciliationTests(unittest.TestCase):
             late = self._late_back_hole(row, row["id"], 4)
             result = reconcile_mobile_round_events(row["id"], late, root=root, annotations_root=root)
 
-        self.assertEqual(result["conflicts"][0]["garminValue"], 4)
+        score_conflicts = [row for row in result["conflicts"] if row["kind"] == "score"]
+        self.assertEqual([row["garminValue"] for row in score_conflicts], [4])
         self.assertEqual({item["payload"]["resolution"] for item in result["annotationSuggestions"]},
                          {"garmin", "mobile"})
 
