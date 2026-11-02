@@ -517,7 +517,7 @@ class RoundIngestApiTests(unittest.TestCase):
             mobile.round_ingest,
             "refresh_ingested_round_if_exists",
             side_effect=OSError("simulated derived-view write failure"),
-        ), mock.patch.object(mobile.logger, "exception") as log_exception:
+        ), self.assertLogs(mobile.logger, level="ERROR") as captured:
             response = mobile.append_mobile_events_response(
                 round_id,
                 LiveRoundEventBatchRequest(roundId=round_id, events=[event]),
@@ -525,7 +525,10 @@ class RoundIngestApiTests(unittest.TestCase):
                 player_id=self.alice["id"],
             )
 
-        log_exception.assert_called_once_with("late-event history refresh failed")
+        # J7.3: inspect the emitted event, independently of diagnostic wording.
+        output = "\n".join(captured.output) + repr([record.__dict__ for record in captured.records])
+        self.assertNotIn(round_id, output)
+        self.assertIn("OSError", output)
         self.assertEqual(response.acceptedEventIds, ["score-1"])
         self.assertEqual(
             [row["eventId"] for row in mobile.round_events(
