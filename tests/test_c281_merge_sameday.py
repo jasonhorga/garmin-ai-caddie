@@ -355,7 +355,11 @@ class C281MergeSameDayTests(unittest.TestCase):
             self.assertEqual(covered["morning"], set())
 
     def test_j1_3_tied_ring_gaps_keep_current_max_index_rule(self) -> None:
-        """J1.3: tied largest gaps keep the existing max-index tie rule, including a 10-start card."""
+        """J1.3: 无 shotTime 时仍按最大空档，16 是已知局限。
+
+        Tied gaps retain the max-index rule; without a timestamp the actual 10-start
+        cannot be established, so restores 8,9 still produce 16 instead of 14 holes.
+        """
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             morning = _row("morning", "2026-06-01 07:30", list(range(10, 19)) + list(range(1, 8)))
@@ -370,6 +374,33 @@ class C281MergeSameDayTests(unittest.TestCase):
             # Gaps 8..9 and 13..14 tie. The current max-index rule starts after 14,
             # so overlap 7 is not the morning tail and restores 8,9 remain materialized.
             self.assertEqual((current["holesCompleted"], len(current["holes"])), (16, 16))
+
+    def test_j1_3_later_nine_hole_card_cannot_precede_morning_card(self) -> None:
+        """J1.3: morning 1..5 cannot replace afternoon restores 3..5 with shot times.
+
+        Afternoon starts at 6 and wraps to 1,2: the ring boundary alone suggests
+        the reverse continuation. Earlier morning shots rule it out. With either
+        card untimed, retain the legacy covered set {3,4,5}.
+        """
+        from ai_caddie.history.corrected_history import _same_day_matching_boundary_score_holes
+
+        morning = _nine_row("morning", "2026-06-01 07:30", list(range(1, 6)))
+        late = _nine_row("late", "2026-06-01 13:30", [1, 2, 6, 7, 8, 9])
+        base = 1_800_000_000_000
+        for timed in ("both", "morning", "late", "neither"):
+            for reverse in (False, True):
+                with self.subTest(timed=timed, reverse=reverse):
+                    rows = [late, morning] if reverse else [morning, late]
+                    shots = []
+                    if timed in ("both", "morning"):
+                        shots.append({"roundId": "morning", "hole": 1, "shotTime": base})
+                    if timed in ("both", "late"):
+                        shots.append({"roundId": "late", "hole": 6, "shotTime": base + 100_000})
+                    data = HistoryData(raw_rounds=[], rounds=rows, shots=shots)
+                    covered = _same_day_matching_boundary_score_holes(rows, data)
+                    expected = set() if timed == "both" else {(55555, n) for n in (3, 4, 5)}
+                    self.assertEqual(covered["late"], expected)
+                    self.assertEqual(covered["morning"], set())
 
     def test_j1_3_display_ring_uses_display_number_when_local_hole_differs(self) -> None:
         """J1.3: a back loop's localHole 1..9 still follows displayed holes 10..18."""
