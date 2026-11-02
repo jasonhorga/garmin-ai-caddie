@@ -492,6 +492,22 @@ class UvicornLogExitTests(unittest.TestCase):
         output = "\n".join(captured.output)
         self.assertNotIn("C178WARMPLAYER", output)
 
+    def test_prepare_recent_error_logs_do_not_include_player_id(self) -> None:
+        """J7.3: prepare-recent failures keep traceback diagnostics without player identity."""
+        from ai_caddie.history import stats_cache
+        from server_v2 import main as server_main
+
+        with patch.object(
+            stats_cache,
+            "cached_load_history_data",
+            side_effect=RuntimeError("C178 prepare-recent fixture failure"),
+        ):
+            with self.assertLogs("server_v2.main", level="ERROR") as captured:
+                server_main._prepare_recent_work("C178PREPSECRET")
+        output = "\n".join(captured.output)
+        self.assertNotIn("C178PREPSECRET", output)
+        self.assertIn("RuntimeError: C178 prepare-recent fixture failure", output)
+
     def test_websocket_dependency_warning_is_filtered(self) -> None:
         """J7.3: --ws none's expected dependency warning is suppressed as log noise."""
         record = logging.LogRecord(
