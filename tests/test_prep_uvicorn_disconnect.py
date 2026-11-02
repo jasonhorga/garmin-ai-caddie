@@ -14,6 +14,16 @@ from server_v2 import main
 
 
 class UvicornDisconnectTests(unittest.TestCase):
+    def setUp(self):
+        # uvicorn.Config(access_log=False) clears uvicorn.access handlers and
+        # turns off its propagation; restore it so later modules see main's state.
+        access = logging.getLogger("uvicorn.access")
+        state = (access.handlers[:], access.propagate)
+
+        def restore():
+            access.handlers[:], access.propagate = state
+        self.addCleanup(restore)
+
     def test_same_prep_key_concurrent_and_followup_requests_complete(self):
         entered, second_cache_entered, release = threading.Event(), threading.Event(), threading.Event()
         calls = 0

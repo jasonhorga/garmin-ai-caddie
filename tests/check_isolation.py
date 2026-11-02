@@ -48,7 +48,7 @@ class LoggingIsolationSuite(unittest.TestSuite):
     _track_imports_enabled = True
     # Alembic's fileConfig and SQLAlchemy's logger setup are process-wide
     # integration side effects, rather than test-owned logging mutations.
-    _expected_external_loggers = ("alembic", "sqlalchemy")
+    _expected_external_loggers = ("alembic", "sqlalchemy", "psycopg")
 
     @classmethod
     def reset_tracking(cls):
