@@ -4,6 +4,7 @@ Goldens come from the card: trusted online jobs use the Mac, forks/signing use
 GitHub, and each runner owns exact simulator names. Execute shell with fake tools.
 """
 import json
+import fcntl
 import os
 from pathlib import Path
 import shlex
@@ -98,6 +99,98 @@ class MacRunnerJobsTests(unittest.TestCase):
         result = self.shell('bash .github/scripts/select-sim.sh ' + platform, **env)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
+
+    def fake_tool(self, name, body):
+        tool = self.bin / name
+        tool.write_text('#!/bin/bash\n' + body + '\n')
+        tool.chmod(0o755)
+
+    def mobile_step(self, name, job='native-unit-watch'):
+        matches = [s for s in workflow('native-mobile.yml')['jobs'][job]['steps']
+                   if s.get('name') == name]
+        self.assertEqual(len(matches), 1, f'{job} must execute {name}')
+        return matches[0]
+
+    def test_host_lock_waits_for_other_job_and_releases_after_cancellation(self):
+        step = self.mobile_step('Acquire host port 9000 lock')
+        lock = self.root / 'port.lock'
+        env = dict(CADDIE_PORT9000_LOCK=str(lock), CADDIE_PORT9000_WAIT_SECONDS='0.2',
+                   RUNNER_ENVIRONMENT='self-hosted', GITHUB_JOB='waiting-job')
+        with lock.open('w+') as holder:
+            fcntl.flock(holder, fcntl.LOCK_EX)
+            holder.write('other-job'); holder.flush()
+            result = self.shell(step['run'], **env)
+            self.assertNotEqual(result.returncode, 0, 'must wait/fail while another job holds the host lock')
+            self.assertIn('other-job', result.stdout + result.stderr)
+        result = self.shell(step['run'], **env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with lock.open() as probe:
+            with self.assertRaises(BlockingIOError, msg='lock must span subsequent workflow steps'):
+                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        release = self.mobile_step('Release host port 9000 lock')
+        for failed, cancelled in [(True, False), (False, True)]:
+            self.assertTrue(evaluate(release['if'], {'inputs.fixture_mode': True},
+                                     failed=failed, cancelled=cancelled, condition=True))
+        result = self.shell(release['run'], **env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with lock.open() as probe:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def test_all_port_consumers_hold_lock_until_stop_and_release_always(self):
+        consumers = [('native-mobile.yml', job) for job in
+                     ('native-unit-watch', 'native-real-flow', 'native-screenshots', 'native-product-ui')]
+        consumers += [('agenthub-native-mutant.yml', 'native-mutant')]
+        for name, job in consumers:
+            with self.subTest(job=job):
+                steps = workflow(name)['jobs'][job]['steps']
+                names = [s.get('name') for s in steps]
+                self.assertIn('Acquire host port 9000 lock', names)
+                self.assertIn('Release host port 9000 lock', names)
+                first = 'Start isolated CI fixture' if 'Start isolated CI fixture' in names else (
+                    'Test iPhone UI scheme' if job == 'native-mutant' else 'Check Product UI fixture port is free')
+                last = 'Stop isolated CI fixture' if 'Stop isolated CI fixture' in names else (
+                    'Test iPhone UI scheme' if job == 'native-mutant' else 'Test Product UI tests')
+                self.assertLess(names.index('Acquire host port 9000 lock'), names.index(first))
+                self.assertGreater(names.index('Release host port 9000 lock'), names.index(last))
+                release = steps[names.index('Release host port 9000 lock')]
+                self.assertTrue(evaluate(release['if'], {'inputs.fixture_mode': True, 'inputs.include_ui': True},
+                                         failed=True, cancelled=True, condition=True))
+
+    def test_start_rejects_health_from_another_fixture(self):
+        # A bind failure followed by someone else's HTTP 200 must never be healthy.
+        self.fake_tool('uv', 'exit 0')
+        self.fake_tool('curl', "echo " + shlex.quote(json.dumps(dict(status='ok', revision='other-job'))))
+        self.fake_tool('sleep', 'exit 0')
+        result = self.shell(self.mobile_step('Start isolated CI fixture')['run'])
+        self.assertNotEqual(result.returncode, 0, 'foreign health token must not satisfy fixture startup')
+
+    def test_product_ui_rejects_an_already_listening_port(self):
+        self.fake_tool('lsof', 'echo 54321; exit 0')
+        result = self.shell(self.mobile_step('Check Product UI fixture port is free', 'native-product-ui')['run'])
+        self.assertNotEqual(result.returncode, 0, 'Product UI must reject a foreign listener')
+
+    def test_stop_rejects_a_foreign_listener_without_killing_it(self):
+        self.fake_tool('curl', "echo " + shlex.quote(json.dumps(dict(status='ok', revision='other-job'))))
+        self.fake_tool('lsof', 'echo 54321; exit 0')
+        self.fake_tool('sleep', 'exit 0')
+        (self.root / 'ai-caddie-fixture.pid').write_text('99999999')
+        result = self.shell(self.mobile_step('Stop isolated CI fixture')['run'],
+                            AI_CADDIE_BUILD_REVISION='our-job')
+        self.assertNotEqual(result.returncode, 0, 'stop must report a foreign listener still owning the port')
+
+    def test_selection_erases_only_newly_selected_owned_udids(self):
+        runtime = 'com.apple.CoreSimulator.SimRuntime.iOS-27-2'
+        self.state['devices'][runtime] += [dict(name='runner-two-iphone', udid='owned', isAvailable=True),
+                                           dict(name='runner-three-iphone', udid='foreign', isAvailable=True)]
+        self.save()
+        self.assertEqual(self.select('ios', CADDIE_SIM_PREFIX='runner-two'), 'owned')
+        self.assertEqual(self.select('ios', CADDIE_SIM_PREFIX='runner-two'), 'owned')
+        self.select('watch', CADDIE_SIM_PREFIX='runner-two')
+        self.select('ios')  # Hosted devices retain their original state policy.
+        erases = [c for c in self.calls() if c[:2] == ['simctl', 'erase']]
+        self.assertEqual(erases, [['simctl', 'erase', 'owned'],
+                                  ['simctl', 'erase', 'created-runner-two-watch']],
+                         'erase each selected owned simulator once per job; never erase all or hosted/foreign devices')
 
     def test_runner_routing_obeys_online_trust_and_dispatch(self):
         cases = [('online', 'pull_request', 'owner/repo', ['self-hosted', 'caddie-mba']),
