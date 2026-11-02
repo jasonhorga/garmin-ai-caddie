@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/watch-runtime.yml b/.github/workflows/watch-runtime.yml
+index 67501de7..bce45253 100644
+--- a/.github/workflows/watch-runtime.yml
++++ b/.github/workflows/watch-runtime.yml
+@@ -78,7 +78,7 @@ jobs:
+           xcrun simctl boot "$WATCH_UDID" 2>/dev/null || true
+           xcrun simctl bootstatus "$WATCH_UDID" -b
+           if [ -n "${CADDIE_SIM_PREFIX:-}" ]; then
+-            xcrun simctl privacy "$WATCH_UDID" grant location com.ai-caddie.mobile.watchkitapp
++            :
+           fi
+ 
+       - name: Test Watch app on the resolved simulator

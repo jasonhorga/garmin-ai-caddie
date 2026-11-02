@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/agenthub-native-mutant.yml b/.github/workflows/agenthub-native-mutant.yml
+index 4dd7974b..1d5115f5 100644
+--- a/.github/workflows/agenthub-native-mutant.yml
++++ b/.github/workflows/agenthub-native-mutant.yml
+@@ -169,7 +169,7 @@ jobs:
+           if [ -n "${CADDIE_SIM_PREFIX:-}" ]; then
+             xcrun simctl boot "$WATCH_UDID" 2>/dev/null || true
+             xcrun simctl bootstatus "$WATCH_UDID" -b
+-            xcrun simctl privacy "$WATCH_UDID" grant location com.ai-caddie.mobile.watchkitapp
++            :
+           fi
+           args=(test \
+             -derivedDataPath "$RUNNER_TEMP/NativeMutantDerivedData" \

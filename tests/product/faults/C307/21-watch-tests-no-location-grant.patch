@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
+index e2f59159..6a456419 100644
+--- a/.github/workflows/native-mobile.yml
++++ b/.github/workflows/native-mobile.yml
+@@ -837,7 +837,7 @@ jobs:
+           xcrun simctl boot "$NATIVE_WATCH_UDID" 2>/dev/null || true
+           xcrun simctl bootstatus "$NATIVE_WATCH_UDID" -b
+           if [ -n "${CADDIE_SIM_PREFIX:-}" ]; then
+-            xcrun simctl privacy "$NATIVE_WATCH_UDID" grant location com.ai-caddie.mobile.watchkitapp
++            :
+           fi
+       - &test_watch_app_target
+         name: Test Watch app target

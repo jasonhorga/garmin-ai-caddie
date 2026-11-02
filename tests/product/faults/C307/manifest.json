@@ -77,6 +77,76 @@
       "kind": "python",
       "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_selection_tolerates_shutdown_transition_before_erase",
       "promise": "C307 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-16-native-unit-watch-on-mac",
+      "patch": "tests/product/faults/C307/16-native-unit-watch-on-mac.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_sdk_affected_jobs_stay_hosted_even_when_mac_is_online",
+      "promise": "C307 r4 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-17-native-screenshots-on-mac",
+      "patch": "tests/product/faults/C307/17-native-screenshots-on-mac.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_sdk_affected_jobs_stay_hosted_even_when_mac_is_online",
+      "promise": "C307 r4 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-18-native-product-ui-on-mac",
+      "patch": "tests/product/faults/C307/18-native-product-ui-on-mac.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_sdk_affected_jobs_stay_hosted_even_when_mac_is_online",
+      "promise": "C307 r4 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-19-inherit-host-language",
+      "patch": "tests/product/faults/C307/19-inherit-host-language.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_owned_selection_boots_in_english_after_each_job_erase",
+      "promise": "C307 r4 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-20-inherit-host-locale",
+      "patch": "tests/product/faults/C307/20-inherit-host-locale.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_owned_selection_boots_in_english_after_each_job_erase",
+      "promise": "C307 r4 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-21-watch-tests-no-location-grant",
+      "patch": "tests/product/faults/C307/21-watch-tests-no-location-grant.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_watch_tests_receive_location_grant_before_xcodebuild",
+      "promise": "C307 r4 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-22-runtime-tests-no-location-grant",
+      "patch": "tests/product/faults/C307/22-runtime-tests-no-location-grant.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_watch_tests_receive_location_grant_before_xcodebuild",
+      "promise": "C307 r4 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-23-mutant-tests-no-location-grant",
+      "patch": "tests/product/faults/C307/23-mutant-tests-no-location-grant.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_watch_tests_receive_location_grant_before_xcodebuild",
+      "promise": "C307 r4 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-24-screenshot-erase-loses-language",
+      "patch": "tests/product/faults/C307/24-screenshot-erase-loses-language.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_watch_screenshot_resets_restore_english_before_boot",
+      "promise": "C307 r4 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C307-25-runtime-erase-loses-language",
+      "patch": "tests/product/faults/C307/25-runtime-erase-loses-language.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_watch_screenshot_resets_restore_english_before_boot",
+      "promise": "C307 r4 CI infrastructure contract"
     }
   ]
 }
