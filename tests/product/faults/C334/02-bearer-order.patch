@@ -1,12 +1,19 @@
-diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
-index 35d9b0f1..842eb647 100644
 --- a/server_v2/log_privacy.py
 +++ b/server_v2/log_privacy.py
-@@ -46,7 +46,6 @@ def _text(value: str) -> str:
-         return match[1] + match[2] + quote + _REDACTED + quote
+@@ -22,7 +22,7 @@
+ _IDENTITY = re.compile(
+     r"(?i)\b(player_?id|round_?id|player_?name|display_?name|nickname|player|round|"
+     r"[\w-]*token|cookie|csrf|authorization|[\w-]*secret|api_?key)([\"']?\s*[:=]\s*)"
+-    r"(\[redacted\]|bearer\s*:?\s*[^\s,;&#\)\}\]]+|\"[^\"\n]*\"|'[^'\n]*'|[^\s,;&#\)\}\]]+)"
++    r"(\[redacted\]|\"[^\"\n]*\"|'[^'\n]*'|[^\s,;&#\)\}\]]+)"
+ )
+ _PLAYER_ID = re.compile(r"(?i)\bp_[0-9a-f]{8,16}\b")
+ _URL = re.compile(r"https?://[^\s\"'<>;,]+|(?<![\w/])/(?:api|p)/[^\s\"'<>;,]+")
+@@ -68,7 +68,6 @@
+             return prefix + _REDACTED
+         return prefix + _REDACTED
  
-     # Consume the credential before a key/value rule can eat just "Bearer".
--    value = re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer " + _REDACTED, value)
+-    value = _AUTHORIZATION_BEARER.sub(authorization, value)
      value = _IDENTITY.sub(identity, value)
      def path(match):
          candidate = match[0]

@@ -1,0 +1,12 @@
+--- a/tests/check_isolation.py
++++ b/tests/check_isolation.py
+@@ -187,8 +187,7 @@
+             if handle is not None:
+                 handle.close()
+             logging.Logger.addHandler, logging.Logger.callHandlers = self.original_methods
+-            if snapshot:
+-                self._restore_logging(snapshot)
++            pass
+ 
+     def _handleModuleFixture(self, test, result):
+         # Imports during suite loading are the module-import boundary under

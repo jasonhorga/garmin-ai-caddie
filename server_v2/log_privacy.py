@@ -22,12 +22,22 @@ _SENSITIVE_KEY = re.compile(
 _IDENTITY = re.compile(
     r"(?i)\b(player_?id|round_?id|player_?name|display_?name|nickname|player|round|"
     r"[\w-]*token|cookie|csrf|authorization|[\w-]*secret|api_?key)([\"']?\s*[:=]\s*)"
-    r"(\[redacted\]|\"[^\"\n]*\"|'[^'\n]*'|[^\s,;&#\)\}\]]+)"
+    r"(\[redacted\]|bearer\s*:?\s*[^\s,;&#\)\}\]]+|\"[^\"\n]*\"|'[^'\n]*'|[^\s,;&#\)\}\]]+)"
 )
 _PLAYER_ID = re.compile(r"(?i)\bp_[0-9a-f]{8,16}\b")
 _URL = re.compile(r"https?://[^\s\"'<>;,]+|(?<![\w/])/(?:api|p)/[^\s\"'<>;,]+")
 _PRIVATE_PATH = re.compile(r"https?://[^\s\"'<>;,\)]+|(?<![\w/])(?:[A-Za-z]:[\\/]|/|\bdata/|\bplayers/)[^\s\"'<>;,\)]+")
 _FRAME = re.compile(r'^(\s*File ")(.+)(", line \d+, in .+)$')
+_AUTHORIZATION_BEARER = re.compile(
+    r"(?i)(\bAuthorization[\"']?\s*[:=]\s*)"
+    r"(?:"
+    r"(?P<quote>[\"'])(?:Bearer\s*:?\s*)?(?:\\.|(?!(?P=quote)).)*(?P=quote)?"
+    r"|(?:Bearer\s*:?\s*)?(?:\[redacted\]|[^\s,;}\]]+)"
+    r")"
+)
+_BARE_BEARER = re.compile(
+    r"(?i)\bBearer\s*:?\s+(?!(?:header|token)\b)[^\s,;}\]]+"
+)
 
 
 def _text(value: str) -> str:
@@ -45,8 +55,20 @@ def _text(value: str) -> str:
         quote = original[0] if original[0] in "\"'" else ""
         return match[1] + match[2] + quote + _REDACTED + quote
 
-    # Consume the credential before a key/value rule can eat just "Bearer".
-    value = re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer " + _REDACTED, value)
+    # Consume authorization credentials as one value. This keeps the header
+    # label and dictionary punctuation while handling Bearer: and mixed case.
+    def authorization(match):
+        prefix = match.group(1)
+        quote = match.group("quote")
+        if quote:
+            if match.group(0).endswith(quote):
+                return prefix + quote + _REDACTED + quote
+            # An unterminated quote is malformed input; dropping its opener
+            # avoids a later key/value pass fabricating a closing quote.
+            return prefix + _REDACTED
+        return prefix + _REDACTED
+
+    value = _AUTHORIZATION_BEARER.sub(authorization, value)
     value = _IDENTITY.sub(identity, value)
     def path(match):
         candidate = match[0]
@@ -65,7 +87,7 @@ def _text(value: str) -> str:
     value = _PRIVATE_PATH.sub(path, value)
     # Bare arguments and non-sensitive extras use the same player-id shape.
     value = _PLAYER_ID.sub(_REDACTED, value)
-    return re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer " + _REDACTED, value)
+    return _BARE_BEARER.sub("Bearer " + _REDACTED, value)
 
 
 def _context(value, key=""):

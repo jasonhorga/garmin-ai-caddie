@@ -1,8 +1,9 @@
 diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
-index c235575..2c29c6f 100644
+index add6d086..715d85ea 100644
 --- a/server_v2/log_privacy.py
 +++ b/server_v2/log_privacy.py
-@@ -56,3 +56,2 @@ def _text(value: str) -> str:
+@@ -74,4 +74,3 @@ def _text(value: str) -> str:
+     value = _PRIVATE_PATH.sub(path, value)
      # Bare arguments and non-sensitive extras use the same player-id shape.
 -    value = _PLAYER_ID.sub(_REDACTED, value)
-     return re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer " + _REDACTED, value)
+     return _BARE_BEARER.sub("Bearer " + _REDACTED, value)

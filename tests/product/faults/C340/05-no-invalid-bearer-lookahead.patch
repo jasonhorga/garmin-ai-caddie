@@ -1,0 +1,11 @@
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -36,7 +36,7 @@
+     r")"
+ )
+ _BARE_BEARER = re.compile(
+-    r"(?i)\bBearer\s*:?\s+(?!(?:header|token)\b)[^\s,;}\]]+"
++    r"(?i)\bBearer\s*:?\s+[^\s,;}\]]+"
+ )
+ 
+ 
