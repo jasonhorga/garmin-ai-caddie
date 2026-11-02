@@ -9,9 +9,16 @@ enum LiveGreenEntryTapDestination: Equatable {
 enum LiveGreenEntryHitRegion {
     static let fallbackDiameter: CGFloat = 76
 
-    // This preserves the current contour-only behavior until the fallback region is wired in.
     static func path(greenPath: Path?, fallbackCenter: CGPoint?) -> Path? {
-        greenPath
+        if let greenPath { return greenPath }
+        guard let fallbackCenter else { return nil }
+        let radius = fallbackDiameter / 2
+        return Circle().path(in: CGRect(
+            x: fallbackCenter.x - radius,
+            y: fallbackCenter.y - radius,
+            width: fallbackDiameter,
+            height: fallbackDiameter
+        ))
     }
 
     static func destination(at location: CGPoint, path: Path?) -> LiveGreenEntryTapDestination {

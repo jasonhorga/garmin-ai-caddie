@@ -2407,6 +2407,13 @@ public struct CurrentHoleView: View {
     private var heroInteractionLayer: some View {
         GeometryReader { geometry in
             let greenPath = liveGreenHitPath(in: geometry.size)
+            let fallbackGreenCenter = liveGreenTarget(in: geometry.size).map {
+                transformedHeroPoint($0, in: geometry.size)
+            }
+            let greenEntryHitPath = LiveGreenEntryHitRegion.path(
+                greenPath: greenPath,
+                fallbackCenter: fallbackGreenCenter
+            )
             ZStack {
                 Color.clear
                     .contentShape(Rectangle())
@@ -2417,9 +2424,9 @@ public struct CurrentHoleView: View {
                     .accessibilityHint("按住目标点拖动微调，左右滑动切换球洞")
                     .accessibilityIdentifier("live-open-map-from-hero")
 
-                if let greenPath {
-                    let greenBounds = greenPath.boundingRect
-                    let localGreenPath = greenPath.applying(
+                if let greenEntryHitPath {
+                    let greenBounds = greenEntryHitPath.boundingRect
+                    let localGreenPath = greenEntryHitPath.applying(
                         CGAffineTransform(
                             translationX: -greenBounds.minX,
                             y: -greenBounds.minY
@@ -2433,23 +2440,13 @@ public struct CurrentHoleView: View {
                         width: max(greenBounds.width, 1),
                         height: max(greenBounds.height, 1)
                     )
-                    .position(x: greenPath.boundingRect.midX, y: greenPath.boundingRect.midY)
+                    .position(x: greenEntryHitPath.boundingRect.midX, y: greenEntryHitPath.boundingRect.midY)
                     .accessibilityLabel("调整旗位")
                     .accessibilityIdentifier("live-open-green-from-hero")
                     // Keep the accessibility activation point on the actual green contour.  The
                     // button is already reduced to the contour's local bounding box, so this point
                     // remains deterministic for XCTest and VoiceOver without reopening the whole
                     // map as a green hit target.
-                    .zIndex(1)
-                } else if let greenTarget = liveGreenTarget(in: geometry.size) {
-                    LiveGreenEntryButton(hitPath: Circle().path(in: CGRect(x: 0, y: 0, width: 76, height: 76)), exclusions: liveChromeRects.map(\.rect)) {
-                        guard canOpenGreenDetail else { return }
-                        showGreenDetail = true
-                    }
-                    .frame(width: 76, height: 76)
-                    .position(transformedHeroPoint(greenTarget, in: geometry.size))
-                    .accessibilityLabel("调整旗位")
-                    .accessibilityIdentifier("live-open-green-from-hero")
                     .zIndex(1)
                 }
             }
@@ -2464,7 +2461,7 @@ public struct CurrentHoleView: View {
                 SpatialTapGesture().onEnded { value in
                     guard !heroTargetDragGrabbed,
                           value.location.y >= LivePlayMapOverlayLayout.liveMapTopInset else { return }
-                    if greenPath?.contains(value.location) == true {
+                    if LiveGreenEntryHitRegion.destination(at: value.location, path: greenEntryHitPath) == .greenDetail {
                         guard canOpenGreenDetail else { return }
                         showGreenDetail = true
                         return
