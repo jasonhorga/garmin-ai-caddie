@@ -1,0 +1,13 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+index 4d7f2a14..e1357745 100644
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -83,7 +83,7 @@ class LogPrivacyFilter(logging.Filter):
+         record.__dict__.pop("message", None)
+         for key in tuple(record.__dict__):
+             if key not in _STANDARD:
+-                record.__dict__[key] = _context(record.__dict__[key])
++                record.__dict__[key] = record.__dict__[key]
+         if record.exc_info:
+             record.exc_text = _exception_text(record.exc_info)
+             record.exc_info = None

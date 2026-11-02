@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/ops/retention.py b/ai_caddie/ops/retention.py
+index d8fbddc6..4bd49f38 100644
+--- a/ai_caddie/ops/retention.py
++++ b/ai_caddie/ops/retention.py
+@@ -151,7 +151,7 @@ def cleanup_private_volume(*, root: Path | None = None) -> None:
+         try:
+             _clean_garmin_snapshots(base)
+         except Exception:
+-            logger.warning("retention Garmin snapshot cleanup failed", exc_info=True)
++            logger.warning("retention Garmin snapshot cleanup failed for %s", base, exc_info=True)
+     finally:
+         _CLEANUP_LOCK.release()
+ 

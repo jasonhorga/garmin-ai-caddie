@@ -250,3 +250,7 @@ class J7SecretTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# J7.3: include runtime log exits in the product privacy suite.
+from tests.test_c295_log_privacy import J7LogPrivacyTests

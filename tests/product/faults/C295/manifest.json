@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C295-01-handler-guard-missing",
+      "patch": "tests/product/faults/C295/01-handler-guard-missing.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_real_failure_redacts_extras_arguments_and_chained_exceptions",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C295-02-extra-values-visible",
+      "patch": "tests/product/faults/C295/02-extra-values-visible.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_real_failure_redacts_extras_arguments_and_chained_exceptions",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C295-03-exception-messages-visible",
+      "patch": "tests/product/faults/C295/03-exception-messages-visible.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_real_failure_redacts_extras_arguments_and_chained_exceptions",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C295-04-cache-fifo",
+      "patch": "tests/product/faults/C295/04-cache-fifo.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_route_cache_hit_refreshes_recency",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C295-05-all-warnings-dropped",
+      "patch": "tests/product/faults/C295/05-all-warnings-dropped.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_websocket_filter_preserves_actionable_warning_and_error",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C295-06-cache-teardown-missing",
+      "patch": "tests/product/faults/C295/06-cache-teardown-missing.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_route_fixture_clears_cache_on_normal_and_exception_exit",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C295-07-mobile-round-in-extra",
+      "patch": "tests/product/faults/C295/07-mobile-round-in-extra.patch",
+      "kind": "python",
+      "target": "tests.test_round_ingest_api.RoundIngestApiTests.test_post_commit_refresh_failure_does_not_reject_the_accepted_event",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C295-08-revision-private-directory",
+      "patch": "tests/product/faults/C295/08-revision-private-directory.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_revision_scanner_omits_private_directory_without_service_startup",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C295-09-retention-private-root",
+      "patch": "tests/product/faults/C295/09-retention-private-root.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_retention_omits_private_root_without_service_startup",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C295-10-store-private-root",
+      "patch": "tests/product/faults/C295/10-store-private-root.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_mobile_index_warning_uses_partition_without_service_startup",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C295-11-cached-exception-text-visible",
+      "patch": "tests/product/faults/C295/11-cached-exception-text-visible.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_cached_exception_text_does_not_bypass_privacy",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C295-12-message-arguments-visible",
+      "patch": "tests/product/faults/C295/12-message-arguments-visible.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_real_failure_redacts_extras_arguments_and_chained_exceptions",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C295-13-syntax-error-details-visible",
+      "patch": "tests/product/faults/C295/13-syntax-error-details-visible.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_syntax_error_payload_is_private_but_stack_survives",
+      "promise": "J7.3"
+    }
+  ]
+}

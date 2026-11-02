@@ -1,0 +1,13 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+index 4d7f2a14..dc372214 100644
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -89,7 +89,7 @@ class LogPrivacyFilter(logging.Filter):
+             record.exc_info = None
+         elif record.exc_text and not getattr(record, "_privacy_sanitized", False):
+             # An earlier formatter may have cached unsanitized exception text.
+-            record.exc_text = _REDACTED
++            pass
+         if record.stack_info:
+             record.stack_info = _REDACTED
+         record._privacy_sanitized = True

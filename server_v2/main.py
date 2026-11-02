@@ -211,6 +211,7 @@ from .session import save_garmin_session_response
 from . import session as session_routes
 from .sync_status import load_sync_status_response
 from .timing import RequestTiming, bind as bind_request_timing, mark as mark_request_stage, request_id as request_id_for
+from .log_privacy import protect_handler
 from . import timing_api
 from .share_api import router as share_router
 from ai_caddie.core import request_timing
@@ -240,6 +241,16 @@ def configure_request_timing_logging() -> None:
         if not service_log.handlers:
             service_log.handlers.extend(logging.getLogger("uvicorn.error").handlers or [logging.StreamHandler()])
         service_log.propagate = False
+    # Handler filters cover propagated child records; ancestor logger filters do not.
+    exits = [logging.getLogger(), logging.getLogger("server_v2"), logging.getLogger("ai_caddie")]
+    exits.extend(value for value in logging.Logger.manager.loggerDict.values()
+                 if isinstance(value, logging.Logger)
+                 and value.name.startswith(("server_v2", "ai_caddie")))
+    for exit_logger in exits:
+        for handler in exit_logger.handlers:
+            protect_handler(handler)
+    if logging.lastResort is not None:
+        protect_handler(logging.lastResort)
     access_log = logging.getLogger("uvicorn.access")
     if not any(isinstance(item, request_timing.URLRedactionFilter) for item in access_log.filters):
         access_log.addFilter(request_timing.URLRedactionFilter())

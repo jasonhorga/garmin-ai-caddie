@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/core/revisions.py b/ai_caddie/core/revisions.py
+index 4c174f58..cadb03c7 100644
+--- a/ai_caddie/core/revisions.py
++++ b/ai_caddie/core/revisions.py
+@@ -270,7 +270,7 @@ def _scan_revision_cache_once() -> float:
+             try:
+                 signature = entry.scanner()
+             except BaseException:
+-                _LOGGER.exception("revision scanner failed")
++                _LOGGER.exception("revision scanner failed for %s", key)
+                 continue
+             with _LOCK:
+                 current = _ENTRIES.get((key, entry.variant))

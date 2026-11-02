@@ -98,12 +98,10 @@ def install():
     # runtime roots below are redirected; production-root tests use clean children.
     # SIGKILL can bypass cleanup, so disposable files must live outside the repo.
     from ai_caddie.core import data as disk
-    from ai_caddie.core import request_timing
     ROOT = disk.ROOT
 
     temporary = TemporaryDirectory(prefix=".test-cache-")
     atexit.register(temporary.cleanup)
-    atexit.register(request_timing.clear_route_template_cache)
     cache_root = Path(temporary.name)
     courseview = cache_root / "data" / "courseview"
 

@@ -1,0 +1,13 @@
+diff --git a/tests/test_c90_timing.py b/tests/test_c90_timing.py
+index 5e0ad127..68e64142 100644
+--- a/tests/test_c90_timing.py
++++ b/tests/test_c90_timing.py
+@@ -34,7 +34,7 @@ def _routes_prepended(*routes):
+     finally:
+         for route in routes:
+             app.router.routes.remove(route)
+-        request_timing.clear_route_template_cache()
++        pass
+ 
+ 
+ class _RecordingRoute:

@@ -51,7 +51,7 @@ def _clean_topo_cache(cache_root: Path, *, remove_empty: bool = False) -> None:
     try:
         entries = sorted(cache_root.rglob("*"), key=lambda path: len(path.parts), reverse=True)
     except OSError:
-        logger.warning("retention could not inspect topo cache %s", cache_root, exc_info=True)
+        logger.warning("retention could not inspect topo cache", exc_info=True)
         return
     expired_versions: list[Path] = []
     for path in entries:
@@ -68,7 +68,7 @@ def _clean_topo_cache(cache_root: Path, *, remove_empty: bool = False) -> None:
                 if version is not None and version not in supported:
                     expired_versions.append(path)
         except OSError:
-            logger.warning("retention could not remove topo cache entry %s", path, exc_info=True)
+            logger.warning("retention could not remove topo cache entry", exc_info=True)
     for version_root in sorted(expired_versions, key=lambda path: len(path.parts), reverse=True):
         try:
             children = sorted(version_root.rglob("*"), key=lambda path: len(path.parts), reverse=True)
@@ -81,13 +81,13 @@ def _clean_topo_cache(cache_root: Path, *, remove_empty: bool = False) -> None:
                         pass
             version_root.rmdir()
         except OSError:
-            logger.warning("retention could not remove topo cache entry %s", version_root, exc_info=True)
+            logger.warning("retention could not remove topo cache entry", exc_info=True)
     if remove_empty:
         try:
             if not any(cache_root.iterdir()):
                 cache_root.rmdir()
         except OSError:
-            logger.warning("retention could not remove empty legacy topo cache %s", cache_root, exc_info=True)
+            logger.warning("retention could not remove empty legacy topo cache", exc_info=True)
 
 
 def _parse_snapshot_time(name: str, manifest: Path) -> datetime | None:
@@ -116,7 +116,7 @@ def _clean_garmin_snapshots(root: Path) -> None:
             if timestamp is not None:
                 pairs.append((timestamp, directory.name, directory, manifest))
     except OSError:
-        logger.warning("retention could not inspect Garmin snapshots %s", snapshot_root, exc_info=True)
+        logger.warning("retention could not inspect Garmin snapshots", exc_info=True)
         return
 
     pairs.sort(key=lambda item: (item[0], item[1]), reverse=True)
@@ -124,12 +124,12 @@ def _clean_garmin_snapshots(root: Path) -> None:
         try:
             shutil.rmtree(directory)
         except OSError:
-            logger.warning("retention could not remove Garmin snapshot %s", directory, exc_info=True)
+            logger.warning("retention could not remove Garmin snapshot", exc_info=True)
             continue
         try:
             manifest.unlink()
         except OSError:
-            logger.warning("retention could not remove Garmin snapshot manifest %s", manifest, exc_info=True)
+            logger.warning("retention could not remove Garmin snapshot manifest", exc_info=True)
 
 
 def cleanup_private_volume(*, root: Path | None = None) -> None:
@@ -147,11 +147,11 @@ def cleanup_private_volume(*, root: Path | None = None) -> None:
                     remove_empty=bool(configured and cache_root == legacy_default and Path(configured) != legacy_default),
                 )
             except Exception:
-                logger.warning("retention topo cleanup failed for %s", cache_root, exc_info=True)
+                logger.warning("retention topo cleanup failed", exc_info=True)
         try:
             _clean_garmin_snapshots(base)
         except Exception:
-            logger.warning("retention Garmin snapshot cleanup failed for %s", base, exc_info=True)
+            logger.warning("retention Garmin snapshot cleanup failed", exc_info=True)
     finally:
         _CLEANUP_LOCK.release()
 
