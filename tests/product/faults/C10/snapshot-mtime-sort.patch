@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/ops/retention.py b/ai_caddie/ops/retention.py
+index 8bac670a..3a7f4974 100644
+--- a/ai_caddie/ops/retention.py
++++ b/ai_caddie/ops/retention.py
+@@ -112,7 +112,7 @@ def _clean_garmin_snapshots(root: Path) -> None:
+         logger.warning("retention could not inspect Garmin snapshots %s", snapshot_root, exc_info=True)
+         return
+ 
+-    pairs.sort(key=lambda item: (item[0], item[1]), reverse=True)
++    pairs.sort(key=lambda item: item[3].stat().st_mtime, reverse=True)
+     for _timestamp, _name, directory, manifest in pairs[3:]:
+         try:
+             shutil.rmtree(directory)

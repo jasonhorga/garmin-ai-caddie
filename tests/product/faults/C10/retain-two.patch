@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/ops/retention.py b/ai_caddie/ops/retention.py
+index 8bac670a..e7c865ee 100644
+--- a/ai_caddie/ops/retention.py
++++ b/ai_caddie/ops/retention.py
+@@ -113,7 +113,7 @@ def _clean_garmin_snapshots(root: Path) -> None:
+         return
+ 
+     pairs.sort(key=lambda item: (item[0], item[1]), reverse=True)
+-    for _timestamp, _name, directory, manifest in pairs[3:]:
++    for _timestamp, _name, directory, manifest in pairs[2:]:
+         try:
+             shutil.rmtree(directory)
+         except OSError:

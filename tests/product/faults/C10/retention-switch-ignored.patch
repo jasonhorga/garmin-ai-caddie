@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/ops/retention.py b/ai_caddie/ops/retention.py
+index 8bac670a..de59c8ff 100644
+--- a/ai_caddie/ops/retention.py
++++ b/ai_caddie/ops/retention.py
+@@ -26,7 +26,7 @@ _CLEANUP_LOCK = threading.Lock()
+ 
+ 
+ def _enabled() -> bool:
+-    return os.environ.get("AI_CADDIE_RETENTION_ENABLED", "1").strip().lower() not in _RETENTION_DISABLED
++    return True
+ 
+ 
+ def _topo_roots(root: Path) -> tuple[Path, ...]:

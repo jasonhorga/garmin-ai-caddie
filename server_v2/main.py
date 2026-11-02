@@ -37,6 +37,7 @@ from ai_caddie.connectors.session_material import cleanup_session_material
 from ai_caddie.connectors.snapshot import snapshot_to_payload, write_connector_status
 from ai_caddie.connectors.sync_lock import SyncInProgress, acquire_sync_lock
 from ai_caddie.core.data import ROOT
+from ai_caddie.ops.retention import start_retention_cleanup
 from ai_caddie.core.priority_work import (
     FOREGROUND,
     NEARBY,
@@ -266,6 +267,7 @@ def _start_boot_background_work() -> None:
     from ai_caddie.caddie.mobile_event_store import start_round_event_index_migration
     from . import mobile as mobile_service
 
+    start_retention_cleanup(root=ROOT)
     initial_warm = warm_stats_cache_in_background()
     start_round_event_index_migration(mobile_service.MOBILE_ROOT)
     start_render_backfill()
