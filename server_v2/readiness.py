@@ -978,7 +978,7 @@ def _offline_seed_quality(package: Any) -> dict[str, Any]:
     }
 
 
-def _mobile_readiness_evidence(package: Any) -> tuple[str, dict[str, Any]]:
+def _mobile_readiness_evidence(package: Any, *, stale: bool = False) -> tuple[str, dict[str, Any]]:
     """Summarise a background package warm for the cheap readiness response."""
     package_ready = _mobile_package_runtime_ready(package)
     seed_quality = _offline_seed_quality(package)
@@ -1012,7 +1012,7 @@ def _mobile_readiness_evidence(package: Any) -> tuple[str, dict[str, Any]]:
                 if isinstance(row, dict) and str(row.get("label") or "").strip()
             }
         ),
-        "stale": False,
+        "stale": stale,
         "source": "background",
     }
     return ("ready" if package_ready else "degraded"), evidence
@@ -1024,6 +1024,7 @@ def warm_mobile_readiness_in_background(stats_snapshot: dict[str, Any]) -> threa
     value = stats_snapshot.get("value") if isinstance(stats_snapshot, dict) else None
     if not isinstance(value, dict):
         return None
+    trace = os.getenv("AI_CADDIE_READINESS_TRACE") == "1"
     with _MOBILE_READINESS_LOCK:
         current = _MOBILE_READINESS.get("me")
         existing = _MOBILE_READINESS_THREADS.get("me")
@@ -1048,7 +1049,7 @@ def warm_mobile_readiness_in_background(stats_snapshot: dict[str, Any]) -> threa
                     stats_data=value,
                     allow_weather_fetch=False,
                 )
-                state, evidence = _mobile_readiness_evidence(package)
+                state, evidence = _mobile_readiness_evidence(package, stale=bool(stats_snapshot.get("stale")))
             except Exception as exc:  # noqa: BLE001 - readiness reports background failure
                 state = "degraded"
                 evidence = {
@@ -1058,32 +1059,47 @@ def warm_mobile_readiness_in_background(stats_snapshot: dict[str, Any]) -> threa
                     "reason": f"{exc.__class__.__name__}: {exc}",
                 }
             with _MOBILE_READINESS_LOCK:
-                _MOBILE_READINESS["me"] = {
-                    "state": state,
-                    "revision": revision,
-                    "evidence": evidence,
-                }
-                _MOBILE_READINESS_THREADS.pop("me", None)
+                registered = _MOBILE_READINESS_THREADS.get("me")
+                current_status = _MOBILE_READINESS.get("me") or {}
+                owns_slot = current_status.get("revision") == revision and (
+                    registered is threading.current_thread() or registered is None
+                )
+                if owns_slot:
+                    _MOBILE_READINESS["me"] = {
+                        "state": state,
+                        "revision": revision,
+                        "evidence": evidence,
+                    }
+                    if registered is threading.current_thread():
+                        _MOBILE_READINESS_THREADS.pop("me", None)
 
-        if os.getenv("AI_CADDIE_READINESS_TRACE") == "1":
-            run()
-            return None
-        thread = threading.Thread(target=run, name="readiness-mobile-warm", daemon=True)
-        _MOBILE_READINESS_THREADS["me"] = thread
-        thread.start()
-        return thread
+        if trace:
+            pass
+        else:
+            thread = threading.Thread(target=run, name="readiness-mobile-warm", daemon=True)
+            _MOBILE_READINESS_THREADS["me"] = thread
+
+    if trace:
+        run()
+        return None
+    thread.start()
+    return thread
 
 
 def _mobile_readiness_status(stats_snapshot: dict[str, Any] | None) -> dict[str, Any]:
     revision = str(stats_snapshot.get("revision") or "") if isinstance(stats_snapshot, dict) else ""
     with _MOBILE_READINESS_LOCK:
         status = dict(_MOBILE_READINESS.get("me") or {})
+        existing = _MOBILE_READINESS_THREADS.get("me")
     same_revision = status.get("revision") == revision
     # A completed package can legitimately be degraded (e.g. missing geometry). Cache that
     # evidence, but retry a builder exception on the next poll instead of making it permanent.
     last_failure = (status.get("evidence") or {}).get("reason") if same_revision else None
     retry_failed_build = status.get("state") == "degraded" and bool(last_failure)
-    if same_revision and status.get("state") in {"ready", "warming", "degraded"} and not retry_failed_build:
+    warming_alive = status.get("state") == "warming" and existing is not None and existing.is_alive()
+    if same_revision and status.get("state") in {"ready", "degraded"} and not retry_failed_build:
+        return status
+    if same_revision and warming_alive:
         return status
     if isinstance(stats_snapshot, dict) and os.getenv("AI_CADDIE_READINESS_TRACE") != "1":
         warm_mobile_readiness_in_background(stats_snapshot)

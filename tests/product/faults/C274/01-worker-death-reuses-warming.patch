@@ -1,0 +1,14 @@
+diff --git a/server_v2/readiness.py b/server_v2/readiness.py
+--- a/server_v2/readiness.py
++++ b/server_v2/readiness.py
+@@ -1097,9 +1097,7 @@
+     last_failure = (status.get("evidence") or {}).get("reason") if same_revision else None
+     retry_failed_build = status.get("state") == "degraded" and bool(last_failure)
+     warming_alive = status.get("state") == "warming" and existing is not None and existing.is_alive()
+-    if same_revision and status.get("state") in {"ready", "degraded"} and not retry_failed_build:
+-        return status
+-    if same_revision and warming_alive:
++    if same_revision and status.get("state") in {"ready", "warming", "degraded"} and not retry_failed_build:
+         return status
+     if isinstance(stats_snapshot, dict) and os.getenv("AI_CADDIE_READINESS_TRACE") != "1":
+         warm_mobile_readiness_in_background(stats_snapshot)

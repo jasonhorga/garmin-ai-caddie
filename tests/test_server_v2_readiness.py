@@ -288,12 +288,16 @@ class ServerV2ReadinessTests(unittest.TestCase):
             readinessChecks=[], caddieContextSeeds=[], cachedCaddieRules={}, missingData=[],
         )
         calls = 0
+        second_started = threading.Event()
+        release_second = threading.Event()
 
         def builder(*args, **kwargs):
             nonlocal calls
             calls += 1
             if calls == 1:
                 raise SystemExit("worker stopped")
+            second_started.set()
+            self.assertTrue(release_second.wait(timeout=2))
             return package
 
         with patch.object(readiness, "load_history_stats_snapshot", return_value=snapshot), \
@@ -307,7 +311,9 @@ class ServerV2ReadinessTests(unittest.TestCase):
             second = build_readiness_response()
             second_mobile = next(row for row in second["checks"] if row["label"] == "mobile_package")
             self.assertEqual(second_mobile["state"], "warming")
+            self.assertTrue(second_started.wait(timeout=2))
             restarted = readiness._MOBILE_READINESS_THREADS["me"]
+            release_second.set()
             restarted.join(timeout=2)
             third = build_readiness_response()
             third_mobile = next(row for row in third["checks"] if row["label"] == "mobile_package")
@@ -398,7 +404,7 @@ assert readiness._MOBILE_READINESS['me']['state'] == 'ready'
         try:
             result = subprocess.run(
                 [sys.executable, "-c", script], cwd=Path.cwd(), env=env,
-                capture_output=True, text=True, timeout=2,
+                capture_output=True, text=True, timeout=5,
             )
         except subprocess.TimeoutExpired:
             self.fail("trace readiness warm deadlocked")

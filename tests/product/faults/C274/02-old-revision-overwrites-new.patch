@@ -1,0 +1,29 @@
+diff --git a/server_v2/readiness.py b/server_v2/readiness.py
+--- a/server_v2/readiness.py
++++ b/server_v2/readiness.py
+@@ -1059,19 +1059,12 @@
+                     "reason": f"{exc.__class__.__name__}: {exc}",
+                 }
+             with _MOBILE_READINESS_LOCK:
+-                registered = _MOBILE_READINESS_THREADS.get("me")
+-                current_status = _MOBILE_READINESS.get("me") or {}
+-                owns_slot = current_status.get("revision") == revision and (
+-                    registered is threading.current_thread() or registered is None
+-                )
+-                if owns_slot:
+-                    _MOBILE_READINESS["me"] = {
+-                        "state": state,
+-                        "revision": revision,
+-                        "evidence": evidence,
+-                    }
+-                    if registered is threading.current_thread():
+-                        _MOBILE_READINESS_THREADS.pop("me", None)
++                _MOBILE_READINESS["me"] = {
++                    "state": state,
++                    "revision": revision,
++                    "evidence": evidence,
++                }
++                _MOBILE_READINESS_THREADS.pop("me", None)
+ 
+         if trace:
+             pass

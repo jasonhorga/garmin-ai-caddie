@@ -76,6 +76,7 @@ class FakeHttp
   def read_timeout=(*) end
   def request(request)
     body = @responses.fetch(request.path)
+    body = body.shift if body.is_a?(Array)
     FakeResponse.new("200", JSON.generate(body))
   end
 end
@@ -98,7 +99,7 @@ end
 def run_case(readiness, allow_degraded)
   Net::HTTP.responses = {
     "/api/v2/health" => {"schema" => "ai-caddie-health-v2", "revision" => "a" * 40},
-    "/api/v2/readiness" => readiness
+    "/api/v2/readiness" => readiness.is_a?(Array) ? readiness : [readiness]
   }
   result = preflight_backend!(allow_degraded_readiness: allow_degraded)
   puts JSON.generate({"result" => "pass", "revision" => result["revision"]})
@@ -114,7 +115,7 @@ error_state = {"runtimeStatus" => "degraded", "checks" => [{"label" => "history"
 ENV["AI_CADDIE_API_BASE_URL"] = "https://api.example.test"
 ENV["AI_CADDIE_ADMIN_TOKEN"] = "fixture-token"
 ENV["EXPECTED_BACKEND_REVISION"] = "a" * 40
-run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "ready", "serviceStatus" => "ready"), false)
+run_case([warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "ready", "serviceStatus" => "ready"), origin.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "ready", "serviceStatus" => "ready")], false)
 run_case(origin.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "ready", "serviceStatus" => "ready"), false)
 run_case(degraded.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "degraded", "serviceStatus" => "degraded"), false)
 run_case(error_state.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => true, "status" => "degraded", "serviceStatus" => "degraded"), false)

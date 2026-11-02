@@ -1,0 +1,14 @@
+diff --git a/server_v2/readiness.py b/server_v2/readiness.py
+--- a/server_v2/readiness.py
++++ b/server_v2/readiness.py
+@@ -1080,7 +1080,9 @@
+             _MOBILE_READINESS_THREADS["me"] = thread
+ 
+     if trace:
+-        run()
++        # mutant: diagnostic run is invoked before releasing the readiness lock
++        with _MOBILE_READINESS_LOCK:
++            run()
+         return None
+     thread.start()
+     return thread
