@@ -1768,9 +1768,9 @@ final class StartRoundDiscoveryTests: XCTestCase {
         }
         let outcome = await StartRoundView.performNearbyDiscovery(
             latitude: 31, longitude: 121,
-            request: { _, _, radius in radii.append(radius); return matches },
             publish: { published = $0.providerOptions.map(\.globalId) },
             selectAutomatically: { selectedIDs.append($0?.globalId) },
+            request: { _, _, radius in radii.append(radius); return matches },
             resolve: { MobileCourseOption(globalId: $0.globalId, name: $0.name, holes: 18) }
         )
         XCTAssertEqual(radii, [5])
@@ -1782,8 +1782,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
     /// J4.1/J4.2: a stale automatic venue is cleared when the new GPS answer is empty or elsewhere;
     /// an explicit tap and a matching physical venue remain authoritative.
     func testNearbyInitialFailureOrEmptyAnswerClearsStaleAutomaticSelection() {
-        let stale = MobileCourseOption(globalId: 7501, name: "旧球场", venueName: "旧球场", holes: 18)
-        let replacement = MobileCourseOption(globalId: 7502, name: "新球场", venueName: "新球场", holes: 18)
+        let stale = MobileCourseOption(globalId: 7501, name: "旧球场", holes: 18, venueName: "旧球场")
+        let replacement = MobileCourseOption(globalId: 7502, name: "新球场", holes: 18, venueName: "新球场")
         XCTAssertTrue(
             StartRoundView.shouldClearAutomaticSelection(
                 selected: stale, availableNearby: [], userPickedVenue: false
@@ -1797,7 +1797,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertFalse(
             StartRoundView.shouldClearAutomaticSelection(
                 selected: stale,
-                availableNearby: [MobileCourseOption(globalId: 7503, name: "旧球场 ~ B", venueName: "旧球场", holes: 9)],
+                availableNearby: [MobileCourseOption(globalId: 7503, name: "旧球场 ~ B", holes: 9, venueName: "旧球场")],
                 userPickedVenue: false
             )
         )
@@ -1810,9 +1810,9 @@ final class StartRoundDiscoveryTests: XCTestCase {
 
     /// J4.1: a nearby result from the same physical venue keeps the current loop selection.
     func testAutomaticSelectionUsesPhysicalVenueIdentity() {
-        let current = MobileCourseOption(globalId: 7601, name: "同场 A", venueName: "同场", holes: 9)
-        let sibling = MobileCourseOption(globalId: 7602, name: "同场 B", venueName: "同场", holes: 9)
-        let other = MobileCourseOption(globalId: 7603, name: "别场", venueName: "别场", holes: 18)
+        let current = MobileCourseOption(globalId: 7601, name: "同场 A", holes: 9, venueName: "同场")
+        let sibling = MobileCourseOption(globalId: 7602, name: "同场 B", holes: 9, venueName: "同场")
+        let other = MobileCourseOption(globalId: 7603, name: "别场", holes: 18, venueName: "别场")
         XCTAssertFalse(StartRoundView.shouldReplaceAutomaticSelection(
             current: current, candidate: sibling, userPickedVenue: false
         ))
