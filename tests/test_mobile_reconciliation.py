@@ -61,9 +61,9 @@ class MobileReconciliationTests(unittest.TestCase):
             }
             older = {
                 "id": "older-date", "date": "2026-05-01 08:00", "globalId": 55555,
-                "frontNineGlobalCourseId": 55555, "holesCompleted": 18, "strokes": 72,
-                "par": 72, "holePars": "4" * 18,
-                "holes": [{"number": n, "strokes": 4, "par": 4} for n in range(1, 19)],
+                "frontNineGlobalCourseId": 55555, "holesCompleted": 8, "strokes": 32,
+                "par": 32, "holePars": "4" * 18,
+                "holes": [{"number": n, "strokes": 4, "par": 4} for n in range(10, 18)],
             }
             for number in range(10, 19):
                 add_annotation(

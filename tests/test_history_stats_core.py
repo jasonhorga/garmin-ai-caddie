@@ -544,28 +544,49 @@ def player_profile_history_data() -> HistoryData:
 
 class HistoryStatsCoreTests(unittest.TestCase):
     def test_j2_1_restore_round_with_nine_hole_rating_is_excluded_from_differential(self) -> None:
-        # J2.1: a restored 18-hole row carrying a 9-hole rating is not a priced differential.
-        row = {
-            "id": "restore-differential", "date": "2026-06-01", "course": "Restore",
-            "courseKey": "restore", "holesCompleted": 18, "strokes": 90, "par": 72,
-            "rating": 35.2, "slope": 113, "_scoreCorrected": True, "holes": [],
-        }
-        stats = build_history_stats(HistoryData(raw_rounds=[row], rounds=[row], shots=[]), data_mode="fixture")
-        difficulty = stats["summary"]["difficultyAdjusted"]
-        self.assertEqual(difficulty["ratedRoundCount"], 0)
-        self.assertIsNone(difficulty["averageDifferential"])
+        # J2.1: 9 real holes + 9 append-only restores = 18 holes / 90 strokes;
+        # rating 35.2 prices only nine holes, so no differential is available.
+        from tests.test_c281_merge_sameday import _row, _restore, _stats, _scorecard
+        from ai_caddie.history.corrected_history import corrected_history_data
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            row = _row("restore-differential", "2026-06-01", list(range(1, 10)))
+            row.update(rating=35.2, slope=113)
+            data = HistoryData(raw_rounds=[row], rounds=[row], shots=[])
+            _restore(root, row["id"])
+            projection = corrected_history_data(data, annotations_root=root)
+            self.assertEqual(projection.rounds[0]["holesCompleted"], 18)
+            self.assertEqual(projection.rounds[0]["strokes"], 90)
+            stats = _stats(data, root)
+            difficulty = stats["summary"]["difficultyAdjusted"]
+            self.assertEqual(difficulty["ratedRoundCount"], 0)
+            self.assertIsNone(difficulty["averageDifferential"])
+            self.assertIsNone(_scorecard(stats, projection, row["id"])["differential"])
 
     def test_j2_1_merged_round_with_nine_hole_rating_is_excluded_from_differential(self) -> None:
-        # J2.1: the same rating guard applies to a Garmin merged 9+9 round.
-        row = {
-            "id": "merged-differential", "date": "2026-06-02", "course": "Merged",
-            "courseKey": "merged", "holesCompleted": 18, "strokes": 90, "par": 72,
-            "rating": 35.2, "slope": 113, "merged": True, "holes": [],
-        }
-        stats = build_history_stats(HistoryData(raw_rounds=[row], rounds=[row], shots=[]), data_mode="fixture")
-        difficulty = stats["summary"]["difficultyAdjusted"]
-        self.assertEqual(difficulty["ratedRoundCount"], 0)
-        self.assertIsNone(difficulty["averageDifferential"])
+        # J2.1: two actual 45-stroke cards merge to 90 but retain the 35.2 tee rating.
+        from tests.test_c281_merge_sameday import _row, _stats, _scorecard
+        from ai_caddie.history.history import merge_same_day_halves
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cards = [_row(name, f"2026-06-02 {hour}:00", list(numbers))
+                     for name, hour, numbers in (("front", "08", range(1, 10)),
+                                                 ("back", "10", range(10, 19)))]
+            for card in cards:
+                card.update(courseCanonical="Fixture Course", rating=35.2, slope=113)
+            rows = merge_same_day_halves(cards)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["holesCompleted"], 18)
+            self.assertEqual(len(rows[0]["holes"]), 18)
+            self.assertEqual(rows[0]["strokes"], 90)
+            data = HistoryData(raw_rounds=cards, rounds=rows, shots=[])
+            stats = _stats(data, root)
+            difficulty = stats["summary"]["difficultyAdjusted"]
+            self.assertEqual(difficulty["ratedRoundCount"], 0)
+            self.assertIsNone(difficulty["averageDifferential"])
+            self.assertIsNone(_scorecard(stats, data, rows[0]["id"])["differential"])
 
     def test_stats_cover_required_dimensions(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")

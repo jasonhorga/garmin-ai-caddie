@@ -15,9 +15,9 @@ from ai_caddie.caddie.mobile_live import append_event_batch
 from ai_caddie.caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 from ai_caddie.history.corrected_history import corrected_history_data
 from ai_caddie.history.history import HistoryData
-from ai_caddie.history.history_stats import _rating_slope_quality
+from ai_caddie.history.history_stats import build_history_stats
 from ai_caddie.reports.annotations import add_annotation
-from ai_caddie.reports.reports import _round_differential_value
+from ai_caddie.reports.reports import build_round_report_facts
 from tests.test_mobile_reconciliation import _save_identity
 
 
@@ -25,6 +25,8 @@ def _row(round_id: str, date: str, holes: list[int], *, course: int = 55555) -> 
     return {
         "id": round_id,
         "date": date,
+        "course": "Fixture Course",
+        "courseKey": "fixture-course",
         "globalId": course,
         "frontNineGlobalCourseId": course,
         "holesCompleted": len(holes),
@@ -44,6 +46,16 @@ def _restore(root: Path, round_id: str, numbers=range(10, 19)) -> None:
         )
 
 
+def _stats(data: HistoryData, root: Path) -> dict:
+    return build_history_stats(data, data_mode="fixture", annotations_root=root,
+                               weather_root=root, reports_root=root, decision_audit_root=root)
+
+
+def _scorecard(stats: dict, data: HistoryData, round_id: str) -> dict:
+    facts = build_round_report_facts(stats, round_id, history_data=data)
+    return next(fact["value"] for fact in facts["factsUsed"] if fact["label"] == "round_scorecard")
+
+
 class C281MergeSameDayTests(unittest.TestCase):
     def test_j1_3_same_day_second_round_does_not_consume_restore(self) -> None:
         """J1.3: two same-day outings at one course remain two 18-hole rounds."""
@@ -59,6 +71,66 @@ class C281MergeSameDayTests(unittest.TestCase):
             first_corrected = corrected.rounds[0]
             self.assertEqual((first_corrected["holesCompleted"], len(first_corrected["holes"])), (18, 18))
 
+
+    def test_j1_3_late_card_boundary_overlap_replaces_only_covered_restore(self) -> None:
+        """J1.3: 1..9 + restore 10..18 + matching 9..17 has one sample per back hole."""
+        for start in (9, 8):
+            for reverse in (False, True):
+                with self.subTest(start=start, reverse=reverse), TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    first = _row("first", "2026-06-01 08:00", list(range(1, 10)))
+                    late = _row("late", "2026-06-01 10:00", list(range(start, 18)))
+                    _restore(root, "first")
+                    rows = [late, first] if reverse else [first, late]
+                    data = HistoryData(raw_rounds=[], rounds=rows, shots=[])
+                    corrected = corrected_history_data(data, annotations_root=root)
+                    current = next(row for row in corrected.rounds if row["id"] == "first")
+                    # Only 10..17 are covered: original 1..9 + restored 18 = 10 holes.
+                    for number in range(10, 19):
+                        self.assertEqual(sum(h["number"] == number for row in corrected.rounds
+                                             for h in row["holes"]), 1)
+                    self.assertEqual(current["holesCompleted"], 10)
+                    self.assertEqual([h["number"] for h in current["holes"]], [1,2,3,4,5,6,7,8,9,18])
+                    self.assertEqual(len(first["holes"]), 9)
+
+    def test_j1_3_overlapping_conflicting_or_replayed_cards_preserve_restore(self) -> None:
+        """J1.3: conflicting scores or replaying many holes cannot prove one outing."""
+        for numbers, conflict in ((range(9, 18), True), (range(8, 18), True),
+                                  (range(7, 18), False), (range(1, 19), False),
+                                  (range(1, 10), False)):
+            with self.subTest(numbers=list(numbers), conflict=conflict), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                first = _row("first", "2026-06-01 08:00", list(range(1, 10)))
+                other = _row("other", "2026-06-01 13:00", list(numbers))
+                if conflict:
+                    other["holes"][0]["strokes"] = 6
+                _restore(root, "first")
+                corrected = corrected_history_data(
+                    HistoryData(raw_rounds=[], rounds=[first, other], shots=[]), annotations_root=root)
+                self.assertEqual(corrected.rounds[0]["holesCompleted"], 18)
+
+    def test_j1_3_earlier_disjoint_card_is_not_one_outing(self) -> None:
+        """J1.3: an older non-overlapping card cannot consume this date's manual holes."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = _row("first", "2026-06-15 08:00", list(range(1, 10)))
+            earlier = _row("earlier", "2026-06-01 08:00", list(range(10, 18)))
+            _restore(root, "first")
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[first, earlier], shots=[]), annotations_root=root)
+            self.assertEqual(corrected.rounds[0]["holesCompleted"], 18)
+
+    def test_j1_3_two_undated_cards_preserve_restore_conservatively(self) -> None:
+        """J1.3: two absent dates are no evidence of the same outing."""
+        for numbers in (range(10, 18), range(9, 18)):
+            with self.subTest(numbers=list(numbers)), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                first = _row("first", "", list(range(1, 10)))
+                other = _row("other", "", list(numbers))
+                _restore(root, "first")
+                corrected = corrected_history_data(
+                    HistoryData(raw_rounds=[], rounds=[first, other], shots=[]), annotations_root=root)
+                self.assertEqual(corrected.rounds[0]["holesCompleted"], 18)
 
     def test_j1_3_same_month_different_day_is_not_one_outing(self) -> None:
         """J1.3: the outing key uses the calendar day, not only the month."""
@@ -103,6 +175,7 @@ class C281MergeSameDayTests(unittest.TestCase):
                 root=root,
             )
             first = _row("mobile-round", "2026-06-01 08:00", list(range(1, 10)))
+            first.update(rating=35.2, slope=113)
             second = _row("same-day-second", "2026-06-01 13:00", list(range(1, 19)))
             data = HistoryData(raw_rounds=[], rounds=[first, second], shots=[])
             result = reconcile_mobile_round_events("mobile-round", data, root=root)
@@ -113,17 +186,40 @@ class C281MergeSameDayTests(unittest.TestCase):
                 root=root, annotations_root=root, data_loader=lambda: data,
             )
             self.assertEqual(applied["appliedCount"], 9)
-            corrected = corrected_history_data(data, annotations_root=root).rounds[0]
+            projection = corrected_history_data(data, annotations_root=root)
+            corrected = projection.rounds[0]
             self.assertEqual((corrected["holesCompleted"], len(corrected["holes"])), (18, 18))
+            stats = _stats(data, root)
+            self.assertEqual(stats["summary"]["difficultyAdjusted"]["ratedRoundCount"], 0)
+            self.assertIsNone(_scorecard(stats, projection, "mobile-round")["differential"])
 
 
     def test_j2_1_reports_and_history_share_low_rating_guard(self) -> None:
         """J2.1: a nine-hole rating (<50) is missing from both differential consumers."""
-        row = {"id": "low-rating", "holesCompleted": 18, "strokes": 90, "rating": 35.2, "slope": 113}
-        self.assertIsNone(_round_differential_value(90, 35.2, 113))
-        quality = _rating_slope_quality(HistoryData(raw_rounds=[row], rounds=[row], shots=[]))
-        self.assertEqual(quality["state"], "missing")
-        self.assertEqual(quality["missingRefs"], ["low-rating"])
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            row = _row("low-rating", "2026-06-01", list(range(1, 19)))
+            row.update(rating=35.2, slope=113)
+            data = HistoryData(raw_rounds=[row], rounds=[row], shots=[])
+            stats = _stats(data, root)
+            self.assertIsNone(_scorecard(stats, data, "low-rating")["differential"])
+            quality = next(item for item in stats["dataQuality"] if item["label"] == "rating_slope")
+            self.assertEqual(quality["state"], "missing")
+            self.assertEqual(quality["missingRefs"], ["low-rating"])
+
+    def test_j2_1_nine_hole_round_is_not_priced_with_either_rating(self) -> None:
+        """J2.1: 45 strokes over nine holes cannot price an 18-hole differential."""
+        for rating in (35.2, 72.0):
+            with self.subTest(rating=rating), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                row = _row("nine", "2026-06-01", list(range(1, 10)))
+                row.update(rating=rating, slope=120)
+                data = HistoryData(raw_rounds=[row], rounds=[row], shots=[])
+                stats = _stats(data, root)
+                difficulty = stats["summary"]["difficultyAdjusted"]
+                self.assertEqual(difficulty["ratedRoundCount"], 0)
+                self.assertIsNone(difficulty["averageDifferential"])
+                self.assertIsNone(_scorecard(stats, data, "nine")["differential"])
 
 
     def test_j1_3_builds_real_hole_key_index_once(self) -> None:
@@ -132,11 +228,28 @@ class C281MergeSameDayTests(unittest.TestCase):
 
         rows = [_row(f"round-{i}", f"2026-06-{i + 1:02d} 08:00", list(range(1, 19))) for i in range(4)]
         class CountingDict(dict):
-            items_calls = 0
+            scans = 0
+            lookups = 0
 
             def items(self):
-                type(self).items_calls += 1
+                type(self).scans += 1
                 return super().items()
+
+            def __iter__(self):
+                type(self).scans += 1
+                return super().__iter__()
+
+            def values(self):
+                type(self).scans += 1
+                return super().values()
+
+            def keys(self):
+                type(self).scans += 1
+                return super().keys()
+
+            def __getitem__(self, key):
+                type(self).lookups += 1
+                return super().__getitem__(key)
 
         original = module._real_score_hole_keys
 
@@ -146,9 +259,10 @@ class C281MergeSameDayTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             _restore(root, "round-0", numbers=[18])
-            CountingDict.items_calls = 0
+            CountingDict.scans = CountingDict.lookups = 0
             with patch.object(module, "_real_score_hole_keys", side_effect=counted):
                 corrected_history_data(
                     HistoryData(raw_rounds=[], rounds=rows, shots=[]), annotations_root=root,
                 )
-        self.assertLessEqual(CountingDict.items_calls, 2)
+        self.assertLessEqual(CountingDict.scans, 2)
+        self.assertLessEqual(CountingDict.lookups, len(rows))
