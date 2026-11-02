@@ -63,6 +63,13 @@
       "kind": "python",
       "target": "tests.test_c90_timing.UvicornLogExitTests.test_route_cache_clear_helper_resets_fixture_state",
       "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C178-10-prepare-recent-log-include-player",
+      "patch": "tests/product/faults/C178/10-prepare-recent-log-include-player.patch",
+      "kind": "python",
+      "target": "tests.test_c90_timing.UvicornLogExitTests.test_prepare_recent_error_logs_do_not_include_player_id",
+      "promise": "J7.3"
     }
   ]
 }
