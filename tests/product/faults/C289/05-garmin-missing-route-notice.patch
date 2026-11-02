@@ -1,10 +1,10 @@
 diff --git a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
-index 2519bcff..4bbb9f80 100644
+index 3b2043d1..fe2a2ed9 100644
 --- a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
 +++ b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
-@@ -1138,6 +1138,7 @@ public struct WatchHoleMapView: View {
-                         .frame(maxHeight: .infinity, alignment: .bottom)
-                         .padding(.bottom, 36)
+@@ -1141,6 +1141,7 @@ public struct WatchHoleMapView: View {
+                         .position(x: fullMap ? geo.size.width / 2 : noticeFrame.midX,
+                                   y: fullMap ? geo.size.height / 2 : noticeFrame.midY)
                          .accessibilityIdentifier("watch-map-garmin-pending-route")
 +                        .opacity(0)
                  }
