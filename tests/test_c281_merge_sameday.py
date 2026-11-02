@@ -65,7 +65,9 @@ class C281MergeSameDayTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             first = _row("first", "2026-06-01 08:00", list(range(1, 10)))
-            other_day = _row("other-day", "2026-06-15 08:00", list(range(1, 19)))
+            # Disjoint physical holes make the month mutant look like one outing;
+            # the day-level rule must still keep the restore.
+            other_day = _row("other-day", "2026-06-15 08:00", list(range(10, 18)))
             _restore(root, "first")
             corrected = corrected_history_data(
                 HistoryData(raw_rounds=[], rounds=[first, other_day], shots=[]),
