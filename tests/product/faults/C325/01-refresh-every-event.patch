@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/RoundHomeView.swift b/mobile/ios/AICaddie/Views/RoundHomeView.swift
+index a026d21f..03917302 100644
+--- a/mobile/ios/AICaddie/Views/RoundHomeView.swift
++++ b/mobile/ios/AICaddie/Views/RoundHomeView.swift
+@@ -79,7 +79,7 @@ struct LiveHolePage<Content: View>: View, Equatable {
+         #if DEBUG
+         rhs.onComparisonForTesting?()
+         #endif
+-        return !lhs.input.isSelected && !rhs.input.isSelected && lhs.input == rhs.input
++        return false
+     }
+ 
+     #if DEBUG

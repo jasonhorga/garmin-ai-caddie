@@ -64,6 +64,11 @@ struct LiveHolePageInput: Equatable {
 struct LiveHolePage<Content: View>: View, Equatable {
     let input: LiveHolePageInput
     let content: () -> Content
+    #if DEBUG
+    // A mounted body can precede SwiftUI's first equality comparison. Tests observe that
+    // boundary directly instead of assuming a fixed delay has enabled page freezing.
+    private var onComparisonForTesting: (() -> Void)?
+    #endif
 
     init(input: LiveHolePageInput, @ViewBuilder content: @escaping () -> Content) {
         self.input = input
@@ -71,8 +76,19 @@ struct LiveHolePage<Content: View>: View, Equatable {
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        !lhs.input.isSelected && !rhs.input.isSelected && lhs.input == rhs.input
+        #if DEBUG
+        rhs.onComparisonForTesting?()
+        #endif
+        return !lhs.input.isSelected && !rhs.input.isSelected && lhs.input == rhs.input
     }
+
+    #if DEBUG
+    func observingComparisonsForTesting(_ action: @escaping () -> Void) -> Self {
+        var page = self
+        page.onComparisonForTesting = action
+        return page
+    }
+    #endif
 
     var body: some View { content() }
 }

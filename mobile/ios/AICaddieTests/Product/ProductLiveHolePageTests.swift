@@ -551,6 +551,8 @@ final class ProductLiveHolePageTests: XCTestCase {
 
     private final class Probe {
         var bodies: [Int: Int] = [:]
+        var comparisons: [Int: Int] = [:]
+        var generations: [Int: Int] = [:]
         var events: [(Int, LiveRoundEvent)] = []
         var advances: [(Int, Int)] = []
         var callbacks: [Int: (event: (LiveRoundEvent) -> Void, advance: (Int) -> Void)] = [:]
@@ -636,6 +638,7 @@ final class ProductLiveHolePageTests: XCTestCase {
 
         private func countBody() {
             probe.bodies[number, default: 0] += 1
+            probe.generations[number] = generation
             probe.callbacks[number] = (event, advance)
             probe.inputs[number] = input
             probe.states[number] = state
@@ -651,6 +654,7 @@ final class ProductLiveHolePageTests: XCTestCase {
                 ForEach([1, 2], id: \.self) { number in
                     let input = model.input(number)
                     let latest = model.latest
+                    let probe = model.probe
                     LiveHolePage(input: input) {
                         CountedPage(number: number, generation: model.generation, input: input, state: model.state,
                                     probe: model.probe, event: latest.onEvent,
@@ -661,52 +665,70 @@ final class ProductLiveHolePageTests: XCTestCase {
                                                                     set: { model.navigationLock = $0 })
                                         ) { value, target in value.onSetActiveHole(target) }
                                     })
+                    }.observingComparisonsForTesting {
+                        probe.comparisons[number, default: 0] += 1
                     }.equatable()
                 }
             }
         }
     }
 
-    private func settle(_ host: UIViewController) {
-        host.view.setNeedsLayout()
-        host.view.layoutIfNeeded()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    private func settle(_ host: UIViewController, model: Model) async throws {
+        let selected = model.selected
+        let generation = model.generation
+        let input = model.input(selected)
+        let rendered = try await waitForHostedState(host) {
+            model.probe.generations[selected] == generation && model.probe.inputs[selected] == input
+        }
+        XCTAssertTrue(rendered, "J5.10: the selected page must consume this update before counting bodies")
     }
 
-    private func withHost(_ exercise: (Model, UIViewController) throws -> Void) throws {
+    private func withHost(_ exercise: (Model, UIViewController) async throws -> Void) async throws {
         let model = try Model()
         let host = UIHostingController(rootView: HostedPages(model: model))
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = host
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
-        settle(host)
+        // SwiftUI may initially rebuild bodies without consulting EquatableView's comparator.
+        // Invalidate without changing any page input until the real adjacent comparison runs.
+        // Readiness does not depend on its result or on a body-count assertion passing.
+        let compared = try await waitForHostedState(host) {
+            if model.probe.comparisons[2, default: 0] > 0 { return true }
+            model.objectWillChange.send()
+            return false
+        }
+        guard compared else {
+            XCTFail("J5.10: SwiftUI did not evaluate the adjacent page's equality boundary")
+            return
+        }
+        try await settle(host, model: model)
         XCTAssertGreaterThan(model.probe.bodies[1, default: 0], 0)
         XCTAssertGreaterThan(model.probe.bodies[2, default: 0], 0)
-        try exercise(model, host)
+        try await exercise(model, host)
     }
 
-    func test_j5_10_twenty_current_hole_events_skip_adjacent_bodies_but_adjacent_edit_updates_once() throws {
-        try withHost { model, host in
+    func test_j5_10_twenty_current_hole_events_skip_adjacent_bodies_but_adjacent_edit_updates_once() async throws {
+        try await withHost { model, host in
             let baseline = model.probe.bodies
             for _ in 0..<20 {
                 model.update(hole: 1)
-                settle(host)
+                try await settle(host, model: model)
             }
             // Handwritten contract: selected N=20, adjacent 0; adjacent edit adds exactly 1.
             XCTAssertEqual(model.probe.bodies[1, default: 0] - baseline[1, default: 0], 20)
             XCTAssertEqual(model.probe.bodies[2, default: 0] - baseline[2, default: 0], 0)
             let beforeEdit = model.probe.bodies[2, default: 0]
             model.update(hole: 2, score: 5)
-            settle(host)
+            try await settle(host, model: model)
             XCTAssertEqual(model.probe.bodies[2, default: 0] - beforeEdit, 1)
         }
     }
 
-    func test_j5_10_frozen_page_callbacks_use_latest_event_and_navigation_state() throws {
-        try withHost { model, host in
+    func test_j5_10_frozen_page_callbacks_use_latest_event_and_navigation_state() async throws {
+        try await withHost { model, host in
             let callbacks = try XCTUnwrap(model.probe.callbacks[2])
-            for _ in 0..<20 { model.update(hole: 1); settle(host) }
+            for _ in 0..<20 { model.update(hole: 1); try await settle(host, model: model) }
             let event = LiveRoundEventBuilder(roundId: model.state.roundId)
                 .makeScoreEvent(hole: 2, strokes: 5)
             callbacks.event(event)
@@ -722,12 +744,12 @@ final class ProductLiveHolePageTests: XCTestCase {
         }
     }
 
-    func test_j5_10_selecting_an_adjacent_page_rebuilds_it_immediately_with_latest_inputs() throws {
-        try withHost { model, host in
-            for _ in 0..<20 { model.update(hole: 1); settle(host) }
+    func test_j5_10_selecting_an_adjacent_page_rebuilds_it_immediately_with_latest_inputs() async throws {
+        try await withHost { model, host in
+            for _ in 0..<20 { model.update(hole: 1); try await settle(host, model: model) }
             let baseline = model.probe.bodies[2, default: 0]
             model.selected = 2
-            settle(host)
+            try await settle(host, model: model)
             XCTAssertEqual(model.probe.bodies[2, default: 0] - baseline, 1)
             XCTAssertEqual(model.probe.inputs[2]?.round?.ownHole?.selectedClub, "7I")
             XCTAssertEqual(model.probe.inputs[2]?.round?.scores, model.input(2).round?.scores)
@@ -735,61 +757,61 @@ final class ProductLiveHolePageTests: XCTestCase {
             XCTAssertEqual(model.probe.states[2]?.holeState(for: 1)?.selectedClub, "club-20",
                            "selection must consume the latest full state, including previously ignored fields")
             model.update(hole: 1)
-            settle(host)
+            try await settle(host, model: model)
             XCTAssertEqual(model.probe.bodies[2, default: 0] - baseline, 2,
                            "the selected page consumes even an unrelated event")
         }
     }
 
-    func test_j5_10_round_score_edits_update_the_chip_and_card_on_an_adjacent_page() throws {
-        try withHost { model, host in
+    func test_j5_10_round_score_edits_update_the_chip_and_card_on_an_adjacent_page() async throws {
+        try await withHost { model, host in
             let baseline = model.probe.bodies[2, default: 0]
             model.update(hole: 1, score: 5)
-            settle(host)
+            try await settle(host, model: model)
             XCTAssertEqual(model.probe.bodies[2, default: 0] - baseline, 1,
                            "the global score chip/card must not freeze with unrelated club/GPS fields")
             XCTAssertEqual(model.probe.inputs[2]?.round?.scores.first?.score, 5)
         }
     }
 
-    func test_j5_10_installed_loop_catalogue_change_reaches_the_adjacent_page() throws {
-        try withHost { model, host in
+    func test_j5_10_installed_loop_catalogue_change_reaches_the_adjacent_page() async throws {
+        try await withHost { model, host in
             let baseline = model.probe.bodies[2, default: 0]
             model.downloadedCourseOptions = [ProductInputs.course(82001, venue: "Example")]
-            settle(host)
+            try await settle(host, model: model)
             XCTAssertEqual(model.probe.bodies[2, default: 0] - baseline, 1)
             XCTAssertEqual(model.probe.inputs[2]?.courseOptions.map(\.globalId), [82001],
                            "an empty network catalogue must still deliver the installed loop")
         }
     }
 
-    func test_j5_10_adjacent_restorable_fields_update_without_a_score_change() throws {
-        try withHost { model, host in
+    func test_j5_10_adjacent_restorable_fields_update_without_a_score_change() async throws {
+        try await withHost { model, host in
             let baseline = model.probe.bodies[2, default: 0]
             model.update(hole: 2)
-            settle(host)
+            try await settle(host, model: model)
             XCTAssertEqual(model.probe.bodies[2, default: 0] - baseline, 1)
             XCTAssertEqual(model.probe.inputs[2]?.round?.ownHole?.selectedClub, "club-1")
         }
     }
 
-    func test_j5_10_drag_begin_refreshes_frozen_adjacent_once_without_event_churn() throws {
-        try withHost { model, host in
+    func test_j5_10_drag_begin_refreshes_frozen_adjacent_once_without_event_churn() async throws {
+        try await withHost { model, host in
             let baseline = model.probe.bodies[2, default: 0]
-            for _ in 0..<20 { model.update(hole: 1); settle(host) }
+            for _ in 0..<20 { model.update(hole: 1); try await settle(host, model: model) }
             XCTAssertEqual(model.probe.bodies[2, default: 0] - baseline, 0)
 
             // J5.10: decoding a prefetched image does not publish to a nonselected page.
             // Each new drag must request one body so it can read the now-ready image cache.
             model.interactionRevision += 1
-            settle(host)
+            try await settle(host, model: model)
             XCTAssertEqual(model.probe.bodies[2, default: 0] - baseline, 1)
 
-            for _ in 0..<20 { model.update(hole: 1); settle(host) }
+            for _ in 0..<20 { model.update(hole: 1); try await settle(host, model: model) }
             XCTAssertEqual(model.probe.bodies[2, default: 0] - baseline, 1,
                            "an unchanged interaction signal must still skip unrelated events")
             model.interactionRevision += 1
-            settle(host)
+            try await settle(host, model: model)
             XCTAssertEqual(model.probe.bodies[2, default: 0] - baseline, 2,
                            "a later drag also refreshes the adjacent page before selection")
         }
