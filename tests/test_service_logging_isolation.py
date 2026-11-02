@@ -11,31 +11,6 @@ import unittest
 from unittest.mock import patch
 
 
-LOGGING_MUTATING_MODULES = (
-    "tests.test_pipeline",
-    "tests.test_c90_timing",
-    "tests.test_course_install",
-    "tests.test_c295_log_privacy",
-    "tests.product.test_c154b",
-    "tests.product.test_c163",
-    "tests.product.test_c33_start_fast",
-    "tests.product.test_c36_cold_release_start",
-    "tests.test_app_boots_with_db",
-    "tests.test_course_tees",
-    "tests.test_release_hardening",
-    "tests.test_server_v2_cache_warmup",
-    "tests.test_server_v2_mobile",
-)
-
-# c154b contains a large HTTP/DB suite.  Its logging-mutating class is the
-# admission class; keeping the guard scoped to that class makes this check
-# cheap enough for every backend test run while still catching the SM5 leak.
-LOGGING_GUARD_TARGETS = {
-    "tests.product.test_c154b": ("ForegroundAdmissionTests",),
-    "tests.product.test_c163": ("MonitorLifecycleTests",),
-}
-
-
 class ServiceLoggingIsolationTests(unittest.TestCase):
     def test_J73_unregistered_module_leaks_are_rejected_at_module_boundary(self):
         """J7.3: CI's base runner catches any module, after module cleanups."""
@@ -60,19 +35,20 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
                         "    def test_restored(self):\n"
                         f"        self.assertIs(logging.Logger.{method}, original)\n"
                     )
-                    result = subprocess.run(
-                        [sys.executable, "-m", "tests.check_isolation",
-                         "logging_boundary_probe", "logging_boundary_observer"],
-                        env={**os.environ, "PYTHONPATH": os.pathsep.join(
-                            [tmp, str(Path(__file__).resolve().parents[1])])},
-                        capture_output=True, text=True, timeout=30)
-                    output = result.stdout + result.stderr
-                    if restore:
-                        self.assertEqual(result.returncode, 0, output)
-                    else:
-                        self.assertNotEqual(result.returncode, 0, output)
-                        self.assertIn(f"logging_boundary_probe leaked Logger.{method}", output)
-                        self.assertNotIn("FAIL: test_restored", output)
+                    for modules in (("logging_boundary_probe", "logging_boundary_observer"),
+                                    ("logging_boundary_observer", "logging_boundary_probe")):
+                        result = subprocess.run(
+                            [sys.executable, "-m", "tests.check_isolation", *modules],
+                            env={**os.environ, "PYTHONPATH": os.pathsep.join(
+                                [tmp, str(Path(__file__).resolve().parents[1])])},
+                            capture_output=True, text=True, timeout=30)
+                        output = result.stdout + result.stderr
+                        if restore:
+                            self.assertEqual(result.returncode, 0, output)
+                        else:
+                            self.assertNotEqual(result.returncode, 0, output)
+                            self.assertIn(f"logging_boundary_probe leaked Logger.{method}", output)
+                            self.assertNotIn("FAIL: test_restored", output)
 
     def test_J73_isolation_guard_rejects_leaked_logger_methods(self):
         """J7.3: detect process hooks even if handlers and levels were restored."""
@@ -103,10 +79,6 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
         with preserve_service_logging():
             result = unittest.TextTestRunner(stream=output).run(suite)
         self.assertTrue(result.wasSuccessful(), output.getvalue())
-
-    def test_J42_logging_mutating_module_registry_is_explicit(self):
-        """J4.2: a newly logging-mutating module must be added to this guard registry."""
-        self.assertIn("tests.product.test_c154b", LOGGING_MUTATING_MODULES)
 
     def test_J42_background_slot_logging_suite_is_discoverable(self):
         """J4.2: the logging isolation regression suite is visible to unittest discover."""
@@ -194,16 +166,6 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
                     logger.setLevel(level)
                     logger.propagate = propagate
                     logger.disabled = disabled
-
-    def test_logging_mutating_modules_restore_logging(self):
-        for module in LOGGING_MUTATING_MODULES:
-            with self.subTest(module=module):
-                targets = LOGGING_GUARD_TARGETS.get(module)
-                if targets is None:
-                    self.assert_module_restores_logging(module)
-                else:
-                    for target in targets:
-                        self.assert_module_restores_logging(module, only_class=target)
 
     # Keep the individual C226 targets stable for the existing fault fragment.
     def test_course_tees_restores_logging(self):

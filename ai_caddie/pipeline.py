@@ -31,8 +31,8 @@ _SYNC_LOG_HANDLER_MARKER = "_ai_caddie_sync_handler"
 
 
 def _configure_sync_logging() -> None:
-    """Make the shot-diff diagnostics visible to the cron pipeline only."""
-    protect_future_handlers()
+    """Expose shot-diff diagnostics and protect every cron logging exit."""
+    protect_future_handlers(all_loggers=True)
     target = logging.getLogger(_SYNC_LOGGER_NAME)
     target.setLevel(logging.INFO)
     target.propagate = False

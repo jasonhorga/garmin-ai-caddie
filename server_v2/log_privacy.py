@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 import re
 import traceback
-from weakref import WeakKeyDictionary
+from weakref import ref
 
 from ai_caddie.core.request_timing import redact_url, route_template
 
@@ -36,9 +36,17 @@ def _text(value: str) -> str:
     value = _URL.sub(lambda match: redact_url(match[0]), value)
     def identity(match):
         original = match[3]
+        # Only the documented partition label is public; a bare player field
+        # containing the same characters is still an identity.
+        if (match[1].lower() == "player" and match[2] == ":"
+                and re.fullmatch(r"[0-9a-fA-F]{12}", original)
+                and re.search(r"\bpartition=$", value[:match.start()])):
+            return match[0]
         quote = original[0] if original[0] in "\"'" else ""
         return match[1] + match[2] + quote + _REDACTED + quote
 
+    # Consume the credential before a key/value rule can eat just "Bearer".
+    value = re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer " + _REDACTED, value)
     value = _IDENTITY.sub(identity, value)
     def path(match):
         candidate = match[0]
@@ -136,6 +144,10 @@ def _arguments(value):
 
 
 class LogPrivacyFilter(logging.Filter):
+    def __init__(self, *, all_loggers=False):
+        super().__init__()
+        self.all_loggers = all_loggers
+
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             return self._filter(record)
@@ -154,7 +166,7 @@ class LogPrivacyFilter(logging.Filter):
             return True
 
     def _filter(self, record: logging.LogRecord) -> bool:
-        if not record.name.startswith(("server_v2", "ai_caddie", "uvicorn.error")):
+        if not self.all_loggers and not record.name.startswith(("server_v2", "ai_caddie", "uvicorn.error")):
             return True
         record.args = _arguments(record.args)
         record.msg = _text(record.getMessage())
@@ -180,7 +192,7 @@ def protect_handler(handler: logging.Handler) -> None:
         handler.addFilter(LogPrivacyFilter())
 
 
-def protect_future_handlers() -> ExitStack:
+def protect_future_handlers(*, all_loggers=False) -> ExitStack:
     """Install once at service/cron startup; close the handle to undo this guard.
 
     Repeated calls share the same installation and lifetime. Embedded entrypoint
@@ -190,30 +202,52 @@ def protect_future_handlers() -> ExitStack:
     original = logging.Logger.addHandler
     original_call_handlers = logging.Logger.callHandlers
     if getattr(original, "_privacy_guard", False):
+        if all_loggers:
+            original._privacy_enable_all()
         return original._privacy_handle
 
     handle = ExitStack()
-    added_filters = WeakKeyDictionary()
+    # Weak references avoid retaining short-lived handlers. The id key never
+    # invokes a handler's __hash__/__eq__; non-weakrefable adapters are retained
+    # only until this installation closes.
+    added_filters = {}
+    scope = {"all_loggers": all_loggers}
+
+    def enable_all():
+        scope["all_loggers"] = True
+        for reference, privacy_filter in list(added_filters.values()):
+            privacy_filter.all_loggers = True
 
     def protect(handler):
-        if not any(isinstance(item, LogPrivacyFilter) for item in handler.filters):
-            privacy_filter = LogPrivacyFilter()
+        if not any(isinstance(item, LogPrivacyFilter)
+                   and (not scope["all_loggers"] or item.all_loggers)
+                   for item in handler.filters):
+            privacy_filter = LogPrivacyFilter(all_loggers=scope["all_loggers"])
             handler.addFilter(privacy_filter)
-            added_filters[handler] = privacy_filter
+            key = id(handler)
+            try:
+                reference = ref(handler, lambda unused: added_filters.pop(key, None))
+            except TypeError:
+                reference = lambda: handler
+            added_filters[key] = (reference, privacy_filter)
 
     def restore():
         logging.Logger.addHandler = original
         logging.Logger.callHandlers = original_call_handlers
-        for handler, privacy_filter in list(added_filters.items()):
-            handler.removeFilter(privacy_filter)
+        for reference, privacy_filter in list(added_filters.values()):
+            handler = reference()
+            if handler is not None:
+                handler.removeFilter(privacy_filter)
+        added_filters.clear()
 
     handle.callback(restore)
 
     def add_handler(logger, handler):
-        if logger is logging.getLogger() or logger.name.startswith(("server_v2", "ai_caddie", "uvicorn")):
+        if scope["all_loggers"] or logger is logging.getLogger() or logger.name.startswith(("server_v2", "ai_caddie", "uvicorn")):
             protect(handler)
         return original(logger, handler)
 
+    add_handler._privacy_enable_all = enable_all
     add_handler._privacy_guard = True
     add_handler._privacy_handle = handle
     logging.Logger.addHandler = add_handler
@@ -221,12 +255,16 @@ def protect_future_handlers() -> ExitStack:
     def call_handlers(logger, record):
         current = logger
         while current:
-            if current.name.startswith(("server_v2", "ai_caddie", "uvicorn")) or current is logging.getLogger():
+            if scope["all_loggers"] or current.name.startswith(("server_v2", "ai_caddie", "uvicorn")) or current is logging.getLogger():
                 for handler in current.handlers:
                     protect(handler)
             if not current.propagate:
                 break
             current = current.parent
+        # lastResort is outside the propagation chain and may be replaced after
+        # startup. Protect it at dispatch time, just like directly assigned exits.
+        if logging.lastResort is not None:
+            protect(logging.lastResort)
         return original_call_handlers(logger, record)
 
     call_handlers._privacy_guard = True

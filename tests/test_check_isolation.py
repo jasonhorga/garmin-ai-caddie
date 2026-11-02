@@ -30,7 +30,7 @@ class CheckIsolationTests(unittest.TestCase):
             original_run = subprocess.run
 
             def run(command, **kwargs):
-                if command[:3] == [sys.executable, "-m", "unittest"]:
+                if command[:4] == [sys.executable, "-m", "tests.check_isolation", "--logging-child"]:
                     changed.write_text("changed fixture")
                     if add_file:
                         (root / "data/new.json").write_text("new fixture")

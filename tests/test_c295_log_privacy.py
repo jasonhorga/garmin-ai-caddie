@@ -137,10 +137,18 @@ class J7LogPrivacyTests(unittest.TestCase):
                         root.handlers[:] = [logging.StreamHandler(stream)]
                     stream.seek(0)
                     stream.truncate()
-                    target.warning("cron failed p_0123456789abcdef token=PRIVATECRON status=200")
+                    third_party = logging.getLogger("privacy_cron_vendor")
+                    third_party.handlers[:] = []
+                    third_party.setLevel(logging.WARNING)
+                    third_party.propagate = True
+                    sources = [target, third_party]
+                    if exit_name == "root":
+                        sources.append(root)
+                    for source in sources:
+                        source.warning("cron failed p_0123456789abcdef token=PRIVATECRON status=200")
                     output = stream.getvalue()
-                    self.assertIn("cron failed", output)
-                    self.assertIn("status=200", output)
+                    self.assertEqual(output.count("cron failed"), len(sources))
+                    self.assertEqual(output.count("status=200"), len(sources))
                     self.assertNotIn("p_0123456789abcdef", output)
                     self.assertNotIn("PRIVATECRON", output)
 
