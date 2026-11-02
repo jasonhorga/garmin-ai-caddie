@@ -1723,6 +1723,13 @@ def _strategy_water_safe(carry_m: float, hazards: dict) -> bool:
     return True
 
 
+def _water_span_affects_scoring_route(interval, route_len_m: float) -> bool:
+    try:
+        return min(float(interval[0]), float(interval[1])) < float(route_len_m)
+    except (TypeError, ValueError, OverflowError, IndexError):
+        return False
+
+
 def _strategy_tee_row(usable_ladder, hazards: dict):
     """Resolve one factual tee club without drawing a stock landing inside water.
 
@@ -1875,6 +1882,8 @@ def _strategy(
     route, or None) lets the shot onto the green be chosen by its plays-like distance: the flat
     remainder plus the rise (or minus the drop) from where it is played to the green. Landing
     offsets stay physical, so the map draws the same route. Without it nothing changes."""
+    from ai_caddie.caddie.decision import SCORING_WINDOW_MAX_M, TEE_SEQUENCE_MAX_OVERSHOOT_M
+
     steps: list[dict] = []
     cautions: list[str] = []
     usable_ladder = [
@@ -1882,6 +1891,19 @@ def _strategy(
         for name, distance in ladder
         if club_bag_service.canonical_club_name(name) != "putter"
     ]
+    # Projection can clamp a water span's far edge to the pin. Keep its pre-pin portion
+    # as a planning constraint; only water starting at or beyond the pin is irrelevant.
+    # Preserve the original spans for display and cautions below.
+    planning_hazards = {
+        **(hazards or {}),
+        "water_carry": [
+            [min(float(interval[0]), float(interval[1])),
+             min(max(float(interval[0]), float(interval[1])), float(route_len_m))]
+            for interval in (hazards or {}).get("water_carry") or []
+            if isinstance(interval, (list, tuple)) and len(interval) >= 2
+            and _water_span_affects_scoring_route(interval, route_len_m)
+        ],
+    }
     real_driver_row = next(
         (
             (name, distance)
@@ -1890,7 +1912,7 @@ def _strategy(
         ),
         None,
     )
-    selected_tee_row = _strategy_tee_row(usable_ladder, hazards)
+    selected_tee_row = _strategy_tee_row(usable_ladder, planning_hazards)
     driver_row = selected_tee_row or real_driver_row or (usable_ladder[0] if usable_ladder else (None, 200))
     driver_name, driver = driver_row
     landing = None
@@ -1958,8 +1980,6 @@ def _strategy(
         # caddie appear to forbid the club the golfer normally tees with.  Keep the landing target
         # conservative for a short hole, but keep the physical tee club honest.
         tee_club = driver_name
-        from ai_caddie.caddie.decision import SCORING_WINDOW_MAX_M
-
         tee_role = "scoring" if route_len_m - landing <= SCORING_WINDOW_MAX_M else "advance"
         append_step(
             tee_club,
@@ -2006,18 +2026,69 @@ def _strategy(
                 if step.get("club")
             }
             previous_carry = float(steps[-1].get("targetCarry_m") or math.inf)
+            scoring_max_overshoot = TEE_SEQUENCE_MAX_OVERSHOOT_M
+            if approach_ladder and effective <= max(float(distance) for _name, distance in approach_ladder):
+                # A short remainder can be closed by one measured scoring club whose carry is
+                # just beyond the route window; prefer that GIR candidate to two short fallback
+                # swings. Long advances keep the online 20 m tolerance and lay-up ranking.
+                scoring_max_overshoot += 15.0
             shared_tail = _shared_sequence_tail(
                 effective,
                 approach_ladder,
                 start_m=route_offset_m,
-                hazards=hazards,
+                hazards=planning_hazards,
                 exclude_club_keys=used_clubs,
                 maximum_carry_m=previous_carry,
                 forbid_repeated_clubs=True,
-                max_overshoot_m=None,
+                max_overshoot_m=scoring_max_overshoot,
                 sample_size=None,
                 player_id=player_id,
             )
+            if (
+                planning_hazards.get("water_carry")
+                and tee_club != (real_driver_row or (None,))[0]
+                and (not shared_tail or effective - sum(distance for _club, distance in shared_tail) > SCORING_WINDOW_MAX_M)
+            ):
+                # A water-forced lay-up can leave a narrow gap between measured carries.
+                # Accept a bounded two-club finish before repeats, but never add a third
+                # tail shot just to avoid repeating a club (GAP 428 m versus 476 m).
+                water_tail = _shared_sequence_tail(
+                    effective,
+                    approach_ladder,
+                    start_m=route_offset_m,
+                    hazards=planning_hazards,
+                    exclude_club_keys=used_clubs,
+                    maximum_carry_m=previous_carry,
+                    forbid_repeated_clubs=True,
+                    max_overshoot_m=scoring_max_overshoot + 15.0,
+                    sample_size=None,
+                    player_id=player_id,
+                )
+                if 0 < len(water_tail) <= 2 and effective - sum(
+                    distance for _club, distance in water_tail
+                ) <= SCORING_WINDOW_MAX_M:
+                    shared_tail = water_tail
+            # Keep the distinct GIR candidate first; only a non-converging candidate needs
+            # the online repeat fallback. A separate distinct re-plan-gap pass selected no
+            # accepted route that the initial pass did not already select.
+            if not shared_tail or effective - sum(distance for _club, distance in shared_tail) > SCORING_WINDOW_MAX_M:
+                replanned_tail = _shared_sequence_tail(
+                    effective,
+                    approach_ladder,
+                    start_m=route_offset_m,
+                    hazards=planning_hazards,
+                    exclude_club_keys=set(),
+                    maximum_carry_m=previous_carry,
+                    allow_replan_gap=True,
+                    forbid_repeated_clubs=False,
+                    max_overshoot_m=scoring_max_overshoot,
+                    sample_size=None,
+                    player_id=player_id,
+                )
+                if replanned_tail and effective - sum(
+                    distance for _club, distance in replanned_tail
+                ) <= SCORING_WINDOW_MAX_M:
+                    shared_tail = replanned_tail
             if shared_tail:
                 candidate_remaining = effective - sum(
                     tail_distance for _tail_club, tail_distance in shared_tail
@@ -2054,12 +2125,14 @@ def _strategy(
             # The online tail can be empty when every continuation is unsafe. Keep the old
             # distance fallback, but constrain it to the already-played carry and to a fresh club
             # so the safety fallback cannot reintroduce a short-then-long sequence.
+            # Apply the same clipped constraints in the fallback while keeping the original
+            # hazards for the measured display facts and cautions after planning finishes.
             safe_ladder = [
                 (name, distance)
                 for name, distance in approach_ladder
                 if club_bag_service.canonical_club_name(name) not in used_clubs
                 and float(distance) <= previous_carry
-                and _strategy_water_safe(route_offset_m + float(distance), hazards)
+                and _strategy_water_safe(route_offset_m + float(distance), planning_hazards)
             ]
             if not safe_ladder:
                 # Match the online repeat fallback when no distinct safe club can finish the
@@ -2069,7 +2142,7 @@ def _strategy(
                     (name, distance)
                     for name, distance in approach_ladder
                     if float(distance) <= previous_carry
-                    and _strategy_water_safe(route_offset_m + float(distance), hazards)
+                    and _strategy_water_safe(route_offset_m + float(distance), planning_hazards)
                 ]
             if not safe_ladder:
                 break
@@ -2077,7 +2150,7 @@ def _strategy(
             approach_club, approach_distance = None, None
             if effective > longest_approach + 15 and remaining - longest_approach < LAYUP_LEAVE_MIN_M:
                 layup = _layup_position_club(
-                    remaining, safe_ladder, start_m=route_offset_m, hazards=hazards,
+                    remaining, safe_ladder, start_m=route_offset_m, hazards=planning_hazards,
                 )
                 if layup is not None:
                     approach_club, approach_distance = layup

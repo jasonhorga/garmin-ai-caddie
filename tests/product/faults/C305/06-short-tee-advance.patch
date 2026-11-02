@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index c739b06a..63636ab6 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -1979,7 +1979,7 @@ def _strategy(
+         # caddie appear to forbid the club the golfer normally tees with.  Keep the landing target
+         # conservative for a short hole, but keep the physical tee club honest.
+         tee_club = driver_name
+-        tee_role = "scoring" if route_len_m - landing <= SCORING_WINDOW_MAX_M else "advance"
++        tee_role = "advance"
+         append_step(
+             tee_club,
+             f"开球落点约 {yd(landing)}y",

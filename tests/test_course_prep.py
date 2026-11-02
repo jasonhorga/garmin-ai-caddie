@@ -12,6 +12,7 @@ from ai_caddie.courses import course_prep as cp
 from ai_caddie.courses import course_prep, course_reference
 from ai_caddie.courses.course_reference import CoursePar
 from ai_caddie.core.data import mesh_path
+from ai_caddie.caddie.decision import build_decision_plan
 
 
 def _rect_mesh(min_x: float, min_y: float, max_x: float, max_y: float, *, elevation: float = 0.0) -> dict:
@@ -28,6 +29,127 @@ def _rect_mesh(min_x: float, min_y: float, max_x: float, max_y: float, *, elevat
 
 
 class PureLogicTests(unittest.TestCase):
+    @staticmethod
+    def _online_stock_count(ladder, distance_m: float, par: int) -> int:
+        profiles = {
+            name: {
+                "clubName": name,
+                "median_m": float(carry),
+                "p10_m": float(carry) - 8.0,
+                "p90_m": float(carry) + 8.0,
+                "sampleSize": 20,
+            }
+            for name, carry in ladder
+        }
+        context = {
+            "roundId": "c305-property",
+            "globalId": 305,
+            "hole": 1,
+            "localHole": 1,
+            "shotType": "tee",
+            "par": par,
+            "distanceToPin_m": float(distance_m),
+            "lie": "tee",
+            "clubProfiles": profiles,
+            "geometry": {"hasMeshes": True, "hasHazards": False, "hazardCount": 0},
+            "dataQuality": {"confidence": "high", "issues": []},
+            "candidateRoutes": [{
+                "id": "stock_line",
+                "label": "stock",
+                "carry_m": float(ladder[0][1]),
+                "landingLocal": [0, float(ladder[0][1])],
+                "expectedSurface": {"kind": "fairway"},
+                "nearRisks": [],
+                "lineRisks": [],
+                "riskScore": 0,
+            }],
+        }
+        plan = build_decision_plan(context)
+        stock = next(row for row in plan.get("sequences") or [] if row.get("id") == "stock")
+        return len(stock.get("clubs") or [])
+
+    def test_j4_6_sparse_prep_never_adds_a_stroke_over_online_stock(self) -> None:
+        """J4.6: sparse-bag prep keeps the online stock stroke count as its upper bound."""
+        cases = (
+            ("TRIG", 4, 408.0, [("Driver", 197), ("3W", 160), ("8I", 121), ("Aw", 102), ("58", 68)]),
+            ("GAP", 5, 605.0, [("Driver", 200), ("3W", 180), ("5I", 150), ("7I", 120), ("SW", 50)]),
+            ("GAP-short", 4, 285.0, [("Driver", 200), ("3W", 180), ("5I", 150), ("7I", 120), ("SW", 50)]),
+            ("NOWEDGE", 5, 600.0, [("Driver", 210), ("3W", 190), ("5H", 175), ("6I", 155), ("8I", 135)]),
+        )
+        hazards = {"water_carry": [], "bunkers": [], "details": []}
+        for label, par, distance_m, ladder in cases:
+            with self.subTest(label=label):
+                steps, *_ = cp._strategy(par, distance_m, hazards, ladder)
+                self.assertLessEqual(
+                    len(steps), self._online_stock_count(ladder, distance_m, par),
+                    f"{label} prep={[step['club'] for step in steps]}",
+                )
+
+    def test_j4_6_sparse_tail_can_repeat_a_club_after_replan_gap(self) -> None:
+        """J4.6: repeat fallback finishes the TRIG 408 m Par 4 in the scoring window."""
+        ladder = [("Driver", 197), ("3W", 160), ("8I", 121), ("Aw", 102), ("58", 68)]
+        steps, *_ = cp._strategy(4, 408.0, self._NO_HAZARDS, ladder)
+        self.assertLessEqual(len(steps), 3)
+        self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20.0)
+        self.assertEqual(steps[-1]["role"], "scoring")
+
+    def test_j4_6_water_route_that_stock_finishes_does_not_stop_short(self) -> None:
+        """J4.6: a water crossing cannot leave a completable GAP route at 50 m."""
+        ladder = [("Driver", 200), ("3W", 180), ("5I", 150), ("7I", 120), ("SW", 50)]
+        hazards = {"water_carry": [[200.0, 225.0]], "bunkers": [], "details": []}
+        steps, *_ = cp._strategy(5, 600.0, hazards, ladder)
+        self.assertEqual([step["club"] for step in steps], ["3W", "5I", "5I", "7I"])
+        self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20.0)
+        self.assertEqual(steps[-1]["role"], "scoring")
+        carries = [step["targetCarry_m"] for step in steps[1:]]
+        self.assertEqual(carries, sorted(carries, reverse=True))
+
+    def test_j4_6_long_sparse_route_keeps_the_five_step_bound(self) -> None:
+        """J4.6: a long SHORT bag route may use the r2 five-step planning bound."""
+        ladder = [("Driver", 175), ("5W", 150), ("7W", 138), ("5H", 128), ("7I", 112),
+                  ("8I", 104), ("9I", 95), ("PW", 85), ("AW", 72), ("SW", 58)]
+        with patch.object(cp, "_shared_sequence_tail", return_value=[]):
+            steps, *_ = cp._strategy(5, 612.0, self._NO_HAZARDS, ladder)
+        self.assertEqual(len(steps), 5)
+        self.assertLessEqual(steps[-1]["expectedRemaining_m"], 20.0)
+
+    def test_j7_1_lightweight_prep_passes_member_profile_to_strategy(self) -> None:
+        """J7.1: the lightweight CourseView path plans with the requesting member profile."""
+        calls = []
+        original = cp._strategy
+
+        def capture(*args, **kwargs):
+            calls.append(kwargs.get("player_id"))
+            return original(*args, **kwargs)
+
+        with patch.object(cp, "_strategy", side_effect=capture):
+            row = self._lightweight_prep(None, player_id="member")
+        self.assertIsNotNone(row)
+        self.assertEqual(calls, ["member"])
+
+    def test_j4_6_short_tee_scoring_step_ends_at_landing_station(self) -> None:
+        """J4.6: a short tee scoring row gives iOS the physical landing station, not the pin."""
+        ladder = [("Driver", 250), ("3W", 225), ("5W", 210), ("4H", 195), ("5I", 180),
+                  ("6I", 170), ("7I", 160), ("8I", 148), ("9I", 135), ("PW", 122),
+                  ("GW", 108), ("SW", 92), ("LW", 75)]
+        steps, *_ = cp._strategy(4, 260.0, self._NO_HAZARDS, ladder)
+        tee = steps[0]
+        self.assertEqual(tee["role"], "scoring")
+        self.assertEqual(tee["routeOffset_m"], tee["landing_m"])
+        self.assertLess(tee["routeOffset_m"], 260.0)
+
+    def test_j4_6_plays_like_tail_window_uses_effective_remaining(self) -> None:
+        """J4.6: a plays-like scoring shortfall ends on the green."""
+        ladder = [("Driver", 197), ("5I", 142), ("8I", 121), ("50", 84), ("58", 35)]
+
+        def elevation(route_m: float) -> float:
+            return 50.0 if route_m < 300 else 25.0
+
+        with patch.object(cp, "_shared_sequence_tail", return_value=[("special", 145.0)]):
+            steps, *_ = cp._strategy(4, 363.0, self._NO_HAZARDS, ladder, elevation_at=elevation)
+        self.assertEqual([step["club"] for step in steps], ["Driver", "special"])
+        self.assertEqual(steps[-1]["role"], "scoring")
+        self.assertEqual(steps[-1]["routeOffset_m"], 363.0)
     def test_xy_handles_dict_and_list(self) -> None:
         self.assertEqual(cp._xy({"X": 1.0, "Y": 2.0}), (1.0, 2.0))
         self.assertEqual(cp._xy([3.0, 4.0]), (3.0, 4.0))
@@ -983,6 +1105,14 @@ class PureLogicTests(unittest.TestCase):
             ("TRIG Par 5", 5, 448.0, [("Driver", 197), ("3W", 160), ("8I", 121), ("Aw", 102), ("58", 68)]),
         )
         from ai_caddie.caddie.decision import SCORING_WINDOW_MAX_M
+
+        # A 200 m tee leaves 71--75 m. The first 50 m wedge candidate alone is
+        # unresolved (21--25 m); J4.6 requires a scoring continuation, not an early stop.
+        cases += tuple(
+            (f"GAP Par 4 {length}", 4, float(length),
+             [("Driver", 200), ("3W", 180), ("5I", 150), ("7I", 120), ("SW", 50)])
+            for length in range(271, 276)
+        )
 
         for label, par, route_len, ladder in cases:
             with self.subTest(label=label):

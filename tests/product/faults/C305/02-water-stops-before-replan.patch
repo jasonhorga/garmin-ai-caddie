@@ -1,0 +1,17 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 8199a077..46a67afc 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2076,10 +2076,10 @@ def _strategy(
+                     approach_ladder,
+                     start_m=route_offset_m,
+                     hazards=planning_hazards,
+-                    exclude_club_keys=set(),
++                    exclude_club_keys=used_clubs if planning_hazards.get("water_carry") else set(),
+                     maximum_carry_m=previous_carry,
+                     allow_replan_gap=True,
+-                    forbid_repeated_clubs=False,
++                    forbid_repeated_clubs=bool(planning_hazards.get("water_carry")),
+                     max_overshoot_m=scoring_max_overshoot,
+                     sample_size=None,
+                     player_id=player_id,
