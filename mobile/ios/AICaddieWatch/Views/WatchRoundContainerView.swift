@@ -276,7 +276,7 @@ public struct WatchRoundContainerView: View {
     /// Review evidence of the production 本洞 pages: the hazard page's starting zoom / pan.
     private let initialHazardViewport: WatchHoleViewport
 
-    public init(model: WatchRoundModel, holeGeometry: WatchHoleMapGeometry? = nil,
+    public init(model: WatchRoundModel, holeGeometry: WatchHoleMapGeometry? = nil, garminImage: UIImage? = nil,
                 watchGreenYards: (front: Int?, center: Int?, back: Int?)? = nil,
                 shotLocation: WatchLocationFix? = nil,
                 latestWatchFix: WatchLocationFix? = nil,

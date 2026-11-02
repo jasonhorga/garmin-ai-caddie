@@ -4,6 +4,39 @@ import AICaddieDomain
 
 @MainActor
 final class WatchCourseDownloadTests: XCTestCase {
+    /// J4.5/J4.2: downloading a Garmin fallback does not depend on precise prep succeeding.
+    func testDownloadCachesVersionedGarminBeforePreciseGeometryExists() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let images = WatchHoleImageStore(directoryURL: directory)
+        let bytes = try XCTUnwrap(WatchHoleMapSample.geometry.image?.pngData())
+        let package = WatchPackageFixture.packageData(roundId: "fallback", course: #"{"globalId":42,"name":"测试球场","teeBox":"Blue"}"#,
+            loops: [.init(42, "back")], overrides: [1: #"{"number":1,"par":4,"sourceGlobalId":42,"sourceLocalHole":10,"courseHoleNumber":10,"garminRaster":{"imageUrl":"/api/v2/courses/42/holes/10/garmin-raster.webp?v=release-a","metadataUrl":"/api/v2/courses/42/holes/10/garmin-raster"}}"#])
+        var rasterRequests = 0
+        let library = WatchCourseLibrary(store: WatchCourseStore(directoryURL: directory), imageStore: images,
+            makeRoundId: { "fallback" }, clientFactory: { config in
+                WatchBackendClient(baseURL: config.baseURL, dataLoader: { request in
+                    let url = try XCTUnwrap(request.url)
+                    let isPackage = url.path.hasSuffix("/package")
+                    let isRaster = url.path.hasSuffix("/10/garmin-raster.webp")
+                    if isRaster { rasterRequests += 1 }
+                    let data = isPackage ? package : (isRaster ? bytes : Data())
+                    return (data, HTTPURLResponse(url: url, statusCode: isPackage || isRaster ? 200 : 503,
+                        httpVersion: nil, headerFields: nil)!)
+                }, retrySleep: { _ in })
+            }, retrySleep: { _ in })
+        let selection = WatchCourseSelection(front: WatchCourseOption(globalId: 42, name: "测试球场", holes: 18, teeBox: "Blue"),
+            teeBox: "Blue", firstHalf: "back")
+        let prepared = await library.startCourse(selection, config: WatchRoundConfig(baseURL: URL(string: "https://caddie.example")!, adminToken: nil))
+        XCTAssertNotNil(prepared)
+        await library.waitForWholeCourseTemplateInstalls()
+        XCTAssertGreaterThan(rasterRequests, 0, "J4.5: the download requests the independent Garmin asset")
+        XCTAssertNotNil(images.image(globalId: 42, hole: 1, garminAssetVersion: "release-a"),
+            "J4.5: physical hole 10 caches as round hole 1 even when prep fails")
+        XCTAssertNil(images.image(globalId: 42, hole: 1), "J4.5: fallback never becomes precise")
+        XCTAssertNil(images.image(globalId: 42, hole: 1, garminAssetVersion: "release-b"), "J4.5: versions remain independent")
+    }
+
     func testBackendGarminVenueIsSharedBySearchAndWatchOption() {
         let match = WatchCourseSearchMatch(
             globalId: 42_004,

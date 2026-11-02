@@ -37,6 +37,31 @@ final class WatchTopoSenderTests: XCTestCase {
         return sender
     }
 
+    /// J4.5: the phone can send fallback pixels while every precise topo is still absent.
+    func testGarminTransfersIndependentlyOfMissingTopoAndPreciseArrivesLater() async throws {
+        let package = try LiveRoundPackageFixture.package()
+        var preciseReady = false
+        var preciseSent = 0
+        var fallbackSent = 0
+        let sender = WatchTopoSender(load: { _ in preciseReady ? validOnePixelPNGData() : nil },
+            enqueue: { _, _ in preciseSent += 1; return true }, livePackage: { package })
+        sender.loadGarmin = { _ in (validOnePixelPNGData(), "release-a") }
+        sender.enqueueGarmin = { _, _, version in
+            XCTAssertEqual(version, "release-a", "J4.5: transfer carries Garmin's own asset version")
+            fallbackSent += 1
+            return true
+        }
+        sender.sync()
+        await sender.waitUntilIdle()
+        XCTAssertEqual(fallbackSent, package.holes.count, "J4.5: Garmin transfers without a topo")
+        XCTAssertEqual(preciseSent, 0)
+        preciseReady = true
+        sender.sync()
+        await sender.waitUntilIdle()
+        XCTAssertEqual(preciseSent, package.holes.count, "J4.5: later precise assets still transfer")
+        XCTAssertEqual(fallbackSent, package.holes.count, "J4.5: fallback is not queued twice")
+    }
+
     func testThePlanKeysEachHoleAsTheWatchLooksItUp() throws {
         let package = try LiveRoundPackageFixture.package()
         let plan = WatchTopoSender.plan(for: package)

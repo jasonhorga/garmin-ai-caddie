@@ -46,7 +46,8 @@ public final class WatchHoleImageStore {
         globalId: Int,
         hole: Int,
         geometryRevision: String? = nil,
-        detail: Bool = false
+        detail: Bool = false,
+        garminAssetVersion: String? = nil
     ) -> URL {
         let suffix = Self.normalizedRevision(geometryRevision).map { "_\($0)" } ?? ""
         let assetSuffix = detail
@@ -70,7 +71,8 @@ public final class WatchHoleImageStore {
         globalId: Int,
         hole: Int,
         geometryRevision: String? = nil,
-        detail: Bool = false
+        detail: Bool = false,
+        garminAssetVersion: String? = nil
     ) throws {
         guard Self.isValidImageData(data) else {
             throw WatchHoleImageStoreError.invalidImageData
@@ -111,7 +113,8 @@ public final class WatchHoleImageStore {
         globalId: Int,
         hole: Int,
         geometryRevision: String? = nil,
-        detail: Bool = false
+        detail: Bool = false,
+        garminAssetVersion: String? = nil
     ) throws {
         try store(
             data: Data(contentsOf: fileURL),
@@ -126,7 +129,8 @@ public final class WatchHoleImageStore {
         globalId: Int,
         hole: Int,
         geometryRevision: String? = nil,
-        detail: Bool = false
+        detail: Bool = false,
+        garminAssetVersion: String? = nil
     ) -> Data? {
         guard let data = try? Data(contentsOf: url(
                   globalId: globalId,
@@ -142,7 +146,8 @@ public final class WatchHoleImageStore {
         globalId: Int,
         hole: Int,
         geometryRevision: String? = nil,
-        detail: Bool = false
+        detail: Bool = false,
+        garminAssetVersion: String? = nil
     ) -> Bool {
         data(globalId: globalId, hole: hole, geometryRevision: geometryRevision, detail: detail) != nil
     }
@@ -182,7 +187,8 @@ public final class WatchHoleImageStore {
         globalId: Int,
         hole: Int,
         geometryRevision: String? = nil,
-        detail: Bool = false
+        detail: Bool = false,
+        garminAssetVersion: String? = nil
     ) -> UIImage? {
         let target = url(
             globalId: globalId,

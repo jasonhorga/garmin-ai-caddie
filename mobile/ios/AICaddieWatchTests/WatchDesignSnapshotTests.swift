@@ -2684,6 +2684,117 @@ final class WatchDesignSnapshotTests: XCTestCase {
                        "J4.5: precise anchors cannot position an unprojected Garmin bitmap")
     }
 
+    /// J4.5: a WC Garmin transfer is an independent fallback, never a precise topo.
+    @MainActor
+    func testReceivedGarminBitmapReachesRootWithoutReplacingPreciseCache() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = WatchHoleImageStore(directoryURL: directory)
+        let client = WatchSyncClient(queueURL: directory.appendingPathComponent("queue.json"), holeImageStore: store)
+        let image = try XCTUnwrap(WatchHoleMapSample.geometry.image)
+        let data = try XCTUnwrap(image.pngData())
+        let file = directory.appendingPathComponent("garmin.img")
+        try data.write(to: file)
+        let metadata: [String: Any] = ["globalId": 42, "hole": 1, "assetKind": "garmin",
+            "styleVersion": WatchBackendClient.topoStyleVersion,
+            "assetStyleVersion": "garmin-raster-v1", "assetVersion": "release-a"]
+        XCTAssertTrue(client.receiveHoleImage(fileURL: file, metadata: metadata), "J4.5: accept Garmin asset transfer")
+        XCTAssertNil(store.image(globalId: 42, hole: 1), "J4.5: Garmin never contaminates precise cache")
+        let received = store.image(globalId: 42, hole: 1, garminAssetVersion: "release-a")
+        XCTAssertNotNil(received, "J4.5: received Garmin bitmap is readable offline")
+        let base = WatchHoleMapSample.geometry
+        let missing = WatchHoleMapGeometry(image: nil, imageSize: base.imageSize, youPx: base.youPx,
+            pinPx: base.pinPx, layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx)
+        let state = WatchRoundState(roundId: "garmin", hole: 1, par: 4, distanceM: 320,
+            suggestedClub: nil, selectedClub: nil, score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline")
+        let model = WatchRoundModel(store: WatchRoundStore(directoryURL: directory))
+        model.seedRound([state], activeHole: 1, courseName: "测试球场")
+        let container = WatchRoundContainerView(model: model, holeGeometry: missing, garminImage: received)
+        let actual = container.holeMapView(state, missing)
+        XCTAssertEqual(actual.mapPreparingAccessibilityIdentifiers, [], "J4.5: WC Garmin reaches the production root")
+        func pixels(_ view: some View) throws -> [UInt8] {
+            renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: view.frame(width: 198, height: 242)).cgImage))
+        }
+        XCTAssertNotEqual(try pixels(actual), try pixels(WatchRoundContainerView(model: model, holeGeometry: missing).holeMapView(state, missing)),
+            "J4.5: root actually displays the received Garmin raster")
+    }
+
+    /// J4.5: an invalid focus transform must not leave a contour over the waiting map.
+    @MainActor
+    func testHazardWaitingTransformNeverDrawsContour() throws {
+        let base = WatchHoleMapSample.geometry
+        func pixels(outline: [[Double]], pan: CGSize) throws -> [UInt8] {
+            let hazard = WatchHazard(kind: "water", label: "水障碍", startM: 190, endM: 210,
+                frontPx: [435, 724], backPx: [435, 697], outlinePx: outline)
+            let geometry = WatchHoleMapGeometry(image: base.image, imageSize: CGSize(width: CGFloat.greatestFiniteMagnitude, height: 1000),
+                youPx: base.youPx, pinPx: base.pinPx, layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx)
+            let view = WatchHazardMapView(geometry: geometry, route: [[435, 981, 0], [435, 279, 518.8]],
+                hazards: [hazard], centerGreenYards: 320,
+                initialViewport: WatchHoleViewport(zoom: 2, pan: pan))
+            return renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: view.frame(width: 198, height: 242)).cgImage))
+        }
+        let outline = [[410.0, 724.0], [460, 724], [460, 697], [410, 697]]
+        assertPixelsMatch(try pixels(outline: [], pan: .zero), try pixels(outline: outline, pan: .zero),
+            "J4.5: waiting transform has no hazard contour")
+    }
+
+    /// J4.5: real SwiftUI updates, with no direct writes to a view's retained @State.
+    @MainActor
+    func testLiveBitmapUpdatesRetainRootGreenAndHazardImages() throws {
+        let base = WatchHoleMapSample.geometry
+        let missing = WatchHoleMapGeometry(image: nil, imageSize: base.imageSize, youPx: base.youPx,
+            pinPx: base.pinPx, layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx,
+            greenOutlinePx: WatchHoleMapSample.greenOutlinePx)
+        let image = try XCTUnwrap(base.image)
+        let full = missing.retainingBitmaps(from: base)
+        let detailOnly = WatchHoleMapGeometry(image: nil, greenDetailImage: WatchHoleMapSample.greenDetailImage,
+            greenDetailRectPx: CGRect(x: 375, y: 225, width: 120, height: 120),
+            imageSize: base.imageSize, youPx: base.youPx, pinPx: base.pinPx,
+            layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx,
+            greenOutlinePx: WatchHoleMapSample.greenOutlinePx)
+        let hazard = WatchHazard(kind: "water", label: "水障碍", startM: 190, endM: 210,
+            frontPx: [435, 724], backPx: [435, 697])
+        let cases: [(String, WatchHoleMapGeometry, (WatchHoleMapGeometry) -> AnyView)] = [
+            ("root", full, { AnyView(WatchHoleMapView(geometry: $0)) }),
+            ("green topo", full, { AnyView(WatchGreenPreviewView(geometry: $0)) }),
+            ("green detail", detailOnly, { AnyView(WatchGreenPreviewView(geometry: $0)) }),
+            ("hazard", full, { AnyView(WatchHazardMapView(geometry: $0,
+                route: [[435, 981, 0], [435, 279, 518.8]], hazards: [hazard], centerGreenYards: 320)) })
+        ]
+        _ = image
+        for (name, full, makeView) in cases {
+            let input = LiveBitmapInput(missing)
+            let host = _makeUIHostingView(LiveBitmapHost(input: input, makeView: makeView))
+            let app = try XCTUnwrap((NSClassFromString("UIApplication") as? NSObject.Type)?.perform(NSSelectorFromString("sharedApplication"))?.takeUnretainedValue() as? NSObject)
+            let window = try XCTUnwrap((app.value(forKey: "windows") as? [NSObject])?.first)
+            window.perform(NSSelectorFromString("addSubview:"), with: host)
+            defer { host.perform(NSSelectorFromString("removeFromSuperview")) }
+            host.setValue(NSValue(cgRect: CGRect(x: 0, y: 0, width: 198, height: 242)), forKey: "frame")
+            func pixels() throws -> [UInt8] {
+                host.perform(NSSelectorFromString("setNeedsLayout"))
+                host.perform(NSSelectorFromString("layoutIfNeeded"))
+                RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+                host.perform(NSSelectorFromString("layoutIfNeeded"))
+                let layer = try XCTUnwrap(host.value(forKey: "layer") as? NSObject)
+                let context = try XCTUnwrap(CGContext(data: nil, width: 198, height: 242, bitsPerComponent: 8,
+                    bytesPerRow: 198 * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                let selector = NSSelectorFromString("renderInContext:")
+                let render = unsafeBitCast(layer.method(for: selector),
+                    to: (@convention(c) (AnyObject, Selector, CGContext) -> Void).self)
+                render(layer, selector, context)
+                return renderedPixelBytes(try XCTUnwrap(context.makeImage()))
+            }
+            let waiting = try pixels()
+            input.geometry = full
+            let displayed = try pixels()
+            XCTAssertNotEqual(displayed, waiting, "J4.5: \(name) nil → bitmap actually renders")
+            input.geometry = missing
+            assertPixelsMatch(try pixels(), displayed, "J4.5: \(name) bitmap → nil retains the displayed raster")
+            withExtendedLifetime(host) {}
+        }
+    }
+
     /// J4.5: green/hazard pages retain their displayed rasters on a transient nil input.
     @MainActor
     func testGreenAndHazardRetainDisplayedBitmapsWithoutWaitingOverlay() throws {
@@ -3455,4 +3566,16 @@ private extension View {
             )
             .background(Color.black)
     }
+}
+
+@MainActor
+private final class LiveBitmapInput: ObservableObject {
+    @Published var geometry: WatchHoleMapGeometry
+    init(_ geometry: WatchHoleMapGeometry) { self.geometry = geometry }
+}
+
+private struct LiveBitmapHost: View {
+    @ObservedObject var input: LiveBitmapInput
+    let makeView: (WatchHoleMapGeometry) -> AnyView
+    var body: some View { makeView(input.geometry).frame(width: 198, height: 242) }
 }

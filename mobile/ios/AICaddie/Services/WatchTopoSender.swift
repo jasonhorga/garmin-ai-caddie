@@ -36,6 +36,8 @@ final class WatchTopoSender {
 
     /// The bitmap on the phone, or nil. Called off the main actor's critical path.
     var load: (Item) async -> Data?
+    var loadGarmin: (Item) async -> (Data, String)? = { _ in nil }
+    var enqueueGarmin: (Item, Data, String) -> Bool = { _, _, _ in false }
     /// Queues one transfer; false when the session cannot take it now.
     var enqueue: (Item, Data) -> Bool
     /// The live round's package, or nil when no round is being played.
