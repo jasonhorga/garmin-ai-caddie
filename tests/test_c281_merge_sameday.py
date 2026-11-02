@@ -178,6 +178,22 @@ class C281MergeSameDayTests(unittest.TestCase):
             # are superseded by the later card. The morning card therefore stays at five holes.
             self.assertEqual((current["holesCompleted"], len(current["holes"])), (5, 5))
 
+    def test_j1_3_nine_hole_double_round_from_non_one_start_keeps_tail_boundary(self) -> None:
+        """J1.3: a nine-hole course played 1..18 from hole 4 keeps its 2,3 restores."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _nine_row("morning", "2026-06-01 07:30", list(range(4, 19)) + [1])
+            late = _nine_row("late", "2026-06-01 09:40", [1, 2, 3])
+            _restore(root, "morning", numbers=[2, 3])
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            # The 18-hole Garmin display proves this is a 9x2 outing; late 1,2,3
+            # repeats the morning tail 1 and supersedes restored 2,3.
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (16, 16))
+
     def test_j1_3_tied_ring_gaps_keep_current_max_index_rule(self) -> None:
         """J1.3: tied largest gaps keep the existing max-index tie rule, including a 10-start card."""
         with TemporaryDirectory() as tmp:
