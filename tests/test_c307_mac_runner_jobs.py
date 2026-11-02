@@ -199,10 +199,14 @@ class MacRunnerJobsTests(unittest.TestCase):
         self.fake_tool('curl', "echo " + shlex.quote(json.dumps(dict(status='ok', revision='other-job'))))
         self.fake_tool('lsof', 'echo 54321; exit 0')
         self.fake_tool('sleep', 'exit 0')
-        (self.root / 'ai-caddie-fixture.pid').write_text('99999999')
+        foreign = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+        self.addCleanup(foreign.wait)
+        self.addCleanup(foreign.terminate)
+        (self.root / 'ai-caddie-fixture.pid').write_text(str(foreign.pid))
         result = self.shell(self.mobile_step('Stop isolated CI fixture')['run'],
                             AI_CADDIE_BUILD_REVISION='our-job')
         self.assertNotEqual(result.returncode, 0, 'stop must report a foreign listener still owning the port')
+        self.assertIsNone(foreign.poll(), 'stop must not kill a process whose health belongs to another job')
 
     def test_stop_checks_port_after_terminating_its_own_fixture(self):
         self.fake_tool('curl', 'echo ' + shlex.quote(json.dumps(dict(revision='our-job'))))

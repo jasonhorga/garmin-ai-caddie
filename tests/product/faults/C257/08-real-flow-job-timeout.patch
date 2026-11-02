@@ -1,13 +1,13 @@
 diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
-index 28fc63ec..cd5f45c2 100644
+index 777ea4b4..ca003837 100644
 --- a/.github/workflows/native-mobile.yml
 +++ b/.github/workflows/native-mobile.yml
-@@ -1098,7 +1098,7 @@ jobs:
-   native-real-flow:
+@@ -1118,7 +1118,7 @@ jobs:
      if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
      runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
--    timeout-minutes: 55
-+    timeout-minutes: 45
+     # Up to 90 minutes waiting for the host port, plus the original work budget.
+-    timeout-minutes: 145
++    timeout-minutes: 135
      env:
        NATIVE_CAPTURE_SHARD: real-flow
        NATIVE_ARTIFACT_SUFFIX: -real-flow
