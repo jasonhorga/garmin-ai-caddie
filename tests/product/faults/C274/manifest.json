@@ -23,24 +23,6 @@
       "promise": "G7"
     },
     {
-      "id": "tests-product-faults-C274-N5-fastfile-history-only",
-      "patch": "tests/product/faults/C274/05-fastfile-history-only.patch",
-      "kind": "python",
-      "target": "tests.test_ci_workflow.CIWorkflowTests.test_G7_fastfile_readiness_gate_runs_against_real_ruby_when_available",
-      "promise": "G7",
-      "disabled": true,
-      "reason": "ruby is not installed locally; GitHub ubuntu runner must execute the real Fastfile harness"
-    },
-    {
-      "id": "tests-product-faults-C274-N5-fastfile-allow-degraded",
-      "patch": "tests/product/faults/C274/05-fastfile-allow-degraded.patch",
-      "kind": "python",
-      "target": "tests.test_ci_workflow.CIWorkflowTests.test_G7_fastfile_readiness_gate_runs_against_real_ruby_when_available",
-      "promise": "G7",
-      "disabled": true,
-      "reason": "ruby is not installed locally; GitHub ubuntu runner must execute the real Fastfile harness"
-    },
-    {
       "id": "tests-product-faults-C274-N6-mobile-stale",
       "patch": "tests/product/faults/C274/06-mobile-stale-always-false.patch",
       "kind": "python",
@@ -53,6 +35,15 @@
       "kind": "python",
       "target": "tests.test_server_v2_readiness.ServerV2ReadinessTests.test_G7_mobile_warm_recovers_after_transient_failure_at_same_revision",
       "promise": "G7"
+    },
+    {
+      "id": "tests-product-faults-C274-N5-fastfile-FM1",
+      "patch": "tests/product/faults/C274/05-fastfile-fm1-allows-degraded.patch",
+      "kind": "python",
+      "target": "tests.test_ci_workflow.CIWorkflowTests.test_G7_fastfile_readiness_gate_runs_against_real_ruby_when_available",
+      "promise": "G7",
+      "disabled": true,
+      "reason": "ruby is not installed locally; CI backend runs the real Fastfile harness and FM1 is the semantically killable all-degraded-bypasses mutant"
     }
   ]
 }
