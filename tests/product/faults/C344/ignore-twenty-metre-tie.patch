@@ -1,0 +1,15 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 9153623f..7753dab4 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -1950,8 +1950,8 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
+         return (remaining_m - total > SCORING_WINDOW_MAX_M,
+                 costly_miss, extra if behind_water else max(0.0, extra - 30.0) if zones else 0.0,
+                 len(candidate), _long_short_advances(remaining_m, candidate),
+-                extra > TEE_SEQUENCE_MAX_OVERSHOOT_M,
+-                max(0.0, extra - TEE_SEQUENCE_MAX_OVERSHOOT_M),
++                False,
++                0.0,
+                 tuple(-distance for _, distance in candidate[:-1]), extra)
+ 
+     # The shared scorer uses planning water only. Discard an incumbent that

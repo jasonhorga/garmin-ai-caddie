@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 9153623f..eff30c23 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2496,7 +2496,7 @@ def _strategy(
+                                 role="scoring" if scoring else "advance" if index == 0 else "position")
+     for w in hazards.get("water_carry") or []:
+         if _water_span_affects_scoring_route(w, route_len_m):
+-            front, back = sorted((float(w[0]), float(w[1])))
++            front, back = float(w[0]), float(w[1])
+             cautions.append(f"水障碍：进水前约 {yd(front)}y，过水需 {yd(back)}y")
+     green_side_bunkers = [
+         (cum, side)

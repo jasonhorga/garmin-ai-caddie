@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 9153623f..7a719a30 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2430,7 +2430,7 @@ def _strategy(
+         route_len_m - SCORING_WINDOW_MAX_M
+         <= longest_tee + max(0, len(steps) - 2) * longest_approach
+     )
+-    try_shorter_tee = len(steps) > 2 and could_save_stroke and any(
++    try_shorter_tee = False and any(
+         float(back) + TEE_WATER_CLEARANCE_BUFFER_M > steps[0]["targetCarry_m"]
+         for front, back in planning_hazards.get("water_carry") or []
+     )

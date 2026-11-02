@@ -1,13 +1,16 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index 22069098..3bd6aef5 100644
+index 9153623f..7a24c831 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -1879,7 +1879,7 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
-         _club_hard_hazard_safe, _shift_hazard_zones,
-     )
+@@ -1901,10 +1901,7 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
+     ]
+     tail_hazards = {**hazards, "water_carry": [*relevant_water, *post_pin_water]}
  
--    if not hazards.get("water_carry") and any(
-+    if True or any(
-         LAYUP_LEAVE_MIN_M <= float(distance) <= LAYUP_LEAVE_MAX_M
-         for _, distance in approach_ladder
-     ):
+-    if preserve_layup and not relevant_water and not post_pin_water and any(
+-        LAYUP_LEAVE_MIN_M <= float(distance) <= LAYUP_LEAVE_MAX_M
+-        for _, distance in approach_ladder
+-    ) and not _long_short_advances(remaining_m, tail):
++    if True:
+         # Preserve the shared wedge-leave ranking when no remaining crossing or
+         # unnecessary short advance requires repair.
+         return tail

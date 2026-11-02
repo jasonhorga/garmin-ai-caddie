@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 9153623f..4fb8aa6e 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -1897,7 +1897,7 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
+     relevant_water = [
+         sorted((float(front), float(back)))
+         for front, back in hazards.get("water_carry") or []
+-        if max(float(front), float(back)) + TEE_WATER_CLEARANCE_BUFFER_M > start_m
++        if True
+     ]
+     tail_hazards = {**hazards, "water_carry": [*relevant_water, *post_pin_water]}
+ 

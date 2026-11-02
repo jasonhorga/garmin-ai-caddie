@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Models/CoursePrep.swift b/mobile/ios/AICaddie/Models/CoursePrep.swift
+index 15d752f7..28cf531d 100644
+--- a/mobile/ios/AICaddie/Models/CoursePrep.swift
++++ b/mobile/ios/AICaddie/Models/CoursePrep.swift
+@@ -496,7 +496,7 @@ public struct CoursePrepHazards: Codable, Equatable {
+ /// determines whether an obstacle belongs to the playable hole corridor.
+ enum CoursePrepHazardRelevance {
+     static let teeApronCutoffM = 30.0
+-    static let behindGreenToleranceM = 12.0
++    static let behindGreenToleranceM = 20.0
+     /// Precise prodgeometry polygons are real mapped obstacles, not approximate route intervals.
+     /// Keep a wider station tolerance for those polygons so a greenside bunker whose route station
+     /// lands just beyond the centerline endpoint is still available in the obstacle browser.

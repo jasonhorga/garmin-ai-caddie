@@ -1,0 +1,18 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 9153623f..fbe69b43 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2053,11 +2053,10 @@ def _strategy(
+     }
+     # A factual tee carry can pass the pin. Keep entirely post-pin ponds relevant
+     # to that physical carry, even though they cannot obstruct the route to the green.
+-    post_pin_water = [
++    post_pin_water = [] or [
+         sorted((float(interval[0]), float(interval[1])))
+         for interval in (hazards or {}).get("water_carry") or []
+-        if _water_span_affects_scoring_route(interval, math.inf)
+-        and not _water_span_affects_scoring_route(interval, route_len_m)
++        if False
+     ]
+ 
+     def measured_tee_water_safe(carry):

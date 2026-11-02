@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 9797b985..3a503098 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -1998,7 +1998,7 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
+                 visit(candidate, carry, index)
+ 
+     visit([], 0.0, 0)
+-    if best and _long_short_advances(remaining_m, best):
++    if False:
+         # A short advance at >=300 m is permitted only when every combination
+         # with at most this many shots needs it, even if a long-club finish
+         # misses the overshoot target. Do not spend an extra shot to avoid it.

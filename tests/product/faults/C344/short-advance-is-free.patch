@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 9153623f..04329d48 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -1874,7 +1874,7 @@ def _long_short_advances(remaining_m, candidate):
+         if remaining_m - position >= 300 and distance <= 140:
+             count += 1
+         position += distance
+-    return count
++    return 0
+ 
+ 
+ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazards,

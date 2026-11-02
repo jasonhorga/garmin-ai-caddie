@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 9153623f..bb3e13c6 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2577,7 +2577,7 @@ def _route_station(
+         t = max(
+             0.0,
+             min(
+-                math.inf if extend_end and index == len(route) - 2 else 1.0,
++                math.inf if extend_end else 1.0,
+                 ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy)
+                 / length_squared,
+             ),

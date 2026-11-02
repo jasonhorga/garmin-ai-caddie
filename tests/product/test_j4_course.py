@@ -98,6 +98,144 @@ class PrepRouteQualityTests(unittest.TestCase):
         self.assertEqual(carries, sorted(carries, reverse=True))
         self.assertLessEqual(len(carries), 5)
 
+    def test_j4_6_passed_tee_water_does_not_change_the_finish(self):
+        # J4.6: Driver 200 has cleared [150,175]. The dry two-shot finish
+        # 200+120 remains available at 288/292/296; no extra swing for old water.
+        for length in (288, 292, 296):
+            with self.subTest(length=length):
+                dry = self.prep("GAP", 4, length)
+                wet = self.prep("GAP", 4, length, ((150, 175),))
+                self.assert_complete(wet)
+                self.assertEqual([s["club"] for s in wet["steps"]], ["Driver", "7I"])
+                self.assertEqual(wet["steps"], dry["steps"])
+
+    def test_j4_6_safe_thirty_metre_overshoot_keeps_the_shorter_route(self):
+        # J4.6, owner tradeoff: one stroke costs more than <=30 m safely past
+        # the pin. Witness totals are 281, 299, 357, 478, 546 and 440 m.
+        cases = (
+            ("OWNER", 256, ((248, 253),), 2),
+            ("OWNER", 276, ((264, 275),), 2),
+            ("TRIG", 327, ((302, 322),), 2),  # exactly +30
+            ("TRIG", 328, ((303, 323),), 2),
+            ("TRIG", 456, ((436, 454),), 3),
+            ("TRIG", 520, ((505, 530),), 4),
+            ("TRIG", 424, ((170, 190), (364, 379)), 4),
+            ("GAP", 296, ((150, 175),), 2),
+        )
+        for bag, length, water, bound in cases:
+            with self.subTest(bag=bag, length=length):
+                row = self.prep(bag, 4, length, water)
+                self.assert_complete(row)
+                self.assertLessEqual(len(row["steps"]), bound)
+
+    def test_j4_6_post_pin_water_can_justify_an_extra_stroke(self):
+        # J4.6: without the back pond 197+160=357 is a safe +29 m finish.
+        # Water [350,375] covers that landing; 197+68+68=333 stops before
+        # its 342 m buffered front, so the extra swing is justified.
+        for back_pond in ((350, 375), (341, 375), (365, 385)):
+            with self.subTest(back_pond=back_pond):
+                row = self.prep("TRIG", 4, 328, ((303, 323), back_pond))
+                self.assert_complete(row)
+                self.assertEqual(len(row["steps"]), 3)
+                self.assertLessEqual(sum(s["targetCarry_m"] for s in row["steps"]),
+                                     back_pond[0] - 8)
+
+    def test_j4_6_post_pin_water_prefers_stopping_before_the_pond(self):
+        # J4.6: a pond wholly behind the pin must be treated as a reason to
+        # lay up before its buffered front, rather than to fly past its back.
+        cases = (
+            ("GAP", 348, (353, 378), ("3W", "5I")),
+            ("GAP", 248, (253, 278), ("3W", "SW")),
+            ("NOWEDGE", 208, (213, 238), ("3W",)),
+            ("TRIG", 300, (305, 330), None),
+            ("OWNER", 232, (237, 262), None),
+        )
+        for bag, length, pond, expected_clubs in cases:
+            with self.subTest(bag=bag, length=length):
+                row = self.prep(bag, 4, length, (pond,))
+                self.assert_complete(row)
+                if expected_clubs is not None:
+                    self.assertEqual([s["club"] for s in row["steps"]], list(expected_clubs))
+                physical = sum(s["targetCarry_m"] for s in row["steps"])
+                self.assertLessEqual(physical, length + 30)
+                self.assertLessEqual(physical, pond[0])
+
+    def test_j4_6_repair_does_not_move_a_safe_landing_into_post_pin_water(self):
+        # J4.6: at L272, Driver200+7I120 lands at 320, beyond [277,302].
+        # Replacing it with 200+50+50=300 would newly land in that real pond.
+        # Keep the accepted landing on the near side of the pond instead of
+        # treating a large flyover (the old +38 assertion) as equivalent.
+        for bag, length in (("GAP", 272), ("NOWEDGE", 452)):
+            with self.subTest(bag=bag):
+                row = self.prep(bag, 4, length, ((length + 5, length + 30),))
+                self.assert_complete(row)
+                physical = sum(s["targetCarry_m"] for s in row["steps"])
+                front, back = (length + 5, length + 30)
+                self.assertTrue(
+                    physical <= front - 8 or physical >= back + 8,
+                    f"landing {physical} must clear buffered pond [{front}, {back}]",
+                )
+
+    def test_j4_6_same_stroke_count_prefers_twenty_metre_overshoot(self):
+        # J4.6: at L364, 197+102+84=383 (+19) and 197+109+84=390
+        # (+26) both use three safe shots. Prefer the <=20 m finish even
+        # though the other route advances farther with its second shot.
+        for length, water in ((364, ((324, 364),)), (372, ((352, 370),))):
+            with self.subTest(length=length):
+                row = self.prep("OWNER", 4, length, water)
+                self.assert_complete(row)
+                self.assertEqual(len(row["steps"]), 3)
+                self.assertLessEqual(sum(s["targetCarry_m"] for s in row["steps"]) - length, 20)
+
+    def test_j4_6_overshoot_above_thirty_can_cost_an_extra_stroke(self):
+        # Driver197+3W160=357 overshoots 326 by 31. The safe three-shot
+        # 197+68+68=333 is +7, so the owner rule permits the extra stroke.
+        row = self.prep("TRIG", 4, 326, ((301, 321),))
+        self.assert_complete(row)
+        self.assertEqual(len(row["steps"]), 3)
+        self.assertLessEqual(sum(s["targetCarry_m"] for s in row["steps"]) - 326, 20)
+
+    def test_j4_6_long_remaining_prefers_an_available_long_advance(self):
+        # J4.6: at L605 a 395 m leave can use 155+135+135 (four shots
+        # total, +30). At L585 after a 190 m tee the same tail finishes +30.
+        # At L580 a longer safe finish may overshoot >30, but the same-shot
+        # long-club option still forbids a 135 m advance from 390 m away.
+        for length, water in ((605, ((580, 600),)), (585, ((200, 225),)),
+                              (580, ((200, 225), (565, 575)))):
+            with self.subTest(length=length):
+                row = self.prep("NOWEDGE", 5, length, water)
+                self.assert_complete(row)
+                self.assertLessEqual(len(row["steps"]), 4)
+                self.assertGreater(row["steps"][1]["targetCarry_m"], 140)
+
+    def test_j4_6_second_search_rechecks_long_advance_at_three_hundred_metres(self):
+        # J4.6: after the 190 m tee, the 390 m leave must rerun the bounded
+        # tail search without a short (<140 m) advance while >=300 m remains.
+        row = self.prep("NOWEDGE", 5, 580, ((200, 225), (565, 575)))
+        self.assert_complete(row)
+        self.assertEqual([s["club"] for s in row["steps"]], ["3W", "6I", "8I", "8I"])
+        self.assertEqual(row["steps"][1]["targetCarry_m"], 155)
+
+    def test_j4_6_a_different_tee_can_preserve_the_safe_shorter_route(self):
+        # J4.6: initial Driver prefix cannot safely finish these lengths within
+        # +30. Alternative witnesses: 180+120+120=420 and
+        # 180+150+120+120=570. Replan the tee instead of adding a swing.
+        for length, water, bound in ((408, ((388, 406),), 3),
+                                      (555, ((543, 554),), 4)):
+            with self.subTest(length=length):
+                row = self.prep("GAP", 4 if length == 408 else 5, length, water)
+                self.assert_complete(row)
+                self.assertLessEqual(len(row["steps"]), bound)
+                self.assertLessEqual(sum(s["targetCarry_m"] for s in row["steps"]) - length, 30)
+
+    def test_j4_6_public_prep_clips_covering_water_before_planning(self):
+        # Real public prep entry, real ranking and repair: 142+84=226 reaches
+        # L200 across [160,200]. Raw [160,300] strands the route at 142.
+        row = self.prep("OWNER", 4, 200, ((160, 300),))
+        self.assertEqual(row["steps"][-1]["expectedRemaining_m"], 0)
+        self.assertEqual(row["steps"][-1]["role"], "scoring")
+        self.assertLessEqual(len(row["steps"]), 2)
+
     def test_j4_6_short_par4_uses_a_reachable_measured_tee(self):
         # 196--208 m is within 20 m of Driver 200/210. A forced 55% Driver
         # cannot be followed by any <=110 m club in either of these real bag shapes.
@@ -243,6 +381,51 @@ class PrepWaterRouteTests(unittest.TestCase):
         )
         self.assertTrue(steps)
         self.assertIn("水障碍：进水前约 192y，过水需 252y", cautions)
+
+    def test_j4_4_reversed_water_caution_orders_near_and_far_edges(self):
+        # J4.4: 160/0.9144 rounds to 175 y, 300/0.9144 to 328 y.
+        row = PrepRouteQualityTests().prep("OWNER", 4, 200, ((300, 160),))
+        self.assertIn("水障碍：进水前约 175y，过水需 328y", row["cautions"])
+
+    def test_j4_4_course_data_preserves_post_pin_stations_for_phone_filter(self):
+        # J4.4: CourseView-only water has no precise outline. At L216,
+        # [236,256] is wholly beyond the phone's +12 m relevance tolerance;
+        # preserving these stations lets the phone hide it and Watch retain it.
+        row = self.course_data_prep([(0, 0), (0, 216)], [(0, 236), (0, 256)])
+        self.assertEqual(row["hazards"]["water_carry"], [[236.0, 256.0]])
+        detail, = row["hazards"]["details"]
+        self.assertEqual((detail["frontRouteM"], detail["backRouteM"]), (236.0, 256.0))
+        self.assertEqual(detail["outlinePx"], [])
+        self.assertEqual(row["cautions"], [])
+
+    def test_j4_4_dogleg_water_extends_only_the_final_route_segment(self):
+        # J4.4: (0,0)->(0,150)->(60,210). Projection of (10,240)
+        # onto the last segment has station 150+100/sqrt(2)=220.7;
+        # (20,250) has station 150+120/sqrt(2)=234.9. Extending the
+        # first segment would incorrectly return 240/250 (smaller lateral gap).
+        row = self.course_data_prep([(0, 0), (0, 150), (60, 210)],
+                                    [(10, 240), (20, 250)])
+        self.assertEqual(row["hazards"]["water_carry"], [[220.7, 234.9]])
+        detail, = row["hazards"]["details"]
+        self.assertEqual((detail["frontRouteM"], detail["backRouteM"]), (220.7, 234.9))
+
+    def course_data_prep(self, route, water):
+        from ai_caddie.geometry import shot_projection
+
+        def point(xy):
+            lat, lon = shot_projection.local_to_world(*xy, ref_lat=0, ref_lon=0)
+            return {"latitude": lat, "longitude": lon}
+
+        data = {"buildId": 1, "sourceVariant": "fixture", "holes": [{
+            "holeNumber": 1, "pars": [{"playerType": 1, "par": 4}],
+            "lines": [{"role": "route", "points": [point(p) for p in route]},
+                      {"role": "hazard-span", "surface": "water",
+                       "points": [point(p) for p in water]}],
+        }]}
+        with patch.object(course_prep.courseview_core, "load_cached_course_data", return_value=data):
+            return course_prep.lightweight_prep_hole(
+                99999, 1, ladder=self.BAGS["OWNER"],
+            )
 
     def test_j4_6_water_routes_keep_safe_landings_and_finish(self):
         # J4.6's complete route and common tail rule apply even beside the green. These

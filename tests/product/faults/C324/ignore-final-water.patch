@@ -1,12 +1,12 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index 22069098..e1c14d8f 100644
+index 9153623f..64088a08 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -1932,7 +1932,7 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
+@@ -1980,7 +1980,7 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
              if leave <= SCORING_WINDOW_MAX_M:
                  # Scoring medians keep the existing eight-metre clearance. Prefixes below
                  # still require their complete p10--p90 band to avoid the water.
--                if _strategy_water_safe(start_m + carry, hazards):
+-                if _strategy_water_safe(start_m + carry, tail_hazards):
 +                if True:
                      candidate_key = key(candidate)
                      if candidate_key < best_key:

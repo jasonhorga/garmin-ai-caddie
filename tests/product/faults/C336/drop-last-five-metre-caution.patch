@@ -1,10 +1,10 @@
 diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
-index eec2abe1..75035f2e 100644
+index 9153623f..ba1d8152 100644
 --- a/ai_caddie/courses/course_prep.py
 +++ b/ai_caddie/courses/course_prep.py
-@@ -2378,7 +2378,7 @@ def _strategy(
-                 append_step(club, note, carry,
-                             role="scoring" if scoring else "advance" if index == 0 else "position")
+@@ -2495,7 +2495,7 @@ def _strategy(
+                     append_step(club, note, carry,
+                                 role="scoring" if scoring else "advance" if index == 0 else "position")
      for w in hazards.get("water_carry") or []:
 -        if _water_span_affects_scoring_route(w, route_len_m):
 +        if min(w) < route_len_m - 5:
