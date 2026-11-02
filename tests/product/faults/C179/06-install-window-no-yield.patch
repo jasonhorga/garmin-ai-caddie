@@ -1,8 +1,8 @@
 diff --git a/server_v2/main.py b/server_v2/main.py
-index 7096a0c1..638b67bc 100644
+index db3cf3ce..841d9673 100644
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2943,9 +2943,6 @@ def run_course_install_job(identifier: str) -> None:
+@@ -3233,9 +3233,6 @@ def run_course_install_job(identifier: str) -> None:
              # Queue the bitmap first; a cold hole returns None here and builds after supplements.
              from ai_caddie.courses.vector_prep import warm_requested_vectors
  
@@ -10,9 +10,9 @@ index 7096a0c1..638b67bc 100644
 -            # package the interpreter first. No vector/geometry lock is held at this point.
 -            yield_to_foreground()
              try:
-                 warm_requested_vectors(gid, hole)
-             except Exception:
-@@ -2954,8 +2951,6 @@ def run_course_install_job(identifier: str) -> None:
+                 # Geometry completion may run on a geometry worker, without the coordinator's
+                 # context. Admit only its CPU seed here; provider/future waits own no CPU slot.
+@@ -3248,8 +3245,6 @@ def run_course_install_job(identifier: str) -> None:
      for gid, holes in pending_by_gid.items():
          if course_install.cancellation_requested(identifier):
              return

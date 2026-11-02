@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index db3cf3ce..890494e9 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -3239,7 +3239,7 @@ def run_course_install_job(identifier: str) -> None:
+             try:
+                 # Geometry completion may run on a geometry worker, without the coordinator's
+                 # context. Admit only its CPU seed here; provider/future waits own no CPU slot.
+-                lane = background_work(unit_type="install-vector") if background_install else contextlib.nullcontext()
++                lane = contextlib.nullcontext()
+                 with lane:
+                     warm_requested_vectors(gid, hole)
+             except Exception:

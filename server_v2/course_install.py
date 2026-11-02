@@ -1231,7 +1231,7 @@ def _run(identifier: str) -> None:
         if selected:
             run_course_install_job(identifier)
         else:
-            with background_work(unit_type="install"):
+            with background_work(unit_type="install", cpu=False):
                 run_course_install_job(identifier)
     except Exception:  # noqa: BLE001 - a job failure must be durable and retryable
         # Keep traceback details in the server log, never in the durable journal that may be

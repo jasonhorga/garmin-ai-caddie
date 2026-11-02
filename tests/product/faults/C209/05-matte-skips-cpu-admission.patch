@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/geometry/garmin_raster.py b/ai_caddie/geometry/garmin_raster.py
+index c59e1ebe..fdb09fd1 100644
+--- a/ai_caddie/geometry/garmin_raster.py
++++ b/ai_caddie/geometry/garmin_raster.py
+@@ -356,7 +356,7 @@ def fetch_matted_raster(global_id: int, hole: object, version: str | None = None
+     source = fetch_raster(int(global_id), hole)
+     if not source:
+         return None
+-    lane = background_work(unit_type="raster-matte") if in_background() else nullcontext()
++    lane = nullcontext()
+     with lane, lock:
+         try:
+             if path.is_file():

@@ -22,7 +22,7 @@ from PIL import Image
 from ai_caddie.geometry import garmin_raster
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
 from ai_caddie.core.request_timing import mark
-from ai_caddie.core.priority_work import background_work
+from ai_caddie.core.priority_work import background_work, in_background
 
 
 ROUTER = APIRouter()
@@ -227,7 +227,7 @@ def _warm_hole(
     runs before the hole's geometry is installed leaves it for the next pass, whose WebP is then a
     disk read.
     """
-    with background_work(unit_type="raster"):
+    with background_work(unit_type="raster", cpu=False):
         _wait_while(should_yield, global_id=global_id, hole=hole)
         try:
             warmed = garmin_raster.fetch_matted_raster(global_id, hole) is not None
@@ -295,6 +295,19 @@ def course_hole_garmin_raster(
     if cached is not None:
         mark("raster_projection_hit")
         return cached
+    if in_background():
+        fetched = garmin_raster.fetch_raster(global_id, hole)
+        with background_work(unit_type="raster-registration"):
+            return _describe_raster(global_id, hole, version, fetched=fetched)
+    return _describe_raster(global_id, hole, version)
+
+
+_NOT_FETCHED = object()
+
+
+def _describe_raster(global_id: int, hole: int, version: str, *, fetched=_NOT_FETCHED):
+    # Background callers have fetched before admission, and enter before publishing a leader.
+    lock = _register_lock(global_id, hole, version)
     key = (int(global_id), int(hole), str(version))
     with _INFLIGHT_LOCK:
         future = _INFLIGHT.get(key)
@@ -319,7 +332,8 @@ def course_hole_garmin_raster(
         # Share only requests that overlap in time. Completed unavailable results are deliberately
         # not retained; a later request must retry the provider/authority check.
         try:
-            fetched = garmin_raster.fetch_raster(global_id, hole)
+            if fetched is _NOT_FETCHED:
+                fetched = garmin_raster.fetch_raster(global_id, hole)
         except Exception as exc:
             logger.warning("garmin raster fetch failed: %s", type(exc).__name__)
             fetched = None

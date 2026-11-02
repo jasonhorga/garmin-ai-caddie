@@ -1,0 +1,13 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index f09ad929..bf36b8d5 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -795,7 +795,7 @@ class RenderBackfill:
+             try:
+                 # The default Garmin renderer fetches outside its inner CPU admission. Injected
+                 # renderers are CPU bodies, as is topo; keep their admission around the callback.
+-                cpu = unit != "garmin" or self._render_garmin != self._default_render_garmin
++                cpu = True
+                 with background_work(unit_type="backfill", cpu=cpu):
+                     with work_priority(BACKFILL):
+                         if unit == "topo":

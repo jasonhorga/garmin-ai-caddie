@@ -1,0 +1,13 @@
+diff --git a/server_v2/course_install.py b/server_v2/course_install.py
+index de0c909e..bb53cefb 100644
+--- a/server_v2/course_install.py
++++ b/server_v2/course_install.py
+@@ -1231,7 +1231,7 @@ def _run(identifier: str) -> None:
+         if selected:
+             run_course_install_job(identifier)
+         else:
+-            with background_work(unit_type="install", cpu=False):
++            with background_work(unit_type="install"):
+                 run_course_install_job(identifier)
+     except Exception:  # noqa: BLE001 - a job failure must be durable and retryable
+         # Keep traceback details in the server log, never in the durable journal that may be

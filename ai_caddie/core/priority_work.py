@@ -33,6 +33,8 @@ _ABANDON_POLL_SECONDS = 0.1
 _FOREGROUND_CONTEXT: ContextVar[bool] = ContextVar("foreground_admission", default=False)
 # The gate whose background slot this context holds; nested units share it and yield through it.
 _BACKGROUND_ADMISSION: ContextVar["ForegroundGate | None"] = ContextVar("background_admission", default=None)
+# IO/coordinator scopes keep checkpoints without reserving CPU capacity.
+_BACKGROUND_CONTEXT: ContextVar["ForegroundGate | None"] = ContextVar("background_context", default=None)
 logger = logging.getLogger(__name__)
 
 _CURRENT_PRIORITY: ContextVar[int | None] = ContextVar("work_priority", default=None)
@@ -255,30 +257,41 @@ def foreground_work():
 @contextmanager
 def background_work(*, timeout_s: float | None = None,
                     while_waiting: Callable[[], None] | None = None,
-                    unit_type: str = "unknown"):
-    """Admit one background CPU unit, with the finite package starvation bound.
+                    unit_type: str = "unknown", cpu: bool = True):
+    """Admit a CPU unit, or mark an IO coordinator with ``cpu=False``.
+
+    Coordinators retain foreground checkpoints; their CPU callbacks enter this context again
+    with the default ``cpu=True`` before taking any shared cache lock or single-flight.
 
     ``while_waiting`` is polled during the wait and may raise to abandon admission.
     """
+    if not cpu:
+        token = _BACKGROUND_CONTEXT.set(FOREGROUND_GATE)
+        try:
+            FOREGROUND_GATE.yield_to_foreground(while_waiting=while_waiting)
+            yield
+        finally:
+            _BACKGROUND_CONTEXT.reset(token)
+        return
     with FOREGROUND_GATE.background(timeout_s=timeout_s, while_waiting=while_waiting,
                                     unit_type=unit_type):
         yield
 
 
 def yield_to_foreground(*, while_waiting: Callable[[], None] | None = None) -> None:
-    """A background unit's checkpoint between granules; a no-op outside an admitted unit.
+    """A background task's checkpoint between granules; a no-op outside background work.
 
     Call it only where the unit holds no single-flight or lock a package could need: a paused
     holder would make that package wait for the whole stale-package deadline.
     """
-    gate = _BACKGROUND_ADMISSION.get()
+    gate = _BACKGROUND_ADMISSION.get() or _BACKGROUND_CONTEXT.get()
     if gate is not None:
         gate.yield_to_foreground(while_waiting=while_waiting)
 
 
 def in_background() -> bool:
-    """Whether this context runs inside an admitted background unit."""
-    return _BACKGROUND_ADMISSION.get() is not None
+    """Whether this context belongs to background work (including an IO coordinator)."""
+    return _BACKGROUND_ADMISSION.get() is not None or _BACKGROUND_CONTEXT.get() is not None
 
 
 class PrioritySlots:
