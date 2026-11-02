@@ -149,7 +149,17 @@ class MacRunnerJobsTests(unittest.TestCase):
             command = [sys.executable, '-m', 'uvicorn', 'server_v2.main:app',
                        '--host', '127.0.0.1', '--port', str(port), '--ws', 'none']
         else:
-            command = [sys.executable, '-m', 'http.server', str(port), '--bind', '127.0.0.1']
+            command = [sys.executable, '-c', '''import socket, sys
+server = socket.socket()
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(('127.0.0.1', int(sys.argv[1])))
+server.listen()
+while True:
+    connection, _ = server.accept()
+    with connection:
+        connection.recv(4096)
+        connection.sendall(b'HTTP/1.0 200 OK\\r\\nContent-Length: 2\\r\\n\\r\\nok')
+''', str(port)]
         log = (self.root / f'server-{port}.log').open('w')
         self.addCleanup(log.close)
         process = subprocess.Popen(command, cwd=ROOT, env={**os.environ,
@@ -187,7 +197,7 @@ class MacRunnerJobsTests(unittest.TestCase):
         (self.root / 'ai-caddie-fixture.pid').write_text(str(process.pid))
         result = self.port_command('stop', CADDIE_FIXTURE_PORT='9003')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIsNotNone(process.poll(), 'stop must terminate its recorded fixture')
+        self.assertIsNotNone(process.wait(timeout=5), 'stop must terminate its recorded fixture')
         self.assertEqual(self.port_command('free', CADDIE_FIXTURE_PORT='9003').returncode, 0)
 
     def test_prepare_cleans_only_selected_runner_port(self):
@@ -204,12 +214,61 @@ class MacRunnerJobsTests(unittest.TestCase):
         (self.root / 'ai-caddie-fixture.pid').write_text(str(process.pid))
         result = self.port_command('stop', CADDIE_FIXTURE_PORT='9003')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIsNotNone(process.poll(), 'own pid must be terminated before health/port checks')
+        self.assertIsNotNone(process.wait(timeout=5), 'own pid must be terminated before health/port checks')
         remaining = self.start_server(9003)
         (self.root / 'ai-caddie-fixture.pid').write_text('99999999')
         result = self.port_command('stop', CADDIE_FIXTURE_PORT='9003')
         self.assertNotEqual(result.returncode, 0, 'stop must report a still-listening port')
         self.assertIsNone(remaining.poll())
+
+    def test_workflow_start_health_stop_with_real_fixture_on_mapped_port(self):
+        # Run the workflow shell and the real fixture entrypoint; only replace uv's
+        # package selection with the already provisioned shared interpreter.
+        (self.root / 'ops').symlink_to(ROOT / 'ops')
+        self.fake_tool('uv', 'if [ "$1" = "--version" ]; then echo shared-runtime; exit 0; fi\n'
+                       'cd ' + shlex.quote(str(ROOT)) + '\n'
+                       'shift 5\nexec ' + shlex.quote(sys.executable) + ' "$@"')
+        values = self.selected_port('caddie-mba-3')
+        self.addCleanup(lambda: self.port_command('stop', **values))
+        result = self.shell(self.mobile_step('Start isolated CI fixture')['run'], **values)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        exported = _command_file(Path(self.env['GITHUB_ENV']))
+        self.assertEqual(exported['SIMCTL_CHILD_AI_CADDIE_API_BASE_URL'],
+                         'http://' + '127.0.0.1' + ':9003')
+        self.assertEqual(self.port_command('health', **values).returncode, 0)
+        result = self.shell(self.mobile_step('Stop isolated CI fixture')['run'], **values)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.port_command('free', **values).returncode, 0)
+
+    def test_every_fixture_job_selects_port_before_build_and_forwards_it_to_tests(self):
+        consumers = [('native-mobile.yml', job) for job in
+                     ('native-unit-watch', 'native-real-flow', 'native-screenshots', 'native-product-ui')]
+        consumers += [('agenthub-native-mutant.yml', 'native-mutant')]
+        for name, job in consumers:
+            with self.subTest(job=job):
+                steps = workflow(name)['jobs'][job]['steps']
+                selection = next(s for s in steps if s.get('name') == 'Select runner fixture port')
+                build = next(s for s in steps if s.get('name') == 'Generate native project')
+                self.assertLess(steps.index(selection), steps.index(build))
+                result = self.shell(selection['run'], RUNNER_ENVIRONMENT='self-hosted', RUNNER_NAME='caddie-mba-2')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                values = _command_file(Path(self.env['GITHUB_ENV']))
+                self.assertEqual(values['CADDIE_FIXTURE_PORT'], '9002')
+                self.assertEqual(values['TEST_RUNNER_CADDIE_FIXTURE_PORT'], '9002')
+                url = 'http://' + '127.0.0.1' + ':9002'
+                self.assertEqual(values['CADDIE_FIXTURE_BASE_URL'], url)
+                # Evaluate actual workflow env expressions consumed by launch gates and UI runners.
+                for step in steps:
+                    if not evaluate(step.get('if', True), {'inputs.fixture_mode': True,
+                            'steps.start_fixture.outcome': 'success',
+                            'github.event.inputs.capture_scope': 'full'}, condition=True):
+                        continue
+                    for key, expression in step.get('env', {}).items():
+                        if key not in ('NATIVE_BASE_URL', 'TEST_RUNNER_AI_CADDIE_API_BASE_URL', 'AI_CADDIE_API_BASE_URL'):
+                            continue
+                        resolved = evaluate(expression, {'inputs.fixture_mode': True,
+                                            'env.CADDIE_FIXTURE_BASE_URL': url})
+                        self.assertEqual(resolved, url, step.get('name'))
 
     def test_product_ui_passes_single_value_options_once(self):
         self.fake_tool('xcodebuild', 'exec ' + shlex.quote(sys.executable) +

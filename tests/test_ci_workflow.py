@@ -312,10 +312,10 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
             self.assertEqual("platform=iOS Simulator,id=chosen-device", args[args.index("-destination") + 1])
 
     def test_native_capture_timeout_budgets_follow_shard(self) -> None:
-        """J3/J4: preserve capture budgets; fixture jobs allow a 90-minute host-port queue."""
+        """J3/J4: preserve capture budgets with independently assigned runner ports."""
         jobs = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())["jobs"]
-        for name, job_budget, step_budget in (("native-real-flow", 55 + 90, 45),
-                                            ("native-screenshots", 45 + 90, 35), ("native-live", 150, 90)):
+        for name, job_budget, step_budget in (("native-real-flow", 55, 45),
+                                            ("native-screenshots", 45, 35), ("native-live", 150, 90)):
             job = jobs[name]
             self.assertEqual(job_budget, job["timeout-minutes"])
             capture = next(s for s in job["steps"] if s.get("id") == "real_ios_capture")
@@ -1005,7 +1005,6 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
         self.assertIn("SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN=%s", fixture_start)
         self.assertIn("SIMCTL_CHILD_AI_CADDIE_FIXTURE_MODE=1", fixture_start)
         self.assertIn("SIMCTL_CHILD_AI_CADDIE_DATA_MODE=fixture", fixture_start)
-        self.assertIn("SIMCTL_CHILD_AI_CADDIE_API_BASE_URL=http://127.0.0.1:9000", fixture_start)
         self.assertIn('export AI_CADDIE_ADMIN_TOKEN="$FIXTURE_TOKEN"', fixture_start)
         self.assertNotIn("AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN", fixture_start)
         self.assertIn("Configure live native auth", steps)

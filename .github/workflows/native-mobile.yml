@@ -216,6 +216,12 @@ jobs:
     steps:
       - &actions_checkout_v4
         uses: actions/checkout@v4
+      - &select_fixture_port
+        name: Select runner fixture port
+        if: ${{ inputs.fixture_mode }}
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: python3 .github/scripts/fixture-port.py select
       - &test_transient_command_retry_gate
         name: Test transient-command retry gate
         run: bash .github/scripts/test-retry-transient-command.sh
@@ -245,12 +251,6 @@ jobs:
         name: Install uv for isolated CI fixture
         if: ${{ inputs.fixture_mode }}
         run: command -v uv >/dev/null 2>&1 || brew install uv
-      - &acquire_fixture_port_lock
-        name: Acquire host port 9000 lock
-        if: ${{ inputs.fixture_mode }}
-        env:
-          RUNNER_ENVIRONMENT: ${{ runner.environment }}
-        run: python3 .github/scripts/port9000.py acquire
       - &start_isolated_ci_fixture
         name: Start isolated CI fixture
         id: start_fixture
@@ -275,19 +275,17 @@ jobs:
             printf 'SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN=%s\n' "$FIXTURE_TOKEN"
             printf 'SIMCTL_CHILD_AI_CADDIE_FIXTURE_MODE=1\n'
             printf 'SIMCTL_CHILD_AI_CADDIE_DATA_MODE=fixture\n'
-            printf 'SIMCTL_CHILD_AI_CADDIE_API_BASE_URL=http://127.0.0.1:9000\n'
+            printf 'SIMCTL_CHILD_AI_CADDIE_API_BASE_URL=%s\n' "$CADDIE_FIXTURE_BASE_URL"
           } >> "$GITHUB_ENV"
-          export CI=true AI_CADDIE_FIXTURE_PORT=9000
-          export AI_CADDIE_BUILD_REVISION="ci-fixture-$(openssl rand -hex 16)"
-          printf 'AI_CADDIE_BUILD_REVISION=%s\n' "$AI_CADDIE_BUILD_REVISION" >> "$GITHUB_ENV"
-          python3 .github/scripts/port9000.py free
+          export CI=true AI_CADDIE_FIXTURE_PORT="$CADDIE_FIXTURE_PORT"
+          python3 .github/scripts/fixture-port.py prepare
           command -v uv >/dev/null 2>&1 || { echo "uv is required for fixture startup" >&2; exit 1; }
           uv --version
           python3 --version
           nohup bash ops/run_ci_fixture.sh > "$RUNNER_TEMP/ai-caddie-fixture.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/ai-caddie-fixture.pid"
           for _ in {1..30}; do
-            if python3 .github/scripts/port9000.py health; then
+            if python3 .github/scripts/fixture-port.py health; then
               exit 0
             fi
             sleep 2
@@ -395,7 +393,7 @@ jobs:
         id: validate_native_launch_prereq
         if: ${{ (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         env:
-          NATIVE_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          NATIVE_BASE_URL: ${{ inputs.fixture_mode && env.CADDIE_FIXTURE_BASE_URL || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL }}
           NATIVE_FIXTURE_MODE: ${{ inputs.fixture_mode && '1' || '0' }}
           NATIVE_DATA_MODE: ${{ inputs.fixture_mode && 'fixture' || '' }}
         run: |
@@ -406,7 +404,7 @@ jobs:
             "${#AI_CADDIE_ADMIN_TOKEN}" "$NATIVE_FIXTURE_MODE"
           test -n "$NATIVE_BASE_URL" && test -n "${AI_CADDIE_ADMIN_TOKEN:-}"
           if [[ "$NATIVE_FIXTURE_MODE" == "1" ]]; then
-            test "$NATIVE_BASE_URL" = "http://127.0.0.1:9000"
+            test "$NATIVE_BASE_URL" = "$CADDIE_FIXTURE_BASE_URL"
             test "${AI_CADDIE_FIXTURE_MODE:-}" = "1" && test "${AI_CADDIE_DATA_MODE:-}" = "fixture"
             test "${SIMCTL_CHILD_AI_CADDIE_FIXTURE_MODE:-}" = "1"
             test "${SIMCTL_CHILD_AI_CADDIE_DATA_MODE:-}" = "fixture"
@@ -418,7 +416,7 @@ jobs:
         id: validate_native_launch_environment_app
         if: ${{ (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         env:
-          NATIVE_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          NATIVE_BASE_URL: ${{ inputs.fixture_mode && env.CADDIE_FIXTURE_BASE_URL || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL }}
           NATIVE_FIXTURE_MODE: ${{ inputs.fixture_mode && '1' || '0' }}
         run: |
           set -euo pipefail
@@ -428,7 +426,7 @@ jobs:
             "${#AI_CADDIE_ADMIN_TOKEN}" "$NATIVE_FIXTURE_MODE"
           test -n "$NATIVE_BASE_URL" && test -n "${AI_CADDIE_ADMIN_TOKEN:-}"
           if [[ "$NATIVE_FIXTURE_MODE" == "1" ]]; then
-            test "$NATIVE_BASE_URL" = "http://127.0.0.1:9000"
+            test "$NATIVE_BASE_URL" = "$CADDIE_FIXTURE_BASE_URL"
             test "${AI_CADDIE_FIXTURE_MODE:-}" = "1" && test "${AI_CADDIE_DATA_MODE:-}" = "fixture"
             test "${SIMCTL_CHILD_AI_CADDIE_FIXTURE_MODE:-}" = "1"
             test "${SIMCTL_CHILD_AI_CADDIE_DATA_MODE:-}" = "fixture"
@@ -440,7 +438,7 @@ jobs:
         id: validate_native_launch_environment
         if: ${{ (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         env:
-          NATIVE_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          NATIVE_BASE_URL: ${{ inputs.fixture_mode && env.CADDIE_FIXTURE_BASE_URL || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL }}
           NATIVE_FIXTURE_MODE: ${{ inputs.fixture_mode && '1' || '0' }}
           NATIVE_DATA_MODE: ${{ inputs.fixture_mode && 'fixture' || '' }}
         run: |
@@ -454,7 +452,7 @@ jobs:
           test -n "$NATIVE_BASE_URL"
           test -n "${AI_CADDIE_ADMIN_TOKEN:-}"
           if [[ "$NATIVE_FIXTURE_MODE" == "1" ]]; then
-            test "$NATIVE_BASE_URL" = "http://127.0.0.1:9000"
+            test "$NATIVE_BASE_URL" = "$CADDIE_FIXTURE_BASE_URL"
             test "${AI_CADDIE_FIXTURE_MODE:-}" = "1"
             test "${AI_CADDIE_DATA_MODE:-}" = "fixture"
             test "${SIMCTL_CHILD_AI_CADDIE_FIXTURE_MODE:-}" = "1"
@@ -652,7 +650,7 @@ jobs:
         env:
           # TEST_RUNNER_-prefixed vars are forwarded by xcodebuild into the UI-test runner environment
           # (the plain forms are a fallback in case they propagate too). The test reads both.
-          TEST_RUNNER_AI_CADDIE_API_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          TEST_RUNNER_AI_CADDIE_API_BASE_URL: ${{ inputs.fixture_mode && env.CADDIE_FIXTURE_BASE_URL || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL }}
           TEST_RUNNER_AI_CADDIE_FIXTURE_MODE: ${{ inputs.fixture_mode && '1' || '0' }}
           TEST_RUNNER_AI_CADDIE_DATA_MODE: ${{ inputs.fixture_mode && 'fixture' || '' }}
           TEST_RUNNER_UITEST_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
@@ -660,7 +658,7 @@ jobs:
           # 北京丽宫第 1 洞蓝 T (from the decoded CourseView hole anchor + tee coordinates).
           TEST_RUNNER_UITEST_GPS_LAT: '40.0454995'
           TEST_RUNNER_UITEST_GPS_LON: '116.5461531'
-          AI_CADDIE_API_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          AI_CADDIE_API_BASE_URL: ${{ inputs.fixture_mode && env.CADDIE_FIXTURE_BASE_URL || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL }}
           AI_CADDIE_FIXTURE_MODE: ${{ inputs.fixture_mode && '1' || '0' }}
           AI_CADDIE_DATA_MODE: ${{ inputs.fixture_mode && 'fixture' || '' }}
           UITEST_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
@@ -709,7 +707,7 @@ jobs:
               )
               ;;
             *)
-              # ProductPhoneUITests brings its own fixture server on port 9000 and runs in the
+              # ProductPhoneUITests brings its own fixture server on its runner port and runs in the
               # native-product-ui job; here it would collide with the Python fixture.
               ONLY_TESTING=(
                 -skip-testing:AICaddieUITests/ProductPhoneUITests
@@ -824,23 +822,8 @@ jobs:
           fi
       - &stop_isolated_ci_fixture
         name: Stop isolated CI fixture
-        if: ${{ always() && inputs.fixture_mode }}
-        run: |
-          if [ -f "$RUNNER_TEMP/ai-caddie-fixture.pid" ]; then
-            pid="$(cat "$RUNNER_TEMP/ai-caddie-fixture.pid")"
-            if ! python3 .github/scripts/port9000.py free; then
-              python3 .github/scripts/port9000.py health || exit 1
-            fi
-            kill "$pid" 2>/dev/null || true
-            for _ in {1..20}; do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
-            if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
-            python3 .github/scripts/port9000.py free
-            rm -f "$RUNNER_TEMP/ai-caddie-fixture.pid"
-          fi
-      - &release_fixture_port_lock
-        name: Release host port 9000 lock
-        if: ${{ always() && inputs.fixture_mode }}
-        run: python3 .github/scripts/port9000.py release
+        if: ${{ always() && inputs.fixture_mode && env.CADDIE_FIXTURE_PORT != '' }}
+        run: python3 .github/scripts/fixture-port.py stop
       - &resolve_and_boot_watch_test_simulator
         name: Resolve and boot Watch test simulator
         if: ${{ always() && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
@@ -1060,20 +1043,19 @@ jobs:
   native-unit-watch:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
     runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
-    # Up to 90 minutes waiting for the host port, plus the original work budget.
-    timeout-minutes: 135
+    timeout-minutes: 45
     env:
       NATIVE_CAPTURE_SHARD: unit-watch
       NATIVE_ARTIFACT_SUFFIX: -unit-watch
     steps:
       - *actions_checkout_v4
+      - *select_fixture_port
       - *test_transient_command_retry_gate
       - *install_xcodegen
       - *generate_native_project
       - *select_job_simulators
       - *show_simulator_inventory
       - *install_uv_for_isolated_ci_fixture
-      - *acquire_fixture_port_lock
       - *start_isolated_ci_fixture
       - *upload_fixture_startup_diagnostics
       - *upload_fixture_startup_diagnostics_artifact
@@ -1111,26 +1093,24 @@ jobs:
       - *scan_native_build_evidence_for_secret_bytes
       - *upload_native_build_evidence
       - *stop_isolated_ci_fixture
-      - *release_fixture_port_lock
       - *shutdown_owned_simulators
 
   native-real-flow:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
     runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
-    # Up to 90 minutes waiting for the host port, plus the original work budget.
-    timeout-minutes: 145
+    timeout-minutes: 55
     env:
       NATIVE_CAPTURE_SHARD: real-flow
       NATIVE_ARTIFACT_SUFFIX: -real-flow
     steps:
       - *actions_checkout_v4
+      - *select_fixture_port
       - *test_transient_command_retry_gate
       - *install_xcodegen
       - *generate_native_project
       - *select_job_simulators
       - *show_simulator_inventory
       - *install_uv_for_isolated_ci_fixture
-      - *acquire_fixture_port_lock
       - *start_isolated_ci_fixture
       - *upload_fixture_startup_diagnostics
       - *upload_fixture_startup_diagnostics_artifact
@@ -1147,26 +1127,24 @@ jobs:
       - *upload_real_video
       - *remove_ui_test_app_data
       - *stop_isolated_ci_fixture
-      - *release_fixture_port_lock
       - *shutdown_owned_simulators
 
   native-screenshots:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
     runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
-    # Up to 90 minutes waiting for the host port, plus the original work budget.
-    timeout-minutes: 135
+    timeout-minutes: 45
     env:
       NATIVE_CAPTURE_SHARD: screenshots
       NATIVE_ARTIFACT_SUFFIX: -screenshots
     steps:
       - *actions_checkout_v4
+      - *select_fixture_port
       - *test_transient_command_retry_gate
       - *install_xcodegen
       - *generate_native_project
       - *select_job_simulators
       - *show_simulator_inventory
       - *install_uv_for_isolated_ci_fixture
-      - *acquire_fixture_port_lock
       - *start_isolated_ci_fixture
       - *upload_fixture_startup_diagnostics
       - *upload_fixture_startup_diagnostics_artifact
@@ -1183,11 +1161,10 @@ jobs:
       - *upload_real_video
       - *remove_ui_test_app_data
       - *stop_isolated_ci_fixture
-      - *release_fixture_port_lock
       - *shutdown_owned_simulators
 
   # C16e ProductPhoneUITests on its own runner. ProductFixtureServer binds the only fixture origin the
-  # DEBUG app accepts (loopback port 9000, BackendConfigurationStore.normalizedAPIBaseURL), which
+  # DEBUG app accepts (loopback ports 9000–9009, BackendConfigurationStore.normalizedAPIBaseURL), which
   # the job above gives to the Python fixture in fixture_mode. No Python fixture and no secrets here:
   # the tests launch the app with synthetic credentials against the in-process server.
   native-product-ui:
@@ -1196,10 +1173,13 @@ jobs:
     # "Test iOS app target" (build + unit tests) took 12 min on run 40187234659. This scheme also
     # builds the UI-test bundle and then runs 13 serial tests with about 20 app launches, so about
     # 25 min is expected; 45 stops a hung simulator at roughly twice that.
-    # Up to 90 minutes waiting for the host port, plus the original work budget.
-    timeout-minutes: 135
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Select runner fixture port
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: python3 .github/scripts/fixture-port.py select
       - name: Install XcodeGen
         run: command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
       - name: Generate native project
@@ -1207,16 +1187,8 @@ jobs:
       - *select_job_simulators
       - name: Show simulator inventory
         run: xcrun simctl list devices available
-      - name: Acquire host port 9000 lock
-        env:
-          RUNNER_ENVIRONMENT: ${{ runner.environment }}
-        run: python3 .github/scripts/port9000.py acquire
-      - name: Check Product UI fixture port is free
-        run: |
-          if lsof -nP -iTCP:9000 -sTCP:LISTEN; then
-            echo "::error::port 9000 is already listening; ProductFixtureServer needs it"
-            exit 1
-          fi
+      - name: Prepare Product UI fixture port
+        run: python3 .github/scripts/fixture-port.py prepare
       - name: Resolve and boot iOS UI-test simulator
         run: |
           set -eu
@@ -1332,11 +1304,8 @@ jobs:
       - *shutdown_owned_simulators
 
       - name: Check Product UI fixture stopped
-        if: ${{ always() }}
-        run: python3 .github/scripts/port9000.py free
-      - name: Release host port 9000 lock
-        if: ${{ always() }}
-        run: python3 .github/scripts/port9000.py release
+        if: ${{ always() && env.CADDIE_FIXTURE_PORT != '' }}
+        run: python3 .github/scripts/fixture-port.py free
 
   # Keep the public job conclusion and artifact names consumed by the project console.
   # This runner only combines already secret-scanned evidence; it never starts a simulator.

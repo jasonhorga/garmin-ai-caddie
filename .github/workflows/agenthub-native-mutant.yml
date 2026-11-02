@@ -34,8 +34,7 @@ permissions:
 jobs:
   native-mutant:
     runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
-    # UI mutants may queue for the shared port for up to 90 minutes.
-    timeout-minutes: 150
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -46,6 +45,13 @@ jobs:
         with:
           path: native-tools
           persist-credentials: false
+      - name: Select runner fixture port
+        id: fixture_port
+        if: ${{ inputs.include_ui }}
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          python3 native-tools/.github/scripts/fixture-port.py select
       - name: Check out head under test
         uses: actions/checkout@v4
         with:
@@ -171,17 +177,12 @@ jobs:
             for test in "${tests[@]}"; do args+=("-only-testing:$test"); done
           fi
           xcodebuild "${args[@]}"
-      - name: Acquire host port 9000 lock
-        id: port_lock
-        if: ${{ inputs.include_ui && steps.validate.outcome == 'success' && steps.generate.outcome == 'success' }}
-        env:
-          RUNNER_ENVIRONMENT: ${{ runner.environment }}
-        run: |
-          python3 native-tools/.github/scripts/port9000.py acquire
-          python3 native-tools/.github/scripts/port9000.py free
+      - name: Prepare UI mutant fixture port
+        if: ${{ inputs.include_ui && steps.fixture_port.outcome == 'success' }}
+        run: python3 native-tools/.github/scripts/fixture-port.py prepare
       - name: Test iPhone UI scheme
         id: ui
-        if: ${{ inputs.include_ui && steps.port_lock.outcome == 'success' && steps.validate.outcome == 'success' && steps.generate.outcome == 'success' }}
+        if: ${{ inputs.include_ui && steps.fixture_port.outcome == 'success' && steps.validate.outcome == 'success' && steps.generate.outcome == 'success' }}
         continue-on-error: true
         working-directory: native-head
         env:
@@ -248,8 +249,5 @@ jobs:
         if: ${{ always() && runner.environment == 'self-hosted' }}
         run: bash native-tools/.github/scripts/shutdown-owned-sims.sh
       - name: Check UI mutant fixture stopped
-        if: ${{ always() && inputs.include_ui && steps.port_lock.outcome == 'success' }}
-        run: python3 native-tools/.github/scripts/port9000.py free
-      - name: Release host port 9000 lock
-        if: ${{ always() && inputs.include_ui }}
-        run: python3 native-tools/.github/scripts/port9000.py release
+        if: ${{ always() && inputs.include_ui && steps.fixture_port.outcome == 'success' }}
+        run: python3 native-tools/.github/scripts/fixture-port.py free

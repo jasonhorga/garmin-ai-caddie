@@ -3,7 +3,7 @@ import Network
 import UIKit
 import XCTest
 
-/// One synthetic HTTP backend on port 9000, shared for the lifetime of this UI test process.
+/// One synthetic HTTP backend on this runner's reserved port, shared for the lifetime of this UI test process.
 /// Mutable request state stays on `queue`; startup failure crosses queues under `startupLock`.
 final class ProductFixtureServer: @unchecked Sendable {
     // Static initialization is lazy and runs once, including a cached startup failure.
@@ -46,6 +46,7 @@ final class ProductFixtureServer: @unchecked Sendable {
     private enum StartupFailure: Error {
         case timedOut
         case missingPort
+        case invalidPort(String)
     }
 
     var baseURL: URL {
@@ -80,7 +81,14 @@ final class ProductFixtureServer: @unchecked Sendable {
         }
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
-        listener = try NWListener(using: parameters, on: 9000)
+        let environment = ProcessInfo.processInfo.environment
+        let rawPort = environment["CADDIE_FIXTURE_PORT"]
+            ?? environment["TEST_RUNNER_CADDIE_FIXTURE_PORT"] ?? "9000"
+        guard let port = UInt16(rawPort), (9000...9009).contains(Int(port)),
+              let listenerPort = NWEndpoint.Port(rawValue: port) else {
+            throw StartupFailure.invalidPort(rawPort)
+        }
+        listener = try NWListener(using: parameters, on: listenerPort)
         listener.stateUpdateHandler = { [weak self] value in
             guard let self else { return }
             switch value {

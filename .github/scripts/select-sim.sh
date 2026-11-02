@@ -119,7 +119,7 @@ if prefix and os.environ.get('GITHUB_ENV'):
         if len(selected) != 1:
             raise SystemExit('refusing to erase simulator without exact runner ownership')
         if selected[0].get('state', 'Shutdown') != 'Shutdown':
-            subprocess.run(['xcrun', 'simctl', 'shutdown', udid], check=True,
+            subprocess.run(['xcrun', 'simctl', 'shutdown', udid], check=False,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(['xcrun', 'simctl', 'erase', udid], check=True, stdout=subprocess.DEVNULL)
     with open(env_file, 'a', encoding='utf-8') as handle:

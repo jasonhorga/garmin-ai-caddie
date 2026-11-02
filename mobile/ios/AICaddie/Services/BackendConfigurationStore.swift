@@ -4,6 +4,7 @@ import Security
 #endif
 
 public struct BackendConfigurationStore {
+    private static let fixturePorts = 9000...9009
     private static let apiBaseURLKey = "ai-caddie.api-base-url"
     private static let adminTokenService = "com.ai-caddie.mobile.backend"
     private static let adminTokenAccount = "admin-token"
@@ -39,7 +40,7 @@ public struct BackendConfigurationStore {
         let scheme = components.scheme?.lowercased()
         let isFixtureLoopback = allowFixtureLoopback
             && scheme == "http"
-            && components.port == 9000
+            && components.port.map { fixturePorts.contains($0) } == true
             && ["127.0.0.1", "localhost", "::1"].contains(components.host?.lowercased() ?? "")
             && (components.percentEncodedPath.isEmpty || components.percentEncodedPath == "/")
         guard (scheme == "https" || isFixtureLoopback),
