@@ -550,6 +550,7 @@ class ReworkContractTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_j4_4_failed_selected_tee_vector_stops_polling_until_revision_changes(self):
         """J4.4: repeated selected-Tee vector failures become unavailable and stop requeueing."""
         from concurrent.futures import Future
+        import time
         from ai_caddie.courses import vector_prep as vp
 
         class ImmediateFailurePool:
@@ -570,20 +571,20 @@ class ReworkContractTests(ServiceLoggingIsolationMixin, unittest.TestCase):
         with (patch.object(vp, "_BACKGROUND_VECTOR_POOL", pool),
               patch.object(vp, "_VECTOR_FUTURES", {}, create=True),
               patch.object(vp, "_VECTOR_RETRY_STATE", {}, create=True),
-              patch.object(vp.time, "monotonic", side_effect=lambda: clock[0]),
-              patch.object(vp, "geometry_coverage_for_hole",
-                           side_effect=[{"geometryRevision": "r1"}] * 3 +
-                                       [{"geometryRevision": "r2"}]),
+              patch.object(time, "monotonic", side_effect=lambda: clock[0]),
               patch.object(vp, "cached_vector_hole", return_value=None)):
-            for now in (0.0, 31.0, 92.0):
+            for now in (0.0, 10.0, 31.0, 92.0):
                 clock[0] = now
-                vp.enqueue_vector_hole(9136, 1, 2)
+                vp.enqueue_vector_hole(9136, 1, 2, revision="r1")
             self.assertEqual(3, len(pool.calls),
                              "a permanently failing vector must stop requeueing after the bound")
             self.assertEqual(3, pool.builds, "each pre-fix poll re-ran the server vector build")
             self.assertEqual("unavailable", vp.selected_vector_plan(9136, 1)["state"])
             clock[0] = 93.0
-            vp.enqueue_vector_hole(9136, 1, 2)
+            vp.enqueue_vector_hole(9136, 1, 2, revision="r1")
+            self.assertEqual(3, len(pool.calls),
+                             "an unavailable Tee must not requeue again at the same revision")
+            vp.enqueue_vector_hole(9136, 1, 2, revision="r2")
             self.assertEqual(4, len(pool.calls),
                              "a new geometry revision must reopen a previously unavailable Tee")
 
