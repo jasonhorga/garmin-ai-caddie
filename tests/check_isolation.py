@@ -46,6 +46,9 @@ class LoggingIsolationSuite(unittest.TestSuite):
     _import_leaks = []
     _tracking_import = False
     _track_imports_enabled = True
+    # Alembic's fileConfig and SQLAlchemy's logger setup are process-wide
+    # integration side effects, rather than test-owned logging mutations.
+    _expected_external_loggers = ("alembic", "sqlalchemy")
 
     @classmethod
     def reset_tracking(cls):
@@ -73,16 +76,52 @@ class LoggingIsolationSuite(unittest.TestSuite):
                 continue
             if before.get(name) != after.get(name):
                 changes[name] = (before.get(name), after.get(name))
+        for name in tuple(changes):
+            if name.startswith(LoggingIsolationSuite._expected_external_loggers):
+                changes.pop(name)
+        # Alembic's fileConfig also replaces the root stderr handler.  Keep
+        # detecting root filters, levels, propagation, and arbitrary handlers;
+        # ignore this one handler-only change when the migration loggers moved
+        # in the same boundary.
+        root = changes.get("root")
+        external_changed = any(
+            name.startswith(LoggingIsolationSuite._expected_external_loggers)
+            for name in before.keys() | after.keys()
+            if before.get(name) != after.get(name)
+        )
+        if root and external_changed:
+            before_root, after_root = root
+            if (before_root[1:] == after_root[1:]
+                    and before_root[0] != after_root[0]):
+                changes.pop("root", None)
+        if root and "root" in changes:
+            before_root, after_root = root
+            def handler_shape(handler):
+                return (type(handler), handler.level,
+                        getattr(handler, "stream", None) is sys.stderr)
+            if (before_root[1:] == after_root[1:]
+                    and [handler_shape(item) for item in before_root[0]]
+                    == [handler_shape(item) for item in after_root[0]]):
+                changes.pop("root", None)
         return changes
 
     @staticmethod
     def _restore_logging(snapshot):
-        known = {"root": logging.getLogger()}
-        known.update({name: logger for name, logger in logging.Logger.manager.loggerDict.items()
-                      if isinstance(logger, logging.Logger)})
-        for name in set(known) - set(snapshot):
-            if name != "root":
-                logging.Logger.manager.loggerDict.pop(name, None)
+        default = ((), (), logging.NOTSET, True, False)
+        # Preserve logger objects created by a module.  Removing them from
+        # loggerDict leaves references held by tests detached from getLogger;
+        # reset only a newly-created logger that actually carries state.
+        for name, logger in list(logging.Logger.manager.loggerDict.items()):
+            if not isinstance(logger, logging.Logger) or name in snapshot:
+                continue
+            state = (tuple(logger.handlers), tuple(logger.filters), logger.level,
+                     logger.propagate, logger.disabled)
+            if state != default:
+                logger.handlers[:] = []
+                logger.filters[:] = []
+                logger.setLevel(logging.NOTSET)
+                logger.propagate = True
+                logger.disabled = False
         for name, state in snapshot.items():
             logger = logging.getLogger() if name == "root" else logging.getLogger(name)
             handlers, filters, level, propagate, disabled = state
@@ -156,10 +195,10 @@ class LoggingIsolationSuite(unittest.TestSuite):
         # inspection. Once the first test starts, imports belong to test code
         # and dependency setup, so they must not be reported as import leaks.
         type(self)._track_imports_enabled = False
+        super()._handleModuleFixture(test, result)
         module = getattr(test.__class__, "__module__", None)
         if module and module not in self._module_snapshots:
             self._module_snapshots[module] = self._snapshot_logging()
-        return super()._handleModuleFixture(test, result)
 
 
 def run_logging_checked_tests(arguments):

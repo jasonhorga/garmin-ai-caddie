@@ -29,10 +29,15 @@ _URL = re.compile(r"https?://[^\s\"'<>;,]+|(?<![\w/])/(?:api|p)/[^\s\"'<>;,]+")
 _PRIVATE_PATH = re.compile(r"https?://[^\s\"'<>;,\)]+|(?<![\w/])(?:[A-Za-z]:[\\/]|/|\bdata/|\bplayers/)[^\s\"'<>;,\)]+")
 _FRAME = re.compile(r'^(\s*File ")(.+)(", line \d+, in .+)$')
 _AUTHORIZATION_BEARER = re.compile(
-    r"(?i)(\bAuthorization[\"']?\s*[:=]\s*)([\"']?)"
-    r"(?:Bearer\s*:?\s*)?(?:\[redacted\]|([^\s,;}\]\\\"']+))(\2)"
+    r"(?i)(\bAuthorization[\"']?\s*[:=]\s*)"
+    r"(?:"
+    r"(?P<quote>[\"'])(?:Bearer\s*:?\s*)?(?:\\.|(?!(?P=quote)).)*(?P=quote)?"
+    r"|(?:Bearer\s*:?\s*)?(?:\[redacted\]|[^\s,;}\]]+)"
+    r")"
 )
-_BARE_BEARER = re.compile(r"(?i)(?<!invalid )\bBearer\s*:?\s+[^\s,;}\]]+")
+_BARE_BEARER = re.compile(
+    r"(?i)\bBearer\s*:?\s+(?!(?:header|token)\b)[^\s,;}\]]+"
+)
 
 
 def _text(value: str) -> str:
@@ -53,7 +58,15 @@ def _text(value: str) -> str:
     # Consume authorization credentials as one value. This keeps the header
     # label and dictionary punctuation while handling Bearer: and mixed case.
     def authorization(match):
-        return match[1] + match[2] + _REDACTED + match[4]
+        prefix = match.group(1)
+        quote = match.group("quote")
+        if quote:
+            if match.group(0).endswith(quote):
+                return prefix + quote + _REDACTED + quote
+            # An unterminated quote is malformed input; dropping its opener
+            # avoids a later key/value pass fabricating a closing quote.
+            return prefix + _REDACTED
+        return prefix + _REDACTED
 
     value = _AUTHORIZATION_BEARER.sub(authorization, value)
     value = _IDENTITY.sub(identity, value)
