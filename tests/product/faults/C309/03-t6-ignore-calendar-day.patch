@@ -1,10 +1,10 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index c761ecd4..355f3ae2 100644
+index 81ed2258..29b2451d 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -336,7 +336,7 @@ def _same_day_matching_boundary_score_holes(
-                 scores.setdefault(key, set()).add(strokes)
-         by_day.setdefault(day, []).append((str(row.get("id")), scores, ring_order(set(scores))))
+@@ -344,7 +344,7 @@ def _same_day_matching_boundary_score_holes(
+                 display_by_key.setdefault(key, display)
+         by_day.setdefault(day, []).append((str(row.get("id")), scores, ring_order(scores, display_by_key)))
      candidates: dict[str, set[tuple[int, int]]] = {}
 -    for cards in by_day.values():
 +    for cards in [sum(by_day.values(), [])]:

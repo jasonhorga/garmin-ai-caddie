@@ -48,6 +48,14 @@
       "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_sorted_garmin_card_starts_after_physical_ring_gap",
       "promise": "1.3",
       "kills": "A Garmin card sorted by hole number must still use the physical ring start; replacing ring order with numeric order rejects the valid 10-start continuation."
+    },
+    {
+      "id": "tests-product-faults-C309-07-gid-order-reversed",
+      "patch": "tests/product/faults/C309/07-gid-order-reversed.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_combo_ring_order_uses_display_holes_across_global_ids",
+      "promise": "1.3",
+      "kills": "A combo course continuation follows displayed holes 1..18 even when the front and back global ids are reversed; ordering the two loops by descending gid must fail."
     }
   ]
 }
