@@ -128,6 +128,29 @@ class PrepRouteQualityTests(unittest.TestCase):
                 self.assert_complete(row)
                 self.assertLessEqual(len(row["steps"]), bound)
 
+    def test_j4_6_post_pin_water_can_justify_an_extra_stroke(self):
+        # J4.6: without the back pond 197+160=357 is a safe +29 m finish.
+        # Water [350,375] covers that landing; 197+68+68=333 stops before
+        # its 342 m buffered front, so the extra swing is justified.
+        for back_pond in ((350, 375), (341, 375)):
+            with self.subTest(back_pond=back_pond):
+                row = self.prep("TRIG", 4, 328, ((303, 323), back_pond))
+                self.assert_complete(row)
+                self.assertEqual(len(row["steps"]), 3)
+                self.assertLessEqual(sum(s["targetCarry_m"] for s in row["steps"]),
+                                     back_pond[0] - 8)
+
+    def test_j4_6_repair_does_not_move_a_safe_landing_into_post_pin_water(self):
+        # J4.6: at L272, Driver200+7I120 lands at 320, beyond [277,302].
+        # Replacing it with 200+50+50=300 would newly land in that real pond.
+        # NOWEDGE 210+155+135=500 similarly clears [457,482] at L452.
+        for bag, length in (("GAP", 272), ("NOWEDGE", 452)):
+            with self.subTest(bag=bag):
+                row = self.prep(bag, 4, length, ((length + 5, length + 30),))
+                self.assert_complete(row)
+                physical = sum(s["targetCarry_m"] for s in row["steps"])
+                self.assertTrue(physical <= length - 3 or physical >= length + 38)
+
     def test_j4_6_same_stroke_count_prefers_twenty_metre_overshoot(self):
         # 197+121+102+68=488 is +12, while 197+160+68+68=493 is +17.
         # Both beat longer four-shot finishes; the <=20 m tier wins first.
@@ -145,12 +168,29 @@ class PrepRouteQualityTests(unittest.TestCase):
         self.assertLessEqual(sum(s["targetCarry_m"] for s in row["steps"]) - 326, 20)
 
     def test_j4_6_long_remaining_prefers_an_available_long_advance(self):
-        # From 353 m the NOWEDGE bag can finish in 3: 190+155+135=480
-        # (+17 at L563). A 135 m advance is unnecessary at that distance.
-        row = self.prep("NOWEDGE", 5, 563, ((443, 473),))
-        self.assert_complete(row)
-        self.assertLessEqual(len(row["steps"]), 4)
-        self.assertGreater(row["steps"][1]["targetCarry_m"], 140)
+        # J4.6: at L605 a 395 m leave can use 155+135+135 (four shots
+        # total, +30). At L585 after a 190 m tee the same tail finishes +30.
+        # At L580 a longer safe finish may overshoot >30, but the same-shot
+        # long-club option still forbids a 135 m advance from 390 m away.
+        for length, water in ((605, ((580, 600),)), (585, ((200, 225),)),
+                              (580, ((200, 225), (565, 575)))):
+            with self.subTest(length=length):
+                row = self.prep("NOWEDGE", 5, length, water)
+                self.assert_complete(row)
+                self.assertLessEqual(len(row["steps"]), 4)
+                self.assertGreater(row["steps"][1]["targetCarry_m"], 140)
+
+    def test_j4_6_a_different_tee_can_preserve_the_safe_shorter_route(self):
+        # J4.6: initial Driver prefix cannot safely finish these lengths within
+        # +30. Alternative witnesses: 180+120+120=420 and
+        # 180+150+120+120=570. Replan the tee instead of adding a swing.
+        for length, water, bound in ((408, ((388, 406),), 3),
+                                      (555, ((543, 554),), 4)):
+            with self.subTest(length=length):
+                row = self.prep("GAP", 4 if length == 408 else 5, length, water)
+                self.assert_complete(row)
+                self.assertLessEqual(len(row["steps"]), bound)
+                self.assertLessEqual(sum(s["targetCarry_m"] for s in row["steps"]) - length, 30)
 
     def test_j4_6_public_prep_clips_covering_water_before_planning(self):
         # Real public prep entry, real ranking and repair: 142+84=226 reaches
