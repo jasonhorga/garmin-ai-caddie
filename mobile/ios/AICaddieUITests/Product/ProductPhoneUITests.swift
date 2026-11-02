@@ -512,6 +512,7 @@ final class ProductPhoneUITests: XCTestCase {
         let green = app.buttons["live-open-green-from-hero"]
         XCTAssertTrue(green.waitForExistence(timeout: 10))
         let accessibleHitTarget = green.isHittable
+        print("GREEN_ENTRY frame=\(green.frame) hittable=\(accessibleHitTarget)")
         // The synthetic green's lower edge meets the floating 洞位图 control; use an
         // unobscured interior point, without consulting isHittable or a tap fallback.
         green.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
