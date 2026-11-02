@@ -1,8 +1,8 @@
 diff --git a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
-index 3b2043d1..723e18fd 100644
+index b8875815..827e7c2f 100644
 --- a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
 +++ b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
-@@ -1126,6 +1126,9 @@ public struct WatchHoleMapView: View {
+@@ -1134,6 +1134,9 @@ public struct WatchHoleMapView: View {
                      WatchMapPreparingNotice()
                          .accessibilityIdentifier(preparingIdentifiers[index])
                  }
@@ -10,5 +10,5 @@ index 3b2043d1..723e18fd 100644
 +                    WatchMapPreparingNotice().offset(y: 40)
 +                }
                  if mapDisplayState(in: geo.size) == .garmin {
-                     let noticeFrame = Self.rootGarminNoticeFrame(in: geo.size)
-                     Text("路线等精细地图出来后显示")
+                     let touchTargetNotice = fullMap && interactionMode == .touchTarget
+                         ? Self.touchTargetGarminNoticeFrame(in: geo.size) : nil

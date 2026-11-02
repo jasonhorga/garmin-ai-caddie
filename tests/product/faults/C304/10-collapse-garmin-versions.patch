@@ -1,13 +1,13 @@
 diff --git a/mobile/ios/AICaddieWatch/Services/WatchHoleImageStore.swift b/mobile/ios/AICaddieWatch/Services/WatchHoleImageStore.swift
-index 8666b69b..09ef3b7c 100644
+index a498d967..c17f822c 100644
 --- a/mobile/ios/AICaddieWatch/Services/WatchHoleImageStore.swift
 +++ b/mobile/ios/AICaddieWatch/Services/WatchHoleImageStore.swift
-@@ -51,7 +51,7 @@ public final class WatchHoleImageStore {
+@@ -54,7 +54,7 @@ public final class WatchHoleImageStore {
          garminAssetVersion: String? = nil
      ) -> URL {
          if let rawVersion = garminAssetVersion {
 -            let version = Self.encodedAssetVersion(rawVersion) ?? "invalid"
 +            let version = "shared"
-             let assets = directory.deletingLastPathComponent().appendingPathComponent("garmin-raster-v1", isDirectory: true)
+             let assets = directory.deletingLastPathComponent().appendingPathComponent(Self.garminStorageStyleVersion, isDirectory: true)
              try? FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
              return assets.appendingPathComponent("\(Self.key(globalId: globalId, hole: hole))_\(version).img")

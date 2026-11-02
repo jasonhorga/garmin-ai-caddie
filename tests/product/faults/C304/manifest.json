@@ -77,6 +77,20 @@
       "kind": "native-unit",
       "target": "AICaddieTests/WatchTopoSenderTests/testProductionGarminLoaderReadsDownloadedExportByPhysicalHole",
       "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-12-round-hole-garmin-cache",
+      "patch": "tests/product/faults/C304/12-round-hole-garmin-cache.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchCourseDownloadTests/testDownloadCachesVersionedGarminBeforePreciseGeometryExists",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C304-13-ignore-garmin-asset-version",
+      "patch": "tests/product/faults/C304/13-ignore-garmin-asset-version.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchCourseDownloadTests/testDownloadCachesVersionedGarminBeforePreciseGeometryExists",
+      "promise": "J4.5"
     }
   ]
 }

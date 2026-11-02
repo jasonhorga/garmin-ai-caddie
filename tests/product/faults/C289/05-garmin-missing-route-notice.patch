@@ -1,12 +1,12 @@
 diff --git a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
-index 3b2043d1..fe2a2ed9 100644
+index b8875815..935c1bfa 100644
 --- a/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
 +++ b/mobile/ios/AICaddieWatch/Views/WatchHoleMapView.swift
-@@ -1141,6 +1141,7 @@ public struct WatchHoleMapView: View {
-                         .position(x: fullMap ? geo.size.width / 2 : noticeFrame.midX,
-                                   y: fullMap ? geo.size.height / 2 : noticeFrame.midY)
-                         .accessibilityIdentifier("watch-map-garmin-pending-route")
-+                        .opacity(0)
+@@ -1162,6 +1162,7 @@ public struct WatchHoleMapView: View {
+                             .position(x: fullMap ? geo.size.width / 2 : noticeFrame.midX,
+                                       y: fullMap ? geo.size.height / 2 : noticeFrame.midY)
+                             .accessibilityIdentifier("watch-map-garmin-pending-route")
++                            .opacity(0)
+                     }
                  }
                  if interactionMode == .touchTarget,
-                    let focus = measuredDragLocation,
