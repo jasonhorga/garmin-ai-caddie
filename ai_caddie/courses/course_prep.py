@@ -1916,6 +1916,8 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
         return tail
     overshoot = sum(distance for _, distance in tail) - remaining_m
     minimum_steps = max(1, math.ceil((remaining_m - SCORING_WINDOW_MAX_M) / rows[0][1]))
+    if minimum_steps > maximum_steps:
+        return tail
     if (tail and remaining_m - sum(distance for _, distance in tail) <= SCORING_WINDOW_MAX_M
             and (not relevant_water or overshoot <= TEE_SEQUENCE_MAX_OVERSHOOT_M)
             and not post_pin_water and not _long_short_advances(remaining_m, tail)
@@ -2421,7 +2423,14 @@ def _strategy(
     # search shorter chains only, so this does not add shots to a complete route.
     current_route = [(step["club"], step["targetCarry_m"]) for step in steps]
     has_long_short = bool(_long_short_advances(route_len_m, current_route))
-    try_shorter_tee = len(steps) > 2 and any(
+    longest_tee = max((float(carry) for _, carry in usable_ladder), default=0.0)
+    longest_approach = max((float(carry) for name, carry in usable_ladder
+                            if club_bag_service.canonical_club_name(name) != "driver"), default=0.0)
+    could_save_stroke = (
+        route_len_m - SCORING_WINDOW_MAX_M
+        <= longest_tee + max(0, len(steps) - 2) * longest_approach
+    )
+    try_shorter_tee = len(steps) > 2 and could_save_stroke and any(
         float(back) + TEE_WATER_CLEARANCE_BUFFER_M > steps[0]["targetCarry_m"]
         for front, back in planning_hazards.get("water_carry") or []
     )
