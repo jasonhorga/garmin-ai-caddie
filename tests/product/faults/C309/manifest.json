@@ -40,6 +40,14 @@
       "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_repeated_physical_hole_requires_one_score",
       "promise": "1.3",
       "kills": "A repeated physical hole with multiple source scores cannot prove one outing."
+    },
+    {
+      "id": "tests-product-faults-C309-06-number-order-boundary",
+      "patch": "tests/product/faults/C309/06-number-order.patch",
+      "kind": "python",
+      "target": "tests.test_c281_merge_sameday.C281MergeSameDayTests.test_j1_3_sorted_garmin_card_starts_after_physical_ring_gap",
+      "promise": "1.3",
+      "kills": "A Garmin card sorted by hole number must still use the physical ring start; replacing ring order with numeric order rejects the valid 10-start continuation."
     }
   ]
 }
