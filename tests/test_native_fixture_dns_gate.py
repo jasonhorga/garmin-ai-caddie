@@ -87,6 +87,36 @@ class NativeFixtureDNSGateTests(unittest.TestCase):
         )
         self.assertEqual([], _GATE.find_unhandled_fixture_dns(log))
 
+    def test_fixture_timeout_from_local_data_task_is_ignored(self) -> None:
+        """J4.2: a URLProtocol timeout is a fixture result, not a DNS leak."""
+        log = (
+            'Task <7A1C90CF-E01B-40D6-9A08-F59702060727>.<18> finished with error '
+            '[-1001] Error Domain=NSURLErrorDomain Code=-1001 "The request timed out." '
+            'UserInfo={_NSURLErrorFailingURLSessionTaskErrorKey=LocalDataTask '
+            '<7A1C90CF-E01B-40D6-9A08-F59702060727>.<18>, '
+            'NSErrorFailingURLStringKey=https://c33-round-budget.example.test/api/v2/mobile/rounds/package}\n'
+        )
+        self.assertEqual([], _GATE.find_unhandled_fixture_dns(log))
+
+    def test_app_timeout_summary_without_url_is_ignored(self) -> None:
+        """J4.2: the app's timeout summary has no URL and is not a fixture DNS leak."""
+        log = (
+            '2026-11-03 06:13:42.047747+0800 AICaddie[4868:13789625] [network] '
+            'Course package fetch failed (using cache): Error Domain=NSURLErrorDomain '
+            'Code=-1001 "(null)"\n'
+        )
+        self.assertEqual([], _GATE.find_unhandled_fixture_dns(log))
+
+    def test_unmarked_dns_failure_to_non_fixture_host_is_reported(self) -> None:
+        """J4.2: an unmarked hostname failure is reported for every host."""
+        log = (
+            'Task finished with error [-1003] Error Domain=NSURLErrorDomain '
+            'Code=-1003 NSErrorFailingURLStringKey=https://api.garmin.com/course/topo.png\n'
+        )
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("https://api.garmin.com/course/topo.png", findings[0][2])
+
     def test_interleaved_line_of_route_marked_task_is_allowed(self) -> None:
         # CI 40980906665: another process's log line was spliced into the
         # error, so Code=-1003 and route=shared landed on separate lines.
