@@ -1,0 +1,13 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+index 90b838bb..8222a3e8 100644
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -62,7 +62,7 @@ class ReportingSuite(unittest.TestSuite):
+         finally:
+             result.startTest, result.addSkip = original_start, original_skip
+             report = {
+-                "all_skipped": bool(result.skipped) and not (started.keys() - skipped)
++                "all_skipped": bool(result.skipped)
+                     and not (result.failures or result.errors or result.unexpectedSuccesses),
+                 "skip_reason": str(result.skipped[0][1]) if result.skipped else "",
+             }

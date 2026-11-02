@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C310-M1-all-skip-leaked",
+      "patch": "tests/product/faults/C310/01-all-skip-leaked.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_run_all_skipped_is_unavailable_without_failing_run",
+      "promise": "验收方式：fault-runner infrastructure (skip policy)"
+    },
+    {
+      "id": "tests-product-faults-C310-M2-partial-skip-unavailable",
+      "patch": "tests/product/faults/C310/02-partial-skip-unavailable.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_run_partial_skip_uses_the_executed_test_verdict",
+      "promise": "验收方式：fault-runner infrastructure (skip policy)"
+    }
+  ]
+}
