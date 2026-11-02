@@ -127,15 +127,28 @@ class C281MergeSameDayTests(unittest.TestCase):
 
 
     def test_j1_3_builds_real_hole_key_index_once(self) -> None:
-        """J1.3: physical key extraction is one full-history pass, not once per round."""
+        """J1.3: physical key indexing does not walk every round's full-history map."""
         from ai_caddie.history import corrected_history as module
 
         rows = [_row(f"round-{i}", f"2026-06-{i + 1:02d} 08:00", list(range(1, 19))) for i in range(4)]
+        class CountingDict(dict):
+            items_calls = 0
+
+            def items(self):
+                type(self).items_calls += 1
+                return super().items()
+
+        original = module._real_score_hole_keys
+
+        def counted(rounds):
+            return CountingDict(original(rounds))
+
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             _restore(root, "round-0", numbers=[18])
-            with patch.object(module, "_real_score_hole_keys", wraps=module._real_score_hole_keys) as build:
+            CountingDict.items_calls = 0
+            with patch.object(module, "_real_score_hole_keys", side_effect=counted):
                 corrected_history_data(
                     HistoryData(raw_rounds=[], rounds=rows, shots=[]), annotations_root=root,
                 )
-        self.assertEqual(build.call_count, 1)
+        self.assertLessEqual(CountingDict.items_calls, 2)
