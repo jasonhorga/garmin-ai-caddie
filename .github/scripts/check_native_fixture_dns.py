@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Fail a fixture native run when a fake-host request reaches real DNS.
+"""Fail a fixture native run when an unhandled network request is logged.
 
 The live-backend XCUITest log is intentionally not passed to this command.  The
 caller supplies only logs produced by the fixture-backed unit/UI targets.  The
 Product UI app is a separate process, so its ``os_log`` output is not part of
 the ``xcodebuild`` stream; this gate therefore cannot observe app-process
 network errors from that job.  Hosts such as ``example.com``, ``example.net``
-and ``example.org`` resolve on the public network, so a request to one of them
-does not produce ``-1003`` and is outside this DNS-only check.
+and ``example.org`` resolve on the public network. Hostname failures are
+reported for every host; other connectivity and TLS errors are checked only
+for reserved fixture hosts.
 """
 
 from __future__ import annotations
@@ -22,6 +23,11 @@ from urllib.parse import urlsplit
 _NSURLError_RE = re.compile(
     r"(?:NSURLErrorDomain Code=|error code:\s*|finished with error \[)(-\d+)"
 )
+_NETWORK_ERROR_CODES = frozenset({
+    -1003, -1004, -1005, -1006, -1009,
+    -1200, -1201, -1202, -1203, -1204, -1205, -1206,
+})
+_HOSTNAME_FAILURE_RE = re.compile(r"hostname could not be found", re.IGNORECASE)
 _URL_RE = re.compile(
     r"(?:NSErrorFailingURL(?:String)?Key=)([A-Za-z][A-Za-z0-9+.-]*://[^,\s}]+)"
 )
@@ -47,6 +53,26 @@ def _is_fixture_url(url: str) -> bool:
     return url == "<unknown URL>" or _is_fixture_host(url)
 
 
+def _network_error_code(line: str) -> int | None:
+    match = _NSURLError_RE.search(line)
+    return int(match.group(1)) if match else None
+
+
+def _has_actionable_network_error(line: str) -> bool:
+    code = _network_error_code(line)
+    return code in _NETWORK_ERROR_CODES or bool(_HOSTNAME_FAILURE_RE.search(line))
+
+
+def _applies_to_all_hosts(line: str) -> bool:
+    return _network_error_code(line) == -1003 or bool(_HOSTNAME_FAILURE_RE.search(line))
+
+
+def _is_app_network_summary(line: str) -> bool:
+    """The app's aggregate network log has no request URL for this gate to check."""
+
+    return "[network]" in line and _URL_RE.search(line) is None
+
+
 def _is_shim_route_line(line: str) -> bool:
     """Return whether this line is the shim's own marked error message.
 
@@ -65,7 +91,7 @@ def _is_shim_route_line(line: str) -> bool:
     # A split shim continuation can carry only the marker and its Task/UserInfo
     # fields. It is safe when it has no DNS error or URL of its own; a marker
     # spliced into a real CFNetwork error remains actionable.
-    return _NSURLError_RE.search(line) is None and _URL_RE.search(line) is None
+    return not _has_actionable_network_error(line) and _URL_RE.search(line) is None
 
 
 def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]:
@@ -78,7 +104,7 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
 
     findings: list[tuple[str, int, str, str]] = []
     seen_urls: set[str] = set()
-    pending_without_url: list[tuple[int, str, set[tuple[str, str]]]] = []
+    pending_without_url: list[tuple[int, str, set[tuple[str, str]], bool]] = []
     lines = log_text.splitlines()
     # Review evidence may be a complete Actions transcript, which appends the
     # gate's own diagnostic output after the xcodebuild stream. Do not scan that
@@ -89,6 +115,8 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
             break
     for line_number, line in enumerate(lines, start=1):
         task_ids = {m.groups() for m in _TASK_RE.finditer(line)}
+        if _is_app_network_summary(line):
+            continue
         if _is_shim_route_line(line):
             # A route marker belongs only to this line. Its Task id may close
             # an earlier marker-only error from the same interleaved shim event,
@@ -100,7 +128,7 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
             ]
             continue
         match = _URL_RE.search(line)
-        has_network_error = _NSURLError_RE.search(line) is not None
+        has_network_error = _has_actionable_network_error(line)
         if not has_network_error and match is None:
             continue
         if not has_network_error:
@@ -114,7 +142,7 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
             if not recent:
                 continue
             url = match.group(1).rstrip(")]")
-            if _is_fixture_url(url) and url not in seen_urls:
+            if (any(pending[3] for pending in recent) or _is_fixture_url(url)) and url not in seen_urls:
                 seen_urls.add(url)
                 findings.append(("<log>", line_number, url, line.rstrip()))
             pending_without_url = [
@@ -126,10 +154,12 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
         if match is None:
             # xcodebuild can put the URL on the following NSError user-info line.
             # Keep the marker as a pending event and merge it when that line arrives.
-            pending_without_url.append((line_number, line.rstrip(), task_ids))
+            pending_without_url.append(
+                (line_number, line.rstrip(), task_ids, _applies_to_all_hosts(line))
+            )
             continue
         url = match.group(1).rstrip(")]")
-        if not _is_fixture_url(url):
+        if not _is_fixture_url(url) and not _applies_to_all_hosts(line):
             pending_without_url = [
                 pending
                 for pending in pending_without_url
@@ -152,8 +182,12 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
             for pending in pending_without_url
             if line_number - pending[0] > 4
         ]
-    for line_number, line, _ in pending_without_url:
-        findings.append(("<log>", line_number, "<unknown URL>", line))
+    for line_number, line, _, all_hosts in pending_without_url:
+        # URL-less errors with a fixture-scoped code cannot identify a fixture
+        # host; keep the DNS-style fail-closed behavior only for -1003/
+        # hostname failures, which apply to every host.
+        if all_hosts:
+            findings.append(("<log>", line_number, "<unknown URL>", line))
     return findings
 
 

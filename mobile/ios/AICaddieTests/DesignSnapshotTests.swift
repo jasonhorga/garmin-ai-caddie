@@ -1114,7 +1114,9 @@ final class DesignSnapshotTests: XCTestCase {
             ))
             // Partial snapshots use a deterministic Garmin fixture so the pending/factual states
             // exercise the real raster path instead of falling through to the numeric placeholder.
-            let partialRasterBaseURL = URL(string: "https://caddie.example.test")!
+            // Keep these two pending snapshots off the preloaded topo host. The file URL cannot
+            // resolve the precise topo image, so the asserted Garmin fallback remains visible.
+            let partialRasterBaseURL = URL(fileURLWithPath: "/snapshot-fixture")
             let partialRasterDescriptor = GarminRasterResponse(
                 available: true,
                 imageUrl: "/api/v2/courses/\(firstHole.sourceGlobalId)/holes/\(firstHole.sourceLocalHole)/garmin-raster.jpg?v=snapshot-partial-454",
