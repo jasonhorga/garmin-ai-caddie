@@ -2477,6 +2477,7 @@ public struct StartRoundView: View {
     /// The actual bounded nearby request loop. Keeping the transport loop here lets acceptance tests
     /// drive the same timeout/empty/expanded-radius path as the view. Publish usable rows before
     /// awaiting the next radius; selection is based exclusively on the first (5 km) answer.
+    @MainActor
     static func performNearbyDiscovery(
         latitude: Double,
         longitude: Double,
