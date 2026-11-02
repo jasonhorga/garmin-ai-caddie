@@ -88,7 +88,10 @@ class NativeQuickRunnerTests(unittest.TestCase):
 
     def run_step(self, name, **extra):
         step = self.steps[name]
-        result = subprocess.run(['bash', '-eo', 'pipefail', '-c', step['run']],
+        # Boot runs in the background in the workflow. Wait for the fake child
+        # before reading its call log, including when xcodebuild fails early.
+        script = "trap 'step_status=$?; wait; exit \"$step_status\"' EXIT\n" + step['run']
+        result = subprocess.run(['bash', '-eo', 'pipefail', '-c', script],
                                 cwd=self.root, env={**self.env, **extra},
                                 text=True, capture_output=True, timeout=20)
         self.env.update(_command_file(self.root / 'env'))

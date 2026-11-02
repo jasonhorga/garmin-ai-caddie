@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C298-01-fork-on-self-hosted",
+      "patch": "tests/product/faults/C298/01-fork-on-self-hosted.patch",
+      "kind": "python",
+      "target": "tests.test_c298_native_quick_runner.NativeQuickRunnerTests.test_runner_routes_online_same_repository_only",
+      "promise": "C298 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C298-02-contains-device-name",
+      "patch": "tests/product/faults/C298/02-contains-device-name.patch",
+      "kind": "python",
+      "target": "tests.test_c298_native_quick_runner.NativeQuickRunnerTests.test_simulator_priority_exact_names_numeric_runtime_and_build_udid",
+      "promise": "C298 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C298-03-shutdown-all",
+      "patch": "tests/product/faults/C298/03-shutdown-all.patch",
+      "kind": "python",
+      "target": "tests.test_c298_native_quick_runner.NativeQuickRunnerTests.test_cleanup_shuts_down_only_recorded_devices_even_after_build_failure",
+      "promise": "C298 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C298-04-cleanup-without-always",
+      "patch": "tests/product/faults/C298/04-cleanup-without-always.patch",
+      "kind": "python",
+      "target": "tests.test_c298_native_quick_runner.NativeQuickRunnerTests.test_cleanup_runs_after_failure_or_cancellation_only_on_self_hosted",
+      "promise": "C298 CI infrastructure contract"
+    }
+  ]
+}
