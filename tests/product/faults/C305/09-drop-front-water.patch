@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 8c656270..5d467a66 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -1725,7 +1725,7 @@ def _strategy_water_safe(carry_m: float, hazards: dict) -> bool:
+ 
+ def _water_span_affects_scoring_route(interval, route_len_m: float) -> bool:
+     try:
+-        return max(float(interval[0]), float(interval[1])) < float(route_len_m)
++        return float(interval[0]) < float(route_len_m) - 20.0
+     except (TypeError, ValueError, OverflowError, IndexError):
+         return False
+ 

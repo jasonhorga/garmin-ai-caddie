@@ -49,6 +49,27 @@
       "kind": "python",
       "target": "tests.test_course_prep.PureLogicTests.test_j4_6_plays_like_tail_window_uses_effective_remaining",
       "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C305-08-no-water-filter",
+      "patch": "tests/product/faults/C305/08-no-water-filter.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_water_routes_keep_safe_landings_and_finish",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C305-09-drop-front-water",
+      "patch": "tests/product/faults/C305/09-drop-front-water.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_water_routes_keep_safe_landings_and_finish",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C305-10-water-layup-extra-stroke",
+      "patch": "tests/product/faults/C305/10-water-layup-extra-stroke.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepWaterRouteTests.test_j4_6_water_layup_keeps_the_three_shot_route",
+      "promise": "4.6"
     }
   ]
 }

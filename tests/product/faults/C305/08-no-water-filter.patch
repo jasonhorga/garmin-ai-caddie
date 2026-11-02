@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 8c656270..5d276226 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -1900,7 +1900,7 @@ def _strategy(
+             interval
+             for interval in (hazards or {}).get("water_carry") or []
+             if isinstance(interval, (list, tuple)) and len(interval) >= 2
+-            and _water_span_affects_scoring_route(interval, route_len_m)
++            and True
+         ],
+     }
+     real_driver_row = next(
