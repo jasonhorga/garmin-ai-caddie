@@ -12,6 +12,7 @@ from ai_caddie import pipeline
 from ai_caddie.courses.course_reference import CoursePar
 from ai_caddie.connectors.sync_lock import acquire_sync_lock
 from ai_caddie.history.history import HistoryData
+from tests.service_logging import preserve_service_logging
 
 
 class PipelineSyncTests(unittest.TestCase):
@@ -125,6 +126,7 @@ class PipelineSyncTests(unittest.TestCase):
         self.assertEqual(rounds, 2)  # history sync survives a club-fetch failure
 
     def test_main_parses_refresh_auth_shots_and_geometry_limit(self) -> None:
+        self.enterContext(preserve_service_logging())
         stdout = io.StringIO()
         with patch.object(pipeline, "sync", return_value=pipeline.SyncResult(auth_ok=True, rounds=1)) as sync_call, \
                 patch.object(pipeline, "_persist_sync_observability") as persist, \
@@ -137,6 +139,7 @@ class PipelineSyncTests(unittest.TestCase):
         persist.assert_called_once()
 
     def test_main_skips_when_shared_sync_lock_is_busy(self) -> None:
+        self.enterContext(preserve_service_logging())
         stdout = io.StringIO()
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

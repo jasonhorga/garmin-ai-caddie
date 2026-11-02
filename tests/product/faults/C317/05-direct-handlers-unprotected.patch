@@ -1,0 +1,8 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+index 243be67c..46da81db 100644
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -232,3 +232,2 @@ def protect_future_handlers() -> ExitStack:
+     call_handlers._privacy_guard = True
+-    logging.Logger.callHandlers = call_handlers
+     return handle

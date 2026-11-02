@@ -150,6 +150,25 @@ class ManifestFragmentTests(unittest.TestCase):
         self.assertIn("after", row["detail"])
         self.assertEqual((self.root / "subject.txt").read_text(), "before\n")
 
+    def test_python_target_loads_from_worktree_with_safe_path(self):
+        """验收方式: caller safe-path settings cannot hide the worktree's tests package."""
+        self.init_repo()
+        tests = self.root / "tests"
+        (tests / "__init__.py").write_text("")
+        (tests / "test_witness.py").write_text((self.root / "test_witness.py").read_text())
+        record = {**self.record("safe-path"), "target": "tests.test_witness.Witness.test_subject"}
+        for args in (("add", "."), ("-c", "user.name=Fault Runner", "-c",
+                      "user.email=fault@example.invalid", "-c", "commit.gpgsign=false",
+                      "commit", "--quiet", "-m", "test package")):
+            subprocess.run(["git", *args], cwd=self.root, check=True, capture_output=True)
+        with mock.patch.dict(runner.os.environ, {"PYTHONSAFEPATH": "1", "PYTHONPATH": ""}):
+            status, detail = runner.target_check(record, self.root)
+            self.assertEqual(status, "ok", detail)
+            with contextlib.redirect_stdout(io.StringIO()):
+                result = runner.run_mutants([record])
+        self.assertEqual(result["results"][0]["status"], "killed", result)
+        self.assertIn("AssertionError", result["results"][0]["detail"])
+
     def test_duplicate_ids_report_both_manifest_files(self):
         for first_name in (None, "Alpha"):
             with self.subTest(first=first_name):

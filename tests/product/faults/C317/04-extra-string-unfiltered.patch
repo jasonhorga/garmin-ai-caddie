@@ -1,0 +1,13 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+index c235575..61283b4 100644
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -66,7 +66,7 @@ def _context(value, key=""):
+     if isinstance(value, (tuple, list)):
+         return [_context(item) for item in value]
+     if isinstance(value, str):
+-        return _text(value)
++        return value
+     if isinstance(value, BaseException):
+         return _exception_summary(value)
+     if value is None or isinstance(value, (bool, int, float)):

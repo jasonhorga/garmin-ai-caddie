@@ -1,0 +1,13 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+index c235575..659c849 100644
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -45,7 +45,7 @@ def _text(value: str) -> str:
+         if candidate.startswith("players/"):
+             _, _, tail = candidate.partition("/")
+             _, separator, suffix = tail.partition("/")
+-            return "players/" + _REDACTED + separator + suffix
++            return "players/" + _REDACTED + _REDACTED
+         if candidate.startswith("/api/") and (
+             route_template(candidate) == candidate or ":token" in candidate
+         ):

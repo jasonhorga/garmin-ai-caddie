@@ -1,0 +1,13 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+index e7a8c4b..b76d5d9 100644
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -857,7 +857,7 @@ class RenderBackfill:
+             except Exception as exc:
+                 error = f"{type(exc).__name__}: {exc}"[:500]
+                 logger.warning("render_backfill asset=failed gid=%s hole=%s kind=%s reason=%s",
+-                               task["globalId"], task["localHole"], unit, exc)
++                               task["globalId"], task["localHole"], unit, error)
+             finally:
+                 self._current_unit = None
+             self._record_unit(key, unit, state="failed" if error else "done", error=error)

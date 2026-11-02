@@ -85,14 +85,20 @@ apply 持有该分区的事件锁；同一分区的追加、读和 ACK 会等待
 docker exec "$C" find /var/lib/ai-caddie/data -name events.jsonl.migration.json -print
 ```
 
-告警的 `main:<hash>` 对应主分区，`player:<hash>` 对应 `players/<id>/mobile_events`；hash 是容器内分区**解析后的绝对目录路径**按 UTF-8 编码计算 SHA256 的前 12 位。下面命令在同一容器内列出标识与目录的对应关系（包括 intent 已消失的目录），按告警中的完整标识匹配；不要在宿主机路径上计算：
+告警的 `main:<hash>` 对应主分区，`player:<hash>` 对应 `players/<id>/mobile_events` 或 revision scanner 的 `players/<id>/scorecards`、`shots`、`snapshots`、`manual_rounds`、`corrections` 等目录；hash 是容器内分区**解析后的绝对目录路径**按 UTF-8 编码计算 SHA256 的前 12 位。下面命令在同一容器内列出标识与目录的对应关系（包括 intent 已消失的目录），按告警中的完整标识匹配；不要在宿主机路径上计算：
 
 ```bash
 docker exec -i "$C" python - <<'PY'
 import hashlib
 from pathlib import Path
 base = Path("/var/lib/ai-caddie/data")
-for candidate in [base / "mobile_events", *sorted((base / "players").glob("*/mobile_events"))]:
+for candidate in sorted({
+    base / "mobile_events",
+    *(base / "players").glob("*/mobile_events"),
+    *(path for path in base.iterdir() if path.is_dir()),
+    *(path for player in (base / "players").glob("*") if player.is_dir()
+      for path in player.iterdir() if path.is_dir()),
+}):
     if not candidate.is_dir():
         continue
     root = candidate.resolve()

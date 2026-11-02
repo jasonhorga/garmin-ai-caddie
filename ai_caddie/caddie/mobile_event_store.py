@@ -23,13 +23,9 @@ from typing import Any, BinaryIO, Callable, Iterator
 
 from ai_caddie.llm.llm_providers import redact_secret_text
 from ai_caddie.core.request_timing import mark
+from ai_caddie.core.revisions import log_partition as _log_partition
 
 logger = logging.getLogger(__name__)
-
-
-def _log_partition(root: Path) -> str:
-    scope = "player" if root.parent.parent.name == "players" else "main"
-    return f"{scope}:{hashlib.sha256(str(root.resolve()).encode('utf-8')).hexdigest()[:12]}"
 
 
 EVENT_LOG_FILENAME = "events.jsonl"
@@ -2164,9 +2160,7 @@ class FileEventStore:
             except FileNotFoundError:
                 continue
             except OSError as exc:
-                path_text = str(self.root.resolve())
-                scope = "player" if self.root.parent.parent.name == "players" else "main"
-                partition = f"{scope}:{hashlib.sha256(path_text.encode('utf-8')).hexdigest()[:12]}"
+                partition = _log_partition(self.root)
                 logger.warning(
                     "mobile_event_migration_temp_cleanup_failed partition=%s reason=%s",
                     partition,
@@ -2186,9 +2180,7 @@ class FileEventStore:
         reason: str,
         cause: BaseException | None = None,
     ) -> None:
-        path_text = str(self.root.resolve())
-        scope = "player" if self.root.parent.parent.name == "players" else "main"
-        partition = f"{scope}:{hashlib.sha256(path_text.encode('utf-8')).hexdigest()[:12]}"
+        partition = _log_partition(self.root)
         logger.error(
             "mobile_event_migration_intent_unrecoverable partition=%s reason=%s",
             partition,

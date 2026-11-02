@@ -1,0 +1,16 @@
+diff --git a/ai_caddie/pipeline.py b/ai_caddie/pipeline.py
+index 4a4ae56..417cc7b 100644
+--- a/ai_caddie/pipeline.py
++++ b/ai_caddie/pipeline.py
+@@ -34,3 +34,2 @@ def _configure_sync_logging() -> None:
+     """Make the shot-diff diagnostics visible to the cron pipeline only."""
+-    protect_future_handlers()
+     target = logging.getLogger(_SYNC_LOGGER_NAME)
+@@ -42,3 +41,2 @@ def _configure_sync_logging() -> None:
+             handler.setStream(sys.stderr)
+-            protect_handler(handler)
+             return
+@@ -48,3 +46,2 @@ def _configure_sync_logging() -> None:
+     setattr(handler, _SYNC_LOG_HANDLER_MARKER, True)
+-    protect_handler(handler)
+     target.addHandler(handler)

@@ -1,0 +1,13 @@
+diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
+index c235575..3b2d629 100644
+--- a/server_v2/log_privacy.py
++++ b/server_v2/log_privacy.py
+@@ -22,7 +22,7 @@ _IDENTITY = re.compile(
+     r"[\w-]*token|cookie|csrf|authorization|[\w-]*secret|api_?key)([\"']?\s*[:=]\s*)"
+     r"(\[redacted\]|\"[^\"\n]*\"|'[^'\n]*'|[^\s,;&#\)\}\]]+)"
+ )
+-_PLAYER_ID = re.compile(r"(?i)\bp_[0-9a-f]{8,16}\b")
++_PLAYER_ID = re.compile(r"(?i)\bp_[0-9a-f]{8}\b")
+ _URL = re.compile(r"https?://[^\s\"'<>;,]+|(?<![\w/])/(?:api|p)/[^\s\"'<>;,]+")
+ _PRIVATE_PATH = re.compile(r"https?://[^\s\"'<>;,\)]+|(?<![\w/])(?:[A-Za-z]:[\\/]|/|\bdata/|\bplayers/)[^\s\"'<>;,\)]+")
+ _FRAME = re.compile(r'^(\s*File ")(.+)(", line \d+, in .+)$')

@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C317-T1-player-id-16-hex",
+      "patch": "tests/product/faults/C317/T1-player-id-16-hex.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_real_course_prep_failure_redacts_bare_player_id",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C317-T3-player-shape-too-broad",
+      "patch": "tests/product/faults/C317/T3-player-shape-too-broad.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_extras_strings_use_shape_redaction_without_sensitive_key",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C317-01-cron-unprotected",
+      "patch": "tests/product/faults/C317/01-cron-unprotected.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_cron_warning_redacts_bare_player_id",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C317-02-render-stringified",
+      "patch": "tests/product/faults/C317/02-render-stringified.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_backfill_failure_keeps_exception_payload_private",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C317-03-pin-stringified",
+      "patch": "tests/product/faults/C317/03-pin-stringified.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_pin_sheet_failure_keeps_exception_payload_private",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C317-04-extra-string-unfiltered",
+      "patch": "tests/product/faults/C317/04-extra-string-unfiltered.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_extras_strings_use_shape_redaction_without_sensitive_key",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C317-05-direct-handlers-unprotected",
+      "patch": "tests/product/faults/C317/05-direct-handlers-unprotected.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_direct_handlers_list_mutation_is_protected",
+      "promise": "J7.3"
+    },
+    {
+      "id": "tests-product-faults-C317-06-player-path-shape",
+      "patch": "tests/product/faults/C317/06-player-path-shape.patch",
+      "kind": "python",
+      "target": "tests.test_c295_log_privacy.J7LogPrivacyTests.test_J73_player_path_without_data_prefix_has_clean_shape",
+      "promise": "J7.3"
+    }
+  ]
+}

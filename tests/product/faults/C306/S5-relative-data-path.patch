@@ -1,13 +1,13 @@
 diff --git a/server_v2/log_privacy.py b/server_v2/log_privacy.py
-index 03440667..35ffc0f9 100644
+index c235575..33da938 100644
 --- a/server_v2/log_privacy.py
 +++ b/server_v2/log_privacy.py
 @@ -24,7 +24,7 @@ _IDENTITY = re.compile(
  )
  _PLAYER_ID = re.compile(r"(?i)\bp_[0-9a-f]{8,16}\b")
  _URL = re.compile(r"https?://[^\s\"'<>;,]+|(?<![\w/])/(?:api|p)/[^\s\"'<>;,]+")
--_PRIVATE_PATH = re.compile(r"https?://[^\s\"'<>;,\)]+|(?<![\w/])(?:[A-Za-z]:[\\/]|/|\bdata/)[^\s\"'<>;,\)]+")
-+_PRIVATE_PATH = re.compile(r"https?://[^\s\"'<>;,\)]+|(?<![\w/])(?:[A-Za-z]:[\\/]|/)[^\s\"'<>;,\)]+")
+-_PRIVATE_PATH = re.compile(r"https?://[^\s\"'<>;,\)]+|(?<![\w/])(?:[A-Za-z]:[\\/]|/|\bdata/|\bplayers/)[^\s\"'<>;,\)]+")
++_PRIVATE_PATH = re.compile(r"https?://[^\s\"'<>;,\)]+|(?<![\w/])(?:[A-Za-z]:[\\/]|/|\bplayers/)[^\s\"'<>;,\)]+")
  _FRAME = re.compile(r'^(\s*File ")(.+)(", line \d+, in .+)$')
  
  

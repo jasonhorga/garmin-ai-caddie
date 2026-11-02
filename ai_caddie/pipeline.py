@@ -23,6 +23,7 @@ from typing import Any
 
 from ai_caddie.courses import course_reference
 from ai_caddie.core.data import ROOT, SCORECARD_DIR, SHOT_DIR
+from server_v2.log_privacy import protect_future_handlers, protect_handler
 
 
 _SYNC_LOGGER_NAME = "ai_caddie.garmin.fetch"
@@ -31,6 +32,7 @@ _SYNC_LOG_HANDLER_MARKER = "_ai_caddie_sync_handler"
 
 def _configure_sync_logging() -> None:
     """Make the shot-diff diagnostics visible to the cron pipeline only."""
+    protect_future_handlers()
     target = logging.getLogger(_SYNC_LOGGER_NAME)
     target.setLevel(logging.INFO)
     target.propagate = False
@@ -38,11 +40,13 @@ def _configure_sync_logging() -> None:
         if getattr(handler, _SYNC_LOG_HANDLER_MARKER, False):
             handler.setLevel(logging.INFO)
             handler.setStream(sys.stderr)
+            protect_handler(handler)
             return
     handler = logging.StreamHandler(sys.stderr)
     handler.setLevel(logging.INFO)
     handler.setFormatter(logging.Formatter("%(message)s"))
     setattr(handler, _SYNC_LOG_HANDLER_MARKER, True)
+    protect_handler(handler)
     target.addHandler(handler)
 
 

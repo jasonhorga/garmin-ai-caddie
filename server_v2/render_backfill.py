@@ -814,8 +814,8 @@ class RenderBackfill:
                     time.sleep(RENDER_RETRY_BACKOFF_SECONDS)
                     return True
                 error = f"render interrupted {count}x: {exc}"
-                logger.warning("render_backfill asset=failed gid=%s hole=%s kind=%s reason=%s",
-                               task["globalId"], task["localHole"], unit, error)
+                logger.warning("render_backfill asset=failed gid=%s hole=%s kind=%s attempts=%s reason=%s",
+                               task["globalId"], task["localHole"], unit, count, exc)
             except _ShutdownRender:
                 count = int(self._state["tasks"][key].get("interrupts", {}).get(unit, 0))
                 self._record_unit(key, unit, interrupts=count)
@@ -857,7 +857,7 @@ class RenderBackfill:
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"[:500]
                 logger.warning("render_backfill asset=failed gid=%s hole=%s kind=%s reason=%s",
-                               task["globalId"], task["localHole"], unit, error)
+                               task["globalId"], task["localHole"], unit, exc)
             finally:
                 self._current_unit = None
             self._record_unit(key, unit, state="failed" if error else "done", error=error)

@@ -4,10 +4,12 @@ Diagnostic codes, public course ids and numeric values survive at every level.
 Exception payloads remain untrusted; retain their types and frame locations.
 """
 from collections.abc import Mapping
+from contextlib import ExitStack
 import logging
 from pathlib import Path
 import re
 import traceback
+from weakref import WeakKeyDictionary
 
 from ai_caddie.core.request_timing import redact_url, route_template
 
@@ -24,7 +26,7 @@ _IDENTITY = re.compile(
 )
 _PLAYER_ID = re.compile(r"(?i)\bp_[0-9a-f]{8,16}\b")
 _URL = re.compile(r"https?://[^\s\"'<>;,]+|(?<![\w/])/(?:api|p)/[^\s\"'<>;,]+")
-_PRIVATE_PATH = re.compile(r"https?://[^\s\"'<>;,\)]+|(?<![\w/])(?:[A-Za-z]:[\\/]|/|\bdata/)[^\s\"'<>;,\)]+")
+_PRIVATE_PATH = re.compile(r"https?://[^\s\"'<>;,\)]+|(?<![\w/])(?:[A-Za-z]:[\\/]|/|\bdata/|\bplayers/)[^\s\"'<>;,\)]+")
 _FRAME = re.compile(r'^(\s*File ")(.+)(", line \d+, in .+)$')
 
 
@@ -38,23 +40,24 @@ def _text(value: str) -> str:
         return match[1] + match[2] + quote + _REDACTED + quote
 
     value = _IDENTITY.sub(identity, value)
-    # Player ids also reach warning/error calls as a bare %-argument (without
-    # a ``player_id=`` label), so redact their stable shape independently.
-    value = _PLAYER_ID.sub(_REDACTED, value)
-    value = re.sub(r"(?i)\b(player|round)\s+[pr]_[\w.-]+", r"\1=" + _REDACTED, value)
-    value = re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer " + _REDACTED, value)
-
     def path(match):
         candidate = match[0]
         if candidate.startswith(("https://", "http://")):
             return candidate
+        if candidate.startswith("players/"):
+            _, _, tail = candidate.partition("/")
+            _, separator, suffix = tail.partition("/")
+            return "players/" + _REDACTED + separator + suffix
         if candidate.startswith("/api/") and (
             route_template(candidate) == candidate or ":token" in candidate
         ):
             return candidate
         return _REDACTED
 
-    return _PRIVATE_PATH.sub(path, value)
+    value = _PRIVATE_PATH.sub(path, value)
+    # Bare arguments and non-sensitive extras use the same player-id shape.
+    value = _PLAYER_ID.sub(_REDACTED, value)
+    return re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer " + _REDACTED, value)
 
 
 def _context(value, key=""):
@@ -177,16 +180,55 @@ def protect_handler(handler: logging.Handler) -> None:
         handler.addFilter(LogPrivacyFilter())
 
 
-def protect_future_handlers() -> None:
-    """Protect handlers attached after startup, including propagate=False exits."""
+def protect_future_handlers() -> ExitStack:
+    """Install once at service/cron startup; close the handle to undo this guard.
+
+    Repeated calls share the same installation and lifetime. Embedded entrypoint
+    callers must close it when done; standalone services keep it for the process.
+    Handler filters added by the guard are also removed when it closes.
+    """
     original = logging.Logger.addHandler
+    original_call_handlers = logging.Logger.callHandlers
     if getattr(original, "_privacy_guard", False):
-        return
+        return original._privacy_handle
+
+    handle = ExitStack()
+    added_filters = WeakKeyDictionary()
+
+    def protect(handler):
+        if not any(isinstance(item, LogPrivacyFilter) for item in handler.filters):
+            privacy_filter = LogPrivacyFilter()
+            handler.addFilter(privacy_filter)
+            added_filters[handler] = privacy_filter
+
+    def restore():
+        logging.Logger.addHandler = original
+        logging.Logger.callHandlers = original_call_handlers
+        for handler, privacy_filter in list(added_filters.items()):
+            handler.removeFilter(privacy_filter)
+
+    handle.callback(restore)
 
     def add_handler(logger, handler):
         if logger is logging.getLogger() or logger.name.startswith(("server_v2", "ai_caddie", "uvicorn")):
-            protect_handler(handler)
+            protect(handler)
         return original(logger, handler)
 
     add_handler._privacy_guard = True
+    add_handler._privacy_handle = handle
     logging.Logger.addHandler = add_handler
+
+    def call_handlers(logger, record):
+        current = logger
+        while current:
+            if current.name.startswith(("server_v2", "ai_caddie", "uvicorn")) or current is logging.getLogger():
+                for handler in current.handlers:
+                    protect(handler)
+            if not current.propagate:
+                break
+            current = current.parent
+        return original_call_handlers(logger, record)
+
+    call_handlers._privacy_guard = True
+    logging.Logger.callHandlers = call_handlers
+    return handle

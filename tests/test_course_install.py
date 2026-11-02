@@ -2580,6 +2580,9 @@ class ServiceLogVisibilityTests(unittest.TestCase):
     """⑦: course_install / geometry_derivatives progress reaches uvicorn's log output."""
 
     def test_install_progress_lines_reach_the_uvicorn_handler(self) -> None:
+        from tests.service_logging import preserve_service_logging
+
+        self.enterContext(preserve_service_logging())
         import io
         from ai_caddie.geometry import batch_prodgeometry_course as batch
         from server_v2 import course_install, main as server_main
