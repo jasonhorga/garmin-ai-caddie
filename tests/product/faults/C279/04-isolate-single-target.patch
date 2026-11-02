@@ -1,0 +1,13 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+index c37ca859..f6f76464 100644
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -158,7 +158,7 @@ for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
+             report = {"ok": True, "reason": ""}
+         report["load_failed"] = not report["ok"]
+         report["restart"] = restart
+-        if multiple_targets and report["ok"] and needs_isolation:
++        if report["ok"] and needs_isolation:
+             report.update(ok=False, reason="search-path effects require isolated verification")
+     except (Exception, SystemExit):
+         report = {"ok": False, "reason": traceback.format_exc()}

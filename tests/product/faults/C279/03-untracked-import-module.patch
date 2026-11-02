@@ -1,0 +1,13 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+index c37ca859..b9ad4c47 100644
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -121,7 +121,7 @@ baseline_path = list(sys.path)
+ previous_modules = set(sys.modules)
+ for target in json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")):
+     builtins.__import__ = tracked_import
+-    importlib.import_module = tracked_import_module
++    importlib.import_module = original_import_module
+     # The parent can replay this suffix as one clean batch. Keep loading here
+     # so batch cleanup remains observable independently of the fallback.
+     restart = batch_tainted

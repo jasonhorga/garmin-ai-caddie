@@ -1,0 +1,13 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+index c37ca859..bdc857f7 100644
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -194,7 +194,7 @@ def _run_python_load_probe(
+                 )
+             except subprocess.TimeoutExpired as error:
+                 if len(targets) > 1:
+-                    advice = "increase PYTHON_BATCH_TIMEOUT in tests/product/faults/run_faults.py"
++                    advice = "configure CADDIE_PYTHON_LOAD_TIMEOUT"
+                     print(f"LOAD_PROBE_TIMEOUT timeout={timeout:g}s fallback_targets={len(targets)}; {advice}",
+                           file=sys.stderr)
+                 else:

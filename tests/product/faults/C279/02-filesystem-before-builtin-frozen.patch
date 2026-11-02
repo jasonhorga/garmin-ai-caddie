@@ -1,0 +1,14 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+index c37ca859..1e6e2a35 100644
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -69,8 +69,7 @@ def signature(spec):
+ 
+ def import_spec(name, path):
+     # Python consults builtin/frozen finders before filesystem namespaces.
+-    return (BuiltinImporter.find_spec(name) or FrozenImporter.find_spec(name)
+-            or PathFinder.find_spec(name, path))
++    return PathFinder.find_spec(name, path)
+ 
+ def baseline_cached(name):
+     top = name.partition(".")[0]

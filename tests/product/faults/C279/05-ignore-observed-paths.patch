@@ -1,0 +1,13 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+index c37ca859..2920ac98 100644
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -96,7 +96,7 @@ def observe_import(name, level=0):
+         current = list(sys.path)
+         if current != baseline_path and directories(current) != baseline_directories:
+             # Observe paths at import time, including paths a target later removes.
+-            observed_paths.extend(current)
++            pass  # Forget transient import paths.
+             if not level:
+                 top = name.partition(".")[0]
+                 if signature(import_spec(top, current)) != signature(

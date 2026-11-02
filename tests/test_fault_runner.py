@@ -622,7 +622,8 @@ class ManifestFragmentTests(unittest.TestCase):
         self.path_fixture({"extra/namespace_only/child.py": "VALUE=1\n",
             "test_a.py": "import sys\nsys.path.insert(0,'extra')\nimport namespace_only\n",
             "test_b.py": "import namespace_only\n"})
-        # Inspect the batch itself so independent retries cannot mask M2.
+        # Observe loader failure before isolation can replace the diagnostic;
+        # independent retries must not hide a namespace cleanup failure.
         observations = {}
         result = runner._run_python_load_probe(["test_a", "test_b"], self.root, observations=observations)
         self.assertEqual([result[t][0] for t in ["test_a", "test_b"]], ["ok", "unavailable"])
@@ -723,7 +724,7 @@ class ManifestFragmentTests(unittest.TestCase):
             ["test_adds_path", "test_needs_clean_path"], self.root, observations=observations
         )
         # 批量探测本身必须观察到 helper 不再可见；外层 probe_python_targets
-        # 的独立复核不能把 sys.path/模块清理故障救回。
+        # 的独立复核不能把 sys.path/模块清理故障救回；看结构化加载结果，不钉原因文本。
         self.assertEqual(batch["test_adds_path"][0], "ok")
         self.assertEqual(batch["test_needs_clean_path"][0], "unavailable")
         self.assertTrue(observations["test_needs_clean_path"]["load_failed"])
@@ -731,7 +732,6 @@ class ManifestFragmentTests(unittest.TestCase):
                    for index, target in enumerate(("test_adds_path", "test_needs_clean_path"))]
         code, rows, _ = self.invoke_main("--check", records)
         self.assertEqual([row["status"] for row in rows], ["ok", "unavailable"])
-        self.assertIn("ModuleNotFoundError", rows[1]["detail"])
         self.assertNotEqual(code, 0)
 
     def test_check_reuses_single_initialization_dependency_without_fallback(self):
