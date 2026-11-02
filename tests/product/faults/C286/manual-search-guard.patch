@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 40787de6..78fbf3b3 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -2545,3 +2545,2 @@ public struct StartRoundView: View {
+             && currentRequestKey == requestKey
+-            && !manualSearchSelected
+     }

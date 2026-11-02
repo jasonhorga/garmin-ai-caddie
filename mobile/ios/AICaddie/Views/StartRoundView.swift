@@ -755,7 +755,9 @@ public struct StartRoundView: View {
         let currentIsValid = selectedSegment != nil
         if !currentIsValid {
             selectVenue(Self.courseVenueName(option), userInitiated: false)
-        } else if !userPickedVenue, selectedSegment.map({ Self.samePhysicalVenue($0, option) }) != true {
+        } else if Self.shouldReplaceAutomaticSelection(
+            current: selectedSegment, candidate: option, userPickedVenue: userPickedVenue
+        ) {
             selectVenue(Self.courseVenueName(option), userInitiated: false)
         }
     }
@@ -1079,7 +1081,6 @@ public struct StartRoundView: View {
             isLoading: isLoadingNearby,
             failed: nearbyDiscoveryFailed,
             manualSearchSelected: selectedCourseWasManualSearch,
-            hasNearbyRows: !nearbyCourseOptions.isEmpty,
             hasFix: locationProvider.latestFix != nil
         )
     }
@@ -1097,7 +1098,6 @@ public struct StartRoundView: View {
         isLoading: Bool,
         failed: Bool,
         manualSearchSelected: Bool,
-        hasNearbyRows: Bool,
         hasFix: Bool
     ) -> String? {
         guard isLoading, !failed, !manualSearchSelected else { return nil }
@@ -2288,7 +2288,7 @@ public struct StartRoundView: View {
         // explicit search result as a nearby-service error.
         nearbyRequestToken = nil
         isLoadingNearby = false
-        nearbyCourseOptions = []
+        nearbyCourseOptions = Self.resetNearbyOptionsForManualSearch(nearbyCourseOptions)
         nearbyStatusText = nil
         nearbyDiscoveryFailed = false
         offlineCourseOptions = []
@@ -2537,11 +2537,38 @@ public struct StartRoundView: View {
         requestToken: UUID,
         activeRequestToken: UUID?,
         requestKey: String,
-        currentRequestKey: String
+        currentRequestKey: String,
+        manualSearchSelected: Bool = false
     ) -> Bool {
         !isCancelled
             && activeRequestToken == requestToken
             && currentRequestKey == requestKey
+            && !manualSearchSelected
+    }
+
+    /// Whether the automatic nearby choice no longer belongs to the latest provider answer.
+    static func shouldClearAutomaticSelection(
+        selected: MobileCourseOption?,
+        availableNearby: [MobileCourseOption],
+        userPickedVenue: Bool
+    ) -> Bool {
+        guard let selected, !userPickedVenue else { return false }
+        return !availableNearby.contains { samePhysicalVenue(selected, $0) }
+    }
+
+    static func shouldReplaceAutomaticSelection(
+        current: MobileCourseOption?,
+        candidate: MobileCourseOption,
+        userPickedVenue: Bool
+    ) -> Bool {
+        guard !userPickedVenue else { return false }
+        guard let current else { return true }
+        return !samePhysicalVenue(current, candidate)
+    }
+
+    static func resetNearbyOptionsForManualSearch(_ options: [MobileCourseOption]) -> [MobileCourseOption] {
+        _ = options
+        return []
     }
 
     static func nearbyDiscoveryErrorMessage(_ error: Error) -> String {
@@ -2610,8 +2637,9 @@ public struct StartRoundView: View {
                 requestToken: requestToken,
                 activeRequestToken: nearbyRequestToken,
                 requestKey: requestKey,
-                currentRequestKey: locationDiscoveryKey
-            ) && !selectedCourseWasManualSearch
+                currentRequestKey: locationDiscoveryKey,
+                manualSearchSelected: selectedCourseWasManualSearch
+            )
         }
         func applyProviderResult(_ result: NearbyDiscoveryLoopResult) {
             guard canApply() else { return }
@@ -2645,6 +2673,13 @@ public struct StartRoundView: View {
         )
         guard canApply() else { return }
         applyProviderResult(outcome)
+        if Self.shouldClearAutomaticSelection(
+            selected: selectedSegment,
+            availableNearby: outcome.providerOptions,
+            userPickedVenue: userPickedVenue
+        ) {
+            clearAutomaticSelection()
+        }
         nearbyDiscoveryFailed = Self.nearbyDiscoveryShouldFail(
             publishedProviderResult: outcome.publishedProviderResult,
             lastError: outcome.lastError,

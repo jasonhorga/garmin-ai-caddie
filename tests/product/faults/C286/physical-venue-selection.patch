@@ -1,0 +1,9 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 40787de6..9ca604d2 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -2565,3 +2565,3 @@ public struct StartRoundView: View {
+         guard let current else { return true }
+-        return !samePhysicalVenue(current, candidate)
++        return true
+     }
