@@ -1,21 +1,21 @@
 diff --git a/ai_caddie/history/corrected_history.py b/ai_caddie/history/corrected_history.py
-index 81ed2258..eab00d13 100644
+index c913df5e..2d80d1cf 100644
 --- a/ai_caddie/history/corrected_history.py
 +++ b/ai_caddie/history/corrected_history.py
-@@ -294,25 +294,22 @@ def _same_day_matching_boundary_score_holes(
-         ring even when their physical global ids differ.  The largest missing run is where play
-         started; the first displayed hole after that run is therefore the sequence origin.
-         """
+@@ -314,25 +314,22 @@ def _same_day_matching_boundary_score_holes(
+         # appended after the inferred tail and boundary matching counts restored holes twice.
+         if ring_size == 9 and any(display > 9 for display in display_by_key.values()):
+             ring_size = 18
 -        by_display: dict[int, list[tuple[int, int]]] = {}
 -        for key in scores:
 -            display = display_by_key.get(key)
--            if display is not None and 1 <= display <= 18:
+-            if display is not None and 1 <= display <= ring_size:
 -                by_display.setdefault(display, []).append(key)
 -        displays = sorted(by_display)
 -        if not displays:
 -            return sorted(scores)
 -        gaps = [
--            ((displays[(index + 1) % len(displays)] - display - 1) % 18, index)
+-            ((displays[(index + 1) % len(displays)] - display - 1) % ring_size, index)
 -            for index, display in enumerate(displays)
 -        ]
 -        start = (max(gaps)[1] + 1) % len(displays)

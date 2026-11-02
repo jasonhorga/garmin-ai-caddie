@@ -43,6 +43,12 @@ def _combo_row(round_id: str, date: str, holes: list[int], front: int, back: int
     return row
 
 
+def _nine_row(round_id: str, date: str, holes: list[int]) -> dict:
+    row = _row(round_id, date, holes)
+    row["holePars"] = "4" * 9
+    return row
+
+
 def _restore(root: Path, round_id: str, numbers=range(10, 19)) -> None:
     for number in numbers:
         add_annotation(
@@ -155,6 +161,111 @@ class C281MergeSameDayTests(unittest.TestCase):
                     )
                     current = next(row for row in corrected.rounds if row["id"] == "morning")
                     self.assertEqual((current["holesCompleted"], len(current["holes"])), (expected, expected))
+
+    def test_j1_3_nine_hole_ring_wrap_uses_course_hole_count(self) -> None:
+        """J1.3: a nine-hole course wraps 9 -> 1 when matching same-day cards."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _nine_row("morning", "2026-06-01 07:30", list(range(4, 9)))
+            late = _nine_row("late", "2026-06-01 09:40", [8, 9, 1, 2, 3])
+            _restore(root, "morning", numbers=[9, 1, 2, 3])
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            # On a 9-hole ring, 8 is the one-hole tail/head overlap and restores 9,1,2,3
+            # are superseded by the later card. The morning card therefore stays at five holes.
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (5, 5))
+
+    def test_j1_3_nine_hole_double_round_from_non_one_start_keeps_tail_boundary(self) -> None:
+        """J1.3: a nine-hole course played 1..18 from hole 4 keeps its 2,3 restores."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _nine_row("morning", "2026-06-01 07:30", list(range(4, 19)) + [1])
+            late = _nine_row("late", "2026-06-01 09:40", [1, 2, 3])
+            _restore(root, "morning", numbers=[2, 3])
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            # The 18-hole Garmin display proves this is a 9x2 outing; late 1,2,3
+            # repeats the morning tail 1 and supersedes restored 2,3.
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (16, 16))
+
+    def test_j1_3_back_id_keeps_two_loop_combo_on_eighteen_hole_ring(self) -> None:
+        """J1.3: a combo card keeps an 18-hole ring even when its pars have nine entries."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _nine_row("morning", "2026-06-01 07:30", list(range(4, 9)))
+            late = _nine_row("late", "2026-06-01 09:40", [8, 9, 1, 2, 3])
+            for row in (morning, late):
+                row["backNineGlobalCourseId"] = 7103
+            _restore(root, "morning", numbers=[9, 1, 2, 3])
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            # The back-loop identity makes 9 -> 1 a course-loop boundary, not a display wrap;
+            # the late card therefore does not replace the restored holes 9,1,2,3.
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (9, 9))
+
+    def test_j1_3_missing_hole_pars_keeps_ambiguous_card_on_eighteen_hole_ring(self) -> None:
+        """J1.3: without holePars, an ambiguous card retains the conservative 18-hole ring."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _nine_row("morning", "2026-06-01 07:30", list(range(4, 10)))
+            late = _nine_row("late", "2026-06-01 09:40", [9, 1, 2, 3])
+            morning.pop("holePars")
+            late.pop("holePars")
+            from ai_caddie.history.corrected_history import _same_day_matching_boundary_score_holes
+
+            covered = _same_day_matching_boundary_score_holes([morning, late])
+            # Missing course metadata cannot prove a nine-hole ring, so the 9 -> 1 gap is not
+            # treated as a continuation and the later card covers no restored holes.
+            self.assertEqual(covered["morning"], set())
+
+    def test_j1_3_tied_ring_gaps_keep_current_max_index_rule(self) -> None:
+        """J1.3: tied largest gaps keep the existing max-index tie rule, including a 10-start card."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _row("morning", "2026-06-01 07:30", list(range(10, 19)) + list(range(1, 8)))
+            morning["holes"] = [hole for hole in morning["holes"] if hole["number"] not in (13, 14)]
+            late = _row("late", "2026-06-01 11:40", [7, 8, 9])
+            _restore(root, "morning", numbers=[8, 9])
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            # Gaps 8..9 and 13..14 tie. The current max-index rule starts after 14,
+            # so overlap 7 is not the morning tail and restores 8,9 remain materialized.
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (16, 16))
+
+    def test_j1_3_display_ring_uses_display_number_when_local_hole_differs(self) -> None:
+        """J1.3: a back loop's localHole 1..9 still follows displayed holes 10..18."""
+        front, back = 7101, 7102
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _combo_row("morning", "2026-06-01 07:30", list(range(10, 19)), front, back)
+            for hole in morning["holes"]:
+                hole.update(sourceGlobalId=back, sourceLocalHole=hole["number"] - 9)
+            late = _combo_row("late", "2026-06-01 09:40", list(range(1, 9)) + [18], front, back)
+            for hole in late["holes"]:
+                if hole["number"] <= 8:
+                    hole.update(sourceGlobalId=front, sourceLocalHole=hole["number"])
+                else:
+                    hole.update(sourceGlobalId=back, sourceLocalHole=9)
+            _restore_combo(root, "morning", range(1, 9), front, back)
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, late], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            # Display 18 is the physical tail/head overlap; local 9 must not be treated as display 9.
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (9, 9))
 
     def test_j1_3_sorted_x10_card_keeps_the_morning_restore(self) -> None:
         """J1.3: sorted [1, 2, 10..18] cannot consume a 1..9 restore from a 10-start outing."""
