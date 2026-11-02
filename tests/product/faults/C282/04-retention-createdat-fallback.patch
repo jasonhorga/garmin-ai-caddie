@@ -3,7 +3,7 @@ index aaa12d18..bd7d25b6 100644
 --- a/ai_caddie/ops/retention.py
 +++ b/ai_caddie/ops/retention.py
 @@ -92,12 +92,19 @@ def _clean_topo_cache(cache_root: Path, *, remove_empty: bool = False) -> None:
- 
+
  def _parse_snapshot_time(name: str, manifest: Path) -> datetime | None:
      match = _SNAPSHOT_ID_RE.match(name)
 -    if not match:
@@ -24,6 +24,6 @@ index aaa12d18..bd7d25b6 100644
 +    except (OSError, ValueError, TypeError):
 +        pass
 +    return None
- 
- 
+
+
  def _clean_garmin_snapshots(root: Path) -> None:
