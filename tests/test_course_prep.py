@@ -73,6 +73,7 @@ class PureLogicTests(unittest.TestCase):
         cases = (
             ("TRIG", 4, 408.0, [("Driver", 197), ("3W", 160), ("8I", 121), ("Aw", 102), ("58", 68)]),
             ("GAP", 5, 605.0, [("Driver", 200), ("3W", 180), ("5I", 150), ("7I", 120), ("SW", 50)]),
+            ("GAP-short", 4, 285.0, [("Driver", 200), ("3W", 180), ("5I", 150), ("7I", 120), ("SW", 50)]),
             ("NOWEDGE", 5, 600.0, [("Driver", 210), ("3W", 190), ("5H", 175), ("6I", 155), ("8I", 135)]),
         )
         hazards = {"water_carry": [], "bunkers": [], "details": []}
