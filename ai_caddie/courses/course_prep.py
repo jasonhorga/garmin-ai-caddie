@@ -2025,6 +2025,12 @@ def _strategy(
                 if step.get("club")
             }
             previous_carry = float(steps[-1].get("targetCarry_m") or math.inf)
+            scoring_max_overshoot = TEE_SEQUENCE_MAX_OVERSHOOT_M
+            if approach_ladder and effective <= max(float(distance) for _name, distance in approach_ladder):
+                # A short remainder can be closed by one measured scoring club whose carry is
+                # just beyond the route window; prefer that GIR candidate to two short fallback
+                # swings. Long advances keep the online 20 m tolerance and lay-up ranking.
+                scoring_max_overshoot += 15.0
             shared_tail = _shared_sequence_tail(
                 effective,
                 approach_ladder,
@@ -2033,7 +2039,7 @@ def _strategy(
                 exclude_club_keys=used_clubs,
                 maximum_carry_m=previous_carry + 15.0,
                 forbid_repeated_clubs=True,
-                max_overshoot_m=TEE_SEQUENCE_MAX_OVERSHOOT_M,
+                max_overshoot_m=scoring_max_overshoot,
                 sample_size=None,
                 player_id=player_id,
             )
@@ -2055,7 +2061,7 @@ def _strategy(
                         maximum_carry_m=previous_carry + 15.0,
                         allow_replan_gap=allow_gap,
                         forbid_repeated_clubs=forbid_repeats,
-                        max_overshoot_m=TEE_SEQUENCE_MAX_OVERSHOOT_M,
+                        max_overshoot_m=scoring_max_overshoot,
                         sample_size=None,
                         player_id=player_id,
                     )
