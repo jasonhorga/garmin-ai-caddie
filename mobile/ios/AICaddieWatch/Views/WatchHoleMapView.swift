@@ -1045,6 +1045,23 @@ public struct WatchHoleMapView: View {
         "\(geometry.image != nil)|\(garminImage != nil)"
     }
 
+    /// J4.5: the notices presented by this map, including the legacy overlay until it is removed.
+    var mapPreparingAccessibilityIdentifiers: [String] {
+        var identifiers: [String] = []
+        if mapDisplayState == .waiting { identifiers.append("watch-map-preparing") }
+        if geometry.image == nil { identifiers.append("watch-map-preparing") }
+        return identifiers
+    }
+
+    #if DEBUG
+    /// Seed the same retained image state used after a transient nil update on this hole.
+    func snapshottingRetainedPreciseImage(_ image: UIImage) -> Self {
+        var snapshot = self
+        snapshot._retainedPreciseImage = State(initialValue: image)
+        return snapshot
+    }
+    #endif
+
     static func rootCaddieChipFrame(in size: CGSize) -> CGRect {
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
         let width: CGFloat = min(50, max(46, safeRect.width * 0.28))

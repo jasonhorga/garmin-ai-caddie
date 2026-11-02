@@ -2543,6 +2543,34 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
     }
 
+    /// J4.5: one waiting notice, and none over an already displayed precise bitmap. The retained
+    /// bitmap and the directly supplied bitmap must render the same whole production view.
+    @MainActor
+    func testMapPreparingNoticeAppearsOnceOnlyWhileWaiting() throws {
+        let base = WatchHoleMapSample.geometry
+        let image = try XCTUnwrap(base.image)
+        let withoutBitmap = WatchHoleMapGeometry(
+            image: nil, imageSize: base.imageSize, youPx: base.youPx, pinPx: base.pinPx,
+            layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx
+        )
+        let waiting = WatchHoleMapView(geometry: withoutBitmap)
+        XCTAssertEqual(waiting.mapPreparingAccessibilityIdentifiers, ["watch-map-preparing"],
+                       "J4.5: waiting renders exactly one map-preparing accessibility element")
+
+        let retained = waiting.snapshottingRetainedPreciseImage(image)
+        XCTAssertEqual(retained.mapPreparingAccessibilityIdentifiers, [],
+                       "J4.5: a retained precise bitmap has no map-preparing accessibility element")
+        let precise = WatchHoleMapView(geometry: base)
+        XCTAssertEqual(precise.mapPreparingAccessibilityIdentifiers, [])
+
+        func pixels(_ map: WatchHoleMapView) throws -> [UInt8] {
+            let view = map.watchSnapshotFrame(width: 198, height: 242)
+            return renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: view).cgImage))
+        }
+        XCTAssertEqual(try pixels(retained), try pixels(precise),
+                       "a transient nil image must not paint a preparing notice over the retained map")
+    }
+
     @MainActor
     func testContainerRootIsARestingMapWithoutThePlan() throws {
         let timestamp = "2026-10-20T10:00:00Z"
