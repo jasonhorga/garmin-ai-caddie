@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 98d0f540..73b4a6c1 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2021,7 +2021,7 @@ def _strategy(
+                 candidate_remaining = effective - sum(
+                     tail_distance for _tail_club, tail_distance in shared_tail
+                 )
+-                if candidate_remaining <= SCORING_WINDOW_MAX_M:
++                if True:
+                     effective_remaining = effective
+                     for tail_index, (tail_club, tail_distance) in enumerate(shared_tail):
+                         before = remaining

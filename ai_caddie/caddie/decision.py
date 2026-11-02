@@ -37,6 +37,8 @@ MAX_PIN_DISTANCE_M = 1000.0
 # scoring leg instead of a bare club card with no map route.
 MIN_SEQUENCE_DISTANCE_M = 260.0
 MAX_SEQUENCE_OVERSHOOT_M = 10.0
+SCORING_WINDOW_MAX_M = 20.0
+SEQUENCE_DEFAULT_SAMPLE_SIZE = 20
 # A cold package can legitimately omit short-game clubs. Keep the resulting full-hole
 # preview bounded and explicit instead of inventing a full-swing continuation.
 MAX_SEQUENCE_REPLAN_GAP_M = 50.0
@@ -1249,7 +1251,7 @@ def _canonical_sequence(
         )
         final_reaches_pin = index == len(raw_plan) - 1 and (
             role.lower() in {"scoring", "approach"}
-            or (math.isfinite(raw_remaining) and raw_remaining <= 20.0)
+            or (math.isfinite(raw_remaining) and raw_remaining <= SCORING_WINDOW_MAX_M)
             or next_travelled_m >= distance_m - CANONICAL_PLAN_MAX_OVERSHOOT_M
         )
         if direct_scoring or final_reaches_pin:
@@ -1305,7 +1307,7 @@ def _canonical_sequence(
             "measured hazard model."
             + (" The live route is shorter than the prep centerline; recalculate after this prefix." if truncated else "")
         ),
-        "completion": "scoring_window" if green_in_regulation else "replan_required" if truncated or remaining > 20.0 else "scoring_window",
+        "completion": "scoring_window" if green_in_regulation else "replan_required" if truncated or remaining > SCORING_WINDOW_MAX_M else "scoring_window",
         "sourceRefs": source_refs,
         "coverage": _sequence_coverage(steps),
         "confidence": _sequence_confidence(steps),
@@ -1865,7 +1867,7 @@ def _sequence_tail(
     prefer_layup_window: bool = False,
     memo: dict[Any, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    if remaining_m <= 20.0:
+    if remaining_m <= SCORING_WINDOW_MAX_M:
         return []
     excluded = exclude_club_keys or set()
     tail_key = (
@@ -1931,7 +1933,7 @@ def _sequence_tail(
     # A leave of up to 20 m is already the scoring-window contract. Using only the overshoot
     # tolerance here forced an unnecessary extra full swing (for example 3W -> 3W -> 5I instead
     # of 3W -> 3W with a 14 m leave), which in turn made a sparse Driver look artificially better.
-    minimum_steps = max(1, math.ceil(max(0.0, remaining_m - 20.0) / longest_m))
+    minimum_steps = max(1, math.ceil(max(0.0, remaining_m - SCORING_WINDOW_MAX_M) / longest_m))
     first_candidate_steps = max(1, minimum_steps - 1) if allow_replan_gap else minimum_steps
     maximum_steps = min(MAX_SEQUENCE_STEPS - 1, minimum_steps + 1)
     needs_layup = prefer_layup_window and remaining_m > longest_available_m + max_overshoot_m
@@ -1958,7 +1960,7 @@ def _sequence_tail(
             leave_m = round(remaining_m - carry_total, 1)
             overshoot_m = max(0.0, -leave_m)
             excessive_overshoot = 1.0 if overshoot_m > max_overshoot_m else 0.0
-            unresolved_limit = MAX_SEQUENCE_REPLAN_GAP_M if allow_replan_gap else 20.0
+            unresolved_limit = MAX_SEQUENCE_REPLAN_GAP_M if allow_replan_gap else SCORING_WINDOW_MAX_M
             unresolved_leave = 1.0 if leave_m > unresolved_limit else 0.0
             extra_step_cost = max(0, step_count - minimum_steps) * EXTRA_SEQUENCE_STEP_COST_M
             sample_strength = sum(sample_by_index[index] for index in indexes)
@@ -2057,7 +2059,7 @@ def _whole_hole_sequence_key(
     planned = [first, *tail]
     leave_m = round(distance_m - sum(_float(row.get("median_m")) for row in planned), 1)
     overshoot_m = max(0.0, -leave_m)
-    unresolved = 1.0 if leave_m > 20.0 or overshoot_m > MAX_SEQUENCE_OVERSHOOT_M else 0.0
+    unresolved = 1.0 if leave_m > SCORING_WINDOW_MAX_M or overshoot_m > MAX_SEQUENCE_OVERSHOOT_M else 0.0
     score = (
         _planned_chain_cost(planned, leave_m, memo=memo)
         + _club_hazard_cost(first, avoid_zones)
@@ -2164,7 +2166,7 @@ def _sequence_option(
 
     def cold_next_club(*, allow_repeats: bool = False) -> dict[str, Any] | None:
         remaining_m = distance_m - first_carry
-        if remaining_m <= 20.0:
+        if remaining_m <= SCORING_WINDOW_MAX_M:
             return None
         projected_zones = _shift_hazard_zones(avoid_zones, first_carry)
         maximum_carry_m = (
@@ -2300,9 +2302,9 @@ def _sequence_option(
     repeat_fallback_used = False
     partial = cold_start or (
         not short_game_available
-        and 20.0 < remaining <= MAX_SEQUENCE_REPLAN_GAP_M
+        and SCORING_WINDOW_MAX_M < remaining <= MAX_SEQUENCE_REPLAN_GAP_M
     )
-    if gir_result is None and not cold_start and (remaining > 20.0 or remaining < -max_overshoot_m):
+    if gir_result is None and not cold_start and (remaining > SCORING_WINDOW_MAX_M or remaining < -max_overshoot_m):
         # If the exact scoring window is unavailable, consider one fewer full swing. This is a
         # bounded short-game data gap; water feasibility and the non-Tee Driver prohibition still
         # apply to every candidate.
@@ -2311,19 +2313,19 @@ def _sequence_option(
         fallback_complete = (
             fallback_rows
             and fallback_remaining >= -max_overshoot_m
-            and fallback_remaining <= 20.0
+            and fallback_remaining <= SCORING_WINDOW_MAX_M
         )
         fallback_partial = (
             fallback_rows
             and not short_game_available
-            and fallback_remaining > 20.0
+            and fallback_remaining > SCORING_WINDOW_MAX_M
             and fallback_remaining <= MAX_SEQUENCE_REPLAN_GAP_M
         )
         distinct_route_accepted = bool(fallback_complete or fallback_partial)
         if fallback_complete or fallback_partial:
             planned_rows, steps, remaining = fallback_rows, fallback_steps, fallback_remaining
             planned_rows, steps, remaining, gir_result = apply_gir_window(planned_rows, steps, remaining)
-            partial = remaining > 20.0
+            partial = remaining > SCORING_WINDOW_MAX_M
         # Do not turn a modestly shorter tee into an opaque X -> X route merely to force the
         # arithmetic remainder into the scoring window. Repeating the first club is a last resort
         # only when no distinct continuation can produce an accepted complete/explicitly-partial
@@ -2331,7 +2333,7 @@ def _sequence_option(
         # to use 5I -> 5I when every distinct continuation is too short, while a normal 1W -> 3H
         # route wins over an opaque 3H -> 3H preview whenever both are feasible.
         if gir_result is None and (
-            (remaining > 20.0 or remaining < -max_overshoot_m)
+            (remaining > SCORING_WINDOW_MAX_M or remaining < -max_overshoot_m)
             and not distinct_route_accepted
         ):
             repeat_rows = build_rows(allow_replan_gap=True, allow_repeats=True)
@@ -2339,20 +2341,20 @@ def _sequence_option(
             repeat_complete = (
                 repeat_rows
                 and repeat_remaining >= -max_overshoot_m
-                and repeat_remaining <= 20.0
+                and repeat_remaining <= SCORING_WINDOW_MAX_M
             )
             repeat_partial = (
                 repeat_rows
                 and not short_game_available
-                and repeat_remaining > 20.0
+                and repeat_remaining > SCORING_WINDOW_MAX_M
                 and repeat_remaining <= MAX_SEQUENCE_REPLAN_GAP_M
             )
             if repeat_complete or repeat_partial:
                 planned_rows, steps, remaining = repeat_rows, repeat_steps, repeat_remaining
                 planned_rows, steps, remaining, gir_result = apply_gir_window(planned_rows, steps, remaining)
-                partial = remaining > 20.0
+                partial = remaining > SCORING_WINDOW_MAX_M
                 repeat_fallback_used = True
-        if gir_result is None and remaining > 20.0 and short_game_available:
+        if gir_result is None and remaining > SCORING_WINDOW_MAX_M and short_game_available:
             return None
         if gir_result is None and (remaining > MAX_SEQUENCE_REPLAN_GAP_M or remaining < -max_overshoot_m):
             # A chain outside the bounded gap is not an alternative. Return no sequence so the

@@ -782,10 +782,10 @@ class PureLogicTests(unittest.TestCase):
         ladder = [
             ("Driver", 196), ("3W", 160), ("5I", 140), ("7I", 120), ("9I", 105), ("PW", 95), ("SW", 80),
         ]
-        # Driver 196, 3W 160 leaves 210: the shared tail chooses 7I -> PW for the final approach.
+        # The whole continuation is selected by the shared online tail.
         steps, _c, _landing, _tee = cp._strategy(5, 566, self._NO_HAZARDS, ladder)
 
-        self.assertEqual([step["club"] for step in steps], ["Driver", "3W", "7I", "PW"])
+        self.assertEqual([step["club"] for step in steps], ["Driver", "5I", "7I", "9I"])
         self.assertGreaterEqual(steps[2]["expectedRemaining_m"], cp.LAYUP_LEAVE_MIN_M)
 
     def test_a_bag_without_a_full_wedge_keeps_the_longest_advance(self) -> None:
@@ -908,7 +908,7 @@ class PureLogicTests(unittest.TestCase):
         hazards = {"water_carry": [[250.0, 330.0]], "bunkers": [], "details": []}
         steps, _c, _landing, _tee = cp._strategy(4, 396, hazards, self._OWNER_LADDER)
 
-        self.assertEqual([step["club"] for step in steps], ["Driver", "3W", "58"])
+        self.assertEqual([step["club"] for step in steps], ["Driver", "3H", "58"])
         self._assert_no_landing_in_water(steps, hazards)
 
     def test_lay_up_short_of_water_is_kept(self) -> None:
@@ -921,16 +921,124 @@ class PureLogicTests(unittest.TestCase):
 
     def test_lay_up_water_check_starts_from_the_current_shot(self) -> None:
         # Par 5: the lay-up is the third shot, played from 356 m (Driver 196 + 3W 160). 5I and 7I
-        # would land at 496 / 476 m, inside water at 480-505 m; measured from the tee they would
-        # look dry. With no water-safe full-wedge lay-up the 3W advance past the water stays.
+        # The shared tail evaluates each continuation from its current lie.
         ladder = [
             ("Driver", 196), ("3W", 160), ("5I", 140), ("7I", 120), ("9I", 105), ("PW", 95), ("SW", 80),
         ]
         hazards = {"water_carry": [[480.0, 505.0]], "bunkers": [], "details": []}
         steps, _c, _landing, _tee = cp._strategy(5, 566, hazards, ladder)
 
-        self.assertEqual([step["club"] for step in steps], ["Driver", "3W", "3W", "SW"])
+        self.assertEqual([step["club"] for step in steps], ["Driver", "5I", "7I", "9I"])
         self._assert_no_landing_in_water(steps, hazards)
+
+    def test_j4_6_every_continuation_path_uses_the_shared_tail(self) -> None:
+        """J4.6: nearest, longest advance, and no-layup paths use the online tail rule."""
+        cases = (
+            # nearest-club branch: the shared scorer chooses the hand-written continuation.
+            ([('Driver', 197), ('8I', 121), ('50', 84)], 330.0),
+            # longest-advance branch on a long Par 5.
+            ([('Driver', 197), ('3W', 170), ('8I', 121), ('50', 84)], 560.0),
+            # no full-wedge club: _layup_position_club returns None.
+            ([('Driver', 197), ('3W', 170), ('9I', 60)], 396.0),
+        )
+        for ladder, route_len in cases:
+            with self.subTest(route_len=route_len, ladder=ladder):
+                # Supply a resolved tail for each branch; unresolved candidates are deliberately
+                # rejected by the B1 contract and must fall through to re-planning.
+                with patch.object(
+                    cp,
+                    '_shared_sequence_tail',
+                    side_effect=lambda remaining, *_args, **_kwargs: [('50', remaining - 10.0)],
+                ):
+                    steps, *_ = cp._strategy(4 if route_len < 500 else 5, route_len, self._NO_HAZARDS, ladder)
+                self.assertEqual([step['club'] for step in steps], ['Driver', '50'])
+
+    def test_j4_6_scoring_window_includes_16_to_20m_boundary(self) -> None:
+        """J4.6: a continuation leaving 16–20m is the scoring leg."""
+        ladder = [('Driver', 197), ('3W', 170), ('8I', 121), ('50', 84)]
+        steps, *_ = cp._strategy(4, 334.0, self._NO_HAZARDS, ladder)
+        self.assertEqual([step['club'] for step in steps], ['Driver', '8I'])
+        self.assertEqual(steps[-1]['role'], 'scoring')
+        self.assertGreaterEqual(steps[-1]['expectedRemaining_m'], 16.0)
+        self.assertLessEqual(steps[-1]['expectedRemaining_m'], 20.0)
+
+    def test_j4_6_shared_tail_fallback_keeps_carry_descending_through_water(self) -> None:
+        """J4.6: an empty shared tail must not reintroduce an increasing carry."""
+        ladder = [('Driver', 197), ('3W', 170), ('8I', 121), ('50', 84), ('58', 35)]
+        hazards = {'water_carry': [[360.0, 470.0]], 'bunkers': [], 'details': []}
+        # The water makes every complete shared continuation infeasible.  The layup probe is
+        # deliberately a shorter safe position, which exposed the old fallback's next long club.
+        with patch.object(cp, '_shared_sequence_tail', return_value=[]), \
+                patch.object(cp, '_layup_position_club', return_value=('58', 35.0)):
+            steps, *_ = cp._strategy(4, 396.0, hazards, ladder)
+        carries = [step['targetCarry_m'] for step in steps]
+        self.assertEqual(carries, sorted(carries, reverse=True))
+
+    def test_j4_6_shared_tail_always_finishes_in_the_scoring_window(self) -> None:
+        """J4.6: every non-empty prep continuation ends with a scoring leg."""
+        cases = (
+            ("OWNER Par 4", 4, 268.0, self._OWNER_LADDER),
+            ("GAP Par 4", 4, 300.0, [("Driver", 200), ("3W", 180), ("5I", 150), ("7I", 120), ("SW", 50)]),
+            ("TRIG Par 4", 4, 345.0, [("Driver", 197), ("3W", 160), ("8I", 121), ("Aw", 102), ("58", 68)]),
+            ("TRIG Par 5", 5, 448.0, [("Driver", 197), ("3W", 160), ("8I", 121), ("Aw", 102), ("58", 68)]),
+        )
+        from ai_caddie.caddie.decision import SCORING_WINDOW_MAX_M
+
+        for label, par, route_len, ladder in cases:
+            with self.subTest(label=label):
+                steps, *_ = cp._strategy(par, route_len, self._NO_HAZARDS, ladder)
+                self.assertTrue(steps)
+                self.assertLessEqual(steps[-1]["expectedRemaining_m"], SCORING_WINDOW_MAX_M)
+                self.assertEqual(steps[-1]["role"], "scoring")
+
+    def test_j7_1_member_prep_uses_member_profile_statistics(self) -> None:
+        """J7.1: member CoursePrep must never use the owner's measured profile statistics."""
+        md = {
+            "hole": {
+                "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}],
+                "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 306.0}]}],
+            }
+        }
+        member_ladder = [("Driver", 180), ("5W", 160), ("7I", 130), ("8I", 120),
+                         ("9I", 110), ("PW", 100), ("SW", 80)]
+        member_profiles = {
+            "7I": {"median": 130, "p10": 125, "p90": 135, "sampleSize": 20},
+            "8I": {"median": 120, "p10": 115, "p90": 125, "sampleSize": 20},
+            "9I": {"median": 110, "p10": 105, "p90": 115, "sampleSize": 20},
+            "PW": {"median": 100, "p10": 95, "p90": 105, "sampleSize": 20},
+            "5W": {"median": 160, "p10": 155, "p90": 165, "sampleSize": 20},
+        }
+        owner_profiles = {
+            "7I": {"median": 128, "p10": 100, "p90": 150, "sampleSize": 3},
+            "8I": {"median": 121, "p10": 115, "p90": 127, "sampleSize": 60},
+            "9I": {"median": 109, "p10": 80, "p90": 130, "sampleSize": 2},
+            "PW": {"median": 107, "p10": 104, "p90": 110, "sampleSize": 80},
+            "5W": {"median": 165, "p10": 120, "p90": 190, "sampleSize": 2},
+        }
+        calls = []
+
+        def history(player_id="owner"):
+            calls.append(player_id)
+            return "member-history" if player_id == "member" else "owner-history"
+
+        def profiles(**kwargs):
+            return member_profiles if kwargs.get("history_data") == "member-history" else owner_profiles
+
+        if hasattr(cp._shared_sequence_profiles, "cache_clear"):
+            cp._shared_sequence_profiles.cache_clear()
+        par = CoursePar(global_id=99999, par=[4], par_source="courseview", confidence="high")
+        with patch.object(cp.hole_render, "load_mesh", return_value=(md, {})), \
+                patch.object(cp, "geometry_coverage_for_hole", return_value={"coverage": "ready", "missingData": []}), \
+                patch.object(cp, "_corrected_profile_history", side_effect=history), \
+                patch.object(cp, "build_club_profiles", side_effect=profiles):
+            prep = cp.prep_hole(
+                99999, 1, ladder=member_ladder, player_id="member", par_record=par, render=False,
+            )
+
+        if hasattr(cp._shared_sequence_profiles, "cache_clear"):
+            cp._shared_sequence_profiles.cache_clear()
+        self.assertEqual(calls, ["member"])
+        self.assertEqual([step["club"] for step in prep.steps], ["Driver", "7I"])
 
     def test_in_triangle(self) -> None:
         a, b, c = (0, 0), (10, 0), (0, 10)

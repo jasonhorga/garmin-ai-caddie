@@ -1772,25 +1772,63 @@ def _strategy_tee_row(usable_ladder, hazards: dict):
     )
 
 
-def _shared_sequence_tail(remaining_m: float, approach_ladder, *, start_m: float = 0.0, hazards=None):
+def _shared_sequence_profiles(player_id: str = OWNER_ID) -> dict[str, dict]:
+    try:
+        profile_history = _corrected_profile_history(player_id)
+        profiles = build_club_profiles(
+            **({"history_data": profile_history} if profile_history is not None else {})
+        )
+        return {
+            token: profile
+            for profile_name, profile in (profiles or {}).items()
+            if isinstance(profile, dict)
+            and (token := club_bag_service.canonical_club_name(profile_name))
+        }
+    except Exception:
+        return {}
+
+
+def _shared_sequence_tail(
+    remaining_m: float,
+    approach_ladder,
+    *,
+    start_m: float = 0.0,
+    hazards=None,
+    exclude_club_keys=None,
+    maximum_carry_m: float | None = None,
+    allow_replan_gap: bool = False,
+    forbid_repeated_clubs: bool = True,
+    max_overshoot_m: float | None = None,
+    sample_size: int | None = None,
+    player_id: str = OWNER_ID,
+):
     """Return the continuation selected by the online decision tail scorer.
 
     CoursePrep owns the map/route offsets, while ``decision._sequence_tail`` owns the measured
     carry ordering and leave score.  Keeping this adapter tuple-shaped lets the prep planner reuse
     that rule without exposing decision-layer DTOs in its wire contract.
     """
-    from ai_caddie.caddie.decision import _sequence_tail
+    from ai_caddie.caddie.decision import (
+        MAX_SEQUENCE_OVERSHOOT_M,
+        SEQUENCE_DEFAULT_SAMPLE_SIZE,
+        _sequence_tail,
+    )
 
-    rows = [
-        {
+    profile_by_token = _shared_sequence_profiles(player_id)
+    rows = []
+    for name, distance in approach_ladder:
+        profile = profile_by_token.get(club_bag_service.canonical_club_name(name) or "", {})
+        median = float(distance)
+        # A ladder row carries the same compact distribution contract as the online fixture.  When
+        # only a median is available, use the shared low-data band and sample prior rather than the
+        # old p10=p90/sample=1 shim; live rows with measured percentiles replace these values above.
+        rows.append({
             "clubName": name,
-            "median_m": float(distance),
-            "p10_m": float(distance),
-            "p90_m": float(distance),
-            "sampleSize": 1,
-        }
-        for name, distance in approach_ladder
-    ]
+            "median_m": median,
+            "p10_m": float(profile.get("p10") or profile.get("p10_m") or (median - 8.0)),
+            "p90_m": float(profile.get("p90") or profile.get("p90_m") or (median + 8.0)),
+            "sampleSize": int(profile.get("sampleSize") or sample_size or SEQUENCE_DEFAULT_SAMPLE_SIZE),
+        })
     avoid_zones = [
         {
             "kind": "water",
@@ -1806,6 +1844,15 @@ def _shared_sequence_tail(remaining_m: float, approach_ladder, *, start_m: float
         avoid_zones=avoid_zones,
         travelled_m=float(start_m),
         forbid_driver=True,
+        exclude_club_keys=set(exclude_club_keys or ()),
+        maximum_carry_m=maximum_carry_m,
+        allow_replan_gap=allow_replan_gap,
+        forbid_repeated_clubs=forbid_repeated_clubs,
+        max_overshoot_m=(
+            float(max_overshoot_m)
+            if max_overshoot_m is not None
+            else MAX_SEQUENCE_OVERSHOOT_M
+        ),
         prefer_layup_window=True,
     )
     return [(str(row.get("clubName") or ""), float(row.get("median_m") or 0.0)) for row in tail]
@@ -1815,7 +1862,15 @@ def _shared_sequence_tail(remaining_m: float, approach_ladder, *, start_m: float
 PLAYS_LIKE_MIN_SLOPE_M = 3.0
 
 
-def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_at=None):
+def _strategy(
+    par: int,
+    route_len_m: float,
+    hazards: dict,
+    ladder,
+    *,
+    elevation_at=None,
+    player_id: str = OWNER_ID,
+):
     """The hole's planned chain. ``elevation_at(route_m)`` (terrain metres at a distance along the
     route, or None) lets the shot onto the green be chosen by its plays-like distance: the flat
     remainder plus the rise (or minus the drop) from where it is played to the green. Landing
@@ -1903,11 +1958,14 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_
         # caddie appear to forbid the club the golfer normally tees with.  Keep the landing target
         # conservative for a short hole, but keep the physical tee club honest.
         tee_club = driver_name
+        from ai_caddie.caddie.decision import SCORING_WINDOW_MAX_M
+
+        tee_role = "scoring" if route_len_m - landing <= SCORING_WINDOW_MAX_M else "advance"
         append_step(
             tee_club,
             f"开球落点约 {yd(landing)}y",
             landing,
-            role="advance",
+            role=tee_role,
             route_landing_m=landing,
         )
         remaining = route_len_m - landing
@@ -1940,49 +1998,96 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_
 
         # Plan a complete Par 4/5 chain. A long Par 5 remainder is not one imaginary approach; use
         # the longest playable non-driver until a normal scoring club can cover what remains.
-        while remaining > 20 and approach_ladder and len(steps) < 4:
-            longest_approach = approach_ladder[0][1]
+        while remaining > SCORING_WINDOW_MAX_M and approach_ladder and len(steps) < 5:
             effective = plays_like(remaining)
-            shared_tail = None
-            if effective > longest_approach + 15:
-                approach_club, approach_distance = approach_ladder[0]
-                if remaining - longest_approach < LAYUP_LEAVE_MIN_M:
-                    layup = _layup_position_club(
-                        remaining, approach_ladder, start_m=route_offset_m, hazards=hazards,
-                    )
-                    if layup is not None:
-                        shared_tail = _shared_sequence_tail(
-                            remaining, approach_ladder, start_m=route_offset_m, hazards=hazards,
-                        )
-                        if shared_tail:
-                            for tail_index, (tail_club, tail_distance) in enumerate(shared_tail):
-                                before = remaining
-                                remaining = max(0.0, remaining - tail_distance)
-                                scoring = tail_index == len(shared_tail) - 1
-                                note = (
-                                    f"剩约 {yd(before)}y 上果岭"
-                                    if scoring
-                                    else f"推进约 {yd(tail_distance)}y，剩约 {yd(remaining)}y"
-                                )
-                                append_step(
-                                    tail_club,
-                                    note,
-                                    tail_distance,
-                                    role="scoring" if scoring else "position",
-                                )
-                            break
-                    approach_club, approach_distance = layup or approach_ladder[0]
-            else:
-                approach_club, approach_distance = club_for(
-                    effective,
-                    approach_ladder,
-                    exclude=("driver", "1W", "1D"),
+            used_clubs = {
+                club_bag_service.canonical_club_name(step["club"])
+                for step in steps
+                if step.get("club")
+            }
+            previous_carry = float(steps[-1].get("targetCarry_m") or math.inf)
+            shared_tail = _shared_sequence_tail(
+                effective,
+                approach_ladder,
+                start_m=route_offset_m,
+                hazards=hazards,
+                exclude_club_keys=used_clubs,
+                maximum_carry_m=previous_carry,
+                forbid_repeated_clubs=True,
+                max_overshoot_m=None,
+                sample_size=None,
+                player_id=player_id,
+            )
+            if shared_tail:
+                candidate_remaining = effective - sum(
+                    tail_distance for _tail_club, tail_distance in shared_tail
                 )
+                if candidate_remaining <= SCORING_WINDOW_MAX_M:
+                    effective_remaining = effective
+                    for tail_index, (tail_club, tail_distance) in enumerate(shared_tail):
+                        before = remaining
+                        remaining = max(0.0, remaining - tail_distance)
+                        before_effective = effective_remaining
+                        effective_remaining = max(0.0, effective_remaining - tail_distance)
+                        scoring = tail_index == len(shared_tail) - 1 and effective_remaining <= SCORING_WINDOW_MAX_M
+                        note = (
+                            f"剩约 {yd(before)}y 上果岭"
+                            if scoring
+                            else f"推进约 {yd(tail_distance)}y，剩约 {yd(remaining)}y"
+                        )
+                        landing_override = None
+                        if scoring and abs(before_effective - before) >= 3:
+                            slope = "上坡" if before_effective > before else "下坡"
+                            note += f"（{slope}，打起来像 {yd(before_effective)}y）"
+                            landing_override = route_len_m
+                        append_step(
+                            tail_club,
+                            note,
+                            tail_distance,
+                            role="scoring" if scoring else "position",
+                            route_landing_m=landing_override,
+                        )
+                    break
+                # An unresolved online candidate is only a ranking result. Re-plan through the
+                # bounded fallback below instead of exposing a route that stops short of scoring.
+
+            # The online tail can be empty when every continuation is unsafe. Keep the old
+            # distance fallback, but constrain it to the already-played carry and to a fresh club
+            # so the safety fallback cannot reintroduce a short-then-long sequence.
+            safe_ladder = [
+                (name, distance)
+                for name, distance in approach_ladder
+                if club_bag_service.canonical_club_name(name) not in used_clubs
+                and float(distance) <= previous_carry
+                and _strategy_water_safe(route_offset_m + float(distance), hazards)
+            ]
+            if not safe_ladder:
+                # Match the online repeat fallback when no distinct safe club can finish the
+                # scoring window. Repetition is still bounded by the prior carry, so it cannot
+                # reintroduce the short-then-long route that the safety fallback is meant to avoid.
+                safe_ladder = [
+                    (name, distance)
+                    for name, distance in approach_ladder
+                    if float(distance) <= previous_carry
+                    and _strategy_water_safe(route_offset_m + float(distance), hazards)
+                ]
+            if not safe_ladder:
+                break
+            longest_approach = safe_ladder[0][1]
+            approach_club, approach_distance = None, None
+            if effective > longest_approach + 15 and remaining - longest_approach < LAYUP_LEAVE_MIN_M:
+                layup = _layup_position_club(
+                    remaining, safe_ladder, start_m=route_offset_m, hazards=hazards,
+                )
+                if layup is not None:
+                    approach_club, approach_distance = layup
+            if approach_club is None:
+                approach_club, approach_distance = club_for(effective, safe_ladder)
             if approach_club is None or approach_distance is None:
                 break
             before = remaining
             sloped = effective != before
-            if sloped and effective - float(approach_distance) <= 15:
+            if sloped and effective - float(approach_distance) <= SCORING_WINDOW_MAX_M:
                 # Reaches the green by its plays-like distance: it ends on the green, whatever the
                 # slope does to its flat carry, and leaves the plays-like shortfall.
                 remaining = max(0.0, effective - float(approach_distance))
@@ -1990,7 +2095,7 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_
                 landing_override = route_len_m
             else:
                 remaining = max(0.0, remaining - float(approach_distance))
-                scoring = remaining <= 15
+                scoring = remaining <= SCORING_WINDOW_MAX_M
                 landing_override = None
             if scoring:
                 note = f"剩约 {yd(before)}y 上果岭"
@@ -2333,6 +2438,7 @@ def _lightweight_prep_hole(
     par_record,
     render: bool,
     tee_set: int | None = None,
+    player_id: str = OWNER_ID,
 ) -> HolePrep | dict | None:
     course_data = courseview_core.load_cached_course_data(int(global_id))
     if not course_data:
@@ -2438,7 +2544,9 @@ def _lightweight_prep_hole(
         first = male or next(iter(hole.get("pars") or []), {})
         par = int(first.get("par") or course_reference.estimate_par_from_length(route_len))
         par_source = "courseData"
-    steps, cautions, landing, tee_club = _strategy(par, route_len, hazards, ladder)
+    steps, cautions, landing, tee_club = _strategy(
+        par, route_len, hazards, ladder, player_id=player_id,
+    )
     green_lat, green_lon = shot_projection.local_to_world(
         route[-1][0], route[-1][1], ref_lat=ref_lat, ref_lon=ref_lon
     )
@@ -2533,6 +2641,7 @@ def lightweight_prep_hole(
         par_record=resolved_par,
         render=True,
         tee_set=tee_set,
+        player_id=player_id,
     )
     return value if isinstance(value, dict) else None
 
@@ -2912,6 +3021,7 @@ def _topo_frame_prep_hole(
     ladder,
     par_record=None,
     tee_set: int | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict | None:
     """Factual prep in the ``/topo.png`` frame while only the obstacle export is pending.
 
@@ -2948,7 +3058,8 @@ def _topo_frame_prep_hole(
         )
         elevation_at = None
     steps, cautions, landing, tee_club = _strategy(
-        int(row["par"]), float(row["route_len_m"]), hazards, ladder, elevation_at=elevation_at,
+        int(row["par"]), float(row["route_len_m"]), hazards, ladder,
+        elevation_at=elevation_at, player_id=player_id,
     )
     row.update(
         candidateRoutes=_candidate_routes(ladder, hazards, par=int(row["par"])),
@@ -2993,6 +3104,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
             ladder=ladder,
             par_record=par_record,
             tee_set=tee_set,
+            player_id=player_id,
         )
         if topo_frame is not None:
             return topo_frame
@@ -3003,6 +3115,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
             par_record=par_record,
             render=render,
             tee_set=tee_set,
+            player_id=player_id,
         )
         if lightweight is not None:
             return lightweight
@@ -3016,6 +3129,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
             par_record=par_record,
             render=render,
             tee_set=tee_set,
+            player_id=player_id,
         )
     # The display route (Blue Tee) fixes the map frame so projections match the shared, Tee-
     # independent /topo.png bitmap. Playing facts (hazard carries, strategy, green distances,
@@ -3046,6 +3160,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
             par_record=par_record,
             render=render,
             tee_set=tee_set,
+            player_id=player_id,
         )
     if par_record is None:
         par_record = course_reference.load_course_par(global_id)
@@ -3072,7 +3187,8 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
     mark("prep_hazards")
     checkpoint()
     steps, cautions, landing, tee_club = _strategy(
-        par, route_len, hazards, ladder, elevation_at=_route_elevation(by, route),
+        par, route_len, hazards, ladder,
+        elevation_at=_route_elevation(by, route), player_id=player_id,
     )
     # Precise prodgeometry has a filled Green.drc mesh, so expose its actual exterior boundary to
     # clients.  The previous contract only attached the 30-radius CourseView outline on the

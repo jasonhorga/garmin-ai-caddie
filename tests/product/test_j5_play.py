@@ -326,6 +326,31 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
                     self.assertGreaterEqual(steps[1]["expectedRemaining_m"], 70.0)
                     self.assertLessEqual(steps[1]["expectedRemaining_m"], 115.0)
 
+        # J4.6 water row: the same tail parameters include the hazard interval from the current
+        # lie, so a crossing candidate cannot be reintroduced by the CoursePrep fallback.
+        water = {"water_carry": [[330.0, 360.0]], "bunkers": [], "details": []}
+        steps, *_ = course_prep._strategy(4, 396.0, water, owner_ladder)
+        rows = [
+            {"clubName": name, "median_m": carry, "p10_m": carry, "p90_m": carry, "sampleSize": 20}
+            for name, carry in owner_ladder[1:]
+        ]
+        zones = [{"kind": "water", "carryToFront_m": 330.0, "carryToClear_m": 360.0}]
+        online_tail = _sequence_tail(
+            rows,
+            199.0,
+            avoid_zones=zones,
+            travelled_m=197.0,
+            forbid_driver=True,
+            maximum_carry_m=197.0,
+            forbid_repeated_clubs=True,
+            max_overshoot_m=10.0,
+            prefer_layup_window=True,
+        )
+        self.assertEqual([step["club"] for step in steps], ["Driver", *[row["clubName"] for row in online_tail]])
+        self.assertEqual([step["targetCarry_m"] for step in steps], sorted(
+            [step["targetCarry_m"] for step in steps], reverse=True,
+        ))
+
     def test_j4_6_online_tee_tail_matches_course_prep_and_full_wedge_window(self):
         """J4.6: online tee and CoursePrep share a full-wedge layup tail."""
         owner_ladder = [
@@ -380,25 +405,33 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
                    "p90_m": carry + 8, "sampleSize": 20, "riskRate": 0, "usableRate": 100}
             for name, carry in owner_ladder
         }
-        context = {
-            "roundId": "c244-r3-par5", "globalId": 31688, "hole": 18, "localHole": 18,
-            "shotType": "tee", "par": 5, "distanceToPin_m": 500.0, "lie": "tee",
-            "clubProfiles": profiles,
-            "geometry": {"hasMeshes": True, "hasHazards": False, "hazardCount": 0},
-            "candidateRoutes": [{"id": "stock_line", "label": "stock", "carry_m": 197.0,
-                                 "landingLocal": [0, 197], "expectedSurface": {"kind": "fairway"},
-                                 "nearRisks": [], "lineRisks": [], "riskScore": 0}],
-            "dataQuality": {"confidence": "high", "issues": []},
-        }
-        plan = build_decision_plan(context)
-        stock = next(sequence for sequence in plan["sequences"] if sequence["id"] == "stock")
-        online_clubs = [step["clubName"] for step in stock["clubs"]]
-        prep_steps, *_ = course_prep._strategy(
-            5, 500.0, {"water_carry": [], "bunkers": [], "details": []}, owner_ladder,
-        )
-        prep_clubs = [step["club"] for step in prep_steps]
-        self.assertEqual(online_clubs, prep_clubs)
-        self.assertEqual(len(online_clubs), 3)
+        # The 51 hand-written Par-5 distances in the C244 r3 probe: 400…600m by 4m.
+        for distance_m in range(400, 601, 4):
+            with self.subTest(distance_m=distance_m):
+                context = {
+                    "roundId": "c244-r3-par5", "globalId": 31688, "hole": 18, "localHole": 18,
+                    "shotType": "tee", "par": 5, "distanceToPin_m": float(distance_m), "lie": "tee",
+                    "clubProfiles": profiles,
+                    "geometry": {"hasMeshes": True, "hasHazards": False, "hazardCount": 0},
+                    "candidateRoutes": [{"id": "stock_line", "label": "stock", "carry_m": 197.0,
+                                         "landingLocal": [0, 197], "expectedSurface": {"kind": "fairway"},
+                                         "nearRisks": [], "lineRisks": [], "riskScore": 0}],
+                    "dataQuality": {"confidence": "high", "issues": []},
+                }
+                plan = build_decision_plan(context)
+                stock = next(sequence for sequence in plan["sequences"] if sequence["id"] == "stock")
+                online_clubs = [step["clubName"] for step in stock["clubs"]]
+                prep_steps, *_ = course_prep._strategy(
+                    5, float(distance_m), {"water_carry": [], "bunkers": [], "details": []}, owner_ladder,
+                )
+                prep_clubs = [step["club"] for step in prep_steps]
+                self.assertEqual(online_clubs, prep_clubs)
+                # Three shots cover through 544m with Driver/3W/3H; 548m onward needs a fourth
+                # shot. This absolute minimum-shot contract kills a window-rank mutation that
+                # otherwise changes both online and prep in lockstep.
+                expected_shots = 3 if distance_m <= 544 else 4
+                self.assertEqual(len(online_clubs), expected_shots)
+                self.assertEqual(len(prep_clubs), expected_shots)
 
     def test_j4_6_online_tee_without_wedge_keeps_safe_and_stock_routes(self):
         """J4.6: a bag without a 70–115m club still yields tee alternatives."""

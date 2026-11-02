@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 98d0f540..ff5f1f16 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2028,7 +2028,7 @@ def _strategy(
+                         remaining = max(0.0, remaining - tail_distance)
+                         before_effective = effective_remaining
+                         effective_remaining = max(0.0, effective_remaining - tail_distance)
+-                        scoring = tail_index == len(shared_tail) - 1 and effective_remaining <= SCORING_WINDOW_MAX_M
++                        scoring = tail_index == len(shared_tail) - 1 and effective_remaining <= 15.0
+                         note = (
+                             f"剩约 {yd(before)}y 上果岭"
+                             if scoring
