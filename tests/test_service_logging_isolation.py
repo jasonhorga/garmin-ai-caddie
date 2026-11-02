@@ -25,6 +25,22 @@ LOGGING_GUARD_TARGETS = {
 
 
 class ServiceLoggingIsolationTests(unittest.TestCase):
+    def test_J73_pipeline_then_course_prep_preserves_diagnostics(self):
+        """J7.3: cron privacy setup must not change a later library log capture.
+
+        Run both modules in one interpreter, in the order that exposed the CI
+        regression. Course-prep's hand-written exception diagnostics must survive.
+        """
+        from tests.service_logging import preserve_service_logging
+
+        output = io.StringIO()
+        suite = unittest.defaultTestLoader.loadTestsFromNames(
+            ["tests.test_pipeline", "tests.test_course_prep"]
+        )
+        with preserve_service_logging():
+            result = unittest.TextTestRunner(stream=output).run(suite)
+        self.assertTrue(result.wasSuccessful(), output.getvalue())
+
     def test_J42_logging_mutating_module_registry_is_explicit(self):
         """J4.2: a newly logging-mutating module must be added to this guard registry."""
         self.assertIn("tests.product.test_c154b", LOGGING_MUTATING_MODULES)
