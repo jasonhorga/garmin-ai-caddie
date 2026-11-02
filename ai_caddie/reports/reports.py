@@ -469,13 +469,13 @@ def _round_numeric(value: Any) -> float | None:
     return numeric
 
 
-def _round_differential_value(score: Any, rating: Any, slope: Any) -> float | None:
+def _round_differential_value(score: Any, rating: Any, slope: Any, holes_completed: Any) -> float | None:
     # Keep report facts on the same guarded pricing path as history statistics.  The
     # import is lazy because history_stats imports report-store helpers during startup.
     from ai_caddie.history.history_stats import _round_differential
 
     return _round_differential({
-        "holesCompleted": 18,
+        "holesCompleted": holes_completed,
         "strokes": score,
         "rating": rating,
         "slope": slope,
@@ -498,7 +498,7 @@ def _round_scorecard_fact(round_row: dict[str, Any]) -> dict[str, Any]:
         "toPar": int(score) - int(par) if isinstance(score, int) and isinstance(par, int) else None,
         "rating": rating,
         "slope": slope,
-        "differential": _round_differential_value(score, rating, slope),
+        "differential": _round_differential_value(score, rating, slope, round_row.get("holesCompleted")),
         "putts": round_row.get("putts"),
         "hasShots": round_row.get("hasShots"),
         "shotStatus": round_row.get("shotStatus"),
