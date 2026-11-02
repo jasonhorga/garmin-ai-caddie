@@ -2713,6 +2713,8 @@ class MobileReconciliationTests(unittest.TestCase):
 
             self.assertEqual(len(conflict["conflicts"]), 1)
             self.assertEqual(len(choices), 1)
+            self.assertEqual(len({item["id"] for item in conflict["annotationSuggestions"]
+                                 if item["kind"] == "score_correction"}), 2)
             self.assertEqual(applied["appliedCount"], 1)
             self.assertEqual(after["conflicts"], [])
             self.assertEqual(after["annotationSuggestions"], [])
