@@ -71,6 +71,30 @@ class C281MergeSameDayTests(unittest.TestCase):
             first_corrected = corrected.rounds[0]
             self.assertEqual((first_corrected["holesCompleted"], len(first_corrected["holes"])), (18, 18))
 
+    def test_j1_3_boundary_overlap_must_follow_play_order(self) -> None:
+        """J1.3: a repeated hole must be this card's tail and the later card's head.
+
+        The morning card is 1..9 plus restored 10..18.  A second outing starts on
+        10 and records 10..18, then 1..2 before the watch dies.  The repeated 1..2
+        are equal in score, but they are the first holes of the later card rather
+        than the morning card's last holes, so the outings must stay separate.
+        """
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            morning = _row("morning", "2026-06-01 07:30", list(range(1, 10)))
+            afternoon = _row("afternoon", "2026-06-01 13:30", list(range(10, 19)) + [1, 2])
+            _restore(root, "morning")
+            corrected = corrected_history_data(
+                HistoryData(raw_rounds=[], rounds=[morning, afternoon], shots=[]),
+                annotations_root=root,
+            )
+            current = next(row for row in corrected.rounds if row["id"] == "morning")
+            self.assertEqual((current["holesCompleted"], len(current["holes"])), (18, 18))
+            self.assertEqual(
+                next(row for row in corrected.rounds if row["id"] == "afternoon")["holesCompleted"],
+                11,
+            )
+
 
     def test_j1_3_late_card_boundary_overlap_replaces_only_covered_restore(self) -> None:
         """J1.3: 1..9 + restore 10..18 + matching 9..17 has one sample per back hole."""
