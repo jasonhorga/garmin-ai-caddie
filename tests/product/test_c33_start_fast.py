@@ -555,9 +555,12 @@ class ReworkContractTests(ServiceLoggingIsolationMixin, unittest.TestCase):
         class ImmediateFailurePool:
             def __init__(self):
                 self.calls = []
+                self.builds = 0
 
             def submit_keyed(self, key, fn, *, priority):
                 self.calls.append((key, priority))
+                self.builds += 1
+                fn()
                 future = Future()
                 future.set_result(None)
                 return future
@@ -577,6 +580,7 @@ class ReworkContractTests(ServiceLoggingIsolationMixin, unittest.TestCase):
                 vp.enqueue_vector_hole(9136, 1, 2)
             self.assertEqual(3, len(pool.calls),
                              "a permanently failing vector must stop requeueing after the bound")
+            self.assertEqual(3, pool.builds, "each pre-fix poll re-ran the server vector build")
             self.assertEqual("unavailable", vp.selected_vector_plan(9136, 1)["state"])
             clock[0] = 93.0
             vp.enqueue_vector_hole(9136, 1, 2)
