@@ -1956,8 +1956,10 @@ def _repair_complete_tail(remaining_m, approach_ladder, tail, *, start_m, hazard
 
     # The shared scorer uses planning water only. Discard an incumbent that
     # would land in factual post-pin water before comparing safe candidates.
-    best = tail if _strategy_water_safe(
-        start_m + sum(distance for _, distance in tail), tail_hazards,
+    tail_total = start_m + sum(distance for _, distance in tail)
+    best = tail if (
+        _strategy_water_safe(tail_total, tail_hazards)
+        or (not relevant_water and all(tail_total <= front for front, _back in post_pin_water))
     ) else []
     best_key = key(best)
     long_advances_only = False
@@ -2419,7 +2421,7 @@ def _strategy(
     physical_total = sum(float(step["targetCarry_m"]) for step in steps)
     post_pin_safe = _strategy_water_safe(physical_total, {"water_carry": post_pin_water})
     post_pin_flyover = any(
-        physical_total > float(back) + TEE_WATER_CLEARANCE_BUFFER_M
+        physical_total > float(back)
         for _front, back in post_pin_water
     )
     incomplete = bool(steps) and steps[-1]["role"] != "scoring"
@@ -2458,7 +2460,10 @@ def _strategy(
                     tuple(-float(carry) for _, carry in candidate[:-1]), extra)
 
         alternate_routes = []
-        if not incomplete and post_pin_safe:
+        if not incomplete and (
+            post_pin_safe
+            or all(physical_total <= front for front, _back in post_pin_water)
+        ):
             alternate_routes.append((route_rank(current_route), current_route))
         repair_ladder = [row for row in usable_ladder
                          if club_bag_service.canonical_club_name(row[0]) != "driver"]
@@ -2477,7 +2482,7 @@ def _strategy(
                 route_len_m - tee_carry, repair_ladder, [], start_m=tee_carry,
                 hazards=planning_hazards, maximum_carry_m=tee_carry,
                 player_id=player_id,
-                maximum_steps=(4 if incomplete or not post_pin_safe else
+                maximum_steps=(4 if incomplete or not post_pin_safe or post_pin_flyover else
                                len(steps) - 1 if has_long_short else max(1, len(steps) - 2)),
                 post_pin_water=post_pin_water, preserve_layup=False,
             )
