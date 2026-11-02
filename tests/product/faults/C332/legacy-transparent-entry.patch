@@ -1,8 +1,7 @@
 diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-index 00717517..bf2174b0 100644
 --- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 +++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -2416,6 +2416,18 @@ public struct CurrentHoleView: View {
+@@ -2423,6 +2423,18 @@
                      .accessibilityLabel("球洞地图，点地图设目标点")
                      .accessibilityHint("按住目标点拖动微调，左右滑动切换球洞")
                      .accessibilityIdentifier("live-open-map-from-hero")
@@ -19,9 +18,9 @@ index 00717517..bf2174b0 100644
 +                    .simultaneousGesture(heroMapHoleSwipeGesture())
 +                    .simultaneousGesture(heroMapPanGesture(in: geometry.size))
  
-                 if let greenPath {
-                     let greenBounds = greenPath.boundingRect
-@@ -2453,34 +2465,6 @@ public struct CurrentHoleView: View {
+                 if let greenEntryHitPath {
+                     let greenBounds = greenEntryHitPath.boundingRect
+@@ -2450,34 +2462,6 @@
                      .zIndex(1)
                  }
              }
@@ -36,7 +35,7 @@ index 00717517..bf2174b0 100644
 -                SpatialTapGesture().onEnded { value in
 -                    guard !heroTargetDragGrabbed,
 -                          value.location.y >= LivePlayMapOverlayLayout.liveMapTopInset else { return }
--                    if greenPath?.contains(value.location) == true {
+-                    if LiveGreenEntryHitRegion.destination(at: value.location, path: greenEntryHitPath) == .greenDetail {
 -                        guard canOpenGreenDetail else { return }
 -                        showGreenDetail = true
 -                        return
