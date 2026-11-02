@@ -376,11 +376,6 @@ def _same_day_matching_boundary_score_holes(
     card_rows: dict[str, dict[str, Any]] = {}
     start_times: dict[str, int] = {}
     timed_cards: set[str] = set()
-    cards_by_day: dict[str, int] = {}
-    for row in rounds:
-        day = str(row.get("date") or "")[:10]
-        if day:
-            cards_by_day[day] = cards_by_day.get(day, 0) + 1
     # Build the score geometry first.  Loading source shots is relatively expensive; only a
     # pair with a one/two-hole boundary can use time to resolve an otherwise ambiguous match.
     for row in rounds:
@@ -456,16 +451,12 @@ def _same_day_matching_boundary_score_holes(
         legacy_displays = [card["display_by_key"][key] for key in legacy_order
                            if key in card["display_by_key"]]
         baseline_display = legacy_displays[0] if legacy_displays else None
-        # A single very early sample is a clock glitch when the next samples are effectively
-        # adjacent while the normal hole-to-hole interval is much larger.  Remove it before
-        # selecting the card start; a genuine first hole is still accepted at the geometry edge.
-        while len(timed_holes) >= 3:
-            gaps = [right[0] - left[0] for left, right in zip(timed_holes, timed_holes[1:])]
-            ordered_gaps = sorted(gaps)
-            median_gap = ordered_gaps[len(ordered_gaps) // 2]
-            first_time, first_display = timed_holes[0]
-            if (baseline_display is None or first_display == baseline_display
-                    or gaps[0] >= median_gap * 0.25):
+        # A timestamp is an outlier when its hole is preceded on the ring by another timed hole;
+        # the geometry baseline remains a valid start even when its tee shot was missed.
+        while len(timed_holes) >= 2:
+            first_display = timed_holes[0][1]
+            predecessor = (first_display - 2) % ring_size + 1
+            if first_display == baseline_display or predecessor not in timed_by_display:
                 break
             timed_holes.pop(0)
         start_time, start_display = timed_holes[0]
@@ -473,14 +464,11 @@ def _same_day_matching_boundary_score_holes(
         # shot rows.  Move to the first hole in that contiguous run, preserving an unscored
         # first-shot hole as the explicit anchor used by C338.
         if start_display in card["display_by_key"].values() and legacy_displays:
-            try:
-                anchor = legacy_displays.index(start_display)
-            except ValueError:
-                anchor = min(range(len(legacy_displays)),
-                             key=lambda i: (legacy_displays[i] - start_display) % ring_size)
+            anchor = legacy_displays.index(start_display)
             while anchor > 0:
                 previous_display = legacy_displays[anchor - 1]
-                if previous_display in timed_by_display:
+                if (previous_display in timed_by_display
+                        or previous_display != (legacy_displays[anchor] - 2) % ring_size + 1):
                     break
                 anchor -= 1
             start_display = legacy_displays[anchor]
