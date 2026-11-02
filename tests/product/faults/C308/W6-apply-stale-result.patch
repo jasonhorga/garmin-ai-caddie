@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -2641,7 +2641,7 @@
+     static func providerResultIfCurrent(
+         _ result: NearbyDiscoveryLoopResult, canApply: Bool
+     ) -> NearbyDiscoveryLoopResult? {
+-        canApply ? result : nil
++        result
+     }
+ 
+     static func shouldReplaceAutomaticSelection(

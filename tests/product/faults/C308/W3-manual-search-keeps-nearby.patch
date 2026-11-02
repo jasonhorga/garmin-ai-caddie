@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -2655,8 +2655,7 @@
+     }
+ 
+     static func resetNearbyOptionsForManualSearch(_ options: [MobileCourseOption]) -> [MobileCourseOption] {
+-        _ = options
+-        return []
++        return options
+     }
+ 
+     static func nearbyDiscoveryErrorMessage(_ error: Error) -> String {

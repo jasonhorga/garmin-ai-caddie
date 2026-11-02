@@ -1,13 +1,12 @@
 diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
-index cce069b4..1cc2407a 100644
 --- a/mobile/ios/AICaddie/Views/StartRoundView.swift
 +++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
-@@ -2617,7 +2617,7 @@ public struct StartRoundView: View {
-             guard canApply() else { return }
-             carriedCourseTees.merge(result.carriedTees) { _, latest in latest }
-             nearbyCourseOptions = result.providerOptions
--            if !result.providerOptions.isEmpty { lastNearbyCourseOptions = result.providerOptions }
-+            if false { lastNearbyCourseOptions = result.providerOptions }
-             let providerIDs = Set(result.providerOptions.map(\.globalId))
-             offlineCourseOptions = resolvedOfflineOptions(localNearby).filter {
-                 !providerIDs.contains($0.globalId)
+@@ -2633,7 +2633,7 @@
+     static func nearbyCacheAfterProviderResult(
+         current: [MobileCourseOption], incoming: [MobileCourseOption]
+     ) -> [MobileCourseOption] {
+-        incoming.isEmpty ? current : incoming
++        current
+     }
+ 
+     /// A provider result is applied only for the live request generation. The view owns the side

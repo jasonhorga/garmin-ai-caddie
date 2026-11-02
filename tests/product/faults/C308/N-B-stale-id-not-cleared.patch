@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -2603,7 +2603,7 @@
+     ) -> Bool {
+         guard !userPickedVenue else { return false }
+         guard let selected else {
+-            return !selectedGlobalIdText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
++            return false
+         }
+         return !availableNearby.contains { samePhysicalVenue(selected, $0) }
+     }

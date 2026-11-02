@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C308-W1-stale-automatic-clear-wiring",
+      "patch": "tests/product/faults/C308/W1-stale-clear.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyInitialFailureOrEmptyAnswerClearsStaleAutomaticSelection",
+      "promise": "4.1"
+    },
+    {
+      "id": "C308-W3-manual-search-keeps-nearby-wiring",
+      "patch": "tests/product/faults/C308/W3-manual-search-keeps-nearby.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testManualSearchResetDropsNearbyRows",
+      "promise": "4.1"
+    },
+    {
+      "id": "C308-W4-physical-venue-id-wiring",
+      "patch": "tests/product/faults/C308/W4-global-id-only.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testAutomaticSelectionUsesPhysicalVenueIdentity",
+      "promise": "4.1"
+    },
+    {
+      "id": "C308-W5-retain-published-nearby-wiring",
+      "patch": "tests/product/faults/C308/W5-empty-result-clears-published.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyProviderResultKeepsPreviouslyPublishedRowsWhenEmpty",
+      "promise": "4.1"
+    },
+    {
+      "id": "C308-W6-guard-provider-result-wiring",
+      "patch": "tests/product/faults/C308/W6-apply-stale-result.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyProviderResultRejectsStaleGeneration",
+      "promise": "4.1"
+    },
+    {
+      "id": "C308-NB-clear-stale-id-without-row",
+      "patch": "tests/product/faults/C308/N-B-stale-id-not-cleared.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyInitialFailureOrEmptyAnswerClearsStaleAutomaticSelection",
+      "promise": "4.1"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -2605,7 +2605,7 @@
+         guard let selected else {
+             return !selectedGlobalIdText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+         }
+-        return !availableNearby.contains { samePhysicalVenue(selected, $0) }
++        return availableNearby.contains { samePhysicalVenue(selected, $0) }
+     }
+ 
+     /// Nearby selection must compare physical venues, because one venue can expose several global

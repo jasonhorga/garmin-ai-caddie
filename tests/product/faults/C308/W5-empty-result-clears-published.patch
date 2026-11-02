@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -2625,7 +2625,7 @@
+     static func nearbyOptionsAfterProviderResult(
+         current: [MobileCourseOption], incoming: [MobileCourseOption]
+     ) -> [MobileCourseOption] {
+-        incoming.isEmpty ? current : incoming
++        incoming
+     }
+ 
+     /// Keep the last successful provider answer for recent/offline venue recovery. Empty radius
