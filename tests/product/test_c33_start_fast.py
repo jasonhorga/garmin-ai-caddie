@@ -579,13 +579,23 @@ class ReworkContractTests(ServiceLoggingIsolationMixin, unittest.TestCase):
             vp.enqueue_vector_hole(9136, 1, 2, revision="r1")
             self.assertEqual(1, len(pool.calls),
                              "a poll before the backoff deadline must not requeue the vector")
-            for now in (31.0, 92.0):
-                clock[0] = now
-                vp.enqueue_vector_hole(9136, 1, 2, revision="r1")
+            clock[0] = 31.0
+            vp.enqueue_vector_hole(9136, 1, 2, revision="r1")
+            # J4.4 bounded retry: the second failure waits 60 s (31 + 60 = 91),
+            # so t=62 must still wait even though a constant 30 s delay would have elapsed.
+            clock[0] = 62.0
+            vp.enqueue_vector_hole(9136, 1, 2, revision="r1")
+            self.assertEqual(2, len(pool.calls),
+                             "the second failure must double the backoff to 60 seconds")
+            clock[0] = 92.0
+            vp.enqueue_vector_hole(9136, 1, 2, revision="r1")
             self.assertEqual(3, len(pool.calls),
                              "a permanently failing vector must stop requeueing after the bound")
             self.assertEqual(3, pool.builds, "each pre-fix poll re-ran the server vector build")
-            self.assertEqual("unavailable", vp.selected_vector_plan(9136, 1)["state"])
+            plan = vp.selected_vector_plan(9136, 1)
+            self.assertIsNotNone(plan, "all terminal Tee failures must expose an unavailable plan")
+            self.assertEqual("unavailable", plan["state"])
+            self.assertIsNone(plan["retryAfterEpoch"])
             clock[0] = 93.0
             vp.enqueue_vector_hole(9136, 1, 2, revision="r1")
             self.assertEqual(3, len(pool.calls),
@@ -593,6 +603,56 @@ class ReworkContractTests(ServiceLoggingIsolationMixin, unittest.TestCase):
             vp.enqueue_vector_hole(9136, 1, 2, revision="r2")
             self.assertEqual(4, len(pool.calls),
                              "a new geometry revision must reopen a previously unavailable Tee")
+
+    def test_j4_4_route_ignores_other_tee_expired_backoff_and_reopens_on_selection_or_revision(self):
+        """J4.4: a terminal White Tee is explicit even after Blue's abandoned retry expires."""
+        from fastapi import BackgroundTasks
+        from server_v2 import main as server_main, map_startup
+
+        # Fixture Tee indices: Blue=2, White=3. Blue's first failure was at t=0,
+        # its 30 s backoff expired; White exhausted its three attempts at revision r1.
+        for reopen in ("selection", "revision"):
+            with self.subTest(reopen=reopen), selected_tee_fixture_course() as (
+                _mobile, vp, _cp, _root, jobs,
+            ):
+                states = {}
+                for hole in range(1, 10):
+                    states[(str(vp._CACHE_DIR), 123, hole, 2)] = {
+                        "revision": "r1", "failures": 1, "retryAfter": 30.0, "unavailable": False,
+                    }
+                    states[(str(vp._CACHE_DIR), 123, hole, 3)] = {
+                        "revision": "r1", "failures": 3, "retryAfter": None, "unavailable": True,
+                    }
+                coverage = {"coverage": "ready", "geometryRevision": "r1"}
+
+                def package(tee_box="white"):
+                    return server_main.mobile_course_package(
+                        123, background_tasks=BackgroundTasks(), background_geometry=True,
+                        map_only=True, include_event_cursor=False, priority_hole=1,
+                        loops="123:front", tee_box=tee_box, player_id="fixture-player",
+                    )
+
+                with (
+                    patch.object(vp, "_VECTOR_RETRY_STATE", states),
+                    patch.object(vp, "_VECTOR_FUTURES", {}),
+                    patch.object(time, "monotonic", return_value=100.0),
+                    patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", return_value=coverage),
+                    patch.object(server_main.course_install, "enqueue", return_value={"phase": "queued"}),
+                    patch.object(map_startup, "prepare_priority_hole", return_value={}),
+                ):
+                    for _ in range(3):
+                        hole = package().holes[0]
+                        self.assertEqual("unavailable", hole["geometryState"],
+                                         "another Tee's expired backoff must not keep White pending")
+                        self.assertIsNone(hole["retryAfterEpoch"])
+                        self.assertEqual([], jobs, "terminal White must not requeue at the same revision")
+
+                    if reopen == "revision":
+                        coverage["geometryRevision"] = "r2"
+                    hole = package("blue" if reopen == "selection" else "white").holes[0]
+                    self.assertEqual("pending", hole["geometryState"])
+                    self.assertGreater(hole["retryAfterEpoch"], time.time())
+                    self.assertEqual(9, len(jobs), "selection/revision must enqueue the nine requested holes")
 
     def test_selected_tee_cache_miss_borrows_any_cached_geometry_before_blank_map(self):
         """J4.4: Blue is preferred, then another cached Tee, while its facts stay hidden."""

@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C311-01-other-tee-expired-backoff-stays-pending",
+      "patch": "tests/product/faults/C311/01-other-tee-expired-backoff-stays-pending.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_route_ignores_other_tee_expired_backoff_and_reopens_on_selection_or_revision",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C311-02-constant-vector-backoff",
+      "patch": "tests/product/faults/C311/02-constant-vector-backoff.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_failed_selected_tee_vector_stops_polling_until_revision_changes",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C311-03-terminal-vector-plan-returns-none",
+      "patch": "tests/product/faults/C311/03-terminal-vector-plan-returns-none.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_failed_selected_tee_vector_stops_polling_until_revision_changes",
+      "promise": "J4.4"
+    }
+  ]
+}

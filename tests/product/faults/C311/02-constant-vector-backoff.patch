@@ -1,0 +1,9 @@
+diff --git a/ai_caddie/courses/vector_prep.py b/ai_caddie/courses/vector_prep.py
+index e5aa8c47..10d8b4ba 100644
+--- a/ai_caddie/courses/vector_prep.py
++++ b/ai_caddie/courses/vector_prep.py
+@@ -156,3 +156,3 @@ def _forget_vector_future(
+             state["retryAfter"] = time.monotonic() + (
+-                _VECTOR_RETRY_BASE_SECONDS * (2 ** (failures - 1))
++                _VECTOR_RETRY_BASE_SECONDS
+             )
