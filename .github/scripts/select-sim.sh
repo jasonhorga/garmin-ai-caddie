@@ -51,24 +51,9 @@ devices = inventory('devices')
 runtime_prefix = 'com.apple.CoreSimulator.SimRuntime.' + platform + '-'
 fixed_runtime = os.environ.get('WATCH_RUNTIME', '') if profile in ('compact', 'ultra') else ''
 
-# Hosted jobs must stay within the SDK installed by the runner's Xcode. A
-# hosted job may have several runtimes for the same device model, including
-# newer runtimes that the selected Xcode cannot build for.
-sdk_limit = None
-if not prefix:
-    sdk_name = 'iphonesimulator' if platform == 'iOS' else 'watchsimulator'
-    sdk_limit = version(subprocess.check_output(
-        ['xcrun', '--sdk', sdk_name, '--show-sdk-version'], text=True).strip())
-
-def supported(runtime_version):
-    return sdk_limit is None or runtime_version <= sdk_limit
-
 candidates = []
 for runtime, entries in devices.items():
     if not runtime.startswith(runtime_prefix) or (fixed_runtime and runtime != fixed_runtime):
-        continue
-    runtime_version = version(runtime[len(runtime_prefix):])
-    if not supported(runtime_version):
         continue
     for device in entries:
         wanted = device.get('name') == name if prefix else device.get('name') in (
@@ -79,8 +64,7 @@ for runtime, entries in devices.items():
 if prefix or (profile and (not candidates or profile == 'cold')):
     runtimes = [r for r in inventory('runtimes') if r.get('isAvailable') is True
                 and r['identifier'].startswith(runtime_prefix)
-                and (not fixed_runtime or r['identifier'] == fixed_runtime)
-                and supported(version(r['version']))]
+                and (not fixed_runtime or r['identifier'] == fixed_runtime)]
     if not runtimes:
         raise SystemExit('No available runtime: ' + platform)
     types = inventory('devicetypes')

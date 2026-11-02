@@ -23,10 +23,10 @@
       "promise": "C307 CI infrastructure contract"
     },
     {
-      "id": "tests-product-faults-C307-04-testflight-on-mac",
-      "patch": "tests/product/faults/C307/04-testflight-on-mac.patch",
+      "id": "tests-product-faults-C307-04-signing-bootstrap-on-mac",
+      "patch": "tests/product/faults/C307/04-signing-bootstrap-on-mac.patch",
       "kind": "python",
-      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_signing_and_testflight_always_stay_hosted",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_signing_bootstrap_always_stays_hosted",
       "promise": "C307 CI infrastructure contract"
     },
     {
@@ -166,14 +166,7 @@
       "id": "tests-product-faults-C307-28-hosted-max-runtime",
       "patch": "tests/product/faults/C307/28-hosted-max-runtime.patch",
       "kind": "python",
-      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_hosted_selection_replays_main_runtime_order_and_sdk_cap",
-      "promise": "C307 r6 hosted simulator runtime selection"
-    },
-    {
-      "id": "tests-product-faults-C307-29-hosted-sdk-cap",
-      "patch": "tests/product/faults/C307/29-hosted-sdk-cap.patch",
-      "kind": "python",
-      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_hosted_selection_replays_main_runtime_order_and_sdk_cap",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_hosted_selection_replays_main_runtime_order",
       "promise": "C307 r6 hosted simulator runtime selection"
     }
   ]

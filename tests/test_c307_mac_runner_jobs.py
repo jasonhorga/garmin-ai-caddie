@@ -442,9 +442,10 @@ while True:
                 self.assertEqual(prefs['AppleLanguages'], ['en'])
                 self.assertEqual(prefs['AppleLocale'], 'en_US')
 
-    def test_signing_and_testflight_always_stay_hosted(self):
-        paths = list((ROOT / '.github/workflows').glob('ios-testflight*.yml'))
-        paths += [ROOT / '.github/workflows/ios-signing-bootstrap.yml']
+    def test_signing_bootstrap_always_stays_hosted(self):
+        # TestFlight itself builds on the self-hosted Mac since C343 (Xcode 27
+        # only exists there); its runner contract lives in test_ci_workflow.
+        paths = [ROOT / '.github/workflows/ios-signing-bootstrap.yml']
         for path in paths:
             for job in workflow(path.name)['jobs'].values():
                 if 'uses' in job:
@@ -461,16 +462,16 @@ while True:
             prefs = self.root / 'simulators' / udid / 'data/Library/Preferences/.GlobalPreferences.plist'
             self.assertEqual(plistlib.loads(prefs.read_bytes())['AppleLanguages'], ['zh-Hans-US'])
 
-    def test_hosted_selection_replays_main_runtime_order_and_sdk_cap(self):
+    def test_hosted_selection_replays_main_runtime_order(self):
         # Main's grep/head -1 UI jobs use the first simulator runtime in the
-        # inventory; its OS=latest unit job uses the newest one. Hosted selection
-        # must preserve those job-specific choices while never exceeding Xcode's SDK.
+        # inventory; its OS=latest unit job uses the newest one (main ran unit-watch
+        # green on 26.2 under Xcode 16.4, so no SDK cap: C307 r6 review B1).
         self.set_ios_runtimes(['18.5', '18.6', '26.2'])
         for job in ('native-live', 'native-real-flow', 'native-screenshots', 'native-product-ui'):
             with self.subTest(job=job):
                 self.assertEqual(self.select('ios', GITHUB_JOB=job, SIM_SDK_VERSION='30.0'), 'iOS18.5')
         self.assertEqual(self.select('ios', GITHUB_JOB='native-unit-watch', SIM_SDK_VERSION='30.0'), 'iOS26.2')
-        self.assertEqual(self.select('ios', GITHUB_JOB='native-unit-watch', SIM_SDK_VERSION='18.5'), 'iOS18.5')
+        self.assertEqual(self.select('ios', GITHUB_JOB='native-unit-watch', SIM_SDK_VERSION='18.5'), 'iOS26.2')
 
     def test_prefixed_selection_creates_correct_models_then_reuses_them(self):
         for platform, suffix, model in [('ios', 'iphone', 'type-iOS'), ('watch', 'watch', 'type-watchOS')]:

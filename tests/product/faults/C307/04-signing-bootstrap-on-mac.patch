@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/ios-signing-bootstrap.yml b/.github/workflows/ios-signing-bootstrap.yml
+index 6d04c42d..1d5d11db 100644
+--- a/.github/workflows/ios-signing-bootstrap.yml
++++ b/.github/workflows/ios-signing-bootstrap.yml
+@@ -13,7 +13,7 @@ concurrency:
+ 
+ jobs:
+   bootstrap:
+-    runs-on: macos-15
++    runs-on: ${{ vars.MAC_RUNNER == 'online' && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
+     timeout-minutes: 30
+     steps:
+       - uses: actions/checkout@v4
