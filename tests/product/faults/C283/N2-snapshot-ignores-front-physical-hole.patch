@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/connectors/snapshot.py b/ai_caddie/connectors/snapshot.py
+index b49a758d..b4013037 100644
+--- a/ai_caddie/connectors/snapshot.py
++++ b/ai_caddie/connectors/snapshot.py
+@@ -328,7 +328,7 @@ def _shot_hole_ref(round_row: dict[str, Any], hole: int) -> tuple[Any, int]:
+     if hole <= 9:
+         return (
+             round_row.get("frontNineGlobalCourseId") or round_row.get("globalId") or round_row.get("courseId"),
+-            merged_front_local_hole(round_row, hole),
++            hole,
+         )
+     if round_row.get("backNineGlobalCourseId"):
+         return round_row.get("backNineGlobalCourseId"), merged_back_local_hole(round_row, hole)

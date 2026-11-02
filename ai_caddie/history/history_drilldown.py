@@ -13,6 +13,7 @@ from ai_caddie.history.history import (
     OWNER_ID,
     history_course_segment,
     history_course_venue_name,
+    merged_front_local_hole,
     round_loop_half,
 )
 from ai_caddie.reports.reports import iter_report_records
@@ -675,7 +676,7 @@ def _hole_geometry_target(row: dict[str, Any], hole_number: int) -> dict[str, in
         return {"globalId": _round_global_id(row), "localHole": None}
     if hole_number <= 9:
         global_id = _int_field(row, "frontNineGlobalCourseId") or _int_field(row, "globalId") or _int_field(row, "courseId")
-        return {"globalId": global_id, "localHole": hole_number}
+        return {"globalId": global_id, "localHole": merged_front_local_hole(row, hole_number)}
     back_global_id = _int_field(row, "backNineGlobalCourseId")
     if back_global_id is not None:
         local_hole = hole_number if round_loop_half(row, "back") == "back" else hole_number - 9

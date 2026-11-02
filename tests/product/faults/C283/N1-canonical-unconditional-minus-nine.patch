@@ -1,0 +1,15 @@
+diff --git a/ai_caddie/history/history.py b/ai_caddie/history/history.py
+index 23883f3d..eb4c4b7e 100644
+--- a/ai_caddie/history/history.py
++++ b/ai_caddie/history/history.py
+@@ -905,9 +905,7 @@ def remap_shots_to_merged_rounds(
+                 # missing physical hole without applying the offset again.
+                 if local_hole is None:
+                     local_hole = (
+-                        display_hole
+-                        if offset == 9 and alias.get("backHalf") == "back"
+-                        else display_hole - offset
++                        display_hole - offset
+                     )
+             else:
+                 # Raw local input (or an older partially canonical row): the

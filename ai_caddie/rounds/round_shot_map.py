@@ -23,7 +23,7 @@ from ai_caddie.core.data import clean_club_name
 from ai_caddie.courses import course_prep
 from ai_caddie.geometry import hole_render, shot_projection, topo_render
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
-from ai_caddie.history.history import HistoryData, round_source_shots
+from ai_caddie.history.history import HistoryData, merged_front_local_hole, round_source_shots
 from ai_caddie.history.history import round_loop_half
 from ai_caddie.rounds import round_corrections
 
@@ -42,6 +42,9 @@ def _geometry_target(row: dict[str, Any], hole: int) -> tuple[int | None, int]:
     18 plays its back nine from a second loop's gid)."""
     if hole <= 9:
         gid = _int(row.get("frontNineGlobalCourseId")) or _int(row.get("globalId")) or _int(row.get("courseId"))
+        local_hole = merged_front_local_hole(row, hole)
+        if local_hole != hole:
+            return gid, local_hole
         return gid, hole
     back = _int(row.get("backNineGlobalCourseId"))
     if back is not None:
