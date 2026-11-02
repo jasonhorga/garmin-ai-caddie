@@ -37,6 +37,102 @@ def rectangle(x1,y1,x2,y2):
     return mesh([(x1,y1),(x2,y1),(x2,y2),(x1,y2)], [[0,1,2],[0,2,3]])
 
 
+class PrepRouteQualityTests(unittest.TestCase):
+    """J4.6: complete, descending measured routes without unnecessary full swings."""
+
+    BAGS = {
+        "TRIG": [("Driver", 197), ("3W", 160), ("8I", 121), ("Aw", 102), ("58", 68)],
+        "PAR5BAG": [("Driver", 196), ("3W", 160), ("5I", 140), ("7I", 120),
+                    ("9I", 105), ("PW", 95), ("SW", 80)],
+        "GAP": [("Driver", 200), ("3W", 180), ("5I", 150), ("7I", 120), ("SW", 50)],
+        "NOWEDGE": [("Driver", 210), ("3W", 190), ("5H", 175), ("6I", 155), ("8I", 135)],
+    }
+
+    def prep(self, bag, par, length, water=()):
+        # Exercise the public precise-prep builder; only course input adapters are stubbed.
+        md = {"hole": {"Doglegs": [{"Line": [{"X": 0, "Y": 0}, {"X": 0, "Y": length}]}]}}
+        hazards = {"water_carry": [list(span) for span in water], "bunkers": [], "details": []}
+        record = course_reference.CoursePar(
+            global_id=99999, par=[par], par_source="courseview", confidence="high",
+        )
+        with patch.object(course_prep, "geometry_coverage_for_hole",
+                          return_value={"coverage": "ready", "missingData": []}), \
+                patch.object(course_prep.hole_render, "load_mesh", return_value=(md, {})), \
+                patch.object(course_prep, "route_hazards", return_value=hazards):
+            row = course_prep.prep_hole(
+                99999, 1, ladder=self.BAGS[bag], par_record=record, render=False,
+            ).to_dict()
+        return row
+
+    def assert_complete(self, row):
+        self.assertTrue(row["steps"])
+        self.assertEqual(row["steps"][-1]["role"], "scoring")
+        self.assertLessEqual(row["steps"][-1]["expectedRemaining_m"], 20)
+
+    def test_j4_6_short_par4_uses_a_reachable_measured_tee(self):
+        # 196--208 m is within 20 m of Driver 200/210. A forced 55% Driver
+        # cannot be followed by any <=110 m club in either of these real bag shapes.
+        for bag in ("GAP", "NOWEDGE"):
+            for length in range(196, 209):
+                for water in ((), ((length - 3, length + 20),), ((length + 5, length + 30),)):
+                    with self.subTest(bag=bag, length=length, water=water):
+                        row = self.prep(bag, 4, length, water)
+                        self.assert_complete(row)
+                        measured = dict(self.BAGS[bag])
+                        self.assertEqual(row["steps"][0]["targetCarry_m"],
+                                         measured[row["steps"][0]["club"]])
+
+    def test_j4_6_repeated_iron_crossing_does_not_add_a_stroke(self):
+        # Witnesses: 196+160+140+140=636 (water 580--620), and
+        # 197+160+121+121=599 (water 550--575). Both need at most four shots.
+        for bag, length, water in (("PAR5BAG", 620, ((580, 620),)),
+                                   ("TRIG", 590, ((550, 575),))):
+            with self.subTest(bag=bag):
+                row = self.prep(bag, 5, length, water)
+                self.assert_complete(row)
+                self.assertLessEqual(len(row["steps"]), 4)
+
+    def test_j4_6_replans_earlier_shots_to_avoid_a_large_final_overshoot(self):
+        # A safe alternative prefix exists: 197+121+102+68=488, within 12 m
+        # of 476, and 197+121+121+68=507, within 27 m of 480. In the latter
+        # case 197+121+102+68=488 also clears the clipped far edge +8 exactly.
+        for length in (476, 480):
+            with self.subTest(length=length):
+                row = self.prep("TRIG", 4, length, ((length - 40, length),))
+                self.assert_complete(row)
+                self.assertLessEqual(sum(s["targetCarry_m"] for s in row["steps"]) - length, 20)
+
+    def test_j4_6_long_hole_advances_with_a_long_club(self):
+        # 210+190+190=590 leaves 13--20 m over this range: three shots
+        # suffice, and the second shot should advance with a wood from 393--400 m.
+        for length in range(603, 611):
+            with self.subTest(length=length):
+                row = self.prep("NOWEDGE", 5, length)
+                self.assert_complete(row)
+                self.assertLessEqual(len(row["steps"]), 3)
+                self.assertGreaterEqual(row["steps"][1]["targetCarry_m"], 175)
+
+    def test_j4_6_water_forced_tee_keeps_advances_descending(self):
+        # J4.6 explicitly forbids a shorter advance followed by a longer one.
+        # Restoring previous_carry+15 would admit 3H 157 -> 3W 170.
+        for length in (288, 328, 428, 476):
+            with self.subTest(length=length):
+                row = self.prep("PAR5BAG", 4, length, ((170, 190),))
+                self.assert_complete(row)
+                carries = [s["targetCarry_m"] for s in row["steps"]]
+                self.assertEqual(carries, sorted(carries, reverse=True))
+
+    def test_j4_6_pin_in_water_keeps_a_bounded_complete_finish(self):
+        # 197+68+68=333 clears the clipped 312/316 m pin plus 8 m.
+        # No three-shot plan needs more than 21 m of physical overshoot here.
+        for length in (312, 316):
+            with self.subTest(length=length):
+                row = self.prep("TRIG", 4, length, ((300, 330),))
+                self.assert_complete(row)
+                self.assertLessEqual(len(row["steps"]), 3)
+                self.assertLessEqual(sum(s["targetCarry_m"] for s in row["steps"]) - length, 21)
+
+
 class PrepWaterRouteTests(unittest.TestCase):
     """J4.6: water-safe, complete opening routes, including sparse measured bags."""
 
