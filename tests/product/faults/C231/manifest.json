@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C231-01-no-vector-retry-bound",
+      "patch": "tests/product/faults/C231/01-no-vector-retry-bound.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_failed_selected_tee_vector_stops_polling_until_revision_changes",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C231-02-revision-does-not-reopen-vector",
+      "patch": "tests/product/faults/C231/02-revision-does-not-reopen-vector.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_failed_selected_tee_vector_stops_polling_until_revision_changes",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C231-03-background-vector-uses-geometry-pool",
+      "patch": "tests/product/faults/C231/03-background-vector-uses-geometry-pool.patch",
+      "kind": "python",
+      "target": "tests.test_map_startup.ColdPriorityTests.test_j4_2_foreground_geometry_starts_while_background_vector_lane_is_full",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C231-04-unavailable-still-requeues",
+      "patch": "tests/product/faults/C231/04-unavailable-still-requeues.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_failed_selected_tee_vector_stops_polling_until_revision_changes",
+      "promise": "J4.4"
+    },
+    {
+      "id": "tests-product-faults-C231-05-no-backoff-wait",
+      "patch": "tests/product/faults/C231/05-no-backoff-wait.patch",
+      "kind": "python",
+      "target": "tests.product.test_c33_start_fast.ReworkContractTests.test_j4_4_failed_selected_tee_vector_stops_polling_until_revision_changes",
+      "promise": "J4.4"
+    }
+  ]
+}

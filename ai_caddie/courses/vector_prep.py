@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import threading
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -29,6 +30,12 @@ _REQUESTED_TEES_LOCK = threading.Lock()
 _BACKGROUND_VECTOR_POOL = PriorityExecutor(max_workers=1, name="selected-tee-vector-background")
 _VECTOR_FUTURES: dict[tuple[str, int, int, int], Future] = {}
 _VECTOR_FUTURES_LOCK = threading.Lock()
+# A failed selected-Tee build must not be restarted by every 30-second map poll. Keep the
+# backoff in memory alongside the single-flight table; a changed geometry revision creates a new
+# attempt budget because it may have fixed the source data that caused the previous failures.
+_VECTOR_RETRY_LIMIT = 3
+_VECTOR_RETRY_BASE_SECONDS = 30.0
+_VECTOR_RETRY_STATE: dict[tuple[str, int, int, int], dict[str, object]] = {}
 
 
 def precise_route_seed_hole_in_process(
@@ -65,7 +72,19 @@ def request_vector_tee(global_id: int, local_hole: int, tee_set: int | None) -> 
         _REQUESTED_TEES.setdefault(key, set()).add(int(tee_set))
 
 
-def enqueue_vector_hole(global_id: int, local_hole: int, tee_set: int) -> None:
+def _vector_revision(global_id: int, local_hole: int) -> str:
+    try:
+        evidence = geometry_coverage_for_hole(
+            int(global_id), int(local_hole), require_current_authority=True, refresh_release=False,
+        )
+    except Exception:
+        return ""
+    return str(evidence.get("geometryRevision") or "") if isinstance(evidence, dict) else ""
+
+
+def enqueue_vector_hole(
+    global_id: int, local_hole: int, tee_set: int, *, revision: str | None = None,
+) -> bool:
     """Queue a selected-Tee supplement; never build mesh facts on the package caller.
 
     Reuse the existing bounded work queue, foreground admission and CPU process pool. Keyed
@@ -75,36 +94,96 @@ def enqueue_vector_hole(global_id: int, local_hole: int, tee_set: int) -> None:
 
     request_vector_tee(global_id, local_hole, tee_set)
 
+    key = (str(_CACHE_DIR), int(global_id), int(local_hole), int(tee_set))
+    revision = _vector_revision(global_id, local_hole) if revision is None else str(revision)
+    now = time.monotonic()
+    with _VECTOR_FUTURES_LOCK:
+        active = _VECTOR_FUTURES.get(key)
+        if active is not None and not active.done():
+            return False
+        state = _VECTOR_RETRY_STATE.get(key)
+        if state is None or state.get("revision") != revision:
+            state = {"revision": revision, "failures": 0, "retryAfter": None, "unavailable": False}
+            _VECTOR_RETRY_STATE[key] = state
+        if bool(state.get("unavailable")):
+            return False
+        retry_after = state.get("retryAfter")
+        if retry_after is not None and now < float(retry_after):
+            return False
+
     def build():
         with background_work():
             return cached_vector_hole(
                 global_id, local_hole, tee_set=tee_set, use_process_pool=True,
             )
 
-    key = (str(_CACHE_DIR), int(global_id), int(local_hole), int(tee_set))
     future = _BACKGROUND_VECTOR_POOL.submit_keyed(
         ("selected-tee-vector",) + key, build, priority=SELECTED_COURSE,
     )
     with _VECTOR_FUTURES_LOCK:
         _VECTOR_FUTURES[key] = future
-    future.add_done_callback(lambda completed, key=key: _forget_vector_future(key, completed))
+    future.add_done_callback(
+        lambda completed, key=key, revision=revision: _forget_vector_future(
+            key, completed, revision,
+        )
+    )
+    return True
 
 
-def _forget_vector_future(key: tuple[str, int, int, int], completed: Future) -> None:
+def _forget_vector_future(
+    key: tuple[str, int, int, int], completed: Future, revision: str,
+) -> None:
     with _VECTOR_FUTURES_LOCK:
-        if _VECTOR_FUTURES.get(key) is completed:
-            _VECTOR_FUTURES.pop(key, None)
+        if _VECTOR_FUTURES.get(key) is not completed:
+            return
+        _VECTOR_FUTURES.pop(key, None)
+        state = _VECTOR_RETRY_STATE.get(key)
+        if state is None or state.get("revision") != revision:
+            return
+        try:
+            succeeded = completed.result() is not None
+        except Exception:
+            succeeded = False
+        if succeeded:
+            _VECTOR_RETRY_STATE.pop(key, None)
+            return
+        failures = int(state.get("failures") or 0) + 1
+        state["failures"] = failures
+        if failures >= _VECTOR_RETRY_LIMIT:
+            state["unavailable"] = True
+            state["retryAfter"] = None
+        else:
+            state["retryAfter"] = time.monotonic() + (
+                _VECTOR_RETRY_BASE_SECONDS * (2 ** (failures - 1))
+            )
 
 
 def selected_vector_plan(global_id: int, local_hole: int) -> dict[str, object] | None:
     """Expose queued/running selected-Tee work to the package state classifier."""
     gid, hole, root = int(global_id), int(local_hole), str(_CACHE_DIR)
     with _VECTOR_FUTURES_LOCK:
-        active = any(
-            key[0] == root and key[1] == gid and key[2] == hole and not future.done()
-            for key, future in _VECTOR_FUTURES.items()
-        )
-    return {"state": "in_flight", "retryAfterEpoch": None} if active else None
+        matching = [
+            (key, future) for key, future in _VECTOR_FUTURES.items()
+            if key[0] == root and key[1] == gid and key[2] == hole
+        ]
+        if any(not future.done() for _key, future in matching):
+            return {"state": "in_flight", "retryAfterEpoch": None}
+        states = [
+            state for key, state in _VECTOR_RETRY_STATE.items()
+            if key[0] == root and key[1] == gid and key[2] == hole
+        ]
+        if not states:
+            return None
+        retry_after = [
+            time.time() + max(0.0, float(state["retryAfter"]) - time.monotonic())
+            for state in states
+            if state.get("retryAfter") is not None and not state.get("unavailable")
+        ]
+        if retry_after:
+            return {"state": "scheduled", "retryAfterEpoch": min(retry_after)}
+        if all(bool(state.get("unavailable")) for state in states):
+            return {"state": "unavailable", "retryAfterEpoch": None}
+    return None
 
 
 def _register_hole_plan_provider() -> None:

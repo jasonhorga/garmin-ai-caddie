@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/vector_prep.py b/ai_caddie/courses/vector_prep.py
+index a27e17c7..b9c5cc4c 100644
+--- a/ai_caddie/courses/vector_prep.py
++++ b/ai_caddie/courses/vector_prep.py
+@@ -108,7 +108,7 @@ def enqueue_vector_hole(
+         if bool(state.get("unavailable")):
+             return False
+         retry_after = state.get("retryAfter")
+-        if retry_after is not None and now < float(retry_after):
++        if False and retry_after is not None and now < float(retry_after):
+             return False
+ 
+     def build():

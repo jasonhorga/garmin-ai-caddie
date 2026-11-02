@@ -51,6 +51,48 @@ class ServerV2MobileTests(ServiceLoggingIsolationMixin, unittest.TestCase):
             import time
             self.assertTrue(all(h["retryAfterEpoch"] > time.time() for h in actual.holes))
 
+    def test_j4_4_route_marks_failed_selected_vector_unavailable(self) -> None:
+        """J4.4: the HTTP package route exposes terminal selected-Tee failure without retrying."""
+        from server_v2 import main as server_main, map_startup
+        from ai_caddie.courses import vector_prep as vp
+        from tests.product.test_c33_start_fast import selected_tee_fixture_course
+
+        builds = []
+        with selected_tee_fixture_course() as (_mobile, vp2, _cp, _root, _jobs):
+            real_cached = vp2.cached_vector_hole
+
+            def failed_cached(global_id, local_hole, *args, **kwargs):
+                if kwargs.get("use_process_pool"):
+                    builds.append((global_id, local_hole, kwargs.get("tee_set")))
+                    return None
+                return real_cached(global_id, local_hole, *args, **kwargs)
+
+            terminal_state = {
+                (str(vp2._CACHE_DIR), 123, 1, tee): {
+                    "revision": "r1", "failures": 3,
+                    "retryAfter": None, "unavailable": True,
+                }
+                for tee in range(1, 9)
+            }
+            with (
+                patch.object(vp2, "_VECTOR_RETRY_STATE", terminal_state),
+                patch.object(vp2, "_VECTOR_FUTURES", {}),
+                patch.object(vp2, "cached_vector_hole", side_effect=failed_cached),
+                patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole",
+                             return_value={"coverage": "ready", "geometryRevision": "r1"}),
+                patch.object(server_main.course_install, "enqueue", return_value={"phase": "queued"}),
+                patch.object(map_startup, "prepare_priority_hole", return_value={}),
+            ):
+                package = server_main.mobile_course_package(
+                    123, background_tasks=BackgroundTasks(), background_geometry=True,
+                    map_only=True, include_event_cursor=False, priority_hole=1,
+                    loops="123:front", tee_box="white", player_id="fixture-player",
+                )
+                hole = package.holes[0]
+                self.assertEqual("unavailable", hole["geometryState"])
+                self.assertIsNone(hole["retryAfterEpoch"])
+                self.assertEqual([], builds, "a terminal route state must not enqueue another build")
+
 
     def test_mobile_event_store_corrupt_logs_generic_warning(self) -> None:
         """J7.3: non-intent event-store corruption uses a generic warning."""

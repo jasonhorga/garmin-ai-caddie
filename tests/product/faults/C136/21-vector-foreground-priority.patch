@@ -1,8 +1,10 @@
+diff --git a/ai_caddie/courses/vector_prep.py b/ai_caddie/courses/vector_prep.py
+index a27e17c7..c239c415 100644
 --- a/ai_caddie/courses/vector_prep.py
 +++ b/ai_caddie/courses/vector_prep.py
-@@ -83,7 +83,7 @@
+@@ -118,7 +118,7 @@ def enqueue_vector_hole(
+             )
  
-     key = (str(_CACHE_DIR), int(global_id), int(local_hole), int(tee_set))
      future = _BACKGROUND_VECTOR_POOL.submit_keyed(
 -        ("selected-tee-vector",) + key, build, priority=SELECTED_COURSE,
 +        ("selected-tee-vector",) + key, build, priority=0,

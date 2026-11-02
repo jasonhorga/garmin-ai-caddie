@@ -1,0 +1,15 @@
+diff --git a/ai_caddie/courses/vector_prep.py b/ai_caddie/courses/vector_prep.py
+index a27e17c7..20678f84 100644
+--- a/ai_caddie/courses/vector_prep.py
++++ b/ai_caddie/courses/vector_prep.py
+@@ -148,8 +148,8 @@ def _forget_vector_future(
+             _VECTOR_RETRY_STATE.pop(key, None)
+             return
+         failures = int(state.get("failures") or 0) + 1
+-        state["failures"] = failures
+-        if failures >= _VECTOR_RETRY_LIMIT:
++        state["failures"] = 0
++        if failures >= 999999:
+             state["unavailable"] = True
+             state["retryAfter"] = None
+         else:
