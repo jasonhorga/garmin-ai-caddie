@@ -573,7 +573,13 @@ class ReworkContractTests(ServiceLoggingIsolationMixin, unittest.TestCase):
               patch.object(vp, "_VECTOR_RETRY_STATE", {}, create=True),
               patch.object(time, "monotonic", side_effect=lambda: clock[0]),
               patch.object(vp, "cached_vector_hole", return_value=None)):
-            for now in (0.0, 10.0, 31.0, 92.0):
+            clock[0] = 0.0
+            vp.enqueue_vector_hole(9136, 1, 2, revision="r1")
+            clock[0] = 10.0
+            vp.enqueue_vector_hole(9136, 1, 2, revision="r1")
+            self.assertEqual(1, len(pool.calls),
+                             "a poll before the backoff deadline must not requeue the vector")
+            for now in (31.0, 92.0):
                 clock[0] = now
                 vp.enqueue_vector_hole(9136, 1, 2, revision="r1")
             self.assertEqual(3, len(pool.calls),
