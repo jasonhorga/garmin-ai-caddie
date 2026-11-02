@@ -524,6 +524,57 @@ final class ProductPhoneUITests: XCTestCase {
         XCTAssertTrue(element("live-green-edge-front").waitForExistence(timeout: 5), "the accessible green button opens flag placement")
     }
 
+    /// J5.4: map gestures that begin on the putting surface remain map gestures.
+    func test_j5_4_live_map_gestures_starting_on_green() {
+        launch(latitude: "0"); startRound(); recordFirstShot()
+        let green = app.buttons["live-open-green-from-hero"]
+        XCTAssertTrue(green.waitForExistence(timeout: 10))
+        let pager = element("live-hole-pager")
+        let initialGreenFrame = green.frame
+        print("PROBE swipe green frame=\(initialGreenFrame) pager-before=\(String(describing: pager.value))")
+        let start = green.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: -250, dy: 0)), withVelocity: .fast, thenHoldForDuration: 0)
+        let opened = element("live-green-edge-front").waitForExistence(timeout: 2)
+        let paged = app.staticTexts["第 2 洞"].waitForExistence(timeout: 10)
+        print("PROBE swipe-from-green opened-green=\(opened) paged=\(paged) pager-after=\(String(describing: pager.value))")
+        XCTAssertFalse(opened, "J5.4 a horizontal swipe from the green does not open the green")
+        XCTAssertTrue(paged, "J5.4 a horizontal swipe from the green pages the hole")
+
+        app.terminate()
+        launch(latitude: "0"); startRound(); recordFirstShot()
+        let greenAfterLaunch = app.buttons["live-open-green-from-hero"]
+        XCTAssertTrue(greenAfterLaunch.waitForExistence(timeout: 10))
+        let map = element("live-open-map-from-hero")
+        print("PROBE pinch green-before-zoom=\(greenAfterLaunch.frame) map=\(map.frame)")
+        map.pinch(withScale: 1.5, velocity: 1.5)
+        Thread.sleep(forTimeInterval: 1.5)
+        let zoomedGreenFrame = greenAfterLaunch.frame
+        print("PROBE pinch green-after-zoom=\(zoomedGreenFrame) exists=\(greenAfterLaunch.exists)")
+        XCTAssertNotEqual(initialGreenFrame.size, zoomedGreenFrame.size, "J5.4 a map pinch zooms the map")
+
+        let reposition = map.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.6))
+        let beforeReposition = greenAfterLaunch.frame
+        reposition.press(forDuration: 0.05, thenDragTo: reposition.withOffset(CGVector(dx: 80, dy: 300)), withVelocity: .slow, thenHoldForDuration: 0)
+        Thread.sleep(forTimeInterval: 1)
+        let visibleGreenFrame = greenAfterLaunch.frame
+        print("PROBE pan reposition before=\(beforeReposition) after=\(visibleGreenFrame) moved=\(beforeReposition.origin != visibleGreenFrame.origin)")
+        XCTAssertTrue(greenAfterLaunch.isHittable, "J5.4 the zoomed green remains an accessible hit target")
+        let panStart = greenAfterLaunch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        print("PROBE pan start point=\(panStart.screenPoint) frame=\(visibleGreenFrame)")
+        let beforeGreenPan = greenAfterLaunch.frame
+        panStart.press(forDuration: 0.05, thenDragTo: panStart.withOffset(CGVector(dx: 0, dy: -60)), withVelocity: .slow, thenHoldForDuration: 0)
+        Thread.sleep(forTimeInterval: 1)
+        let openedAfterPan = element("live-green-edge-front").waitForExistence(timeout: 2)
+        let afterGreenPan = greenAfterLaunch.frame
+        print("PROBE pan from-green before=\(beforeGreenPan) after=\(afterGreenPan) moved=\(beforeGreenPan.origin != afterGreenPan.origin) opened-green=\(openedAfterPan)")
+        XCTAssertFalse(openedAfterPan, "J5.4 a pan from the green does not open the green")
+        XCTAssertGreaterThan(
+            hypot(beforeGreenPan.midX - afterGreenPan.midX, beforeGreenPan.midY - afterGreenPan.midY),
+            1,
+            "J5.4 a pan from the green moves the zoomed map"
+        )
+    }
+
     private func startRound() {
         if launchedWithFix {
             // C99 routes every new round through the shared course finder. A nearby course is
