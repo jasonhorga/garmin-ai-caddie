@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index c2209fe9..c6328208 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -1898,7 +1898,7 @@ def _strategy(
+         **(hazards or {}),
+         "water_carry": [
+             [min(float(interval[0]), float(interval[1])),
+-             min(max(float(interval[0]), float(interval[1])), float(route_len_m))]
++             max(float(interval[0]), float(interval[1]))]
+             for interval in (hazards or {}).get("water_carry") or []
+             if isinstance(interval, (list, tuple)) and len(interval) >= 2
+             and _water_span_affects_scoring_route(interval, route_len_m)

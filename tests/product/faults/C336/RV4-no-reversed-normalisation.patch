@@ -1,0 +1,24 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index c2209fe9..c6c173f9 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -1725,7 +1725,7 @@ def _strategy_water_safe(carry_m: float, hazards: dict) -> bool:
+ 
+ def _water_span_affects_scoring_route(interval, route_len_m: float) -> bool:
+     try:
+-        return min(float(interval[0]), float(interval[1])) < float(route_len_m)
++        return float(interval[0]) < float(route_len_m)
+     except (TypeError, ValueError, OverflowError, IndexError):
+         return False
+ 
+@@ -1897,8 +1897,8 @@ def _strategy(
+     planning_hazards = {
+         **(hazards or {}),
+         "water_carry": [
+-            [min(float(interval[0]), float(interval[1])),
+-             min(max(float(interval[0]), float(interval[1])), float(route_len_m))]
++            [float(interval[0]),
++             min(float(interval[1]), float(route_len_m))]
+             for interval in (hazards or {}).get("water_carry") or []
+             if isinstance(interval, (list, tuple)) and len(interval) >= 2
+             and _water_span_affects_scoring_route(interval, route_len_m)

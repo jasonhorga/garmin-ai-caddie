@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index c2209fe9..a2d93e7b 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2222,7 +2222,7 @@ def _strategy(
+                 # On the green by its plays-like distance: no extra chip for the flat shortfall.
+                 break
+     for w in hazards.get("water_carry") or []:
+-        if _water_span_affects_scoring_route(w, route_len_m):
++        if min(w) < route_len_m - 5:
+             front, back = sorted((float(w[0]), float(w[1])))
+             cautions.append(f"水障碍：进水前约 {yd(front)}y，过水需 {yd(back)}y")
+     green_side_bunkers = [
