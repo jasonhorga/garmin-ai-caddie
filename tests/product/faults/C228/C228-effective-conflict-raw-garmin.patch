@@ -1,13 +1,13 @@
 diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
-index 7442e0b9..dbc287bb 100644
+index 80f83acf..6e4f1033 100644
 --- a/ai_caddie/caddie/mobile_reconciliation.py
 +++ b/ai_caddie/caddie/mobile_reconciliation.py
-@@ -202,7 +202,7 @@ def _hole_scores(
-                 if source_strokes is not None and from_value is not None and source_strokes != from_value:
-                     total = source_strokes
-                     score_correction_conflict = True
--            elif score_correction_conflict and source_strokes is not None:
-+            elif False:
-                 total = source_strokes
-         if putt_correction_conflict and source_putts is not None:
-             putts = source_putts
+@@ -180,7 +180,7 @@ def _hole_scores(
+                     # later Garmin change is checked separately against this record's from value.
+                     prior = to_value
+                     conflict = False
+-                elif from_value is not None and prior is not None and from_value != prior:
++                elif from_value is not None and source_value is not None and from_value != source_value:
+                     conflict = True
+                     prior = to_value
+                 else:

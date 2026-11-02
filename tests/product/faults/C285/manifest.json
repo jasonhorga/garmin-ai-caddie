@@ -35,6 +35,13 @@
       "kind": "python",
       "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_penalty_latest_event_is_deduped_while_older_is_evidence",
       "promise": "J3.3/N6 assertion that repeated phone penalty confirmations keep only the latest candidate and retain the older row as evidence"
+    },
+    {
+      "id": "tests-product-faults-C285-legacy-resolution-field-dropped",
+      "patch": "tests/product/faults/C285/06-legacy-resolution-field-dropped.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_restore_then_late_garmin_offers_two_resolutions",
+      "promise": "J3.3/N2 assertion that matched resolution rows retain the legacy resolution boolean alongside resolved"
     }
   ]
 }
