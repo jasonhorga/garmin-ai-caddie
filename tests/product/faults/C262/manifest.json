@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C262-delay-first-publication",
+      "patch": "tests/product/faults/C262/delay-first-publication.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyFirstVenuePublishesAndSelectsWhileExpansionIsSuspended",
+      "promise": "4.1"
+    },
+    {
+      "id": "C262-replace-selection-on-expansion",
+      "patch": "tests/product/faults/C262/replace-selection-on-expansion.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyFirstVenuePublishesAndSelectsWhileExpansionIsSuspended",
+      "promise": "4.2"
+    }
+  ]
+}
