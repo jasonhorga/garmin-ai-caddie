@@ -755,6 +755,26 @@ def merged_back_local_hole(row: dict[str, Any], hole: int) -> int:
     return hole if round_loop_half(row, "back") == "back" else hole - 9
 
 
+def merged_front_local_hole(row: dict[str, Any], hole: int) -> int:
+    """Map a merged display front-nine hole to its physical local hole."""
+    for entry in row.get("holes") or []:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            if int(entry.get("number") or 0) != int(hole):
+                continue
+            local = int(entry.get("localHole") or 0)
+        except (TypeError, ValueError):
+            continue
+        if local > 0:
+            return local
+    try:
+        offset = int(row.get("frontHoleOffset") or 0)
+    except (TypeError, ValueError):
+        offset = 0
+    return hole - offset if offset < 0 else hole
+
+
 def _card_loop_half(row: dict[str, Any]) -> str:
     """Infer a raw nine-card loop identity before it is merged into a history row."""
     numbers = [int(hole.get("number") or 0) for hole in row.get("holes") or [] if isinstance(hole, dict)]
