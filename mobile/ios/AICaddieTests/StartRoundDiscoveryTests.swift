@@ -901,7 +901,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
 
         let started = StartRoundView.reduceNearbyDiscoveryState(state, event: .begin)
-        XCTAssertTrue(started.nearbyOptions.isEmpty, "a new discovery clears rows before provider work")
+        XCTAssertEqual(started.nearbyOptions, [old], "a refresh keeps published rows before provider work")
         XCTAssertEqual(started.lastNearbyOptions, [old], "the successful cache remains available")
 
         let result = StartRoundView.NearbyDiscoveryLoopResult(
@@ -955,6 +955,37 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 applied, event: .manualSearch
             ).nearbyOptions.isEmpty,
             "manual search removes nearby attribution"
+        )
+    }
+
+    /// J4.1/J4.2: retrying or changing GPS buckets keeps the selected loop available and must
+    /// not issue the select/clear commands that discard fetched Tees and reset the setup.
+    func testNearbyRefreshKeepsSelectedLoopAndTeeSetup() {
+        let first = loop(7992, venue: "同场", label: "A")
+        let selected = loop(7993, venue: "同场", label: "B")
+        let state = StartRoundView.NearbyDiscoveryState(
+            nearbyOptions: [first, selected], lastNearbyOptions: [first, selected]
+        )
+
+        let started = StartRoundView.reduceNearbyDiscoveryState(state, event: .begin)
+        XCTAssertEqual(started.nearbyOptions, [first, selected], "discovery must not flash the list empty")
+        XCTAssertEqual(started.selectionCommand, .none, "begin must leave the selected venue and Tee setup alone")
+        let current = StartRoundView.selectedSegment(
+            globalId: selected.globalId, current: started.nearbyOptions,
+            preselectedVenue: [], offline: [], explicit: [], recent: nil
+        )
+        XCTAssertEqual(current, selected, "the chosen B loop stays resolvable while discovery is pending")
+
+        let automatic = StartRoundView.reduceNearbyDiscoveryState(
+            started,
+            event: .automaticSelection(
+                candidate: first, selected: current, selectedGlobalIdText: String(selected.globalId),
+                availableNearby: started.nearbyOptions, userPickedVenue: false, canApply: true
+            )
+        )
+        XCTAssertEqual(
+            automatic.selectionCommand, .none,
+            "same-venue discovery must not reselect A and reset fetchedTees, teeBox, roundId or userPickedTee"
         )
     }
 
