@@ -1,9 +1,9 @@
 diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
-index d772966c..95b1bd4c 100644
+index 3ea0469..e26a3a0 100644
 --- a/mobile/ios/AICaddie/Views/StartRoundView.swift
 +++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
-@@ -2545,7 +2545,7 @@ public struct StartRoundView: View {
-         case .begin:
+@@ -2549,7 +2549,7 @@ public struct StartRoundView: View {
+         case .locationUnavailable:
              next.nearbyOptions = []
          case .manualSearch:
 -            next.nearbyOptions = []

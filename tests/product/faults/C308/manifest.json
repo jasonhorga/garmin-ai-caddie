@@ -23,8 +23,8 @@
       "promise": "4.1"
     },
     {
-      "id": "C308-W5-empty-result-state",
-      "patch": "tests/product/faults/C308/W5-empty-result-clears.patch",
+      "id": "C308-empty-result-retains-stale-rows",
+      "patch": "tests/product/faults/C308/empty-result-retains-stale-rows.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyProviderResultEmptyClearsPublishedRows",
       "promise": "4.1"
@@ -41,6 +41,13 @@
       "patch": "tests/product/faults/C308/N-B-stale-id-not-cleared.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyInitialFailureOrEmptyAnswerClearsStaleAutomaticSelection",
+      "promise": "4.1"
+    },
+    {
+      "id": "C308-begin-clears-published-rows",
+      "patch": "tests/product/faults/C308/begin-clears-published-rows.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyRefreshKeepsSelectedLoopAndTeeSetup",
       "promise": "4.1"
     }
   ]

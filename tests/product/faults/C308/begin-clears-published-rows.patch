@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 3ea0469..954abe9 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -2545,7 +2545,7 @@ public struct StartRoundView: View {
+         switch event {
+         case .begin:
+             // A GPS bucket change or retry keeps the selected row and its Tee setup usable.
+-            break
++            next.nearbyOptions = []
+         case .locationUnavailable:
+             next.nearbyOptions = []
+         case .manualSearch:
