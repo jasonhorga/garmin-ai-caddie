@@ -109,11 +109,12 @@ class NativeQuickRunnerTests(unittest.TestCase):
                           'github.repository': 'example/caddie',
                           'github.event.pull_request.head.repo.full_name':
                               'example/caddie' if same_repo else 'fork/caddie'}
-                expected = ['self-hosted', 'caddie-mba'] if online and same_repo else 'macos-15'
+                expected = ['self-hosted', 'caddie-mba']
                 self.assertEqual(expected, evaluate(self.job['runs-on'], values))
 
     def test_simulator_priority_exact_names_numeric_runtime_and_build_udid(self):
-        # Hosted has both iPhone generations: the preferred model wins even on an older runtime.
+        # The Xcode 27 Mac inventory has the iPhone 17 and Series 12 names on multiple runtimes;
+        # the preferred model wins by numeric runtime rather than inventory order.
         for devices, ios, watch in ((DEVICES, IOS_UDID, WATCH_UDID),
                                      (MAC_DEVICES, MAC_IOS_UDID, MAC_WATCH_UDID),
                                      ({**DEVICES, **MAC_DEVICES}, IOS_UDID, WATCH_UDID)):

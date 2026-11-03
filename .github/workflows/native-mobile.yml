@@ -121,7 +121,7 @@ jobs:
           mkdir -p native-quick-results
           IOS_UDID=$(xcrun simctl list devices available -j | jq -r '
             . as $inventory
-            | [["iPhone 16"] | to_entries[] as $preferred
+            | [["iPhone 17"] | to_entries[] as $preferred
               | $inventory.devices | to_entries[]
               | select(.key | contains("SimRuntime.iOS-"))
               | .key as $runtime
@@ -174,7 +174,7 @@ jobs:
           set -euo pipefail
           WATCH_UDID=$(xcrun simctl list devices available -j | jq -r '
             . as $inventory
-            | [["Apple Watch Series 10 (46mm)"] | to_entries[] as $preferred
+            | [["Apple Watch Series 12 (46mm)"] | to_entries[] as $preferred
               | $inventory.devices | to_entries[]
               | select(.key | contains("SimRuntime.watchOS-"))
               | .key as $runtime
