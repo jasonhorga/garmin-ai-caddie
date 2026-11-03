@@ -1,11 +1,11 @@
 diff --git a/server_v2/main.py b/server_v2/main.py
-index 7096a0c1..2b579d72 100644
+index 39316eb4..af3655d9 100644
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -3155,9 +3155,13 @@ def mobile_course_package(
-         return package
-     # One Tee rule for the lease, the install identity and its priority: the requested Tee (Blue
-     # when omitted). The package's own teeBox is a response fact, not the registered selection.
+@@ -3702,9 +3702,13 @@ def mobile_course_package(
+     from ai_caddie.courses.prep_work import checkpoint
+ 
+     checkpoint()
 +    package_tee_box = (
 +        package_course.get("teeBox") if isinstance(package_course, dict)
 +        else getattr(package_course, "teeBox", None)
@@ -17,7 +17,7 @@ index 7096a0c1..2b579d72 100644
          loop_key=round_loop_key(round_loops),
          player_id=player_id,
          refs=refs,
-@@ -3169,7 +3173,7 @@ def mobile_course_package(
+@@ -3716,7 +3720,7 @@ def mobile_course_package(
                  player_id,
                  global_id,
                  loop_key=round_loop_key(round_loops),
