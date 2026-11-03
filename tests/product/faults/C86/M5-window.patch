@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/stats_cache.py b/ai_caddie/history/stats_cache.py
+index af7e6d9a..d2615aff 100644
+--- a/ai_caddie/history/stats_cache.py
++++ b/ai_caddie/history/stats_cache.py
+@@ -706,7 +706,7 @@ def cached_build_history_stats(
+             if isinstance(value, dict) and "diagnosis" in value and "dataQuality" in value:
+                 value = _apply_aux_overlay(
+                     value,
+-                    windowed,
++                    data,
+                     weather_root=weather_root,
+                     decision_audit_root=decision_audit_root,
+                     player_id=player_id,
