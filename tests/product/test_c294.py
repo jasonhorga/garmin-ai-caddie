@@ -1,7 +1,7 @@
 """C294 regressions for J4.2 background admission and topo scheduling."""
 
 from contextlib import contextmanager
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 import os
 from pathlib import Path
 import threading
@@ -338,4 +338,133 @@ class IoAdmissionTests(unittest.TestCase):
 def _run_io_scope(priority_work):
     with priority_work.background_work(unit_type="c294-io", cpu=False):
         return priority_work.in_background()
+
+
+class BackgroundLeaseReleaseTests(unittest.TestCase):
+    """J4.2: transferred background leases release on cancellation and worker failure."""
+
+    def test_J42_cancelled_topo_future_releases_background_slot_before_worker_start(self):
+        """J4.2: cancelling a queued topo future immediately admits the next background unit."""
+        from ai_caddie.core import priority_work as pw
+        from ai_caddie.core.priority_work import ForegroundGate, PriorityExecutor
+        from server_v2 import course_install, main
+
+        gate = ForegroundGate(timeout_s=5, slot_timeout_s=30)
+        pool = PriorityExecutor(max_workers=1, name="c362-cancel")
+        blocker_started, release_blocker = threading.Event(), threading.Event()
+        topo_submitted = threading.Event()
+        topo_futures: list[Future] = []
+        errors: list[BaseException] = []
+
+        blocker = pool.submit(
+            lambda: (blocker_started.set(), release_blocker.wait(2)),
+        )
+        self.assertTrue(blocker_started.wait(1), "pool blocker did not start")
+
+        def record_submit(*args, **kwargs):
+            future = original_submit(*args, **kwargs)
+            topo_futures.append(future)
+            topo_submitted.set()
+            return future
+
+        def ensure_geometry(gid, *, holes, on_hole_complete, **kwargs):
+            results = []
+            for hole in holes:
+                result = {"globalId": gid, "localHole": hole, "ok": True}
+                results.append(result)
+                on_hole_complete(result)
+            return {"results": results}
+
+        with TemporaryDirectory() as directory, \
+             patch.dict(os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}), \
+             patch.object(pw, "FOREGROUND_GATE", gate), \
+             patch.object(course_install, "_launch"), \
+             patch.object(main, "_TOPO_PIPELINE_POOL", pool), \
+             patch.object(main, "_probe_geometry_revision", return_value=("r1", "current")), \
+             patch.object(main, "_render_course_topo_one", return_value=True), \
+             patch.object(main, "prefetch_garmin_rasters"), \
+             patch("ai_caddie.caddie.mobile_live._ensure_geometry_for_course", side_effect=ensure_geometry):
+            state = course_install.enqueue(
+                global_id=901, tee_box="blue", loop_key="901:front", player_id="c362-cancel",
+                refs=[{"globalId": 901, "localHole": 1, "displayHole": 1}],
+                requested={901: [1]}, ready={},
+            )
+            original_submit = pool.submit_keyed
+            with patch.object(pool, "submit_keyed", side_effect=record_submit):
+                def run_install():
+                    try:
+                        # IO coordinator context marks this as background work without consuming
+                        # the slot that the transferred topo lease must own.
+                        with pw.background_work(cpu=False, unit_type="c362-coordinator"):
+                            main.run_course_install_job(state["jobId"])
+                    except BaseException as exc:  # pragma: no cover - reported below
+                        errors.append(exc)
+
+                install = threading.Thread(target=run_install, daemon=True)
+                install.start()
+                self.assertTrue(topo_submitted.wait(1), "topo future was not submitted")
+                self.assertEqual(len(topo_futures), 1)
+                self.assertEqual(gate.background_count, 1)
+
+                next_admitted = threading.Event()
+
+                def acquire_next():
+                    lease = gate.acquire_background_lease(unit_type="c362-next")
+                    try:
+                        next_admitted.set()
+                    finally:
+                        lease.release()
+
+                waiter = threading.Thread(target=acquire_next, daemon=True)
+                waiter.start()
+                self.assertTrue(topo_futures[0].cancel(), "topo future was already running")
+                self.assertTrue(next_admitted.wait(1), "cancelled future retained its background slot")
+                waiter.join(1)
+                release_blocker.set()
+                blocker.result(timeout=1)
+                install.join(1)
+
+        release_blocker.set()
+        pool.shutdown(wait=True)
+        self.assertFalse(errors, errors)
+        self.assertFalse(install.is_alive(), "install coordinator did not settle after cancellation")
+        self.assertEqual(gate.background_count, 0)
+
+    def test_J42_failed_background_worker_releases_background_slot(self):
+        """J4.2: an exception from a worker using a transferred lease returns its slot immediately."""
+        from ai_caddie.core.priority_work import ForegroundGate, PriorityExecutor
+
+        gate = ForegroundGate(timeout_s=5, slot_timeout_s=30)
+        pool = PriorityExecutor(max_workers=1, name="c362-error")
+        lease = gate.acquire_background_lease(unit_type="c362-error")
+        worker_failed = threading.Event()
+
+        def fail_inside_lease():
+            try:
+                with lease.activate():
+                    worker_failed.set()
+                    raise ValueError("fixture worker failure")
+            except ValueError:
+                raise
+
+        future = pool.submit(fail_inside_lease)
+        self.assertTrue(worker_failed.wait(1), "worker did not enter the lease")
+        with self.assertRaises(ValueError):
+            future.result(timeout=1)
+
+        next_admitted = threading.Event()
+
+        def acquire_next():
+            replacement = gate.acquire_background_lease(unit_type="c362-next")
+            try:
+                next_admitted.set()
+            finally:
+                replacement.release()
+
+        waiter = threading.Thread(target=acquire_next, daemon=True)
+        waiter.start()
+        self.assertTrue(next_admitted.wait(1), "failed worker retained its background slot")
+        waiter.join(1)
+        pool.shutdown(wait=True)
+        self.assertEqual(gate.background_count, 0)
 
