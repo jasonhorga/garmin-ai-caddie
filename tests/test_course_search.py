@@ -383,6 +383,17 @@ class CourseSearchEndpointTests(unittest.TestCase):
         # root so a prior test cannot seed a later package with unrelated A/B/C rows.
         self._endpoint_cache = TemporaryDirectory(prefix="course-search-endpoint-")
         self.addCleanup(self._endpoint_cache.cleanup)
+        # C366: the nearby dispatcher drops discovery while anyone plays or starts a round. These
+        # endpoint tests are not about play gating, so a lease left by an earlier module in the same
+        # process (30-minute active-round deadline) must not silently suppress their warm-up.
+        for target, empty in (
+            (server_main, {"_ACTIVE_ROUNDS": {}, "_ROUND_START_IN_FLIGHT": 0}),
+            (server_main.course_install, {"_ACTIVE": set()}),
+        ):
+            for name, value in empty.items():
+                patcher = patch.object(target, name, value)
+                patcher.start()
+                self.addCleanup(patcher.stop)
         self._endpoint_root = Path(self._endpoint_cache.name)
         self._server_root_patch = patch.object(server_main, "ROOT", self._endpoint_root)
         self._server_root_patch.start()

@@ -1,0 +1,24 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 39316eb4..02d38de3 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -3115,9 +3115,7 @@ def _release_request_flight(flight: _RequestFlight, holder: dict) -> None:
+         if flight.waiters == 0 and not flight.future.done():
+             flight.cancelled.set()
+             # Provider IO may still be unwinding; new live requests need a fresh leader.
+-            for key, existing in list(_REQUEST_FLIGHTS.items()):
+-                if existing is flight:
+-                    del _REQUEST_FLIGHTS[key]
++            pass  # retain the abandoned leader
+ 
+ 
+ def _shared_request(key: tuple, build: Callable[[], Any], holder: dict | None = None) -> Any:
+@@ -3129,7 +3127,7 @@ def _shared_request(key: tuple, build: Callable[[], Any], holder: dict | None =
+         if holder is not None and holder.get("cancelled"):
+             raise PrepCancelled()
+         flight = _REQUEST_FLIGHTS.get(key)
+-        if flight is None or flight.cancelled.is_set():
++        if flight is None:
+             flight = _RequestFlight()
+             _REQUEST_FLIGHTS[key] = flight
+             leader = True

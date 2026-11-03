@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 39316eb4..bb5fe160 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2170,7 +2170,7 @@ async def _course_tees_http(
+             holder,
+         ),
+         unit_type="tees",
+-        on_cancel=lambda: _cancel_shared_request(holder),
++        on_cancel=lambda: None,
+     )
+ 
+ 

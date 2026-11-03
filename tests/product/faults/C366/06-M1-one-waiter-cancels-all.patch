@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 39316eb4..d9d650cc 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -3112,7 +3112,7 @@ def _release_request_flight(flight: _RequestFlight, holder: dict) -> None:
+             return
+         holder["released"] = True
+         flight.waiters = max(0, flight.waiters - 1)
+-        if flight.waiters == 0 and not flight.future.done():
++        if not flight.future.done():
+             flight.cancelled.set()
+             # Provider IO may still be unwinding; new live requests need a fresh leader.
+             for key, existing in list(_REQUEST_FLIGHTS.items()):

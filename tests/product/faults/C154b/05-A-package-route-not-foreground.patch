@@ -1,23 +1,24 @@
 diff --git a/server_v2/main.py b/server_v2/main.py
+index 39316eb4..894c22ea 100644
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2150,7 +2150,6 @@
-
-
- @app.get("/api/v2/mobile/rounds/{round_id}/package", response_model=LiveRoundPackageResponse)
+@@ -2333,7 +2333,6 @@ def _foreground_package_route(function):
+     return wrapped
+ 
+ 
 -@_foreground_package_route
  def mobile_round_package(
      round_id: str,
      captured_at: str | None = None,
-@@ -2959,7 +2958,6 @@
-
-
- @app.get("/api/v2/mobile/courses/{global_id}/package", response_model=LiveRoundPackageResponse)
+@@ -3582,7 +3581,6 @@ def _parse_round_loops_or_422(raw: str, global_id: int) -> list[tuple[int, str]]
+         raise HTTPException(status_code=422, detail=str(exc)) from exc
+ 
+ 
 -@_foreground_package_route
  def mobile_course_package(
      global_id: int,
      background_tasks: BackgroundTasks,
-@@ -3851,4 +3849,4 @@
+@@ -4538,4 +4536,4 @@ def retry_player_garmin_sync_job(
  # Register last, outside GZip and BaseHTTPMiddleware's body-stream proxies. Admission must last
  # through the final send to the server, not just the final send to an intermediate response queue.
  from .package_admission import PackageAdmissionMiddleware

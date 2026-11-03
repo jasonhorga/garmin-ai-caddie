@@ -1,0 +1,13 @@
+diff --git a/server_v2/map_startup.py b/server_v2/map_startup.py
+index 09ffd1c0..d5d38a73 100644
+--- a/server_v2/map_startup.py
++++ b/server_v2/map_startup.py
+@@ -341,7 +341,7 @@ def schedule_nearby(matches, player_id: str | None = None) -> None:
+                 with _NEARBY_DISPATCH_CHANGED:
+                     while _NEARBY_PENDING and round_start_in_flight():
+                         # Package completion notifies this condition; no polling during play.
+-                        _NEARBY_DISPATCH_CHANGED.wait()
++                        _NEARBY_DISPATCH_CHANGED.wait(timeout=0.05)
+                     if not _NEARBY_PENDING:
+                         _NEARBY_DISPATCH_THREAD = None
+                         return

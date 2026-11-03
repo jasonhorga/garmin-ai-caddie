@@ -1,5 +1,7 @@
 """Keep the event loop responsive while prep checks disconnects between CPU/IO stages."""
 import asyncio
+
+import anyio
 from contextlib import contextmanager
 import threading
 from collections.abc import Callable
@@ -12,7 +14,14 @@ from ai_caddie.core.priority_work import background_work
 from .timing import mark
 
 
-async def run_prep(request: Request, build: Callable, *, exempt: Callable = lambda: False):
+async def run_prep(
+    request: Request,
+    build: Callable,
+    *,
+    exempt: Callable = lambda: False,
+    unit_type: str = "prep",
+    on_cancel: Callable[[], None] | None = None,
+):
     cancelled = threading.Event()
 
     @contextmanager
@@ -22,7 +31,7 @@ async def run_prep(request: Request, build: Callable, *, exempt: Callable = lamb
             yield
         else:
             # A client that disconnects while this cold leader waits stops the wait, too.
-            with background_work(while_waiting=checkpoint, unit_type="prep"):
+            with background_work(while_waiting=checkpoint, unit_type=unit_type):
                 checkpoint()
                 yield
 
@@ -30,6 +39,7 @@ async def run_prep(request: Request, build: Callable, *, exempt: Callable = lamb
         # Cache hits and existing single-flight followers never enter admission. Cold leaders
         # wait before publishing their in-flight key, so package can still build the same prep.
         with cancellation(cancelled), cold_admission(admit):
+            checkpoint()
             return build()
 
     async def watch_disconnect():
@@ -42,10 +52,16 @@ async def run_prep(request: Request, build: Callable, *, exempt: Callable = lamb
                 if worker.done():
                     return
                 cancelled.set()
+                if on_cancel is not None:
+                    try:
+                        on_cancel()
+                    except Exception:
+                        # Cancellation bookkeeping must never hide the transport disconnect.
+                        pass
                 mark("prep_cancelled")
                 return
 
-    worker = asyncio.create_task(asyncio.to_thread(work))
+    worker = asyncio.create_task(anyio.to_thread.run_sync(work, abandon_on_cancel=True))
     watcher = asyncio.create_task(watch_disconnect())
     try:
         done, _ = await asyncio.wait({worker, watcher}, return_when=asyncio.FIRST_COMPLETED)
@@ -54,6 +70,11 @@ async def run_prep(request: Request, build: Callable, *, exempt: Callable = lamb
         await watcher  # Propagate receive failures; only an actual disconnect means 499.
         return Response(status_code=499)
     except asyncio.CancelledError:
+        if on_cancel is not None:
+            try:
+                on_cancel()
+            except Exception:
+                pass
         mark("prep_cancelled")
         raise
     finally:
