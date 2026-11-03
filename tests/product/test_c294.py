@@ -1,7 +1,7 @@
 """C294 regressions for J4.2 background admission and topo scheduling."""
 
 from contextlib import contextmanager
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError
 import os
 from pathlib import Path
 import threading
@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 # Wall-clock limits are deadlock watchdogs; behavioral decisions use Events.
 _THREAD_WATCHDOG = 10
+_FRONTEND_WATCHDOG = 2
 
 
 class TopoAdmissionTests(unittest.TestCase):
@@ -26,12 +27,8 @@ class TopoAdmissionTests(unittest.TestCase):
         gate = ForegroundGate(timeout_s=5)
         pool = PriorityExecutor(max_workers=1, name="c294-topo-pipeline")
         holder_in, release_holder = threading.Event(), threading.Event()
-        topo_started = threading.Event()
         geometry_done = threading.Event()
         decision = threading.Event()
-        topo_submitted = threading.Event()
-        allow_topo = threading.Event()
-        topo_worker_waiting = threading.Event()
         errors: list[BaseException] = []
 
         def hold_background_slot():
@@ -48,13 +45,6 @@ class TopoAdmissionTests(unittest.TestCase):
             on_hole_complete(result)
             return {"results": [result]}
 
-        original_wait_locked = gate._wait_locked
-        def observe_wait_locked(deadline, now, while_waiting):
-            if topo_submitted.is_set():
-                topo_worker_waiting.set()
-            return original_wait_locked(deadline, now, while_waiting)
-        gate._wait_locked = observe_wait_locked
-
         original_lease = pw.background_admission_lease
         def observe_lease(*args, **kwargs):
             decision.set()
@@ -62,7 +52,6 @@ class TopoAdmissionTests(unittest.TestCase):
 
         original_submit_keyed = pool.submit_keyed
         def observe_submit(*args, **kwargs):
-            topo_submitted.set()
             decision.set()
             return original_submit_keyed(*args, **kwargs)
 
@@ -74,7 +63,7 @@ class TopoAdmissionTests(unittest.TestCase):
              patch.object(main, "_playing_install_matches", return_value=False), \
              patch.object(main, "prefetch_garmin_rasters"), \
              patch.object(main, "_probe_geometry_revision", return_value=("r1", "current")), \
-             patch.object(main, "_render_course_topo_one", side_effect=lambda *args: (topo_started.set(), True)[1]), \
+             patch.object(main, "_render_course_topo_one", return_value=True), \
              patch("ai_caddie.caddie.mobile_live._ensure_geometry_for_course", side_effect=ensure_geometry), \
              patch("ai_caddie.courses.vector_prep.warm_requested_vectors"), \
              patch.object(main, "background_admission_lease", side_effect=observe_lease), \
@@ -97,17 +86,20 @@ class TopoAdmissionTests(unittest.TestCase):
             self.assertTrue(install_started.wait(_THREAD_WATCHDOG))
             self.assertTrue(geometry_done.wait(_THREAD_WATCHDOG), "install geometry was not completed")
             self.assertTrue(decision.wait(_THREAD_WATCHDOG), "install topo decision was not reached")
-            if topo_submitted.is_set():
-                self.assertTrue(topo_worker_waiting.wait(_THREAD_WATCHDOG), "mutant topo worker did not wait")
             submitted = time.monotonic()
             started: list[float] = []
             future = pool.submit(lambda: started.append(time.monotonic()), priority=FOREGROUND)
-            future.result(timeout=_THREAD_WATCHDOG)
+            try:
+                future.result(timeout=_FRONTEND_WATCHDOG)
+            except TimeoutError:
+                release_holder.set()
+                self.fail("foreground topo prewarm blocked behind install worker")
+            finally:
+                release_holder.set()
+                holder.join(_THREAD_WATCHDOG)
+                install.join(_THREAD_WATCHDOG)
+                pool.shutdown(wait=False)
             latency = started[0] - submitted
-            release_holder.set()
-            holder.join(_THREAD_WATCHDOG)
-            install.join(_THREAD_WATCHDOG)
-            pool.shutdown(wait=False)
 
         self.assertFalse(errors, errors)
         self.assertFalse(install.is_alive(), "install worker did not settle")
@@ -189,11 +181,17 @@ class TopoAdmissionTests(unittest.TestCase):
             self.assertTrue(install_submitted.wait(_THREAD_WATCHDOG))
             submitted = time.monotonic()
             started: list[float] = []
-            pool.submit(lambda: started.append(time.monotonic()), priority=FOREGROUND).result(timeout=_THREAD_WATCHDOG)
+            future = pool.submit(lambda: started.append(time.monotonic()), priority=FOREGROUND)
+            try:
+                future.result(timeout=_FRONTEND_WATCHDOG)
+            except TimeoutError:
+                release_competitor.set()
+                self.fail("foreground topo prewarm blocked behind competing install worker")
+            finally:
+                release_competitor.set()
+                install.join(_THREAD_WATCHDOG)
+                pool.shutdown(wait=False)
             latency = started[0] - submitted
-            release_competitor.set()
-            install.join(_THREAD_WATCHDOG)
-            pool.shutdown(wait=False)
 
         self.assertFalse(errors, errors)
         self.assertFalse(install.is_alive(), "install worker did not settle")
@@ -267,11 +265,17 @@ class TopoAdmissionTests(unittest.TestCase):
             self.assertTrue(worker_attempted.wait(_THREAD_WATCHDOG))
             submitted = time.monotonic()
             started: list[float] = []
-            pool.submit(lambda: started.append(time.monotonic()), priority=FOREGROUND).result(timeout=_THREAD_WATCHDOG)
+            future = pool.submit(lambda: started.append(time.monotonic()), priority=FOREGROUND)
+            try:
+                future.result(timeout=_FRONTEND_WATCHDOG)
+            except TimeoutError:
+                release_vectors.set()
+                self.fail("foreground topo prewarm blocked behind vector seed worker")
+            finally:
+                release_vectors.set()
+                install.join(_THREAD_WATCHDOG)
+                pool.shutdown(wait=False)
             latency = started[0] - submitted
-            release_vectors.set()
-            install.join(_THREAD_WATCHDOG)
-            pool.shutdown(wait=False)
 
         self.assertFalse(errors, errors)
         self.assertTrue(vector_started.is_set())
