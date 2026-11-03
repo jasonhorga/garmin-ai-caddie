@@ -100,7 +100,8 @@ _inflight: dict[tuple, threading.Event] = {}
 # correction events, putt-corrected default holes back in GIR, GIR from corrected putts; v5: C260
 # back-nine cards of one 18-hole venue keep their own loop key instead of folding into the front;
 # v6: all differential consumers reject nine-hole ratings on 18-hole rows).
-_PERSISTENT_CACHE_SCHEMA = "ai-caddie-history-stats-cache-v7"
+_PERSISTENT_CACHE_SCHEMA = "ai-caddie-history-stats-cache-v6"
+_PERSISTENT_CACHE_SCHEMA = _PERSISTENT_CACHE_SCHEMA + "-aux-overlay-v1"
 _PERSISTENT_CACHE_MAX_BYTES = 64 * 1024 * 1024
 # A stats projection can be tens of megabytes on a real history.  Never make the first package
 # caller serialize and write that projection synchronously: the request only needs the in-memory
