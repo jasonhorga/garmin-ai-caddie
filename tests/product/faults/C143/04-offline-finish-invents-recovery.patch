@@ -1,7 +1,9 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 0af025bd..1e70382e 100644
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -474,7 +474,9 @@
-     @Published public private(set) var pendingLiveHole: Int?
+@@ -485,7 +485,9 @@ public final class LiveRoundAppModel: ObservableObject {
+     @Published public private(set) var pendingLiveHoleIsFreshEntry = false
      /// Only sealed outbox recovery is stored. A live round's affordance follows its durable
      /// quarantine and current playable holes, so abandon, loop edits and seal cannot leave a card.
 -    @Published public private(set) var sealedFinishRecovery: DeferredFinishRecovery? = nil

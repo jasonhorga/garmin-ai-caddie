@@ -1,12 +1,12 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 81ffd2ee..8b6ed0e0 100644
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -1555,9 +1555,8 @@
-         clearFreshEntryRelease()
+@@ -1950,7 +1950,6 @@ public final class LiveRoundAppModel: ObservableObject {
          // The start window owns the network until the first hole is visible. Pause every prep
          // worker here, including ordinary explicit downloads: the old yieldsToForeground check
          // spared a prep-library row such as 28242 and let it consume the connection beside Start.
 -        pausePrepCourseDownload(preserveIntentPrefetch: true)
          isPreparingRound = true
+         roundStartCancellationBlockedUntil = roundStartNow().addingTimeInterval(0.5)
          // Re-entering Start replaces the request token but keeps the same user-visible operation;
-         // resetting the timer here used to erase the slow-server explanation while the button kept
-         // spinning.

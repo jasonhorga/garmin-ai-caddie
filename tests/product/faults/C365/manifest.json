@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C365-01-remove-token-invalidation",
+      "patch": "tests/product/faults/C365/01-remove-token-invalidation.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testC365CancelDropsLateCoursePackageAndDoesNotNavigate",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C365-02-remove-entry-token-guard",
+      "patch": "tests/product/faults/C365/02-remove-entry-token-guard.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testC365CancelDropsLateCoursePackageAndDoesNotNavigate",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C365-03-silent-incomplete-fallback",
+      "patch": "tests/product/faults/C365/03-silent-incomplete-fallback.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testC365IncompleteTemplateDoesNotSilentlyEnterAndSimplifiedStartIsExplicit",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C365-04-skip-complete-cache",
+      "patch": "tests/product/faults/C365/04-skip-complete-cache.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testC365CompleteCachedRoundStillEntersAfterPackageTimeout",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C365-05-prep-cancel-old-semantics",
+      "patch": "tests/product/faults/C365/05-prep-cancel-old-semantics.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testC365PrepCancelDropsLateCoursePackageAndDoesNotNavigate",
+      "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C365-06-failure-card-gated-cancel",
+      "patch": "tests/product/faults/C365/06-failure-card-gated-cancel.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testC365FailureCardCancelButtonInvokesCancelCallback",
+      "promise": "J4.2"
+    }
+  ]
+}

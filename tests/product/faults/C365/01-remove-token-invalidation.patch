@@ -1,0 +1,14 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 81ffd2ee..2a6c927e 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -717,8 +717,7 @@ public final class LiveRoundAppModel: ObservableObject {
+         }
+         if isOpeningPrepCourse {
+             closePrepMode()
+-        } else if let token { finishRoundPreparation(token) }
+-        else {
++        } else {
+             isPreparingRound = false
+             stopRoundProgress()
+         }

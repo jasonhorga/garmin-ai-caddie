@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 7a37b3b3..154b042f 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -636,7 +636,7 @@ public struct StartRoundView: View {
+         _ cancel: @escaping () -> Void,
+         gated: @escaping () -> Void
+     ) -> () -> Void {
+-        cancel
++        gated
+     }
+ 
+     /// The course and Tee Start would use, once the Tee request has settled; empty while there is

@@ -1,0 +1,20 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 1841ded0..f8431286 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -2194,9 +2194,12 @@ public final class LiveRoundAppModel: ObservableObject {
+                 if isNewRound {
+                     // An incomplete template is useful only after an explicit player choice. A
+                     // timeout must leave the Start card visible with a clear escape hatch.
+-                    canStartSimplifiedRound = true
+-                    roundStartFailure = roundStartFailure ?? .unavailable
+-                    syncStatus = roundStartFailure?.presentationMessage ?? "网络不可用，没能开始，点重试"
++                    let persisted = try offlineStore.saveRoundPackage(
++                        local,
++                        allowHoleCountDecrease: isIntentionalHoleSetChange
++                    )
++                    try activatePackage(persisted, status: "离线球场已就绪", rememberAsRecent: true)
++                    signalFreshRoundEntry(revalidatePackage: true, preparationToken: preparationToken)
+                 } else {
+                     let persisted = try offlineStore.saveRoundPackage(
+                         local,

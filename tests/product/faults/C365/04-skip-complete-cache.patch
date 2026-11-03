@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 87300b7a..57064551 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -2200,7 +2200,7 @@ public final class LiveRoundAppModel: ObservableObject {
+                 completeRoundStartRequest()
+                 return
+             }
+-            if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId),
++            if false, let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId),
+                cachedPackage.loopKey == loopKey,
+                cachedPackage.cacheState() != .degraded,
+                Self.isCompleteCachedRoundPackage(cachedPackage) {

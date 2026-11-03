@@ -620,12 +620,19 @@ public final class SyncClient {
     }
 
     func endRoundStart(_ owner: UUID) {
-        let ended = packageWorkLock.withLock { () -> Bool in
-            guard roundStartOwner == owner else { return false }
+        let ended = packageWorkLock.withLock { () -> (ended: Bool, foreground: [Task<Data, Error>]) in
+            guard roundStartOwner == owner else { return (false, []) }
             roundStartOwner = nil
-            return true
+            let foreground = packageWork.values.compactMap { entry in
+                entry.kind == .foregroundStart ? entry.task : nil
+            }
+            return (true, foreground)
         }
-        if ended { timingStore.foregroundStartDidEnd() }
+        if ended.ended { timingStore.foregroundStartDidEnd() }
+        // A user cancellation ends the owner while its URLSession request may still be held. Stop
+        // foreground package producers at the same boundary; successful starts have already awaited
+        // their foreground request before calling this method, so this cannot drop a needed result.
+        ended.foreground.forEach { $0.cancel() }
     }
 
     #if DEBUG

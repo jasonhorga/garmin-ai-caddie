@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 5e7d2817..190eb3f9 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -2175,7 +2175,6 @@ public final class LiveRoundAppModel: ObservableObject {
+             #if DEBUG
+             if let roundStartAfterFetchForTesting { await roundStartAfterFetchForTesting() }
+             #endif
+-            guard isCurrentRoundPreparation(preparationToken) else { return }
+             if let remotePackage = fetched.map(carryingInstalledPrecisePrep) {
+                 // Warm only the first playable topo while the package is being persisted and the
+                 // live view is entering. This shares TopoHoleImageStore's in-flight request with

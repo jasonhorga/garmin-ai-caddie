@@ -657,6 +657,7 @@ public struct RoundHomeView: View {
     public let offlineStorageUsage: OfflineStorageUsage?
     public let isPreparingRound: Bool
     public let roundStartFailure: RoundStartFailure?
+    public let canStartSimplifiedRound: Bool
     public let roundStartProgressMessage: String?
     public let roundStartSelection: RoundStartSelection?
     public let isFinishingRound: Bool
@@ -669,6 +670,9 @@ public struct RoundHomeView: View {
     public let onPrepareRound: (String) -> Void
     /// Start a round: (roundId, teeBox, ordered loops) — B4b-2 `loops=`.
     public let onPrepareCourseRound: (String, String, [RoundLoopEntry]) -> Void
+    public let onStartSimplifiedRound: () async -> Void
+    public let onCancelRoundStart: () -> Void
+    public let onCancelRoundStartIfReady: () -> Void
     public let onRetryRoundStart: () async -> Void
     public let onClearRoundStartFailure: () -> Void
     /// Set, change or drop (nil) the second loop before it is played: (entry, roundId).
@@ -709,6 +713,7 @@ public struct RoundHomeView: View {
     public let onValidateReadyPrepCourse: (PrepCourseDownloadRecord) async -> Bool
     /// Set to a hole number right after a fresh round is prepared → auto-navigate into that hole.
     public let pendingLiveHole: Int?
+    public let pendingLiveHoleIsFreshEntry: Bool
     public let onConsumePendingLiveHole: () -> Void
     public let onLiveHoleInitialLoadDidFinish: () -> Void
     public let onLiveAppearanceChanged: (Bool) -> Void
@@ -805,6 +810,7 @@ public struct RoundHomeView: View {
         offlineStorageUsage: OfflineStorageUsage? = nil,
         isPreparingRound: Bool = false,
         roundStartFailure: RoundStartFailure? = nil,
+        canStartSimplifiedRound: Bool = false,
         roundStartProgressMessage: String? = nil,
         roundStartSelection: RoundStartSelection? = nil,
         isFinishingRound: Bool = false,
@@ -815,6 +821,9 @@ public struct RoundHomeView: View {
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (String, String, [RoundLoopEntry]) -> Void = { _, _, _ in },
+        onStartSimplifiedRound: @escaping () async -> Void = {},
+        onCancelRoundStart: @escaping () -> Void = {},
+        onCancelRoundStartIfReady: @escaping () -> Void = {},
         onRetryRoundStart: @escaping () async -> Void = {},
         onClearRoundStartFailure: @escaping () -> Void = {},
         onSetSecondLoop: @escaping (RoundLoopEntry?, String) -> Void = { _, _ in },
@@ -843,6 +852,7 @@ public struct RoundHomeView: View {
         onRetryPrepCourseDownload: @escaping (String) -> Void = { _ in },
         onValidateReadyPrepCourse: @escaping (PrepCourseDownloadRecord) async -> Bool = { _ in true },
         pendingLiveHole: Int? = nil,
+        pendingLiveHoleIsFreshEntry: Bool = false,
         onConsumePendingLiveHole: @escaping () -> Void = {},
         onLiveHoleInitialLoadDidFinish: @escaping () -> Void = {},
         onLiveAppearanceChanged: @escaping (Bool) -> Void = { _ in },
@@ -891,6 +901,7 @@ public struct RoundHomeView: View {
         self.offlineStorageUsage = offlineStorageUsage
         self.isPreparingRound = isPreparingRound
         self.roundStartFailure = roundStartFailure
+        self.canStartSimplifiedRound = canStartSimplifiedRound
         self.roundStartProgressMessage = roundStartProgressMessage
         self.roundStartSelection = roundStartSelection
         self.isFinishingRound = isFinishingRound
@@ -901,6 +912,9 @@ public struct RoundHomeView: View {
         self.onEvent = onEvent
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
+        self.onStartSimplifiedRound = onStartSimplifiedRound
+        self.onCancelRoundStart = onCancelRoundStart
+        self.onCancelRoundStartIfReady = onCancelRoundStartIfReady
         self.onRetryRoundStart = onRetryRoundStart
         self.onClearRoundStartFailure = onClearRoundStartFailure
         self.onSetSecondLoop = onSetSecondLoop
@@ -929,6 +943,7 @@ public struct RoundHomeView: View {
         self.onRetryPrepCourseDownload = onRetryPrepCourseDownload
         self.onValidateReadyPrepCourse = onValidateReadyPrepCourse
         self.pendingLiveHole = pendingLiveHole
+        self.pendingLiveHoleIsFreshEntry = pendingLiveHoleIsFreshEntry
         self.onConsumePendingLiveHole = onConsumePendingLiveHole
         self.onLiveHoleInitialLoadDidFinish = onLiveHoleInitialLoadDidFinish
         self.onLiveAppearanceChanged = onLiveAppearanceChanged
@@ -1168,6 +1183,13 @@ public struct RoundHomeView: View {
         }
     }
 
+    private static func isStartRoute(_ route: HubRoute) -> Bool {
+        switch route {
+        case .start, .startCourse: return true
+        default: return false
+        }
+    }
+
     /// Adding/removing a physical nine changes the destination's valid hole set without ending the
     /// round. Keep the current hole when it still exists; otherwise move immediately to the restored
     /// active hole (or the first retained hole) instead of leaving an empty NavigationStack page.
@@ -1188,6 +1210,10 @@ public struct RoundHomeView: View {
     /// 开始记分后直接进实战屏:把刚开的洞设为唯一路径(替换掉「开始一场」),不弹回 Hub。
     private func enterPendingLiveHole(_ hole: Int?) {
         guard let hole else { return }
+        guard Self.shouldEnterPendingLiveHole(path: path, isFreshEntry: pendingLiveHoleIsFreshEntry) else {
+            onConsumePendingLiveHole()
+            return
+        }
         #if DEBUG
         UITestEventLatencyTrace.record(
             "round-home.enter.begin hole=\(hole) course=\(package?.course.globalId ?? -1)"
@@ -1204,6 +1230,10 @@ public struct RoundHomeView: View {
             "round-home.enter.end hole=\(hole) course=\(package?.course.globalId ?? -1)"
         )
         #endif
+    }
+
+    static func shouldEnterPendingLiveHole(path: [HubRoute], isFreshEntry: Bool) -> Bool {
+        !isFreshEntry || path.contains(where: Self.isStartRoute)
     }
 
     /// The hole screen's package: the live round's, else the 备战 course's, else the home package.
@@ -1712,12 +1742,16 @@ public struct RoundHomeView: View {
             syncStatus: syncStatus,
             isPreparing: isPreparingRound,
             roundStartFailure: roundStartFailure,
+            canStartSimplifiedRound: canStartSimplifiedRound,
             roundStartProgressMessage: roundStartProgressMessage,
             roundStartSelection: roundStartSelection,
             apiBaseURL: apiBaseURL,
             adminTokenConfigured: adminTokenConfigured,
             onPrepareRound: onPrepareRound,
             onPrepareCourseRound: onPrepareCourseRound,
+            onStartSimplifiedRound: onStartSimplifiedRound,
+            onCancelRoundStart: onCancelRoundStart,
+            onCancelRoundStartIfReady: onCancelRoundStartIfReady,
             onRetryRoundStart: onRetryRoundStart,
             onClearRoundStartFailure: onClearRoundStartFailure,
             onSaveBackendConfiguration: onSaveBackendConfiguration,

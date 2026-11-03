@@ -1,0 +1,26 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 5e7d2817..c830d285 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -718,9 +718,7 @@ public final class LiveRoundAppModel: ObservableObject {
+         if let intentKey {
+             intentPrefetchTasks[intentKey]?.cancel()
+         }
+-        if isOpeningPrepCourse {
+-            closePrepMode()
+-        } else if let token { finishRoundPreparation(token) }
++        if let token { finishRoundPreparation(token) }
+         else {
+             isPreparingRound = false
+             stopRoundProgress()
+@@ -5099,9 +5097,7 @@ public final class LiveRoundAppModel: ObservableObject {
+                 if let roundStartAfterFetchForTesting { await roundStartAfterFetchForTesting() }
+ #endif
+             }
+-            guard generation == self.prepOpenGeneration,
+-                  self.isCurrentRoundPreparation(preparationToken),
+-                  !Task.isCancelled else { return }
++            guard generation == self.prepOpenGeneration else { return }
+             guard self.liveRoundState == nil else { return }
+             guard let opened else {
+                 self.roundStartFailure = self.roundStartFailure ?? .unavailable
