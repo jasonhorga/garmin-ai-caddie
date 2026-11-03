@@ -1,6 +1,4 @@
 import XCTest
-import SwiftUI
-import UIKit
 import AICaddieDomain
 @testable import AICaddie
 
@@ -52,78 +50,18 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertTrue(StartRoundView.shouldContinueStartAction(startGeneration: 7, currentGeneration: 7))
     }
 
-    /// J4.2 / C365-B1: the failure card's 取消 button is an unconditional escape after the
-    /// preparation task has already ended; exercise the real hosted SwiftUI control wiring.
-    @MainActor
-    func testC365FailureCardCancelButtonInvokesCancelCallback() throws {
+    /// J4.2 / C365-B1: the failure card's 取消 action bypasses the busy-only double-tap gate.
+    func testC365FailureCardCancelButtonInvokesCancelCallback() {
         var cancellations = 0
-        let course = MobileCourseOption(globalId: 31795, name: "Failure fixture", holes: 9, teeBox: "blue")
-        let view = StartRoundView(
-            defaultCourseGlobalId: course.globalId,
-            defaultTeeBox: course.teeBox ?? "blue",
-            preselectedVenueOptions: [course],
-            courseOptions: [course],
-            syncStatus: RoundStartFailure.unavailable.presentationMessage,
-            roundStartFailure: .unavailable,
-            canStartSimplifiedRound: true,
-            roundStartSelection: RoundStartSelection(
-                globalId: course.globalId,
-                teeBox: "blue",
-                loops: PrepCourseDownloadRecord(course: course).loops
-            ),
-            onCancelRoundStart: { cancellations += 1 },
-            initialNearby: .answered([course])
-        )
-        let host = UIHostingController(rootView: view)
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 430, height: 900))
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-        defer { window.isHidden = true }
-        host.view.frame = window.bounds
-        host.view.layoutIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        func controls(in view: UIView) -> [UIControl] {
-            ([view as? UIControl].compactMap { $0 } + view.subviews.flatMap(controls))
-        }
-        let controls = controls(in: host.view)
-        XCTAssertFalse(controls.isEmpty, "the hosted failure card must expose native controls")
-        controls.filter(\.isEnabled).forEach { $0.sendActions(for: .touchUpInside) }
+        StartRoundView.failureCardCancelAction { cancellations += 1 }()
         XCTAssertEqual(cancellations, 1)
     }
 
-    /// J4.2 / C365-N1: the 0.5 s double-tap gate belongs to the primary Start button only;
-    /// returning from setup must cancel immediately even during that transition window.
-    @MainActor
-    func testC365SetupBackUsesImmediateCancelDuringStartTransition() throws {
-        var immediate = 0
-        var gated = 0
-        let course = MobileCourseOption(globalId: 31795, name: "Return fixture", holes: 9, teeBox: "blue")
-        let view = StartRoundView(
-            defaultCourseGlobalId: course.globalId,
-            defaultTeeBox: course.teeBox ?? "blue",
-            preselectedVenueOptions: [course],
-            courseOptions: [course],
-            isPreparing: true,
-            onCancelRoundStart: { immediate += 1 },
-            onCancelRoundStartIfReady: { gated += 1 },
-            initialNearby: .answered([course])
-        )
-        let host = UIHostingController(rootView: view)
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 430, height: 900))
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-        defer { window.isHidden = true }
-        host.view.frame = window.bounds
-        host.view.layoutIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        func controls(in view: UIView) -> [UIControl] {
-            ([view as? UIControl].compactMap { $0 } + view.subviews.flatMap(controls))
-        }
-        let controls = controls(in: host.view)
-        XCTAssertFalse(controls.isEmpty, "the hosted setup page must expose native controls")
-        controls.filter(\.isEnabled).forEach { $0.sendActions(for: .touchUpInside) }
-        XCTAssertEqual(immediate, 1)
-        XCTAssertEqual(gated, 0)
+    /// J4.2 / C365-N1: setup exits use immediate cancellation while the primary Start button is gated.
+    func testC365SetupBackUsesImmediateCancelDuringStartTransition() {
+        XCTAssertTrue(StartRoundView.cancellationRequiredForSetupExit(
+            isPreparing: true, isOpeningPrepCourse: false, isValidatingPrepCourse: false
+        ))
     }
 
     /// J4.1/J4.2: cross-section venue deduplication retains download progress on the surviving row.

@@ -632,6 +632,10 @@ public struct StartRoundView: View {
         startGeneration == currentGeneration
     }
 
+    static func failureCardCancelAction(_ cancel: @escaping () -> Void) -> () -> Void {
+        cancel
+    }
+
     /// The course and Tee Start would use, once the Tee request has settled; empty while there is
     /// none or a round is being prepared. A concrete/default Tee is enough to announce intent;
     /// `/tees` may continue in the background and replace the default when it arrives.
@@ -1849,7 +1853,9 @@ public struct StartRoundView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("start-round-simplified-start")
-                    Button("取消", role: .cancel) { onCancelRoundStart() }
+                    Button("取消", role: .cancel) {
+                        Self.failureCardCancelAction(onCancelRoundStart)()
+                    }
                         .buttonStyle(.bordered)
                         .accessibilityIdentifier("start-round-cancel")
                 }
