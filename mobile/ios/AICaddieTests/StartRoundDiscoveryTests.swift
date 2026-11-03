@@ -1,4 +1,6 @@
 import XCTest
+import SwiftUI
+import UIKit
 import AICaddieDomain
 @testable import AICaddie
 
@@ -48,6 +50,38 @@ final class StartRoundDiscoveryTests: XCTestCase {
     func testC365ValidationContinuationIsDroppedAfterSetupExit() {
         XCTAssertFalse(StartRoundView.shouldContinueStartAction(startGeneration: 7, currentGeneration: 8))
         XCTAssertTrue(StartRoundView.shouldContinueStartAction(startGeneration: 7, currentGeneration: 7))
+    }
+
+    /// J4.2 / C365-B1: the failure card's 取消 button is an unconditional escape after the
+    /// preparation task has already ended; exercise the real hosted SwiftUI control wiring.
+    @MainActor
+    func testC365FailureCardCancelButtonInvokesCancelCallback() throws {
+        var cancellations = 0
+        let course = MobileCourseOption(globalId: 31795, name: "Failure fixture", holes: 9, teeBox: "blue")
+        let view = StartRoundView(
+            defaultCourseGlobalId: course.globalId,
+            defaultTeeBox: course.teeBox,
+            courseOptions: [course],
+            syncStatus: RoundStartFailure.unavailable.presentationMessage,
+            roundStartFailure: .unavailable,
+            canStartSimplifiedRound: true,
+            onCancelRoundStart: { cancellations += 1 },
+            initialPage: .setup
+        )
+        let host = UIHostingController(rootView: view)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 430, height: 900))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        host.view.layoutIfNeeded()
+
+        func find(_ view: UIView) -> UIView? {
+            if view.accessibilityIdentifier == "start-round-cancel" { return view }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        let button = try XCTUnwrap(find(host.view), "the failure card must expose its cancel control")
+        XCTAssertTrue(button.accessibilityActivate(), "the cancel control must dispatch its callback")
+        XCTAssertEqual(cancellations, 1)
     }
 
     /// J4.1/J4.2: cross-section venue deduplication retains download progress on the surviving row.
