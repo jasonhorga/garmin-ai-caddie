@@ -28,6 +28,10 @@ class TopoAdmissionTests(unittest.TestCase):
         holder_in, release_holder = threading.Event(), threading.Event()
         topo_started = threading.Event()
         geometry_done = threading.Event()
+        decision = threading.Event()
+        topo_submitted = threading.Event()
+        allow_topo = threading.Event()
+        topo_worker_waiting = threading.Event()
         errors: list[BaseException] = []
 
         def hold_background_slot():
@@ -44,6 +48,24 @@ class TopoAdmissionTests(unittest.TestCase):
             on_hole_complete(result)
             return {"results": [result]}
 
+        original_wait_locked = gate._wait_locked
+        def observe_wait_locked(deadline, now, while_waiting):
+            if topo_submitted.is_set():
+                topo_worker_waiting.set()
+            return original_wait_locked(deadline, now, while_waiting)
+        gate._wait_locked = observe_wait_locked
+
+        original_lease = pw.background_admission_lease
+        def observe_lease(*args, **kwargs):
+            decision.set()
+            return original_lease(*args, **kwargs)
+
+        original_submit_keyed = pool.submit_keyed
+        def observe_submit(*args, **kwargs):
+            topo_submitted.set()
+            decision.set()
+            return original_submit_keyed(*args, **kwargs)
+
         with TemporaryDirectory() as directory, \
              patch.object(pw, "FOREGROUND_GATE", gate), \
              patch.dict(os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}), \
@@ -55,6 +77,8 @@ class TopoAdmissionTests(unittest.TestCase):
              patch.object(main, "_render_course_topo_one", side_effect=lambda *args: (topo_started.set(), True)[1]), \
              patch("ai_caddie.caddie.mobile_live._ensure_geometry_for_course", side_effect=ensure_geometry), \
              patch("ai_caddie.courses.vector_prep.warm_requested_vectors"), \
+             patch.object(main, "background_admission_lease", side_effect=observe_lease), \
+             patch.object(pool, "submit_keyed", side_effect=observe_submit), \
              patch.object(main, "_TOPO_PIPELINE_POOL", pool):
             state = ci.enqueue(
                 global_id=901, tee_box="blue", loop_key="901:front", player_id="fixture",
@@ -72,6 +96,9 @@ class TopoAdmissionTests(unittest.TestCase):
             install.start()
             self.assertTrue(install_started.wait(_THREAD_WATCHDOG))
             self.assertTrue(geometry_done.wait(_THREAD_WATCHDOG), "install geometry was not completed")
+            self.assertTrue(decision.wait(_THREAD_WATCHDOG), "install topo decision was not reached")
+            if topo_submitted.is_set():
+                self.assertTrue(topo_worker_waiting.wait(_THREAD_WATCHDOG), "mutant topo worker did not wait")
             submitted = time.monotonic()
             started: list[float] = []
             future = pool.submit(lambda: started.append(time.monotonic()), priority=FOREGROUND)
