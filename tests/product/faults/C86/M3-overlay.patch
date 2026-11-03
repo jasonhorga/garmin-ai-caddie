@@ -1,13 +1,13 @@
 diff --git a/ai_caddie/history/stats_cache.py b/ai_caddie/history/stats_cache.py
-index af7e6d9a..19bde629 100644
+index c90d2a26..ccb70099 100644
 --- a/ai_caddie/history/stats_cache.py
 +++ b/ai_caddie/history/stats_cache.py
-@@ -704,6 +704,8 @@ def cached_build_history_stats(
-             value = core_value
-         if error is None:
-             if isinstance(value, dict) and "diagnosis" in value and "dataQuality" in value:
-+                value = value
-+                return value
-                 value = _apply_aux_overlay(
-                     value,
-                     windowed,
+@@ -649,7 +649,7 @@ def cached_build_history_stats(
+             hit = _cache.get(key)
+             if hit is not None and hit[0] == fingerprint:
+                 aux_hit = _aux_cache.get(key)
+-                if aux_hit is not None and aux_hit[0] == fingerprint and aux_hit[1] == aux_fingerprint:
++                if aux_hit is not None and aux_hit[0] == fingerprint:
+                     mark("stats_hit")
+                     return aux_hit[2]
+                 core_value = hit[1]
