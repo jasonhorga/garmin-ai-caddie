@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C358-M2-par4-only",
+      "patch": "tests/product/faults/C358/M2-par4-only.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_same_stroke_count_prefers_post_pin_water_buffer",
+      "promise": "4.6",
+      "kills": "A same-stroke post-pin water buffer must apply to Par 5 as well as Par 4; restricting the clearance preference to Par 4 leaves the OWNER Par 5 finish 6 m before the pond."
+    }
+  ]
+}
