@@ -315,7 +315,7 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
         """J3/J4: preserve capture budgets with independently assigned runner ports."""
         jobs = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())["jobs"]
         for name, job_budget, step_budget in (("native-real-flow", 55, 45),
-                                            ("native-screenshots", 45, 35), ("native-live", 150, 90)):
+                                            ("native-screenshots", 55, 45), ("native-live", 150, 90)):
             job = jobs[name]
             self.assertEqual(job_budget, job["timeout-minutes"])
             capture = next(s for s in job["steps"] if s.get("id") == "real_ios_capture")
