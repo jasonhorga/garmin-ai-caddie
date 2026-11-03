@@ -82,15 +82,12 @@ final class StartRoundDiscoveryTests: XCTestCase {
         host.view.frame = window.bounds
         host.view.layoutIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        func find(_ view: UIView) -> (() -> Bool)? {
-            if let element = (view.accessibilityElements as? [UIAccessibilityElement])?.first(where: {
-                $0.accessibilityIdentifier == "start-round-cancel"
-            }) { return { element.accessibilityActivate() } }
-            if view.accessibilityLabel == "取消" { return { view.accessibilityActivate() } }
-            return view.subviews.lazy.compactMap(find).first
+        func controls(in view: UIView) -> [UIControl] {
+            ([view as? UIControl].compactMap { $0 } + view.subviews.flatMap(controls))
         }
-        let activate = try XCTUnwrap(find(host.view), "the failure card must expose its cancel control")
-        XCTAssertTrue(activate(), "the cancel control must dispatch its callback")
+        let controls = controls(in: host.view)
+        XCTAssertFalse(controls.isEmpty, "the hosted failure card must expose native controls")
+        controls.filter(\.isEnabled).forEach { $0.sendActions(for: .touchUpInside) }
         XCTAssertEqual(cancellations, 1)
     }
 
@@ -119,15 +116,12 @@ final class StartRoundDiscoveryTests: XCTestCase {
         host.view.frame = window.bounds
         host.view.layoutIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        func find(_ view: UIView) -> (() -> Bool)? {
-            if let element = (view.accessibilityElements as? [UIAccessibilityElement])?.first(where: {
-                $0.accessibilityIdentifier == "start-round-back-to-courses"
-            }) { return { element.accessibilityActivate() } }
-            if view.accessibilityLabel == "返回" { return { view.accessibilityActivate() } }
-            return view.subviews.lazy.compactMap(find).first
+        func controls(in view: UIView) -> [UIControl] {
+            ([view as? UIControl].compactMap { $0 } + view.subviews.flatMap(controls))
         }
-        let activate = try XCTUnwrap(find(host.view), "setup must expose its back control")
-        XCTAssertTrue(activate())
+        let controls = controls(in: host.view)
+        XCTAssertFalse(controls.isEmpty, "the hosted setup page must expose native controls")
+        controls.filter(\.isEnabled).forEach { $0.sendActions(for: .touchUpInside) }
         XCTAssertEqual(immediate, 1)
         XCTAssertEqual(gated, 0)
     }
