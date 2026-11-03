@@ -65,6 +65,11 @@ final class StartRoundDiscoveryTests: XCTestCase {
             syncStatus: RoundStartFailure.unavailable.presentationMessage,
             roundStartFailure: .unavailable,
             canStartSimplifiedRound: true,
+            roundStartSelection: RoundStartSelection(
+                globalId: course.globalId,
+                teeBox: "blue",
+                loops: PrepCourseDownloadRecord(course: course).loops
+            ),
             onCancelRoundStart: { cancellations += 1 }
         )
         let host = UIHostingController(rootView: view)
