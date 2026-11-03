@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import replace
+from concurrent.futures import Future, TimeoutError as FutureTimeoutError
 from datetime import datetime, timezone
 import hashlib
 import hmac
@@ -1907,23 +1908,31 @@ def _persist_courseview_venue_loops(matches: object, root) -> None:
         logger.warning("courseview_venue_loops_background_failed", exc_info=True)
 
 
-@app.get("/api/v2/courses/nearby")
 def course_nearby_endpoint(
     background_tasks: BackgroundTasks,
     latitude: float = Query(ge=-90, le=90),
     longitude: float = Query(ge=-180, le=180),
     radius_km: int = Query(default=50, ge=1, le=200),
     player_id: str = Depends(current_player_id),
+    _flight_holder: dict | None = None,
+    _generation: int | None = None,
 ) -> dict:
     """List provider-wide Garmin catalogue rows around a coordinate; metadata only."""
-    try:
-        nearby_result = course_search.courseview_nearby(
-            latitude=latitude,
-            longitude=longitude,
-            radius_km=radius_km,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail="Garmin course catalogue unavailable") from exc
+    def fetch_nearby():
+        try:
+            return course_search.courseview_nearby(
+                latitude=latitude,
+                longitude=longitude,
+                radius_km=radius_km,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail="Garmin course catalogue unavailable") from exc
+
+    nearby_key = ("nearby", round(float(latitude), 3), round(float(longitude), 3), int(radius_km))
+    nearby_result = (
+        _shared_request(nearby_key, fetch_nearby, _flight_holder)
+        if _flight_holder is not None else fetch_nearby()
+    )
     # Keep accepting a plain list from test/adaptor callers while the production
     # implementation carries explicit completeness/cache metadata.
     if isinstance(nearby_result, course_search.NearbyCourseResult):
@@ -1952,7 +1961,12 @@ def course_nearby_endpoint(
         append_history=False,
     )
     background_tasks.add_task(_persist_courseview_venue_loops, _venue_loop_index_rows(matches), ROOT)
-    if matches:
+    if matches and (
+        _flight_holder is None
+        or not _flight_holder.get("subscription", (None, {"cancelled": False}))[1].get("cancelled")
+    ) and (
+        _generation is None or _nearby_generation_current(player_id, _generation)
+    ):
         # Durable full map prep replaces metadata-only warming. All provider courses in 30 km
         # enter the bounded low-priority lane; this response never waits for downloads/renders.
         # The nearest courses' small CourseView releases are fetched first, so a tap on one of
@@ -1984,6 +1998,35 @@ def course_nearby_endpoint(
         "cacheStatus": cache_status,
         "matches": payloads,
     }
+
+
+@app.get("/api/v2/courses/nearby")
+async def _course_nearby_http(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    latitude: float = Query(ge=-90, le=90),
+    longitude: float = Query(ge=-180, le=180),
+    radius_km: int = Query(default=50, ge=1, le=200),
+    player_id: str = Depends(current_player_id),
+) -> dict:
+    from .prep_work import run_prep
+
+    holder: dict = {}
+    generation = _next_nearby_generation(player_id)
+    return await run_prep(
+        request,
+        lambda: course_nearby_endpoint(
+            background_tasks,
+            latitude=latitude,
+            longitude=longitude,
+            radius_km=radius_km,
+            player_id=player_id,
+            _flight_holder=holder,
+            _generation=generation,
+        ),
+        unit_type="nearby",
+        on_cancel=lambda: _cancel_shared_request(holder),
+    )
 
 
 def _course_tees_payload(global_id: int, options: dict) -> dict:
@@ -2072,7 +2115,6 @@ def tee_requests_in_flight() -> bool:
         return _TEE_REQUESTS_IN_FLIGHT > 0
 
 
-@app.get("/api/v2/courses/{global_id}/tees")
 def course_tees(
     global_id: int,
     background_tasks: BackgroundTasks,
@@ -2104,6 +2146,29 @@ def course_tees(
                 courseview_tees(int(global_id), allow_fetch=True)
         options = course_tee_options(int(global_id))
     return _course_tees_payload(int(global_id), options)
+
+
+@app.get("/api/v2/courses/{global_id}/tees")
+async def _course_tees_http(
+    request: Request,
+    global_id: int,
+    background_tasks: BackgroundTasks,
+    ensure_release: bool = False,
+) -> dict:
+    from .prep_work import run_prep
+
+    holder: dict = {}
+    key = ("tees", int(global_id), bool(ensure_release))
+    return await run_prep(
+        request,
+        lambda: _shared_request(
+            key,
+            lambda: course_tees(global_id, background_tasks, ensure_release=ensure_release),
+            holder,
+        ),
+        unit_type="tees",
+        on_cancel=lambda: _cancel_shared_request(holder),
+    )
 
 
 @app.post("/api/v2/geometry/hole/{global_id}/{local_hole}/ensure", response_model=GeometryEnsureResponse)
@@ -2260,12 +2325,11 @@ def _foreground_package_route(function):
     """Keep package CPU inside the shared admission gate even when called without ASGI."""
     @wraps(function)
     def wrapped(*args, **kwargs):
-        with foreground_work():
+        with _round_start_in_flight(), foreground_work():
             return function(*args, **kwargs)
     return wrapped
 
 
-@app.get("/api/v2/mobile/rounds/{round_id}/package", response_model=LiveRoundPackageResponse)
 @_foreground_package_route
 def mobile_round_package(
     round_id: str,
@@ -2284,6 +2348,30 @@ def mobile_round_package(
     _record_round_activity(player_id, round_id, global_ids=_package_course_ids(package), restore_only=True,
                            package_registration=True)
     return package
+
+
+@app.get("/api/v2/mobile/rounds/{round_id}/package", response_model=LiveRoundPackageResponse)
+async def _mobile_round_package_http(
+    request: Request,
+    round_id: str,
+    captured_at: str | None = None,
+    client_id: str | None = None,
+    ensure_geometry: bool = False,
+    player_id: str = Depends(current_player_id),
+) -> LiveRoundPackageResponse:
+    from .prep_work import run_prep
+
+    return await run_prep(
+        request,
+        lambda: mobile_round_package(
+            round_id,
+            captured_at=captured_at,
+            client_id=client_id,
+            ensure_geometry=ensure_geometry,
+            player_id=player_id,
+        ),
+        unit_type="package",
+    )
 
 
 @app.get("/api/v2/mobile/courses/options", response_model=MobileCourseOptionsResponse)
@@ -2536,6 +2624,26 @@ _ACTIVE_PACKAGED_ROUNDS: set[tuple[str, str]] = set()
 # fallback for compatibility.
 _ACTIVE_SELECTIONS: dict[tuple[str, str], tuple[str, str] | None] = {}
 _ACTIVE_ROUNDS_LOCK = threading.Lock()
+_ROUND_START_IN_FLIGHT = 0
+_ROUND_START_IN_FLIGHT_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _round_start_in_flight():
+    """Keep nearby-derived work queued while any round package is being built."""
+    global _ROUND_START_IN_FLIGHT
+    with _ROUND_START_IN_FLIGHT_LOCK:
+        _ROUND_START_IN_FLIGHT += 1
+    try:
+        yield
+    finally:
+        with _ROUND_START_IN_FLIGHT_LOCK:
+            _ROUND_START_IN_FLIGHT = max(0, _ROUND_START_IN_FLIGHT - 1)
+
+
+def _round_start_is_in_flight() -> bool:
+    with _ROUND_START_IN_FLIGHT_LOCK:
+        return _ROUND_START_IN_FLIGHT > 0
 
 
 def _positive_course_ids(values) -> list[int]:
@@ -2945,6 +3053,8 @@ def _playing_prep_matches(player_id: str, global_id: int, holes, tee: str | None
 
 def nearby_work_blocked() -> bool:
     """Gate both discovery admission and each durable nearby worker pass."""
+    if _round_start_is_in_flight():
+        return True
     now = time.monotonic()
     with _ACTIVE_ROUNDS_LOCK:
         for key, deadline in list(_ACTIVE_ROUNDS.items()):
@@ -2973,6 +3083,92 @@ def nearby_work_blocked() -> bool:
 from server_v2 import map_startup as _map_startup
 _map_startup.nearby_work_blocked = lambda: nearby_work_blocked()
 _map_startup.tee_requests_in_flight = lambda: tee_requests_in_flight()
+
+
+class _RequestFlight:
+    def __init__(self) -> None:
+        self.future: Future = Future()
+        self.cancelled = threading.Event()
+        self.waiters = 0
+
+
+_REQUEST_FLIGHTS_LOCK = threading.Lock()
+_REQUEST_FLIGHTS: dict[tuple, _RequestFlight] = {}
+
+
+def _release_request_flight(flight: _RequestFlight, holder: dict) -> None:
+    if holder.get("released"):
+        return
+    holder["released"] = True
+    with _REQUEST_FLIGHTS_LOCK:
+        flight.waiters = max(0, flight.waiters - 1)
+        if flight.waiters == 0 and not flight.future.done():
+            flight.cancelled.set()
+
+
+def _shared_request(key: tuple, build: Callable[[], Any], holder: dict | None = None) -> Any:
+    """Share one synchronous calculation and cancel it only after its last waiter leaves."""
+    from .prep_work import cancellation, checkpoint
+
+    with _REQUEST_FLIGHTS_LOCK:
+        flight = _REQUEST_FLIGHTS.get(key)
+        if flight is None:
+            flight = _RequestFlight()
+            _REQUEST_FLIGHTS[key] = flight
+            leader = True
+        else:
+            leader = False
+        flight.waiters += 1
+    subscription = {"released": False}
+    if holder is not None:
+        holder["subscription"] = (flight, subscription)
+    try:
+        if leader:
+            try:
+                with cancellation(flight.cancelled):
+                    value = build()
+                    checkpoint()
+                flight.future.set_result(value)
+            except BaseException as exc:
+                flight.future.set_exception(exc)
+                raise
+            finally:
+                with _REQUEST_FLIGHTS_LOCK:
+                    if _REQUEST_FLIGHTS.get(key) is flight:
+                        del _REQUEST_FLIGHTS[key]
+        else:
+            while True:
+                checkpoint()
+                try:
+                    return flight.future.result(timeout=0.05)
+                except FutureTimeoutError:
+                    continue
+        return flight.future.result()
+    finally:
+        _release_request_flight(flight, subscription)
+
+
+def _cancel_shared_request(holder: dict) -> None:
+    subscription = holder.get("subscription")
+    if subscription is not None:
+        subscription[1]["cancelled"] = True
+        _release_request_flight(*subscription)
+
+
+_NEARBY_GENERATION_LOCK = threading.Lock()
+_NEARBY_GENERATIONS: dict[str, int] = {}
+
+
+def _next_nearby_generation(player_id: str) -> int:
+    with _NEARBY_GENERATION_LOCK:
+        value = _NEARBY_GENERATIONS.get(str(player_id), 0) + 1
+        _NEARBY_GENERATIONS[str(player_id)] = value
+        return value
+
+
+def _nearby_generation_current(player_id: str, generation: int) -> bool:
+    with _NEARBY_GENERATION_LOCK:
+        return _NEARBY_GENERATIONS.get(str(player_id)) == generation
 
 
 def run_course_install_job(identifier: str) -> None:
@@ -3368,7 +3564,6 @@ def _parse_round_loops_or_422(raw: str, global_id: int) -> list[tuple[int, str]]
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@app.get("/api/v2/mobile/courses/{global_id}/package", response_model=LiveRoundPackageResponse)
 @_foreground_package_route
 def mobile_course_package(
     global_id: int,
@@ -3527,6 +3722,46 @@ def mobile_course_package(
     package.courseInstallJob = job
     package.holes = holes
     return package
+
+
+@app.get("/api/v2/mobile/courses/{global_id}/package", response_model=LiveRoundPackageResponse)
+async def _mobile_course_package_http(
+    request: Request,
+    global_id: int,
+    background_tasks: BackgroundTasks,
+    round_id: str | None = None,
+    tee_box: str | None = None,
+    captured_at: str | None = None,
+    client_id: str | None = None,
+    ensure_geometry: bool = False,
+    background_geometry: bool = False,
+    include_event_cursor: bool = True,
+    priority_hole: int | None = None,
+    map_only: bool = False,
+    loops: str = Query(..., description="Ordered round loops, G:H[,G2:H2] with H = all|front|back"),
+    player_id: str = Depends(current_player_id),
+) -> LiveRoundPackageResponse:
+    from .prep_work import run_prep
+
+    return await run_prep(
+        request,
+        lambda: mobile_course_package(
+            global_id,
+            background_tasks,
+            round_id=round_id,
+            tee_box=tee_box,
+            captured_at=captured_at,
+            client_id=client_id,
+            ensure_geometry=ensure_geometry,
+            background_geometry=background_geometry,
+            include_event_cursor=include_event_cursor,
+            priority_hole=priority_hole,
+            map_only=map_only,
+            loops=loops,
+            player_id=player_id,
+        ),
+        unit_type="package",
+    )
 
 
 @app.get(

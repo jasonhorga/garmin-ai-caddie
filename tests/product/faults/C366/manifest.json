@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C366-01-no-cancel-callback",
+      "patch": "tests/product/faults/C366/no-cancel-callback.patch",
+      "kind": "python",
+      "target": "tests.product.test_c366.C366CancellationTests.test_J42_nearby_disconnect_cancels_without_scheduling",
+      "promise": "J4.2",
+      "kills": "A disconnected nearby request must invoke the cooperative cancellation callback so its builder receives PrepCancelled."
+    }
+  ]
+}

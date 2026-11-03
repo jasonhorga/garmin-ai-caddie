@@ -12,7 +12,19 @@ from ai_caddie.core.priority_work import background_work
 from .timing import mark
 
 
-async def run_prep(request: Request, build: Callable, *, exempt: Callable = lambda: False):
+def cancellation_event() -> threading.Event | None:
+    """Return the request's cooperative cancellation event while a builder is running."""
+    return _CANCELLED.get()
+
+
+async def run_prep(
+    request: Request,
+    build: Callable,
+    *,
+    exempt: Callable = lambda: False,
+    unit_type: str = "prep",
+    on_cancel: Callable[[], None] | None = None,
+):
     cancelled = threading.Event()
 
     @contextmanager
@@ -22,7 +34,7 @@ async def run_prep(request: Request, build: Callable, *, exempt: Callable = lamb
             yield
         else:
             # A client that disconnects while this cold leader waits stops the wait, too.
-            with background_work(while_waiting=checkpoint, unit_type="prep"):
+            with background_work(while_waiting=checkpoint, unit_type=unit_type):
                 checkpoint()
                 yield
 
@@ -42,6 +54,12 @@ async def run_prep(request: Request, build: Callable, *, exempt: Callable = lamb
                 if worker.done():
                     return
                 cancelled.set()
+                if on_cancel is not None:
+                    try:
+                        on_cancel()
+                    except Exception:
+                        # Cancellation bookkeeping must never hide the transport disconnect.
+                        pass
                 mark("prep_cancelled")
                 return
 

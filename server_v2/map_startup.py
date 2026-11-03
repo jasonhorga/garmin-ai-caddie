@@ -340,8 +340,17 @@ def schedule_nearby(matches, player_id: str | None = None) -> None:
                     if not _NEARBY_PENDING:
                         _NEARBY_DISPATCH_THREAD = None
                         return
-                    batch = _NEARBY_PENDING.pop(next(iter(_NEARBY_PENDING)))
+                    player, batch = next(iter(_NEARBY_PENDING.items()))
+                    _NEARBY_PENDING.pop(player, None)
                 try:
+                    # Keep the latest discovery queued while a round-start package owns the
+                    # foreground lane. Dropping it here would make the client wait for the next
+                    # GPS bucket before nearby warming could resume.
+                    if nearby_work_blocked() or tee_requests_in_flight():
+                        with _NEARBY_DISPATCH_LOCK:
+                            _NEARBY_PENDING.setdefault(player, batch)
+                        time.sleep(0.05)
+                        continue
                     enqueue_nearby(batch)
                     prefetch_nearby_releases(batch)
                 except Exception:

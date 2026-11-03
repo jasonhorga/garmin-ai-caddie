@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import socket
 import threading
 import time
@@ -153,6 +154,8 @@ class C366NearbyAdmissionTests(unittest.TestCase):
             for thread in threads:
                 thread.start()
             self.assertTrue(entered.wait(2))
+            # Let the other two HTTP workers join the shared flight before releasing its leader.
+            time.sleep(0.4)
             release.set()
             for thread in threads:
                 thread.join(5)
@@ -168,9 +171,13 @@ class C366RoundAdmissionTests(unittest.TestCase):
 
         entered, release = threading.Event(), threading.Event()
         match = course_search.CourseMatch(31795, "Fixture", 18, "北京", "北京", 0.0, 40.0, 116.5, 0.0)
-        package = SimpleNamespace(course={"globalId": 31795}, holes=[])
+        from pathlib import Path
+        from server_v2.models import LiveRoundPackageResponse
+        fixture_path = Path(__file__).parents[2] / "mobile/ios/AICaddie/Fixtures/live_round_package.fixture.json"
+        package = LiveRoundPackageResponse.model_validate(json.loads(fixture_path.read_text()))
         with (
             patch.object(main, "build_mobile_round_package_response", side_effect=lambda *a, **k: (entered.set(), release.wait(2), package)[-1]),
+            patch.object(main, "_record_round_activity"),
             patch.object(main.course_search, "courseview_nearby", return_value=[match]),
             patch.object(main, "_reconcile_player_course_matches", return_value=[match]),
             patch.object(main, "_persist_courseview_venue_loops"),
@@ -196,7 +203,6 @@ class C366RoundAdmissionTests(unittest.TestCase):
                 release.set()
                 package_thread.join(5)
                 self.assertFalse(package_thread.is_alive())
-                self.assertTrue(enqueue.wait_for_call if False else True)
                 deadline = time.monotonic() + 2
                 while not enqueue.called and time.monotonic() < deadline:
                     time.sleep(0.01)
