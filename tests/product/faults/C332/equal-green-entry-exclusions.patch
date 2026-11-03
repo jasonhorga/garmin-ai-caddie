@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/Views/LiveGreenEntryButton.swift b/mobile/ios/AICaddie/Views/LiveGreenEntryButton.swift
+index c7af0123..a2a8ae1f 100644
+--- a/mobile/ios/AICaddie/Views/LiveGreenEntryButton.swift
++++ b/mobile/ios/AICaddie/Views/LiveGreenEntryButton.swift
+@@ -110,7 +110,6 @@ struct LiveGreenEntryButton: UIViewRepresentable {
+         private(set) var activationExclusionWriteCount = 0
+ 
+         func setActivationExclusions(_ exclusions: [CGRect]) {
+-            guard activationExclusions != exclusions else { return }
+             activationExclusions = exclusions
+             activationExclusionWriteCount += 1
+         }

@@ -1,0 +1,84 @@
+import SwiftUI
+import UIKit
+import XCTest
+@testable import AICaddie
+
+@MainActor
+final class ProductGreenEntryTests: XCTestCase {
+    /// J5.4: a hole without a green outline still opens flag placement from its drawn fallback circle.
+    func testMissingGreenOutlineRoutesFallbackCircleTapToGreenDetail() {
+        let fallbackCenter = CGPoint(x: 120, y: 180)
+        let path = LiveGreenEntryHitRegion.path(greenPath: nil, fallbackCenter: fallbackCenter)
+        let destination = LiveGreenEntryHitRegion.destination(at: fallbackCenter, path: path)
+        XCTAssertEqual(destination, .greenDetail, "J5.4 a finger tap on the no-outline fallback opens flag placement instead of placing a target")
+    }
+
+    /// J5.4: the putting surface owns its touches, without stealing the surrounding map.
+    func testGreenContourAcceptsInteriorTouchesAndRejectsTheRestOfItsBoundingBox() {
+        let control = LiveGreenEntryButton.Control(frame: CGRect(x: 0, y: 0, width: 80, height: 80))
+        let contour = CGMutablePath()
+        contour.move(to: CGPoint(x: 0, y: 0))
+        contour.addLine(to: CGPoint(x: 80, y: 0))
+        contour.addLine(to: CGPoint(x: 0, y: 80))
+        contour.closeSubpath()
+        control.hitPath = contour
+        XCTAssertTrue(control.point(inside: CGPoint(x: 20, y: 20), with: nil))
+        XCTAssertFalse(control.point(inside: CGPoint(x: 70, y: 70), with: nil))
+        XCTAssertFalse(control.point(inside: CGPoint(x: -10, y: 20), with: nil))
+    }
+
+    /// J5.4: the actual hosted control exposes and dispatches the default accessibility action.
+    func testAccessibleGreenActivationDispatchesTheSameFlagPlacementActionAsTouch() throws {
+        var opened = 0
+        let host = UIHostingController(rootView:
+            LiveGreenEntryButton(hitPath: Path(CGRect(x: 0, y: 0, width: 76, height: 76))) {
+                opened += 1
+            }
+            .frame(width: 76, height: 76)
+        )
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        host.view.layoutIfNeeded()
+        func control(in view: UIView) -> LiveGreenEntryButton.Control? {
+            if let button = view as? LiveGreenEntryButton.Control { return button }
+            return view.subviews.lazy.compactMap { control(in: $0) }.first
+        }
+        let button = try XCTUnwrap(control(in: host.view))
+        XCTAssertTrue(button.isAccessibilityElement)
+        XCTAssertTrue(button.accessibilityTraits.contains(.button))
+        XCTAssertEqual(button.accessibilityLabel, "调整旗位")
+        XCTAssertEqual(button.alpha, 1)
+        let centre = button.convert(CGPoint(x: 38, y: 38), to: nil)
+        let coveringChrome = CGRect(x: centre.x - 10, y: centre.y - 10, width: 20, height: 20)
+        button.setActivationExclusions([coveringChrome])
+        let activation = button.accessibilityActivationPoint
+        XCTAssertFalse(coveringChrome.contains(activation), "the accessible tap avoids floating chrome")
+        XCTAssertTrue(button.point(inside: button.convert(activation, from: nil), with: nil), "the accessible tap remains inside the green")
+        XCTAssertTrue(button.accessibilityActivate())
+        XCTAssertEqual(opened, 1, "accessibility activation opens flag placement exactly once")
+        button.sendActions(for: .touchUpInside)
+        XCTAssertEqual(opened, 2, "touch dispatches the same flag placement action")
+        button.isEnabled = false
+        XCTAssertFalse(button.accessibilityActivate())
+        XCTAssertEqual(opened, 2, "disabled controls cannot activate")
+    }
+
+    /// J5.4: equal chrome frames must not keep invalidating the hosted green entry while the
+    /// hole screen is returning from the green detail surface.
+    func testJ5_4GreenEntrySkipsEqualChromeExclusionUpdates() {
+        let control = LiveGreenEntryButton.Control(frame: CGRect(x: 0, y: 0, width: 80, height: 80))
+        let exclusions = [CGRect(x: 12, y: 18, width: 24, height: 20)]
+
+        control.setActivationExclusions(exclusions)
+        control.setActivationExclusions(exclusions)
+
+        XCTAssertEqual(
+            control.activationExclusionWriteCount,
+            1,
+            "J5.4 returning to the hole screen must not rewrite equal chrome exclusions"
+        )
+        XCTAssertEqual(control.activationExclusions, exclusions)
+    }
+}

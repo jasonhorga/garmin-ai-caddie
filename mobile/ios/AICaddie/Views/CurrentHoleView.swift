@@ -2407,62 +2407,46 @@ public struct CurrentHoleView: View {
     private var heroInteractionLayer: some View {
         GeometryReader { geometry in
             let greenPath = liveGreenHitPath(in: geometry.size)
+            let fallbackGreenCenter = liveGreenTarget(in: geometry.size).map {
+                transformedHeroPoint($0, in: geometry.size)
+            }
+            let greenEntryHitPath = LiveGreenEntryHitRegion.path(
+                greenPath: greenPath,
+                fallbackCenter: fallbackGreenCenter
+            )
             ZStack {
                 Color.clear
                     .contentShape(Rectangle())
+                    // Keep the map and the contour-sized green entry as separate accessibility
+                    // elements while physical gestures remain owned by the enclosing ZStack.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("球洞地图，点地图设目标点")
+                    .accessibilityHint("按住目标点拖动微调，左右滑动切换球洞")
+                    .accessibilityIdentifier("live-open-map-from-hero")
 
-                if let greenPath {
-                    let greenBounds = greenPath.boundingRect
-                    let localGreenPath = greenPath.applying(
+                if let greenEntryHitPath {
+                    let greenBounds = greenEntryHitPath.boundingRect
+                    let localGreenPath = greenEntryHitPath.applying(
                         CGAffineTransform(
                             translationX: -greenBounds.minX,
                             y: -greenBounds.minY
                         )
                     )
-                    Button {
+                    LiveGreenEntryButton(hitPath: localGreenPath, exclusions: liveChromeRects.map(\.rect)) {
                         guard canOpenGreenDetail else { return }
                         showGreenDetail = true
-                    } label: {
-                        Color.white.opacity(0.001)
-                            .frame(
-                                width: max(greenBounds.width, 1),
-                                height: max(greenBounds.height, 1)
-                            )
-                            .contentShape(localGreenPath)
                     }
-                    .buttonStyle(.plain)
                     .frame(
                         width: max(greenBounds.width, 1),
                         height: max(greenBounds.height, 1)
                     )
-                    .position(x: greenBounds.midX, y: greenBounds.midY)
+                    .position(x: greenEntryHitPath.boundingRect.midX, y: greenEntryHitPath.boundingRect.midY)
                     .accessibilityLabel("调整旗位")
                     .accessibilityIdentifier("live-open-green-from-hero")
                     // Keep the accessibility activation point on the actual green contour.  The
                     // button is already reduced to the contour's local bounding box, so this point
                     // remains deterministic for XCTest and VoiceOver without reopening the whole
                     // map as a green hit target.
-                    .accessibilityActivationPoint(
-                        CGPoint(
-                            x: greenPath.boundingRect.midX,
-                            y: greenPath.boundingRect.midY
-                        )
-                    )
-                    .zIndex(1)
-                } else if let greenTarget = liveGreenTarget(in: geometry.size) {
-                    Button {
-                        guard canOpenGreenDetail else { return }
-                        showGreenDetail = true
-                    } label: {
-                        Circle()
-                            .fill(Color.white.opacity(0.001))
-                            .frame(width: 76, height: 76)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .position(transformedHeroPoint(greenTarget, in: geometry.size))
-                    .accessibilityLabel("调整旗位")
-                    .accessibilityIdentifier("live-open-green-from-hero")
                     .zIndex(1)
                 }
             }
@@ -2476,8 +2460,12 @@ public struct CurrentHoleView: View {
                 // (B4c): `carryOverMapInteraction` keeps the target on the same spot when it lands.
                 SpatialTapGesture().onEnded { value in
                     guard !heroTargetDragGrabbed,
-                          value.location.y >= LivePlayMapOverlayLayout.liveMapTopInset,
-                          greenPath?.contains(value.location) != true else { return }
+                          value.location.y >= LivePlayMapOverlayLayout.liveMapTopInset else { return }
+                    if LiveGreenEntryHitRegion.destination(at: value.location, path: greenEntryHitPath) == .greenDetail {
+                        guard canOpenGreenDetail else { return }
+                        showGreenDetail = true
+                        return
+                    }
                     handleHeroMapTap(at: value.location, in: geometry.size)
                 }
             )
@@ -2490,14 +2478,6 @@ public struct CurrentHoleView: View {
             // available when the fitted map is not being paged.
             .simultaneousGesture(heroMapHoleSwipeGesture())
             .simultaneousGesture(heroMapPanGesture(in: geometry.size))
-            // Keep the map gesture container and the contour-sized green button as separate
-            // accessibility elements. Without an explicit containment boundary SwiftUI promotes
-            // this gesture-bearing ZStack to one full-hero button and hides the green entry from
-            // VoiceOver/XCTest hit testing.
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("球洞地图，点地图设目标点")
-            .accessibilityHint("按住目标点拖动微调，左右滑动切换球洞")
-            .accessibilityIdentifier("live-open-map-from-hero")
             .preference(
                 key: LiveHolePagerGestureStateKey.self,
                 value: isSelected && (
