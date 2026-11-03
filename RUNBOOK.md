@@ -56,6 +56,8 @@ gh pr view <PR> --repo jasonhorga/garmin-ai-caddie --json headRefOid,mergeable,s
 - 复审限轮：B（挡）只限产品行为真错/回归、或本卡验收测试不咬旧代码；其它都是 N，项目台另开卡，不许把 N 升级成 B。同一张卡到第 3 轮还在返工，就停下来重拆卡或重定方案，不再一轮轮磨。
 - 改同一个大文件的卡串行派（CurrentHoleView.swift、AICaddieApp.swift、StartRoundView.swift、LiveHoleComponents.swift、server_v2/main.py、ai_caddie/courses/course_prep.py 等）：开卡写清改哪些文件，和在途卡重叠就排队。
 
+`topo_render` 的 forkserver 常驻约 46 MiB RSS（约 18–30 MiB PSS）是有意为之：按生产参数（`AI_CADDIE_TOPO_RENDER_PROCESSES=3`）停止后首个任务重启 forkserver、预导入 `topo_render` 的冷启动实测中位 3325 ms、最大 4828 ms，超过 1 秒阈值；因此空闲回收仍只回收 worker 池，避免把开销落到下一次预热渲染。
+
 ### 1.1 事件库 payload 迁移（C159）
 
 新镜像里的入口是 `ops/migrate_mobile_event_payloads.py`。部署新代码并确认健康后，先对所有有日志的分区 dry-run：
