@@ -60,13 +60,12 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let course = MobileCourseOption(globalId: 31795, name: "Failure fixture", holes: 9, teeBox: "blue")
         let view = StartRoundView(
             defaultCourseGlobalId: course.globalId,
-            defaultTeeBox: course.teeBox,
+            defaultTeeBox: course.teeBox ?? "blue",
             courseOptions: [course],
             syncStatus: RoundStartFailure.unavailable.presentationMessage,
             roundStartFailure: .unavailable,
             canStartSimplifiedRound: true,
-            onCancelRoundStart: { cancellations += 1 },
-            initialPage: .setup
+            onCancelRoundStart: { cancellations += 1 }
         )
         let host = UIHostingController(rootView: view)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 430, height: 900))
@@ -93,10 +92,9 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let course = MobileCourseOption(globalId: 31795, name: "Return fixture", holes: 9, teeBox: "blue")
         let view = StartRoundView(
             defaultCourseGlobalId: course.globalId,
-            defaultTeeBox: course.teeBox,
+            defaultTeeBox: course.teeBox ?? "blue",
             courseOptions: [course],
             isPreparing: true,
-            initialPage: .setup,
             onCancelRoundStart: { immediate += 1 },
             onCancelRoundStartIfReady: { gated += 1 }
         )
