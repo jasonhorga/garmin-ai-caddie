@@ -582,7 +582,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(RoundStartFailure.reauthentication.presentationMessage, "需重新登录后才能开始")
         XCTAssertNil(RoundStartProgress.message(after: 7.99))
         XCTAssertEqual(RoundStartProgress.message(after: 8), "服务器在准备球场，稍等…")
-        XCTAssertEqual(RoundStartProgress.message(after: 20), "服务器还在准备，最多再等十几秒")
+        XCTAssertEqual(RoundStartProgress.message(after: 20), "服务器还在准备，最多再等 10 秒")
     }
 
     /// J4.2/C134: the slow-start explanation and the primary button share one busy state.
@@ -922,7 +922,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 manualSearchSelected: false
             )
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             StartRoundView.shouldApplyNearbyDiscoveryResult(
                 isCancelled: false,
                 requestToken: current,
@@ -930,7 +930,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 requestKey: "4004:11654",
                 currentRequestKey: "4006:11656",
                 manualSearchSelected: false
-            )
+            ),
+            "J4.1: a GPS bucket change while the request is in flight keeps that request authoritative"
         )
         XCTAssertFalse(
             StartRoundView.shouldApplyNearbyDiscoveryResult(
