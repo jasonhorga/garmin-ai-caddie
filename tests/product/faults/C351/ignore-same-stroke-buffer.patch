@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 0e952454..2c87358b 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2503,7 +2503,7 @@ def _strategy(
+                         not _strategy_water_safe(physical, {"water_carry": post_pin_water}),
+                         rank[4:])
+
+-            candidate = min(alternate_routes, key=buffered_rank)[1]
++            candidate = min(alternate_routes, key=lambda row: row[0])[1]
+             if candidate != current_route:
+                 steps.clear()
+                 route_offset_m = 0.0

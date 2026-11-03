@@ -2493,7 +2493,17 @@ def _strategy(
                     continue
                 alternate_routes.append((route_rank(candidate), candidate))
         if alternate_routes:
-            candidate = min(alternate_routes, key=lambda row: row[0])[1]
+            def buffered_rank(row):
+                rank, candidate = row
+                physical = sum(carry for _, carry in candidate)
+                # Keep the fallback. The first four fields preserve long-advance,
+                # costly-miss and stroke-count priorities; clearance breaks ties
+                # before the existing <=20 m overshoot/advance preferences.
+                return (rank[:4],
+                        not _strategy_water_safe(physical, {"water_carry": post_pin_water}),
+                        rank[4:])
+
+            candidate = min(alternate_routes, key=buffered_rank)[1]
             if candidate != current_route:
                 steps.clear()
                 route_offset_m = 0.0

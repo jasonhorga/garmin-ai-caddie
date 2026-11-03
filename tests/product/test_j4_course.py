@@ -162,6 +162,38 @@ class PrepRouteQualityTests(unittest.TestCase):
                 self.assertLessEqual(physical, length + 30)
                 self.assertLessEqual(physical, pond[0])
 
+    def test_j4_6_same_stroke_count_prefers_post_pin_water_buffer(self):
+        # J4.6: 170+48=218 stops 19 m before OWNER's [237,262];
+        # 160+121=281 stops 24 m before TRIG's [305,330]. Both finish
+        # within the 20 m scoring window in two shots: no extra swing for 8 m clearance.
+        for bag, length, pond in (("OWNER", 232, (237, 262)),
+                                  ("TRIG", 300, (305, 330))):
+            with self.subTest(bag=bag, length=length):
+                row = self.prep(bag, 4, length, (pond,))
+                self.assert_complete(row)
+                self.assertLessEqual(len(row["steps"]), 2)
+                physical = sum(s["targetCarry_m"] for s in row["steps"])
+                self.assertGreaterEqual(pond[0] - physical, 8)
+
+    def test_j4_6_post_pin_buffer_does_not_cost_a_stroke_or_force_flyover(self):
+        # J4.6: TRIG's 160+160=320 is a complete two-shot route before
+        # [325,350]. Keep that fallback if buffered choices need three shots;
+        # discarding it would select a +44 m flyover instead.
+        row = self.prep("TRIG", 4, 320, ((325, 350),))
+        self.assert_complete(row)
+        self.assertLessEqual(len(row["steps"]), 2)
+        self.assertLessEqual(sum(s["targetCarry_m"] for s in row["steps"]) - 320, 30)
+
+    def test_j4_6_post_pin_buffer_does_not_add_a_stroke(self):
+        # J4.6: 197+160+121=478 finishes in three shots, 7 m before
+        # [485,510]. The buffered 197+102+102+68=469 needs four shots;
+        # clearance alone must not buy that extra swing.
+        for par in (4, 5):
+            with self.subTest(par=par):
+                row = self.prep("TRIG", par, 480, ((485, 510),))
+                self.assert_complete(row)
+                self.assertLessEqual(len(row["steps"]), 3)
+
     def test_j4_6_repair_does_not_move_a_safe_landing_into_post_pin_water(self):
         # J4.6: at L272, Driver200+7I120 lands at 320, beyond [277,302].
         # Replacing it with 200+50+50=300 would newly land in that real pond.

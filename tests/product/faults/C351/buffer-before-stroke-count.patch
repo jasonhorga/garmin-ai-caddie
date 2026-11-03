@@ -1,0 +1,16 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 0e952454..ac32229e 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2499,9 +2499,9 @@ def _strategy(
+                 # Keep the fallback. The first four fields preserve long-advance,
+                 # costly-miss and stroke-count priorities; clearance breaks ties
+                 # before the existing <=20 m overshoot/advance preferences.
+-                return (rank[:4],
++                return (rank[:3],
+                         not _strategy_water_safe(physical, {"water_carry": post_pin_water}),
+-                        rank[4:])
++                        rank[3:])
+
+             candidate = min(alternate_routes, key=buffered_rank)[1]
+             if candidate != current_route:
