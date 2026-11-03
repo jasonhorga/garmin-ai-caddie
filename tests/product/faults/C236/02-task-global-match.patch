@@ -1,8 +1,8 @@
 diff --git a/.github/scripts/check_native_fixture_dns.py b/.github/scripts/check_native_fixture_dns.py
-index 58b03b72..73d39b8c 100644
+index 5860b8e3..f6a9d908 100644
 --- a/.github/scripts/check_native_fixture_dns.py
 +++ b/.github/scripts/check_native_fixture_dns.py
-@@ -66,8 +66,16 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
+@@ -128,12 +128,20 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
          if "J4.2 native fixture DNS gate:" in line and "echo " not in line:
              lines = lines[:index]
              break
@@ -13,6 +13,10 @@ index 58b03b72..73d39b8c 100644
 +        for task_id in _TASK_RE.findall(marked_line)
 +    }
      for line_number, line in enumerate(lines, start=1):
+         if _is_app_network_summary(line):
+             # A summary is not a shim authorization and must not clear a
+             # pending CFNetwork error from the same Task id.
+             continue
          task_ids = {m.groups() for m in _TASK_RE.finditer(line)}
 +        if task_ids & marked_tasks:
 +            continue
