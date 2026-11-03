@@ -1,0 +1,14 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 1841ded0..dc4c0220 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -2356,9 +2356,6 @@ public final class LiveRoundAppModel: ObservableObject {
+         preparationToken: UUID? = nil,
+         freshStartEntry: Bool = true
+     ) {
+-        if let preparationToken {
+-            guard isCurrentRoundPreparation(preparationToken) else { return }
+-        }
+         pendingLiveHole = liveRoundState?.activeHole ?? package?.holes.first?.number
+         pendingLiveHoleIsFreshEntry = freshStartEntry
+         deferredOfflineCourseDownloadRevalidation =

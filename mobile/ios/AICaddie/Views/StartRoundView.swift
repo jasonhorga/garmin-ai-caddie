@@ -2358,6 +2358,7 @@ public struct StartRoundView: View {
     ) {
         let isSameCourse = courseGlobalId == selected.globalId
         guard let option = resolvedOption(for: selected) else { return }
+        cancelRoundStartIfBusy()
         // The explicit catalogue choice supersedes any prior nearby transport error. Do not leave
         // the old "nearby unavailable" banner beside a valid manually searched course.
         // Invalidate an in-flight nearby request as well; its late failure must not repaint this
