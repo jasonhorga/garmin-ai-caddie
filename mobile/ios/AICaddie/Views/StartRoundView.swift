@@ -632,7 +632,10 @@ public struct StartRoundView: View {
         startGeneration == currentGeneration
     }
 
-    static func failureCardCancelAction(_ cancel: @escaping () -> Void) -> () -> Void {
+    static func failureCardCancelAction(
+        _ cancel: @escaping () -> Void,
+        gated: @escaping () -> Void
+    ) -> () -> Void {
         cancel
     }
 
@@ -1854,7 +1857,10 @@ public struct StartRoundView: View {
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("start-round-simplified-start")
                     Button("取消", role: .cancel) {
-                        Self.failureCardCancelAction(onCancelRoundStart)()
+                        Self.failureCardCancelAction(
+                            onCancelRoundStart,
+                            gated: onCancelRoundStartIfReady
+                        )()
                     }
                         .buttonStyle(.bordered)
                         .accessibilityIdentifier("start-round-cancel")

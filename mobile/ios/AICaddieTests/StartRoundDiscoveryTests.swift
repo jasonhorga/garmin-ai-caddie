@@ -53,8 +53,13 @@ final class StartRoundDiscoveryTests: XCTestCase {
     /// J4.2 / C365-B1: the failure card's 取消 action bypasses the busy-only double-tap gate.
     func testC365FailureCardCancelButtonInvokesCancelCallback() {
         var cancellations = 0
-        StartRoundView.failureCardCancelAction { cancellations += 1 }()
+        var gated = 0
+        StartRoundView.failureCardCancelAction(
+            { cancellations += 1 },
+            gated: { gated += 1 }
+        )()
         XCTAssertEqual(cancellations, 1)
+        XCTAssertEqual(gated, 0)
     }
 
     /// J4.2 / C365-N1: setup exits use immediate cancellation while the primary Start button is gated.

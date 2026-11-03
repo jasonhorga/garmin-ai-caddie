@@ -35,6 +35,13 @@
       "kind": "native-unit",
       "target": "AICaddieTests/RoundStartTwoStageTests/testC365PrepCancelDropsLateCoursePackageAndDoesNotNavigate",
       "promise": "J4.2"
+    },
+    {
+      "id": "tests-product-faults-C365-06-failure-card-gated-cancel",
+      "patch": "tests/product/faults/C365/06-failure-card-gated-cancel.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testC365FailureCardCancelButtonInvokesCancelCallback",
+      "promise": "J4.2"
     }
   ]
 }
