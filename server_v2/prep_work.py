@@ -1,5 +1,7 @@
 """Keep the event loop responsive while prep checks disconnects between CPU/IO stages."""
 import asyncio
+
+import anyio
 from contextlib import contextmanager
 import threading
 from collections.abc import Callable
@@ -10,11 +12,6 @@ from starlette.responses import Response
 from ai_caddie.courses.prep_work import cancellation, checkpoint, cold_admission
 from ai_caddie.core.priority_work import background_work
 from .timing import mark
-
-
-def cancellation_event() -> threading.Event | None:
-    """Return the request's cooperative cancellation event while a builder is running."""
-    return _CANCELLED.get()
 
 
 async def run_prep(
@@ -42,6 +39,7 @@ async def run_prep(
         # Cache hits and existing single-flight followers never enter admission. Cold leaders
         # wait before publishing their in-flight key, so package can still build the same prep.
         with cancellation(cancelled), cold_admission(admit):
+            checkpoint()
             return build()
 
     async def watch_disconnect():
@@ -63,7 +61,7 @@ async def run_prep(
                 mark("prep_cancelled")
                 return
 
-    worker = asyncio.create_task(asyncio.to_thread(work))
+    worker = asyncio.create_task(anyio.to_thread.run_sync(work, abandon_on_cancel=True))
     watcher = asyncio.create_task(watch_disconnect())
     try:
         done, _ = await asyncio.wait({worker, watcher}, return_when=asyncio.FIRST_COMPLETED)

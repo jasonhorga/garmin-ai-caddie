@@ -36,6 +36,7 @@ _STARTING_HOLES: dict[tuple, tuple[int, int]] = {}
 
 
 # The application injects its admission policy after construction; standalone workers are idle.
+round_start_in_flight = lambda: False
 nearby_work_blocked = lambda: False
 tee_requests_in_flight = lambda: False
 
@@ -320,6 +321,7 @@ def prepare_priority_hole(
 # The request callback only publishes metadata; gate/network waits belong to this process-owned
 # thread, not BackgroundTasks.
 _NEARBY_DISPATCH_LOCK = threading.Lock()
+_NEARBY_DISPATCH_CHANGED = threading.Condition(_NEARBY_DISPATCH_LOCK)
 _NEARBY_PENDING: dict[str, list] = {}
 _NEARBY_DISPATCH_THREAD = None
 
@@ -336,20 +338,19 @@ def schedule_nearby(matches, player_id: str | None = None) -> None:
         def drain():
             global _NEARBY_DISPATCH_THREAD
             while True:
-                with _NEARBY_DISPATCH_LOCK:
+                with _NEARBY_DISPATCH_CHANGED:
+                    while _NEARBY_PENDING and round_start_in_flight():
+                        # Package completion notifies this condition; no polling during play.
+                        _NEARBY_DISPATCH_CHANGED.wait()
                     if not _NEARBY_PENDING:
                         _NEARBY_DISPATCH_THREAD = None
                         return
                     player, batch = next(iter(_NEARBY_PENDING.items()))
                     _NEARBY_PENDING.pop(player, None)
                 try:
-                    # Keep the latest discovery queued while a round-start package owns the
-                    # foreground lane. Dropping it here would make the client wait for the next
-                    # GPS bucket before nearby warming could resume.
-                    if nearby_work_blocked() or tee_requests_in_flight():
-                        with _NEARBY_DISPATCH_LOCK:
-                            _NEARBY_PENDING.setdefault(player, batch)
-                        time.sleep(0.05)
+                    # A playing round makes discovery from before its start obsolete. Drop it
+                    # instead of retaining it for the hours until play finishes.
+                    if nearby_work_blocked():
                         continue
                     enqueue_nearby(batch)
                     prefetch_nearby_releases(batch)
@@ -358,3 +359,9 @@ def schedule_nearby(matches, player_id: str | None = None) -> None:
 
         _NEARBY_DISPATCH_THREAD = threading.Thread(target=drain, name="nearby-dispatch", daemon=True)
         _NEARBY_DISPATCH_THREAD.start()
+
+
+def wake_nearby_dispatch() -> None:
+    """Release pending discovery after the last package finishes or is cancelled."""
+    with _NEARBY_DISPATCH_CHANGED:
+        _NEARBY_DISPATCH_CHANGED.notify_all()

@@ -1960,6 +1960,9 @@ def course_nearby_endpoint(
         overlay_coordinates=False,
         append_history=False,
     )
+    from ai_caddie.courses.prep_work import checkpoint
+
+    checkpoint()
     background_tasks.add_task(_persist_courseview_venue_loops, _venue_loop_index_rows(matches), ROOT)
     if matches and (
         _flight_holder is None
@@ -2371,6 +2374,7 @@ async def _mobile_round_package_http(
             player_id=player_id,
         ),
         unit_type="package",
+        exempt=lambda: True,
     )
 
 
@@ -2630,7 +2634,11 @@ _ROUND_START_IN_FLIGHT_LOCK = threading.Lock()
 
 @contextlib.contextmanager
 def _round_start_in_flight():
-    """Keep nearby-derived work queued while any round package is being built."""
+    """Keep nearby-derived work queued while any round package is being built.
+
+    This is process-wide deliberately: all players share the two geometry workers and the
+    foreground admission gate. Regional public assets are optional while anyone starts play.
+    """
     global _ROUND_START_IN_FLIGHT
     with _ROUND_START_IN_FLIGHT_LOCK:
         _ROUND_START_IN_FLIGHT += 1
@@ -2639,6 +2647,7 @@ def _round_start_in_flight():
     finally:
         with _ROUND_START_IN_FLIGHT_LOCK:
             _ROUND_START_IN_FLIGHT = max(0, _ROUND_START_IN_FLIGHT - 1)
+        _map_startup.wake_nearby_dispatch()
 
 
 def _round_start_is_in_flight() -> bool:
@@ -3083,6 +3092,7 @@ def nearby_work_blocked() -> bool:
 from server_v2 import map_startup as _map_startup
 _map_startup.nearby_work_blocked = lambda: nearby_work_blocked()
 _map_startup.tee_requests_in_flight = lambda: tee_requests_in_flight()
+_map_startup.round_start_in_flight = lambda: _round_start_is_in_flight()
 
 
 class _RequestFlight:
@@ -3097,31 +3107,37 @@ _REQUEST_FLIGHTS: dict[tuple, _RequestFlight] = {}
 
 
 def _release_request_flight(flight: _RequestFlight, holder: dict) -> None:
-    if holder.get("released"):
-        return
-    holder["released"] = True
     with _REQUEST_FLIGHTS_LOCK:
+        if holder.get("released"):
+            return
+        holder["released"] = True
         flight.waiters = max(0, flight.waiters - 1)
         if flight.waiters == 0 and not flight.future.done():
             flight.cancelled.set()
+            # Provider IO may still be unwinding; new live requests need a fresh leader.
+            for key, existing in list(_REQUEST_FLIGHTS.items()):
+                if existing is flight:
+                    del _REQUEST_FLIGHTS[key]
 
 
 def _shared_request(key: tuple, build: Callable[[], Any], holder: dict | None = None) -> Any:
     """Share one synchronous calculation and cancel it only after its last waiter leaves."""
-    from .prep_work import cancellation, checkpoint
+    from ai_caddie.courses.prep_work import PrepCancelled, cancellation, checkpoint
 
+    subscription = {"released": False}
     with _REQUEST_FLIGHTS_LOCK:
+        if holder is not None and holder.get("cancelled"):
+            raise PrepCancelled()
         flight = _REQUEST_FLIGHTS.get(key)
-        if flight is None:
+        if flight is None or flight.cancelled.is_set():
             flight = _RequestFlight()
             _REQUEST_FLIGHTS[key] = flight
             leader = True
         else:
             leader = False
         flight.waiters += 1
-    subscription = {"released": False}
-    if holder is not None:
-        holder["subscription"] = (flight, subscription)
+        if holder is not None:
+            holder["subscription"] = (flight, subscription)
     try:
         if leader:
             try:
@@ -3149,7 +3165,9 @@ def _shared_request(key: tuple, build: Callable[[], Any], holder: dict | None = 
 
 
 def _cancel_shared_request(holder: dict) -> None:
-    subscription = holder.get("subscription")
+    with _REQUEST_FLIGHTS_LOCK:
+        holder["cancelled"] = True
+        subscription = holder.get("subscription")
     if subscription is not None:
         subscription[1]["cancelled"] = True
         _release_request_flight(*subscription)
@@ -3681,6 +3699,9 @@ def mobile_course_package(
         return package
     # One Tee rule for the lease, the install identity and its priority: the requested Tee (Blue
     # when omitted). The package's own teeBox is a response fact, not the registered selection.
+    from ai_caddie.courses.prep_work import checkpoint
+
+    checkpoint()
     job = course_install.enqueue(
         global_id=int(global_id),
         tee_box=requested_tee_box,
@@ -3761,6 +3782,7 @@ async def _mobile_course_package_http(
             player_id=player_id,
         ),
         unit_type="package",
+        exempt=lambda: True,
     )
 
 

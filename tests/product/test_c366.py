@@ -222,11 +222,59 @@ class C366CancellationTests(IsolatedRequestTests):
                 with socket.create_connection(listener.getsockname(), timeout=2) as successor:
                     successor.settimeout(2)
                     successor.sendall(payload)
-                    response = successor.makefile("rb").readline()
+                    try:
+                        response = successor.makefile("rb").readline()
+                    except TimeoutError:
+                        self.fail("live successor joined the cancelled provider computation")
                     self.assertIn(b"200", response)
             finally:
                 release.set()
                 client.close()
+
+    def test_J42_shared_http_builder_survives_one_client_disconnect(self):
+        """N1/J4.2: real socket disconnect preserves the other subscriber's computation."""
+        entered, release, cancelled, detached = (threading.Event() for _ in range(4))
+        original_cancel = main._cancel_shared_request
+        def cancel(holder):
+            original_cancel(holder)
+            detached.set()
+        def nearby(*args, **kwargs):
+            entered.set()
+            try:
+                while not release.wait(.005):
+                    checkpoint()
+                checkpoint()
+                return []
+            except PrepCancelled:
+                cancelled.set()
+                raise
+        with patch.object(main.course_search, "courseview_nearby", side_effect=nearby), \
+             patch.object(main, "_cancel_shared_request", side_effect=cancel):
+            listener = self._server()
+            clients = [socket.create_connection(listener.getsockname(), timeout=2) for _ in range(2)]
+            payload = b"GET /api/v2/courses/nearby?latitude=40.3&longitude=116.3&radius_km=50 HTTP/1.1\r\nHost: fixture\r\nX-AI-Caddie-Admin-Token: fixture-admin\r\nConnection: close\r\n\r\n"
+            try:
+                clients[0].sendall(payload)
+                self.assertTrue(entered.wait(2))
+                clients[1].sendall(payload)
+                deadline = time.monotonic() + 2
+                key = ("nearby", 40.3, 116.3, 50)
+                while time.monotonic() < deadline:
+                    with main._REQUEST_FLIGHTS_LOCK:
+                        if main._REQUEST_FLIGHTS.get(key) and main._REQUEST_FLIGHTS[key].waiters == 2:
+                            break
+                    time.sleep(.005)
+                self.assertEqual(main._REQUEST_FLIGHTS[key].waiters, 2)
+                clients[0].shutdown(socket.SHUT_RDWR); clients[0].close()
+                self.assertTrue(detached.wait(2))
+                self.assertFalse(cancelled.wait(.05), "one disconnect cancelled the live subscriber")
+                release.set()
+                clients[1].settimeout(2)
+                self.assertIn(b"200", clients[1].makefile("rb").readline())
+            finally:
+                release.set()
+                for client in clients:
+                    client.close()
 
     def test_J42_cached_tees_stays_responsive_with_blocked_nearby(self):
         """B3/J4.2: nearby cannot consume the thread lane needed by cached tees."""
@@ -300,9 +348,19 @@ class C366NearbyAdmissionTests(IsolatedRequestTests):
             for thread in threads:
                 thread.start()
             self.assertTrue(entered.wait(2))
-            # Let the other two HTTP workers join the shared flight before releasing its leader.
-            time.sleep(0.4)
-            release.set()
+            deadline = time.monotonic() + 2
+            key = ("nearby", 40.0, 116.0, 50)
+            while time.monotonic() < deadline:
+                with main._REQUEST_FLIGHTS_LOCK:
+                    flight = main._REQUEST_FLIGHTS.get(key)
+                    if flight is not None and flight.waiters == 3:
+                        break
+                time.sleep(.005)
+            try:
+                self.assertIsNotNone(flight)
+                self.assertEqual(flight.waiters, 3, "three requests must join before the provider returns")
+            finally:
+                release.set()
             for thread in threads:
                 thread.join(5)
             self.assertEqual([response.status_code for response in responses], [200, 200, 200])
@@ -330,7 +388,10 @@ class C366NearbyAdmissionTests(IsolatedRequestTests):
         a = threading.Thread(target=run, args=("a", holder_a))
         b = threading.Thread(target=run, args=("b", holder_b))
         a.start(); self.assertTrue(entered.wait(1)); b.start()
-        time.sleep(0.05)
+        deadline = time.monotonic() + 1
+        while "subscription" not in holder_b and time.monotonic() < deadline:
+            time.sleep(.005)
+        self.assertIn("subscription", holder_b)
         main._cancel_shared_request(holder_a)
         release.set(); a.join(2); b.join(2)
         self.assertEqual(errors, {})
@@ -436,3 +497,35 @@ class C366RoundAdmissionTests(IsolatedRequestTests):
                     include_event_cursor=False, player_id="n5",
                 )
             enqueue.assert_not_called()
+
+
+class NearbyDispatchTests(IsolatedRequestTests):
+    def test_J42_playing_round_discards_discovery_queued_before_start(self):
+        """N4/J4.2: wait on a condition during startup, drop obsolete batches during play."""
+        from server_v2 import map_startup as ms
+        startup, playing, waiting = threading.Event(), threading.Event(), threading.Event()
+        startup.set()
+        original_wait = ms._NEARBY_DISPATCH_CHANGED.wait
+        def wait(*args, **kwargs):
+            waiting.set()
+            return original_wait(*args, **kwargs)
+        with patch.object(ms, "_NEARBY_PENDING", {}), \
+             patch.object(ms, "round_start_in_flight", side_effect=startup.is_set) as busy, \
+             patch.object(ms, "nearby_work_blocked", side_effect=playing.is_set), \
+             patch.object(ms._NEARBY_DISPATCH_CHANGED, "wait", side_effect=wait) as waits, \
+             patch.object(ms, "enqueue_nearby") as enqueue, \
+             patch.object(ms, "prefetch_nearby_releases") as prefetch:
+            ms.schedule_nearby(["old discovery"], "player")
+            thread = ms._NEARBY_DISPATCH_THREAD
+            try:
+                self.assertTrue(waiting.wait(1))
+                time.sleep(.15)
+                self.assertEqual(waits.call_count, 1, "startup must wait for notification without polling")
+                playing.set(); startup.clear(); ms.wake_nearby_dispatch()
+                thread.join(2)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(ms._NEARBY_PENDING, {})
+                enqueue.assert_not_called()
+                prefetch.assert_not_called()
+            finally:
+                startup.clear(); ms.wake_nearby_dispatch(); thread.join(2)
