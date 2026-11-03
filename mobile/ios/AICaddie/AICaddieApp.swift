@@ -2124,6 +2124,7 @@ public final class LiveRoundAppModel: ObservableObject {
             // caddie seeds follow in the background (`beginRoundEnrichmentIfNeeded`). A hole-set
             // change keeps the round's personal facts, so it asks for the ordinary package.
             var fetched: LiveRoundPackage?
+            var intentTimedOut = false
             if isNewRound {
                 let intent = await intentPrefetchPackage(
                     globalId: globalId,
@@ -2132,10 +2133,12 @@ public final class LiveRoundAppModel: ObservableObject {
                     generatedAt: preparedAt,
                     preparationToken: preparationToken
                 )
-                if intent.timedOut { return }
+                intentTimedOut = intent.timedOut
                 fetched = intent.package
             }
-            if fetched == nil {
+            // A timed-out intent already owns the in-flight request. Do not issue a second network
+            // request, but still fall through to the durable complete-package/template fallback.
+            if fetched == nil, !intentTimedOut {
                 fetched = await fetchRemoteCoursePackage(
                     globalId: globalId,
                     roundId: requestedRoundId,

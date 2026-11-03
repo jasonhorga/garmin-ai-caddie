@@ -780,7 +780,9 @@ final class RoundStartTwoStageTests: XCTestCase {
     func testC365IncompleteTemplateDoesNotSilentlyEnterAndSimplifiedStartIsExplicit() async throws {
         let host = "c365-incomplete.example.test"
         let roundId = "c365-incomplete"
-        let incomplete = try package(roundId: roundId, mapOnly: true)
+        let incomplete = try package(
+            roundId: roundId, mapOnly: true, standalone: true, offlineState: "ready"
+        )
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host else { proto.reply(404); return }
             // The short injected foreground timeout ends this request; no package response is
@@ -804,7 +806,7 @@ final class RoundStartTwoStageTests: XCTestCase {
     func testC365CompleteCachedRoundStillEntersAfterPackageTimeout() async throws {
         let host = "c365-complete-cache.example.test"
         let roundId = "c365-complete-cache"
-        let cached = try package(roundId: roundId, mapOnly: false, offlineState: "ready")
+        let cached = try package(roundId: roundId, mapOnly: false, standalone: true, offlineState: "ready")
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host else { proto.reply(404); return }
             // The package timeout drives the cached fallback.
