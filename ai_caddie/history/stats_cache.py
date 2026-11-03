@@ -673,37 +673,37 @@ def cached_build_history_stats(
             continue
 
         error: BaseException | None = None
-        value: Any = None if core_value is None else core_value
+        value: Any = core_value
+        built_core: Any = None
+        source_revision_before: str | None = None
         try:
             # Distinct cache keys (player/window/root) still build independently. Only identical
             # consumers share this leader, which is the common phone + watch live-start case.
             if core_value is None:
                 value = _read_persistent_value(persistent_path, fingerprint)
                 mark("stats_disk")
-            if core_value is None and value is None:
-                # Capture the source revision before the expensive build. If history changes while
-                # the projection is being computed, the persisted revision stays old and the next
-                # readiness snapshot correctly advertises stale evidence.
-                source_revision_before = history_source_revision(player_id)
-                value = _build_history_stats(
-                    windowed,
-                    data_mode=data_mode,
-                    player_id=player_id,
-                    annotations_root=annotations_root,
-                    reports_root=reports_root,
-                )
-                _enqueue_persistent_value(
-                    persistent_path,
-                    fingerprint,
-                    value,
-                    source_revision_before,
-                )
-                mark("stats_build")
-        except BaseException as exc:  # never strand waiters after a failed stats build
-            error = exc
-        if error is None and core_value is not None:
-            value = core_value
-        if error is None:
+                if value is None:
+                    # Capture the source revision before the expensive build. If history changes while
+                    # the projection is being computed, the persisted revision stays old and the next
+                    # readiness snapshot correctly advertises stale evidence.
+                    source_revision_before = history_source_revision(player_id)
+                    value = _build_history_stats(
+                        windowed,
+                        data_mode=data_mode,
+                        player_id=player_id,
+                        annotations_root=annotations_root,
+                        reports_root=reports_root,
+                    )
+                    _enqueue_persistent_value(
+                        persistent_path,
+                        fingerprint,
+                        value,
+                        source_revision_before,
+                    )
+                    mark("stats_build")
+                built_core = value
+            # The overlay reads the weather/decision-audit files; keep it inside the guarded section
+            # so a bad evidence file raises to this caller instead of stranding single-flight waiters.
             if isinstance(value, dict) and "diagnosis" in value and "dataQuality" in value:
                 value = _apply_aux_overlay(
                     value,
@@ -713,13 +713,17 @@ def cached_build_history_stats(
                     player_id=player_id,
                 )
             mark("stats_aux")
+        except BaseException as exc:  # never strand waiters after a failed stats build or overlay
+            error = exc
         with _lock:
-            if error is None:
-                if core_value is None:
-                    _cache[key] = (fingerprint, locals().get("value"))
-                if value is not None:
-                    _cache_source_revisions[key] = locals().get("source_revision_before", history_source_revision(player_id))
-                    _aux_cache[key] = (fingerprint, aux_fingerprint, value)
+            # A core that was read or built stays cached even when its overlay failed, so the next
+            # caller retries only the cheap overlay. Only a fresh core moves the source revision.
+            if built_core is not None or (error is None and core_value is None):
+                _cache[key] = (fingerprint, built_core)
+                if built_core is not None:
+                    _cache_source_revisions[key] = source_revision_before or history_source_revision(player_id)
+            if error is None and value is not None:
+                _aux_cache[key] = (fingerprint, aux_fingerprint, value)
             if event is not None and _inflight.get(key) is event:
                 del _inflight[key]
             if event is not None:
@@ -749,8 +753,9 @@ def cached_history_stats_snapshot(
         with _lock:
             hit = _cache.get(key)
             aux_hit = _aux_cache.get(key)
-            if aux_hit is not None and aux_hit[2] is not None:
-                hit = (hit[0] if hit is not None else aux_hit[0], aux_hit[2])
+            # Prefer the overlaid value only when it was built on the cached core's fingerprint.
+            if hit is not None and aux_hit is not None and aux_hit[0] == hit[0] and aux_hit[2] is not None:
+                hit = (hit[0], aux_hit[2])
         if hit is not None and isinstance(hit[1], dict):
             stored_revision = _cache_source_revisions.get(key)
             current_revision = history_source_revision(player_id)

@@ -1346,6 +1346,50 @@ class StatsAuxOverlayProductTests(unittest.TestCase):
         self.assertIn("stats_aux;dur=", header)
         self.assertNotIn("stats_build;dur=", header)
 
+    def test_J42_unreadable_weather_file_fails_each_call_without_stranding_waiters(self):
+        """J4.2: a torn multi-byte weather append makes the overlay raise; every caller must get that
+        error (or a value) in bounded time instead of waiting forever on the single-flight entry."""
+        stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+        weather = self.tmp / "data" / "weather" / "weather_snapshots.jsonl"
+        weather.parent.mkdir(parents=True, exist_ok=True)
+        weather.write_bytes('{"roundId": "r0059", "note": "风'.encode("utf-8")[:-1])
+        stats_cache.clear()
+
+        def call(outcome):
+            try:
+                stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+                outcome.append("value")
+            except UnicodeDecodeError:
+                outcome.append("error")
+
+        for attempt in range(2):
+            outcome: list[str] = []
+            worker = threading.Thread(target=call, args=(outcome,), daemon=True)
+            worker.start()
+            worker.join(timeout=30)
+            self.assertFalse(worker.is_alive(), f"call {attempt + 1} is stuck on the stats single-flight")
+            self.assertEqual(outcome, ["error"])
+        weather.write_text("", encoding="utf-8")  # repaired file: the next call recovers
+        store_weather_snapshot(self._weather(), root=self.tmp)
+        value =stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+        row = next(row for row in value["dataQuality"] if row["label"] == "weather")
+        self.assertGreaterEqual(row["ready"], 1)
+
+    def test_J31_persisted_core_after_restart_still_carries_fresh_weather_rows(self):
+        """J3.1: the disk projection is core-only; a fresh process must overlay current weather."""
+        with patch.dict(os.environ, {"AI_CADDIE_STATS_CACHE_DIR": str(self.tmp / "persistent")}, clear=False):
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+            self.assertTrue(stats_cache.flush_persistent_writes(timeout=5.0))
+            store_weather_snapshot(self._weather(), root=self.tmp)
+            stats_cache.clear()  # process restart: only the persisted core survives
+            timing = RequestTiming("c86-restart")
+            with bind(timing):
+                value = stats_cache.cached_build_history_stats(
+                    self.data, data_mode="local", window="last20", **self.roots)
+        self.assertNotIn("stats_build;dur=", timing.server_timing())
+        row = next(row for row in value["dataQuality"] if row["label"] == "weather")
+        self.assertGreaterEqual(row["ready"], 1)
+
     def test_J42_real_scale_last20_after_evidence_writes_stays_under_cold_budget(self):
         """J4.2: at production scale (~435 rounds / 70 courses) a weather + decision write must not
         put the start package back on a cold last20 build. Stage names are the main assertion; the
