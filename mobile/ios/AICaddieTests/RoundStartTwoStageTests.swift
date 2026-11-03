@@ -698,6 +698,8 @@ final class RoundStartTwoStageTests: XCTestCase {
         let data = try JSONEncoder().encode(map)
         let held = C85HeldRequests()
         let sent = expectation(description: "foreground package held")
+        let afterFetch = expectation(description: "package answered before cancellation boundary")
+        let releaseAfterFetch = C90RequestGate()
         let requests = C85RequestLog()
         let once = C33FirstMatch()
         C33URLProtocol.setHandlers(onStart: { proto in
@@ -708,6 +710,10 @@ final class RoundStartTwoStageTests: XCTestCase {
         })
         let fixture = makeModel(host: host, held: held, roundStartTimeoutInterval: 2)
         let model = fixture.model
+        model.roundStartAfterFetchForTesting = {
+            afterFetch.fulfill()
+            await releaseAfterFetch.wait()
+        }
         model.startCourseRound(
             roundId: roundId, teeBox: "blue",
             loops: [RoundLoopEntry(globalId: c85CourseId, half: "all")]
@@ -715,8 +721,10 @@ final class RoundStartTwoStageTests: XCTestCase {
         let start = try XCTUnwrap(model.activeRoundStartTaskForTesting)
         await fulfillment(of: [sent], timeout: eventWait)
 
-        model.cancelRoundStart()
         held.releaseAll(200, data)
+        await fulfillment(of: [afterFetch], timeout: eventWait)
+        model.cancelRoundStart()
+        await releaseAfterFetch.release()
         await start.value
 
         XCTAssertNil(model.pendingLiveHole, "a late package must not publish a hole after cancel")
@@ -734,6 +742,8 @@ final class RoundStartTwoStageTests: XCTestCase {
         let data = try JSONEncoder().encode(map)
         let held = C85HeldRequests()
         let sent = expectation(description: "foreground package held")
+        let afterFetch = expectation(description: "package answered before return boundary")
+        let releaseAfterFetch = C90RequestGate()
         let once = C33FirstMatch()
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host else { proto.reply(404); return }
@@ -742,6 +752,10 @@ final class RoundStartTwoStageTests: XCTestCase {
         })
         let fixture = makeModel(host: host, held: held, roundStartTimeoutInterval: 2)
         let model = fixture.model
+        model.roundStartAfterFetchForTesting = {
+            afterFetch.fulfill()
+            await releaseAfterFetch.wait()
+        }
         model.startCourseRound(
             roundId: roundId, teeBox: "blue",
             loops: [RoundLoopEntry(globalId: c85CourseId, half: "all")]
@@ -750,8 +764,10 @@ final class RoundStartTwoStageTests: XCTestCase {
         await fulfillment(of: [sent], timeout: eventWait)
 
         // StartRoundView invokes this callback before changing page to .course.
-        model.cancelRoundStart()
         held.releaseAll(200, data)
+        await fulfillment(of: [afterFetch], timeout: eventWait)
+        model.cancelRoundStart()
+        await releaseAfterFetch.release()
         await start.value
 
         XCTAssertNil(model.pendingLiveHole)
