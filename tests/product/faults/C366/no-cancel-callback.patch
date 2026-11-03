@@ -1,8 +1,8 @@
 diff --git a/server_v2/prep_work.py b/server_v2/prep_work.py
-index 2956873f..7e3e2aca 100644
+index e73e126a..0ceecffe 100644
 --- a/server_v2/prep_work.py
 +++ b/server_v2/prep_work.py
-@@ -54,11 +54,5 @@ async def run_prep(
+@@ -52,12 +52,6 @@ async def run_prep(
                  if worker.done():
                      return
                  cancelled.set()
@@ -14,3 +14,4 @@ index 2956873f..7e3e2aca 100644
 -                        pass
                  mark("prep_cancelled")
                  return
+ 

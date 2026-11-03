@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 39316eb4..125c2ebe 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -3129,7 +3129,7 @@ def _shared_request(key: tuple, build: Callable[[], Any], holder: dict | None =
+         if holder is not None and holder.get("cancelled"):
+             raise PrepCancelled()
+         flight = _REQUEST_FLIGHTS.get(key)
+-        if flight is None or flight.cancelled.is_set():
++        if flight is None or flight.cancelled.is_set() or key[0] == "nearby":
+             flight = _RequestFlight()
+             _REQUEST_FLIGHTS[key] = flight
+             leader = True

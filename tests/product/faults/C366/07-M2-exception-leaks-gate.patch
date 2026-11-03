@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 39316eb4..5047677d 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2646,7 +2646,7 @@ def _round_start_in_flight():
+         yield
+     finally:
+         with _ROUND_START_IN_FLIGHT_LOCK:
+-            _ROUND_START_IN_FLIGHT = max(0, _ROUND_START_IN_FLIGHT - 1)
++            _ROUND_START_IN_FLIGHT = max(0, _ROUND_START_IN_FLIGHT - int(__import__("sys").exc_info()[0] is None))
+         _map_startup.wake_nearby_dispatch()
+ 
+ 

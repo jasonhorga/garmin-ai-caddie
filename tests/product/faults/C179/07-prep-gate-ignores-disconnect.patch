@@ -1,8 +1,8 @@
 diff --git a/server_v2/prep_work.py b/server_v2/prep_work.py
-index 2614af4a..87588391 100644
+index e73e126a..653273d1 100644
 --- a/server_v2/prep_work.py
 +++ b/server_v2/prep_work.py
-@@ -34,7 +34,7 @@ async def run_prep(
+@@ -31,7 +31,7 @@ async def run_prep(
              yield
          else:
              # A client that disconnects while this cold leader waits stops the wait, too.

@@ -40,6 +40,70 @@
       "target": "tests.product.test_c366.C366RoundAdmissionTests.test_J42_nearby_warming_waits_for_round_package",
       "promise": "J4.2",
       "kills": "Nearby warming must remain deferred while a round package is in flight."
+    },
+    {
+      "id": "tests-product-faults-C366-06-M1-one-waiter-cancels-all",
+      "patch": "tests/product/faults/C366/06-M1-one-waiter-cancels-all.patch",
+      "kind": "python",
+      "target": "tests.product.test_c366.C366CancellationTests.test_J42_shared_http_builder_survives_one_client_disconnect",
+      "promise": "J4.2",
+      "kills": "One real client disconnect must preserve a shared builder for its live subscriber."
+    },
+    {
+      "id": "tests-product-faults-C366-07-M2-exception-leaks-gate",
+      "patch": "tests/product/faults/C366/07-M2-exception-leaks-gate.patch",
+      "kind": "python",
+      "target": "tests.product.test_c366.C366RoundAdmissionTests.test_J42_round_start_gate_is_released_after_exception",
+      "promise": "J4.2",
+      "kills": "The exception path must release its own startup gate, independent of test order."
+    },
+    {
+      "id": "tests-product-faults-C366-08-B1-package-self-gates",
+      "patch": "tests/product/faults/C366/08-B1-package-self-gates.patch",
+      "kind": "python",
+      "target": "tests.product.test_c366.C366CancellationTests.test_J42_course_package_real_builder_cold_key_is_foreground",
+      "promise": "J4.2",
+      "kills": "A real cold-key package builder cannot wait on its own foreground ticket."
+    },
+    {
+      "id": "tests-product-faults-C366-09-B2-cancelled-flight-remains",
+      "patch": "tests/product/faults/C366/09-B2-cancelled-flight-remains.patch",
+      "kind": "python",
+      "target": "tests.product.test_c366.C366CancellationTests.test_J42_live_http_successor_of_abandoned_nearby_returns_200",
+      "promise": "J4.2",
+      "kills": "A live same-key successor must obtain a fresh HTTP response while old provider IO unwinds."
+    },
+    {
+      "id": "tests-product-faults-C366-10-B3-default-thread-pool",
+      "patch": "tests/product/faults/C366/10-B3-default-thread-pool.patch",
+      "kind": "python",
+      "target": "tests.product.test_c366.C366CancellationTests.test_J42_cached_tees_stays_responsive_with_blocked_nearby",
+      "promise": "J4.2",
+      "kills": "Blocked nearby IO must not starve cached tees on the default asyncio executor."
+    },
+    {
+      "id": "tests-product-faults-C366-11-N4-poll-instead-of-notify",
+      "patch": "tests/product/faults/C366/11-N4-poll-instead-of-notify.patch",
+      "kind": "python",
+      "target": "tests.product.test_c366.NearbyDispatchTests.test_J42_playing_round_discards_discovery_queued_before_start",
+      "promise": "J4.2",
+      "kills": "Startup waits for notification and does not poll every 50 milliseconds."
+    },
+    {
+      "id": "tests-product-faults-C366-12-N5-enqueue-ignores-cancel",
+      "patch": "tests/product/faults/C366/12-N5-enqueue-ignores-cancel.patch",
+      "kind": "python",
+      "target": "tests.product.test_c366.C366RoundAdmissionTests.test_J42_course_package_checks_disconnect_before_install_enqueue",
+      "promise": "J4.2",
+      "kills": "Cancellation after build must be checked before durable whole-course enqueue."
+    },
+    {
+      "id": "tests-product-faults-C366-13-D2-nearby-never-coalesces",
+      "patch": "tests/product/faults/C366/13-D2-nearby-never-coalesces.patch",
+      "kind": "python",
+      "target": "tests.product.test_c366.C366NearbyAdmissionTests.test_J42_three_same_player_nearby_requests_only_latest_warms",
+      "promise": "J4.2",
+      "kills": "Concurrent nearby subscribers must enter one shared provider flight."
     }
   ]
 }

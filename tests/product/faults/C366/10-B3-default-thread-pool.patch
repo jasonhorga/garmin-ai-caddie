@@ -1,0 +1,13 @@
+diff --git a/server_v2/prep_work.py b/server_v2/prep_work.py
+index e73e126a..26d3fc04 100644
+--- a/server_v2/prep_work.py
++++ b/server_v2/prep_work.py
+@@ -61,7 +61,7 @@ async def run_prep(
+                 mark("prep_cancelled")
+                 return
+ 
+-    worker = asyncio.create_task(anyio.to_thread.run_sync(work, abandon_on_cancel=True))
++    worker = asyncio.create_task(asyncio.to_thread(work))
+     watcher = asyncio.create_task(watch_disconnect())
+     try:
+         done, _ = await asyncio.wait({worker, watcher}, return_when=asyncio.FIRST_COMPLETED)
