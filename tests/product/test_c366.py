@@ -115,6 +115,24 @@ class C366CancellationTests(unittest.TestCase):
             enqueue.assert_not_called()
         stop.set()
 
+    def test_J42_course_package_disconnect_cancels_before_install_enqueue(self):
+        entered, cancelled, stop = threading.Event(), threading.Event(), threading.Event()
+        with (
+            patch.object(main, "build_mobile_course_package_response", side_effect=self._blocking_builder(entered, cancelled, stop)),
+            patch.object(main.course_install, "enqueue") as enqueue,
+            patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "fixture-admin"}),
+        ):
+            listener = self._server()
+            self._disconnect(
+                listener,
+                "/api/v2/mobile/courses/31795/package?loops=31795:front&background_geometry=true",
+                entered,
+                cancelled,
+                stop,
+            )
+            enqueue.assert_not_called()
+        stop.set()
+
 
 class C366NearbyAdmissionTests(unittest.TestCase):
     def test_J42_three_same_player_nearby_requests_only_latest_warms(self):
