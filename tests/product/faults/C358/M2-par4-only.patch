@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index 0e952454..527b5bfb 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2500,7 +2500,7 @@ def _strategy(
+                 # costly-miss and stroke-count priorities; clearance breaks ties
+                 # before the existing <=20 m overshoot/advance preferences.
+                 return (rank[:4],
+-                        not _strategy_water_safe(physical, {"water_carry": post_pin_water}),
++                        par == 4 and not _strategy_water_safe(physical, {"water_carry": post_pin_water}),
+                         rank[4:])
+
+             candidate = min(alternate_routes, key=buffered_rank)[1]
