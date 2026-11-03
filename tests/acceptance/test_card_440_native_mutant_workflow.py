@@ -1475,9 +1475,10 @@ class NativeMutantWorkflowTests(NativeMutantReplayCase):
         self.assertEqual(len(jobs), 1, list(jobs))
         job = next(iter(jobs.values()))
         self.assertEqual(job.get("permissions", {"contents": "read"}), {"contents": "read"})
-        # C307 r4: SDK-affected Watch UI stays hosted; mutants retain the Mac route.
-        native_runner = yaml.safe_load(NATIVE_MOBILE.read_text(encoding="utf-8"))["jobs"]["native-real-flow"]["runs-on"]
-        self.assertEqual(job.get("runs-on"), native_runner)
+        # C333 pins native-mobile jobs to the Mac; this independent mutant workflow
+        # keeps its own self-hosted route expression for trusted dispatches.
+        self.assertIn("self-hosted", str(job.get("runs-on")))
+        self.assertIn("caddie-mba", str(job.get("runs-on")))
         self.assertNotIn("if", job)
         self.assertNotIn("continue-on-error", job)
         self.assertNotIn("concurrency", workflow, "one run per mutant: a concurrency group cancels pending runs")
