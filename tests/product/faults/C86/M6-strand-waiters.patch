@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/stats_cache.py b/ai_caddie/history/stats_cache.py
+index 5e9442c0..3114baa5 100644
+--- a/ai_caddie/history/stats_cache.py
++++ b/ai_caddie/history/stats_cache.py
+@@ -714,7 +714,7 @@ def cached_build_history_stats(
+                 )
+             mark("stats_aux")
+         except BaseException as exc:  # never strand waiters after a failed stats build or overlay
+-            error = exc
++            raise
+         with _lock:
+             # A core that was read or built stays cached even when its overlay failed, so the next
+             # caller retries only the cheap overlay. Only a fresh core moves the source revision.

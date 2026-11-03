@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import shutil
+import tempfile
 from tempfile import TemporaryDirectory
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -16,7 +18,16 @@ from ai_caddie.courses import course_prep, course_reference, course_search
 from ai_caddie.geometry import elevation
 from ai_caddie.caddie import mobile_live
 from ai_caddie.history.history import HistoryData
+from ai_caddie.history import stats_cache
+from ai_caddie.history.history_stats import build_history_stats
+from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
+from ai_caddie.caddie.decision import store_decision_audit
+from ai_caddie.reports.annotations import add_annotation
+from ai_caddie.reports.reports import store_report
+from ai_caddie.rounds import round_corrections
+from tests.test_history_stats_perf import synthetic_history
 from tests.product._support_c16c import HTTPFixture, vectors
+from ai_caddie.core.request_timing import RequestTiming, bind
 
 
 def mesh(points, faces):
@@ -1224,3 +1235,184 @@ class InstallSupplementTests(unittest.TestCase):
         journal = self.ci.state_for_worker(self.job)
         self.assertEqual(journal['phase'], 'queued')
         self.assertEqual(journal['holes']['123:1']['derivatives'], 'queued')
+
+
+class StatsAuxOverlayProductTests(unittest.TestCase):
+    """J4.2/J3.1/1.1: evidence writes keep the start path on warm history stats."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.addCleanup(stats_cache.clear)
+        stats_cache.clear()
+        self.data = synthetic_history(num_rounds=60, num_courses=4)
+        self.roots = {name: self.tmp for name in (
+            "annotations_root", "weather_root", "reports_root", "decision_audit_root")}
+
+    def _weather(self):
+        return build_weather_snapshot(
+            round_id="r0059", hole=1, captured_at="2026-12-04T12:00:00Z",
+            latitude=1.0, longitude=2.0, source="manual", observed={"temperatureC": 20},
+        )
+
+    def _audit(self):
+        return {
+            "decisionSourceRef": "r0059:1:1", "selectedOptionId": "safe",
+            "actualOptionId": "safe", "classification": "good",
+            "actualShotRefs": ["r0059:1:1"],
+        }
+
+    def test_J31_weather_write_keeps_core_warm_and_refreshes_quality(self):
+        calls = {"n": 0}
+        real = stats_cache._build_history_stats
+        def counted(data, **kwargs):
+            calls["n"] += 1
+            return real(data, **kwargs)
+        with patch.object(stats_cache, "_build_history_stats", side_effect=counted):
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="all", **self.roots)
+            self.assertEqual(calls["n"], 2)
+            store_weather_snapshot(self._weather(), root=self.tmp)
+            for window in ("last20", "all"):
+                value = stats_cache.cached_build_history_stats(
+                    self.data, data_mode="local", window=window, **self.roots)
+                weather = next(row for row in value["dataQuality"] if row["label"] == "weather")
+                self.assertGreaterEqual(weather["ready"], 1)
+            self.assertEqual(calls["n"], 2)
+
+    def test_J31_decision_audit_write_keeps_core_warm_and_refreshes_diagnosis(self):
+        calls = {"n": 0}
+        real = stats_cache._build_history_stats
+        def counted(data, **kwargs):
+            calls["n"] += 1
+            return real(data, **kwargs)
+        with patch.object(stats_cache, "_build_history_stats", side_effect=counted):
+            for window in ("last20", "all"):
+                stats_cache.cached_build_history_stats(self.data, data_mode="local", window=window, **self.roots)
+            self.assertEqual(calls["n"], 2)
+            store_decision_audit(self._audit(), decision_id="r0059:1:1", root=self.tmp)
+            for window in ("last20", "all"):
+                value = stats_cache.cached_build_history_stats(
+                    self.data, data_mode="local", window=window, **self.roots)
+                audits = next(row for row in value["dataQuality"] if row["label"] == "decision_audits")
+                self.assertGreaterEqual(audits["auditCount"], 1)
+                self.assertTrue(value["diagnosis"]["decisionAuditTrends"])
+            self.assertEqual(calls["n"], 2)
+
+    def test_11_cached_value_equals_uncached_after_aux_write_for_each_window(self):
+        store_weather_snapshot(self._weather(), root=self.tmp)
+        store_decision_audit(self._audit(), decision_id="r0059:1:1", root=self.tmp)
+        for window in ("last20", "all"):
+            cached = stats_cache.cached_build_history_stats(
+                self.data, data_mode="local", window=window, **self.roots)
+            uncached = build_history_stats(
+                __import__('ai_caddie.history.history_stats', fromlist=['windowed_history_data']).windowed_history_data(self.data, window),
+                data_mode="local", player_id="me", **self.roots)
+            self.assertEqual(json.loads(json.dumps(cached, sort_keys=True, default=str)),
+                             json.loads(json.dumps(uncached, sort_keys=True, default=str)))
+
+    def test_J31_score_annotations_reports_and_corrections_still_rebuild_core(self):
+        calls = {"n": 0}
+        real = stats_cache._build_history_stats
+        def counted(data, **kwargs):
+            calls["n"] += 1
+            return real(data, **kwargs)
+        scorecards = self.tmp / "scorecards"
+        scorecards.mkdir()
+        correction_dir = self.tmp / "corrections"
+        with patch.object(stats_cache, "_build_history_stats", side_effect=counted), \
+             patch.object(stats_cache, "_FINGERPRINT_DIRS", (scorecards,)), \
+             patch.object(round_corrections, "corrections_dir", return_value=correction_dir):
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+            (scorecards / "new.json").write_text("{}")
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+            add_annotation("round", "r0000", "round_note", {"text": "x"}, root=self.tmp)
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+            store_report({"summary": "x"}, kind="round", subject_id="r0000", root=self.tmp)
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+            correction_dir.mkdir(parents=True)
+            (correction_dir / "r0000.jsonl").write_text("{}\n")
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+        self.assertEqual(calls["n"], 5)
+
+    def test_J42_server_timing_reports_aux_hit_after_weather_write(self):
+        """J4.2: the warm start path exposes stats_aux and omits stats_build."""
+        stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+        store_weather_snapshot(self._weather(), root=self.tmp)
+        timing = RequestTiming("c86-test")
+        with bind(timing):
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+        header = timing.server_timing()
+        self.assertIn("stats_aux;dur=", header)
+        self.assertNotIn("stats_build;dur=", header)
+
+    def test_J42_unreadable_weather_file_fails_each_call_without_stranding_waiters(self):
+        """J4.2: a torn multi-byte weather append makes the overlay raise; every caller must get that
+        error (or a value) in bounded time instead of waiting forever on the single-flight entry."""
+        stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+        weather = self.tmp / "data" / "weather" / "weather_snapshots.jsonl"
+        weather.parent.mkdir(parents=True, exist_ok=True)
+        weather.write_bytes('{"roundId": "r0059", "note": "风'.encode("utf-8")[:-1])
+        stats_cache.clear()
+
+        def call(outcome):
+            try:
+                stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+                outcome.append("value")
+            except UnicodeDecodeError:
+                outcome.append("error")
+
+        for attempt in range(2):
+            outcome: list[str] = []
+            worker = threading.Thread(target=call, args=(outcome,), daemon=True)
+            worker.start()
+            worker.join(timeout=30)
+            self.assertFalse(worker.is_alive(), f"call {attempt + 1} is stuck on the stats single-flight")
+            self.assertEqual(outcome, ["error"])
+        weather.write_text("", encoding="utf-8")  # repaired file: the next call recovers
+        store_weather_snapshot(self._weather(), root=self.tmp)
+        value =stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+        row = next(row for row in value["dataQuality"] if row["label"] == "weather")
+        self.assertGreaterEqual(row["ready"], 1)
+
+    def test_J31_persisted_core_after_restart_still_carries_fresh_weather_rows(self):
+        """J3.1: the disk projection is core-only; a fresh process must overlay current weather."""
+        with patch.dict(os.environ, {"AI_CADDIE_STATS_CACHE_DIR": str(self.tmp / "persistent")}, clear=False):
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+            self.assertTrue(stats_cache.flush_persistent_writes(timeout=5.0))
+            store_weather_snapshot(self._weather(), root=self.tmp)
+            stats_cache.clear()  # process restart: only the persisted core survives
+            timing = RequestTiming("c86-restart")
+            with bind(timing):
+                value = stats_cache.cached_build_history_stats(
+                    self.data, data_mode="local", window="last20", **self.roots)
+        self.assertNotIn("stats_build;dur=", timing.server_timing())
+        row = next(row for row in value["dataQuality"] if row["label"] == "weather")
+        self.assertGreaterEqual(row["ready"], 1)
+
+    def test_J42_real_scale_last20_after_evidence_writes_stays_under_cold_budget(self):
+        """J4.2: at production scale (~435 rounds / 70 courses) a weather + decision write must not
+        put the start package back on a cold last20 build. Stage names are the main assertion; the
+        wall budget is relative to the cold build measured in this process, so machine load scales
+        both sides (main re-ran the full build after either write)."""
+        import time
+
+        data = synthetic_history(num_rounds=435, num_courses=70)
+        cold = RequestTiming("c86-cold")
+        started = time.perf_counter()
+        with bind(cold):
+            stats_cache.cached_build_history_stats(data, data_mode="local", window="last20", **self.roots)
+        cold_s = time.perf_counter() - started
+        self.assertIn("stats_build;dur=", cold.server_timing())
+        store_weather_snapshot(self._weather(), root=self.tmp)
+        store_decision_audit(self._audit(), decision_id="r0059:1:1", root=self.tmp)
+        warm = RequestTiming("c86-warm")
+        started = time.perf_counter()
+        with bind(warm):
+            stats_cache.cached_build_history_stats(data, data_mode="local", window="last20", **self.roots)
+        warm_s = time.perf_counter() - started
+        header = warm.server_timing()
+        self.assertIn("stats_aux;dur=", header)
+        self.assertNotIn("stats_build;dur=", header)
+        self.assertNotIn("stats_disk;dur=", header)
+        self.assertLessEqual(warm_s, cold_s / 2, f"cold={cold_s:.3f}s after-write={warm_s:.3f}s")

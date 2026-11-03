@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/history/stats_cache.py b/ai_caddie/history/stats_cache.py
+index c90d2a26..a0ca8e62 100644
+--- a/ai_caddie/history/stats_cache.py
++++ b/ai_caddie/history/stats_cache.py
+@@ -473,7 +473,7 @@ def _fingerprint_files(data, roots: dict[str, Any], player_id: str) -> tuple:
+     return (
+         tuple(_cached_dir_sig(d) for d in _fingerprint_dirs(player_id)),
+         tuple(_history_geometry_dir_sig(d, global_ids) for d in _GEOMETRY_DIRS),
+-        (_file_sig(annotation_path), _file_sig(report_path)),
++        (_file_sig(annotation_path), _file_sig(report_path), _file_sig(aux[1])),
+         # Round correction events (append-only JSONL per round) are applied by the stats build, so an
+         # appended event changes this signature and the next read rebuilds (spec 3.1).
+         _cached_dir_sig(round_corrections.corrections_dir(player_id)),

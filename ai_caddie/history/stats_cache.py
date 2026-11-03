@@ -45,7 +45,8 @@ from ai_caddie.core.data import (
 from ai_caddie.caddie.decision import decision_audit_file
 from ai_caddie.history.history import OWNER_ID, history_data_fingerprint
 from ai_caddie.history.history import load_history_data as _load_history_data
-from ai_caddie.history.history_stats import build_history_stats as _build_history_stats
+from ai_caddie.history.history_stats import apply_aux_overlay as _apply_aux_overlay
+from ai_caddie.history.history_stats import build_history_stats_core as _build_history_stats
 from ai_caddie.history.history_stats import windowed_history_data as _windowed_history_data
 from ai_caddie.reports.reports import report_store_file
 from ai_caddie.llm.weather_context import weather_snapshot_file
@@ -76,6 +77,7 @@ _GEOMETRY_SIG_TTL_S = 1.5
 
 _lock = threading.Lock()
 _cache: dict[tuple, tuple[Any, Any]] = {}
+_aux_cache: dict[tuple, tuple[Any, Any, Any]] = {}
 _cache_source_revisions: dict[tuple, str] = {}
 _CORRECTED_CACHE: dict[tuple, Any] = {}
 _load_cache: dict[str, tuple[Any, Any]] = {}
@@ -97,8 +99,9 @@ _inflight: dict[tuple, threading.Event] = {}
 # differentials instead of the lowest ceil(40%) from 5; v4: stats read the corrected history — round
 # correction events, putt-corrected default holes back in GIR, GIR from corrected putts; v5: C260
 # back-nine cards of one 18-hole venue keep their own loop key instead of folding into the front;
-# v6: all differential consumers reject nine-hole ratings on 18-hole rows).
-_PERSISTENT_CACHE_SCHEMA = "ai-caddie-history-stats-cache-v6"
+# v6: all differential consumers reject nine-hole ratings on 18-hole rows; v7: the persisted value is
+# the core projection — weather/decision-audit rows are overlaid after the read).
+_PERSISTENT_CACHE_SCHEMA = "ai-caddie-history-stats-cache-v7"
 _PERSISTENT_CACHE_MAX_BYTES = 64 * 1024 * 1024
 # A stats projection can be tens of megabytes on a real history.  Never make the first package
 # caller serialize and write that projection synchronously: the request only needs the in-memory
@@ -420,6 +423,8 @@ def _scan_history_geometry_dir_sig(
 
 
 def _file_sig(path: Path) -> tuple[int, int, int] | None:
+    if path is None:
+        return None
     try:
         st = path.stat()
     except (FileNotFoundError, NotADirectoryError):
@@ -449,16 +454,42 @@ def _fingerprint(data, roots: dict[str, Any], player_id: str = OWNER_ID) -> tupl
 
 
 def _fingerprint_files(data, roots: dict[str, Any], player_id: str) -> tuple:
-    """Stat-only inputs; the data digest and corrected projection are reused while these match."""
+    """Inputs for the expensive core projection.
+
+    Weather and decision-audit files are deliberately excluded; they are applied by the cheap
+    auxiliary overlay below.  Annotations, reports, history/geometry and corrections remain here
+    because they affect the core fields or corrected history.
+    """
     global_ids = _history_global_ids(data)
+    aux = _aux_files(
+        annotations_root=roots.get("annotations_root"),
+        weather_root=roots.get("weather_root"),
+        reports_root=roots.get("reports_root"),
+        decision_audit_root=roots.get("decision_audit_root"),
+        player_id=player_id,
+    )
+    annotation_path = aux[0] if len(aux) > 0 else None
+    report_path = aux[2] if len(aux) > 2 else None
     return (
         tuple(_cached_dir_sig(d) for d in _fingerprint_dirs(player_id)),
         tuple(_history_geometry_dir_sig(d, global_ids) for d in _GEOMETRY_DIRS),
-        tuple(_file_sig(f) for f in _aux_files(player_id=player_id, **roots)),
+        (_file_sig(annotation_path), _file_sig(report_path)),
         # Round correction events (append-only JSONL per round) are applied by the stats build, so an
         # appended event changes this signature and the next read rebuilds (spec 3.1).
         _cached_dir_sig(round_corrections.corrections_dir(player_id)),
     )
+
+
+def _aux_fingerprint_files(roots: dict[str, Any], player_id: str) -> tuple:
+    files = _aux_files(
+        annotations_root=roots.get("annotations_root"),
+        weather_root=roots.get("weather_root"),
+        reports_root=roots.get("reports_root"),
+        decision_audit_root=roots.get("decision_audit_root"),
+        player_id=player_id,
+    )
+    return (_file_sig(files[1]) if len(files) > 1 else None,
+            _file_sig(files[3]) if len(files) > 3 else None)
 
 
 def _stats_projection(data, roots: dict[str, Any], player_id: str) -> tuple[Any, tuple]:
@@ -498,6 +529,7 @@ def clear(player_id: str | None = None) -> None:
     with _lock:
         if player_id is None:
             _cache.clear()
+            _aux_cache.clear()
             _cache_source_revisions.clear()
             _CORRECTED_CACHE.clear()
             _load_cache.clear()
@@ -510,6 +542,8 @@ def clear(player_id: str | None = None) -> None:
         for key in [k for k in _cache if isinstance(k, tuple) and k and k[0] == player_id]:
             _cache.pop(key, None)
             _cache_source_revisions.pop(key, None)
+        for key in [k for k in _aux_cache if isinstance(k, tuple) and k and k[0] == player_id]:
+            _aux_cache.pop(key, None)
 
 
 def history_input_signature(player_id: str = OWNER_ID) -> tuple:
@@ -607,60 +641,93 @@ def cached_build_history_stats(
     source = data
     while True:
         data, fingerprint = _stats_projection(source, roots, player_id)
+        windowed = _windowed_history_data(data, window)
+        aux_fingerprint = _aux_fingerprint_files(roots, player_id)
         mark("stats_revision")
         persistent_path = _persistent_cache_path(key)
         with _lock:
             hit = _cache.get(key)
             if hit is not None and hit[0] == fingerprint:
-                mark("stats_hit")
-                return hit[1]
+                aux_hit = _aux_cache.get(key)
+                if aux_hit is not None and aux_hit[0] == fingerprint and aux_hit[1] == aux_fingerprint:
+                    mark("stats_hit")
+                    return aux_hit[2]
+                core_value = hit[1]
+                overlay_needed = True
+            else:
+                core_value = None
+                overlay_needed = False
             event = _inflight.get(key)
-            if event is None:
+            if core_value is not None:
+                event = None
+                leader = False
+            elif event is None:
                 event = threading.Event()
                 _inflight[key] = event
                 leader = True
             else:
                 leader = False
-        if not leader:
+        if core_value is None and not leader:
             event.wait()
             mark("stats_wait")
             continue
 
         error: BaseException | None = None
-        value: Any = None
+        value: Any = core_value
+        built_core: Any = None
+        source_revision_before: str | None = None
         try:
             # Distinct cache keys (player/window/root) still build independently. Only identical
             # consumers share this leader, which is the common phone + watch live-start case.
-            value = _read_persistent_value(persistent_path, fingerprint)
-            mark("stats_disk")
-            if value is None:
-                # Capture the source revision before the expensive build. If history changes while
-                # the projection is being computed, the persisted revision stays old and the next
-                # readiness snapshot correctly advertises stale evidence.
-                source_revision_before = history_source_revision(player_id)
-                value = _build_history_stats(
-                    _windowed_history_data(data, window),
-                    data_mode=data_mode,
-                    player_id=player_id,
-                    **roots,
-                )
-                _enqueue_persistent_value(
-                    persistent_path,
-                    fingerprint,
+            if core_value is None:
+                value = _read_persistent_value(persistent_path, fingerprint)
+                mark("stats_disk")
+                if value is None:
+                    # Capture the source revision before the expensive build. If history changes while
+                    # the projection is being computed, the persisted revision stays old and the next
+                    # readiness snapshot correctly advertises stale evidence.
+                    source_revision_before = history_source_revision(player_id)
+                    value = _build_history_stats(
+                        windowed,
+                        data_mode=data_mode,
+                        player_id=player_id,
+                        annotations_root=annotations_root,
+                        reports_root=reports_root,
+                    )
+                    _enqueue_persistent_value(
+                        persistent_path,
+                        fingerprint,
+                        value,
+                        source_revision_before,
+                    )
+                    mark("stats_build")
+                built_core = value
+            # The overlay reads the weather/decision-audit files; keep it inside the guarded section
+            # so a bad evidence file raises to this caller instead of stranding single-flight waiters.
+            if isinstance(value, dict) and "diagnosis" in value and "dataQuality" in value:
+                value = _apply_aux_overlay(
                     value,
-                    source_revision_before,
+                    windowed,
+                    weather_root=weather_root,
+                    decision_audit_root=decision_audit_root,
+                    player_id=player_id,
                 )
-                mark("stats_build")
-        except BaseException as exc:  # never strand waiters after a failed stats build
+            mark("stats_aux")
+        except BaseException as exc:  # never strand waiters after a failed stats build or overlay
             error = exc
         with _lock:
-            if error is None:
-                _cache[key] = (fingerprint, value)
-                if value is not None:
-                    _cache_source_revisions[key] = locals().get("source_revision_before", history_source_revision(player_id))
-            if _inflight.get(key) is event:
+            # A core that was read or built stays cached even when its overlay failed, so the next
+            # caller retries only the cheap overlay. Only a fresh core moves the source revision.
+            if built_core is not None or (error is None and core_value is None):
+                _cache[key] = (fingerprint, built_core)
+                if built_core is not None:
+                    _cache_source_revisions[key] = source_revision_before or history_source_revision(player_id)
+            if error is None and value is not None:
+                _aux_cache[key] = (fingerprint, aux_fingerprint, value)
+            if event is not None and _inflight.get(key) is event:
                 del _inflight[key]
-            event.set()
+            if event is not None:
+                event.set()
         if error is not None:
             raise error
         return value
@@ -685,6 +752,10 @@ def cached_history_stats_snapshot(
         key = (player_id, data_mode, ".", ".", ".", ".", window)
         with _lock:
             hit = _cache.get(key)
+            aux_hit = _aux_cache.get(key)
+            # Prefer the overlaid value only when it was built on the cached core's fingerprint.
+            if hit is not None and aux_hit is not None and aux_hit[0] == hit[0] and aux_hit[2] is not None:
+                hit = (hit[0], aux_hit[2])
         if hit is not None and isinstance(hit[1], dict):
             stored_revision = _cache_source_revisions.get(key)
             current_revision = history_source_revision(player_id)
