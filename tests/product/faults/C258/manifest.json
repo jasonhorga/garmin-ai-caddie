@@ -32,6 +32,22 @@
       "target": "tests.test_native_fixture_dns_gate.NativeFixtureDNSGateTests.test_route_marker_without_origin_does_not_allow_single_line_leak",
       "promise": "J4.2",
       "kills": "The route marker requires origin framing before it can authorize a shim line."
+    },
+    {
+      "id": "tests-product-faults-C258-05-taskless-pending-clears",
+      "patch": "tests/product/faults/C258/05-taskless-pending-clears.patch",
+      "kind": "python",
+      "target": "tests.test_native_fixture_dns_gate.NativeFixtureDNSGateTests.test_shim_line_does_not_clear_taskless_pending_dns_error",
+      "promise": "J4.2",
+      "kills": "A shim line must not clear a pending DNS error without a matching Task id."
+    },
+    {
+      "id": "tests-product-faults-C258-06-loose-dns-marker",
+      "patch": "tests/product/faults/C258/06-loose-dns-marker.patch",
+      "kind": "python",
+      "target": "tests.test_native_fixture_dns_gate.NativeFixtureDNSGateTests.test_loose_dns_disabled_text_does_not_authorize_error",
+      "promise": "J4.2",
+      "kills": "Only the complete fixture offline description may authorize a shim line."
     }
   ]
 }

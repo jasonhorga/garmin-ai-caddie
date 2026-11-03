@@ -1,0 +1,13 @@
+diff --git a/.github/scripts/check_native_fixture_dns.py b/.github/scripts/check_native_fixture_dns.py
+index ef45d574..4a7370d0 100644
+--- a/.github/scripts/check_native_fixture_dns.py
++++ b/.github/scripts/check_native_fixture_dns.py
+@@ -84,7 +84,7 @@ def _is_shim_route_line(line: str) -> bool:
+ 
+     if _is_app_network_summary(line):
+         return True
+-    if "fixture intentionally offline; DNS disabled" in line and _URL_RE.search(line) is None:
++    if "DNS disabled" in line and _URL_RE.search(line) is None:
+         return True
+     if not _ROUTE_MARKER_RE.search(line):
+         return False

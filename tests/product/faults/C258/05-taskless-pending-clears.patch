@@ -1,0 +1,13 @@
+diff --git a/.github/scripts/check_native_fixture_dns.py b/.github/scripts/check_native_fixture_dns.py
+index ef45d574..a0e460bd 100644
+--- a/.github/scripts/check_native_fixture_dns.py
++++ b/.github/scripts/check_native_fixture_dns.py
+@@ -140,7 +140,7 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
+             pending_without_url = [
+                 pending
+                 for pending in pending_without_url
+-                if not (pending[2] and pending[2] & task_ids)
++                if not ((not pending[2]) or pending[2] & task_ids)
+             ]
+             continue
+         match = _URL_RE.search(line)
