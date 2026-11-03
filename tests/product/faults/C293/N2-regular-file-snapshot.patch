@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/ops/retention.py b/ai_caddie/ops/retention.py
+index d8fbddc6..9a5f220a 100644
+--- a/ai_caddie/ops/retention.py
++++ b/ai_caddie/ops/retention.py
+@@ -107,7 +107,7 @@ def _clean_garmin_snapshots(root: Path) -> None:
+     pairs: list[tuple[datetime, str, Path, Path]] = []
+     try:
+         for directory in snapshot_root.iterdir():
+-            if not directory.is_dir() or not directory.name.startswith("garmin_cn_"):
++            if not directory.name.startswith("garmin_cn_"):
+                 continue
+             manifest = snapshot_root / f"{directory.name}.json"
+             if not manifest.is_file():
