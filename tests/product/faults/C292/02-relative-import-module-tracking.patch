@@ -1,0 +1,13 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+index 76b26ca4..35a72758 100644
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -153,7 +153,7 @@ def tracked_import(name, globals=None, locals=None, fromlist=(), level=0):
+     return original_import(name, globals, locals, fromlist, level)
+ 
+ def tracked_import_module(name, package=None):
+-    observe_import(resolve_name(name, package) if name.startswith(".") else name)
++    observe_import(name)
+     return original_import_module(name, package)
+ 
+ multiple_targets = len(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))) > 1
