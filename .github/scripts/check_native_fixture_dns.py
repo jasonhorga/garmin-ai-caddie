@@ -31,7 +31,7 @@ _NETWORK_ERROR_CODES = frozenset({
     -1200, -1201, -1202, -1203, -1204, -1205, -1206,
 })
 _HOSTNAME_FAILURE_RE = re.compile(r"hostname could not be found", re.IGNORECASE)
-_TASK_RE = re.compile(r"Task <([0-9A-Fa-f-]{36})>\.<(\d+)>")
+_TASK_RE = re.compile(r"(?<![A-Za-z])Task <([0-9A-Fa-f-]{36})>\.<(\d+)>")
 _ROUTE_MARKER_RE = re.compile(r"(?<![?\w])route=(?:shared|explicit)(?![\w-])|CaddieTestRoute=")
 
 
