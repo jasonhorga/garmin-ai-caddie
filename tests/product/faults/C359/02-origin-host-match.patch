@@ -1,0 +1,13 @@
+diff --git a/.github/scripts/check_native_fixture_dns.py b/.github/scripts/check_native_fixture_dns.py
+index e04e895a..e9da6c5c 100644
+--- a/.github/scripts/check_native_fixture_dns.py
++++ b/.github/scripts/check_native_fixture_dns.py
+@@ -109,7 +109,7 @@ def _is_shim_route_line(line: str) -> bool:
+                 url_host = (urlsplit(url_match.group(1)).hostname or "").lower().rstrip(".")
+             except ValueError:
+                 return False
+-            if not origin_match or url_host != origin_match.group(1).lower().rstrip("."):
++            if not origin_match:
+                 return False
+         return len(task_ids) <= 1
+     # A split shim continuation can carry only the marker and its Task/UserInfo
