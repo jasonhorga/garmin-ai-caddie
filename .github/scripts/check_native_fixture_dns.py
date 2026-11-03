@@ -217,7 +217,8 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
         ]
     for line_number, line, _, all_hosts in pending_without_url:
         # Only hostname failures and -1003 apply to every host without a URL.
-        if all_hosts:
+        if all_hosts and "<unknown URL>" not in seen_urls:
+            seen_urls.add("<unknown URL>")
             findings.append(("<log>", line_number, "<unknown URL>", line))
     return findings
 

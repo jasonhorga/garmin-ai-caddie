@@ -179,16 +179,12 @@ jobs:
             echo 'J4.2 native fixture DNS gate: iOS test log is missing' >&2
             exit 1
           fi
-          logs=()
-          for log in native-quick-results/ios-test-xcodebuild.log native-quick-results/watch-test-xcodebuild.log; do
+          logs=(native-quick-results/ios-test-xcodebuild.log)
+          for log in native-quick-results/watch-test-xcodebuild.log; do
             if [ -f "$log" ]; then
               logs+=("$log")
             fi
           done
-          if [ "${#logs[@]}" -eq 0 ]; then
-            echo 'J4.2 native fixture DNS gate: no fixture test logs were produced' >&2
-            exit 1
-          fi
           python3 .github/scripts/check_native_fixture_dns.py "${logs[@]}"
       - name: Upload quick failure diagnostics
         if: failure()
@@ -867,16 +863,12 @@ jobs:
             echo 'J4.2 native fixture DNS gate: iOS test log is missing' >&2
             exit 1
           fi
-          logs=()
-          for log in native-mobile-results/ios-app-xcodebuild.log native-mobile-results/watch-xcodebuild.log; do
+          logs=(native-mobile-results/ios-app-xcodebuild.log)
+          for log in native-mobile-results/watch-xcodebuild.log; do
             if [ -f "$log" ]; then
               logs+=("$log")
             fi
           done
-          if [ "${#logs[@]}" -eq 0 ]; then
-            echo 'J4.2 native fixture DNS gate: no fixture test logs were produced' >&2
-            exit 1
-          fi
           python3 .github/scripts/check_native_fixture_dns.py "${logs[@]}"
       - &collect_watch_design_snapshots
         name: Collect Watch design snapshots
