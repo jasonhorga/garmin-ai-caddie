@@ -1,13 +1,9 @@
 diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
-index fb1399f2..55a375d5 100644
+index cb98d7dc..91405206 100644
 --- a/.github/workflows/native-mobile.yml
 +++ b/.github/workflows/native-mobile.yml
-@@ -57,7 +57,7 @@ concurrency:
- jobs:
-   native-quick:
+@@ -64,3 +64,3 @@ jobs:
      if: github.event_name == 'pull_request'
--    runs-on: ${{ vars.MAC_RUNNER == 'online' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
+-    runs-on: [self-hosted, caddie-mba]
 +    runs-on: ${{ vars.MAC_RUNNER == 'online' && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
      timeout-minutes: 25
-     concurrency:
-       group: native-quick-${{ github.head_ref }}
