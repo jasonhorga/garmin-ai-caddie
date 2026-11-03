@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
+index f747d9a1..c0942ec5 100644
+--- a/ai_caddie/core/priority_work.py
++++ b/ai_caddie/core/priority_work.py
+@@ -268,7 +268,6 @@ def background_work(*, timeout_s: float | None = None,
+     if not cpu:
+         token = _BACKGROUND_CONTEXT.set(FOREGROUND_GATE)
+         try:
+-            FOREGROUND_GATE.yield_to_foreground(while_waiting=while_waiting)
+             yield
+         finally:
+             _BACKGROUND_CONTEXT.reset(token)

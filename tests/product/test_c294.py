@@ -83,25 +83,22 @@ class IoAdmissionTests(unittest.TestCase):
     def test_J42_io_scope_yields_before_first_network_request(self):
         from ai_caddie.core import priority_work as pw
         from ai_caddie.core.priority_work import ForegroundGate
-        from ai_caddie.courses.course_search import CourseMatch
-        from server_v2 import map_startup as ms
+        from server_v2 import garmin_raster as api
 
         gate = ForegroundGate(timeout_s=5)
         entered, release = threading.Event(), threading.Event()
-        matches = [CourseMatch(901, "Fixture", 9, None, None, 1, distance_km=1)]
-
         def fetch(*args, **kwargs):
             entered.set()
             release.wait(2)
-            return {"release_version": 1}
+            return None
 
         with patch.object(pw, "FOREGROUND_GATE", gate), \
-             patch.object(ms, "_RELEASE_PREFETCHED", {}), \
-             patch.object(ms, "nearby_work_blocked", return_value=False), \
-             patch.object(ms, "tee_requests_in_flight", return_value=False), \
-             patch.object(ms, "courseview_release_info", side_effect=fetch):
+             patch.object(api, "_PREFETCHED", set()), \
+             patch.object(api.garmin_raster, "fetch_matted_raster", side_effect=fetch):
             with gate.foreground():
-                worker = threading.Thread(target=ms.prefetch_nearby_releases, args=(matches,), daemon=True)
+                worker = threading.Thread(
+                    target=api._warm_hole, args=(901, 1, (901, 1, "v1")), daemon=True,
+                )
                 worker.start()
                 self.assertFalse(entered.wait(.2), "IO coordinator entered network work beside a package")
                 release.set()

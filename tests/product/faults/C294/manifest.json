@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C294-N1-install-topo-admission-in-worker",
+      "patch": "tests/product/faults/C294/N1-install-topo-admission-in-worker.patch",
+      "kind": "python",
+      "target": "tests.product.test_c294.TopoAdmissionTests.test_J42_install_topo_admits_before_single_worker_submission",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C294-R2-io-entry-skips-yield",
+      "patch": "tests/product/faults/C294/R2-io-entry-skips-yield.patch",
+      "kind": "python",
+      "target": "tests.product.test_c294.IoAdmissionTests.test_J42_io_scope_yields_before_first_network_request",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C294-R4-backfill-slot-before-admission",
+      "patch": "tests/product/faults/C294/R4-backfill-slot-before-admission.patch",
+      "kind": "python",
+      "target": "tests.product.test_c294.IoAdmissionTests.test_J42_backfill_waits_for_cpu_admission_before_render_slot",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C294-R7-io-context-leaks",
+      "patch": "tests/product/faults/C294/R7-io-context-leaks.patch",
+      "kind": "python",
+      "target": "tests.product.test_c294.IoAdmissionTests.test_J42_io_context_does_not_leak_across_reused_worker_threads",
+      "promise": "4.2"
+    }
+  ]
+}
