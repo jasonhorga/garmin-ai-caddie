@@ -1,0 +1,15 @@
+diff --git a/.github/scripts/check_native_fixture_dns.py b/.github/scripts/check_native_fixture_dns.py
+index 5860b8e3..81e8dc6c 100644
+--- a/.github/scripts/check_native_fixture_dns.py
++++ b/.github/scripts/check_native_fixture_dns.py
+@@ -129,10 +129,6 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
+             lines = lines[:index]
+             break
+     for line_number, line in enumerate(lines, start=1):
+-        if _is_app_network_summary(line):
+-            # A summary is not a shim authorization and must not clear a
+-            # pending CFNetwork error from the same Task id.
+-            continue
+         task_ids = {m.groups() for m in _TASK_RE.finditer(line)}
+         if _is_shim_route_line(line):
+             # A route marker belongs only to this line. Its Task id may close

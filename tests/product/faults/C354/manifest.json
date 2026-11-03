@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C354-01-summary-clears-pending",
+      "patch": "tests/product/faults/C354/01-summary-clears-pending.patch",
+      "kind": "python",
+      "target": "tests.test_native_fixture_dns_gate.NativeFixtureDNSGateTests.test_app_summary_does_not_clear_pending_dns_error_for_same_task",
+      "promise": "J4.2",
+      "kills": "An app network summary must not clear a pending same-Task DNS error before its URL continuation."
+    }
+  ]
+}
