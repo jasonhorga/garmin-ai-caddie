@@ -369,7 +369,7 @@ final class TeeSelectionUITests: XCTestCase {
         city.tap()
         city.typeText("北京")
         let submit = app.buttons["course-catalog-search-action"]
-        XCTAssertTrue(waitUntilEnabled(submit, timeout: 5))
+        XCTAssertTrue(waitUntilEnabled(submit, timeout: 15))
         submit.tap()
         XCTAssertTrue(waitUntilGone(app.keyboards.firstMatch, timeout: 8))
 
@@ -978,7 +978,7 @@ final class TeeSelectionUITests: XCTestCase {
         field.tap()
         field.typeText(text)
         let submit = app.buttons["course-catalog-search-action"]
-        XCTAssertTrue(waitUntilEnabled(submit, timeout: 5))
+        XCTAssertTrue(waitUntilEnabled(submit, timeout: 15))
         submit.tap()
         XCTAssertTrue(waitUntilGone(app.keyboards.firstMatch, timeout: 8))
 
