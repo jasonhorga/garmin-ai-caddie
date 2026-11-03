@@ -782,9 +782,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 globalId: globalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt
             )
             rememberRoundStartRequest(request)
-            await prepareCourseRound(
-                globalId: globalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt
-            )
+            startCourseRound(roundId: roundId, teeBox: teeBox, loops: loops)
+            await activeRoundStartTask?.value
         case let .prep(course, roundId, teeBox, loops, _, hole):
             let request = RoundStartRequest.prep(
                 course: course, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, hole: hole
