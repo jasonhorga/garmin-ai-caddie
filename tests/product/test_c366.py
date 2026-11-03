@@ -17,9 +17,29 @@ import uvicorn
 from ai_caddie.courses import course_search
 from ai_caddie.courses.prep_work import PrepCancelled, checkpoint, cancellation
 from server_v2 import main
+from tests.service_logging import ServiceLoggingIsolationMixin
+from fastapi.testclient import TestClient
 
 
-class C366CancellationTests(unittest.TestCase):
+class IsolatedRequestTests(ServiceLoggingIsolationMixin, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.enterContext(patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "fixture-admin", "AI_CADDIE_BOOT_BACKGROUND_WORK": "0"}))
+        self.enterContext(patch.object(main, "_ROUND_START_IN_FLIGHT", 0, create=True))
+        for name in ("_REQUEST_FLIGHTS", "_NEARBY_GENERATIONS", "_ACTIVE_ROUNDS", "_ACTIVE_COURSES", "_ACTIVE_SELECTIONS"):
+            if hasattr(main, name):
+                self.enterContext(patch.object(main, name, {}))
+        self.addCleanup(self._join_dispatch)
+
+    @staticmethod
+    def _join_dispatch():
+        from server_v2 import map_startup
+        thread = map_startup._NEARBY_DISPATCH_THREAD
+        if thread is not None:
+            thread.join(3)
+
+
+class C366CancellationTests(IsolatedRequestTests):
     def _server(self):
         listener = socket.socket()
         listener.bind(("127.0.0.1", 0))
@@ -160,8 +180,89 @@ class C366CancellationTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertLess(time.monotonic() - started, 2.0)
 
+    def test_J42_course_package_real_builder_cold_key_is_foreground(self):
+        """B1/J4.2: real course builder and cold prep cache, only provider IO replaced."""
+        from collections import OrderedDict
+        from ai_caddie.courses import prep_cache
+        from tests.product.test_c33_start_fast import selected_tee_fixture_course
+        with selected_tee_fixture_course() as (mobile, _vp, _cp, _root, _jobs):
+            def authority(*args, **kwargs):
+                return prep_cache._singleflight(OrderedDict(), 4, ("b1-real", time.monotonic()), 1, lambda: [])
+            with patch.object(mobile, "_refresh_course_release_authority", side_effect=authority), \
+                 patch.object(main, "_record_round_activity"), TestClient(main.app) as client:
+                started = time.monotonic()
+                response = client.get("/api/v2/mobile/courses/123/package", params={
+                    "loops": "123:front", "include_event_cursor": "false",
+                }, headers={"X-AI-Caddie-Admin-Token": "fixture-admin"})
+                self.assertEqual(response.status_code, 200)
+                self.assertLess(time.monotonic() - started, 2.0)
 
-class C366NearbyAdmissionTests(unittest.TestCase):
+    def test_J42_live_http_successor_of_abandoned_nearby_returns_200(self):
+        """B2/J4.2: replace a cancelled leader still finishing provider IO."""
+        release, entered = threading.Event(), threading.Event()
+        calls = []
+        def nearby(*args, **kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                entered.set()
+                release.wait(4)
+            return []
+        with patch.object(main.course_search, "courseview_nearby", side_effect=nearby), \
+             patch("server_v2.map_startup.schedule_nearby"):
+            listener = self._server()
+            client = socket.create_connection(listener.getsockname(), timeout=2)
+            path = "/api/v2/courses/nearby?latitude=40.2&longitude=116.2&radius_km=50"
+            payload = ("GET " + path + " HTTP/1.1\r\nHost: fixture\r\nX-AI-Caddie-Admin-Token: fixture-admin\r\nConnection: close\r\n\r\n").encode()
+            try:
+                client.sendall(payload)
+                self.assertTrue(entered.wait(2))
+                client.shutdown(socket.SHUT_RDWR); client.close()
+                # Transport delivery allowance; provider deliberately does not checkpoint.
+                time.sleep(.15)
+                with socket.create_connection(listener.getsockname(), timeout=2) as successor:
+                    successor.settimeout(2)
+                    successor.sendall(payload)
+                    response = successor.makefile("rb").readline()
+                    self.assertIn(b"200", response)
+            finally:
+                release.set()
+                client.close()
+
+    def test_J42_cached_tees_stays_responsive_with_blocked_nearby(self):
+        """B3/J4.2: nearby cannot consume the thread lane needed by cached tees."""
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+        release, occupied = threading.Event(), threading.Event()
+        calls = []
+        def nearby(*args, **kwargs):
+            calls.append(1)
+            if len(calls) >= 2:
+                occupied.set()
+            release.wait(4)
+            return []
+        with patch.object(main.course_search, "courseview_nearby", side_effect=nearby), \
+             patch("ai_caddie.caddie.analysis.course_tee_options", return_value={"defaultTeeBox": "blue", "tees": []}), \
+             TestClient(main.app) as client, ThreadPoolExecutor(max_workers=4) as callers:
+            async def constrain_default_pool():
+                asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(max_workers=2))
+            client.portal.call(constrain_default_pool)
+            pending = [callers.submit(client.get, "/api/v2/courses/nearby", params={
+                "latitude": 40 + i * .01, "longitude": 116, "radius_km": 50,
+            }, headers={"X-AI-Caddie-Admin-Token": "fixture-admin"}) for i in range(2)]
+            try:
+                self.assertTrue(occupied.wait(2))
+                tees = callers.submit(client.get, "/api/v2/courses/31795/tees")
+                done = threading.Event()
+                tees.add_done_callback(lambda _: done.set())
+                self.assertTrue(done.wait(1), "cached tees starved behind nearby threads")
+                self.assertEqual(tees.result().status_code, 200)
+            finally:
+                release.set()
+                for request in pending:
+                    request.result(timeout=5)
+
+
+class C366NearbyAdmissionTests(IsolatedRequestTests):
     def test_J42_three_same_player_nearby_requests_only_latest_warms(self):
         """A newer discovery supersedes an older in-flight discovery for one player."""
         from fastapi.testclient import TestClient
@@ -265,7 +366,7 @@ class C366NearbyAdmissionTests(unittest.TestCase):
             errors.append(type(exc).__name__)
 
 
-class C366RoundAdmissionTests(unittest.TestCase):
+class C366RoundAdmissionTests(IsolatedRequestTests):
     def test_J42_nearby_warming_waits_for_round_package(self):
         """Nearby background work is released after the in-progress round start."""
         from fastapi.testclient import TestClient
