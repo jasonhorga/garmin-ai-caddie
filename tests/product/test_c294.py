@@ -76,6 +76,167 @@ class TopoAdmissionTests(unittest.TestCase):
         self.assertFalse(install.is_alive(), "install worker did not settle")
         self.assertLess(latency, 0.1, f"foreground topo prewarm delayed {latency * 1000:.0f} ms")
 
+    def test_J42_install_topo_keeps_admission_for_worker_with_second_waiter(self):
+        """J4.2: a waiter arriving after the coordinator cannot steal its topo admission."""
+        from ai_caddie.core import priority_work as pw
+        from ai_caddie.core.priority_work import ForegroundGate, PriorityExecutor, FOREGROUND
+        from server_v2 import course_install as ci, main
+
+        gate = ForegroundGate(timeout_s=5)
+        pool = PriorityExecutor(max_workers=1, name="c294-topo-contention")
+        competitor_queued, competitor_waiting, install_submitted = (
+            threading.Event(), threading.Event(), threading.Event()
+        )
+        release_competitor = threading.Event()
+        errors: list[BaseException] = []
+
+        original_wait_locked = gate._wait_locked
+
+        def observe_competitor_wait(deadline, now, while_waiting):
+            if threading.current_thread().name == "c294-competitor":
+                competitor_queued.set()
+            return original_wait_locked(deadline, now, while_waiting)
+
+        gate._wait_locked = observe_competitor_wait
+
+        def hold_competitor_slot():
+            try:
+                with pw.background_work(unit_type="c294-competitor"):
+                    competitor_waiting.set()
+                    release_competitor.wait(3)
+            except BaseException as exc:
+                errors.append(exc)
+
+        original_submit_keyed = pool.submit_keyed
+
+        def submit_with_competitor(*args, **kwargs):
+            competitor = threading.Thread(target=hold_competitor_slot, name="c294-competitor", daemon=True)
+            competitor.start()
+            competitor_queued.wait(2)
+            future = original_submit_keyed(*args, **kwargs)
+            install_submitted.set()
+            return future
+
+        def ensure_geometry(gid, *, holes, on_hole_complete, **kwargs):
+            result = {"globalId": gid, "localHole": 1, "ok": True}
+            on_hole_complete(result)
+            return {"results": [result]}
+
+        with TemporaryDirectory() as directory, \
+             patch.object(pw, "FOREGROUND_GATE", gate), \
+             patch.dict(os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}), \
+             patch.object(ci, "_launch"), patch.object(ci, "_schedule_retry"), \
+             patch.object(ci, "_launch_next_resumed_job"), \
+             patch.object(main, "_playing_install_matches", return_value=False), \
+             patch.object(main, "prefetch_garmin_rasters"), \
+             patch.object(main, "_probe_geometry_revision", return_value=("r1", "current")), \
+             patch.object(main, "_render_course_topo_one", return_value=True), \
+             patch("ai_caddie.caddie.mobile_live._ensure_geometry_for_course", side_effect=ensure_geometry), \
+             patch("ai_caddie.courses.vector_prep.warm_requested_vectors"), \
+             patch.object(pool, "submit_keyed", side_effect=submit_with_competitor), \
+             patch.object(main, "_TOPO_PIPELINE_POOL", pool):
+            state = ci.enqueue(
+                global_id=901, tee_box="blue", loop_key="901:front", player_id="fixture",
+                refs=[{"globalId": 901, "localHole": 1, "displayHole": 1}],
+                requested={901: [1]}, ready={},
+            )
+            def run_install():
+                try:
+                    with pw.background_work(cpu=False, unit_type="c294-coordinator"):
+                        main.run_course_install_job(state["jobId"])
+                except BaseException as exc:
+                    errors.append(exc)
+
+            install = threading.Thread(target=run_install, daemon=True)
+            install.start()
+            self.assertTrue(install_submitted.wait(3))
+            submitted = time.monotonic()
+            started: list[float] = []
+            pool.submit(lambda: started.append(time.monotonic()), priority=FOREGROUND).result(timeout=5)
+            latency = started[0] - submitted
+            release_competitor.set()
+            install.join(5)
+            pool.shutdown(wait=False)
+
+        self.assertFalse(errors, errors)
+        self.assertFalse(install.is_alive(), "install worker did not settle")
+        self.assertLess(latency, 0.1, f"foreground topo prewarm delayed {latency * 1000:.0f} ms")
+
+    def test_J42_install_vector_seed_does_not_retain_topo_worker(self):
+        """J4.2: an install-vector seed immediately after topo submission leaves the pool free."""
+        from ai_caddie.core import priority_work as pw
+        from ai_caddie.core.priority_work import ForegroundGate, PriorityExecutor, FOREGROUND
+        from server_v2 import course_install as ci, main
+
+        gate = ForegroundGate(timeout_s=5)
+        pool = PriorityExecutor(max_workers=1, name="c294-topo-vector")
+        worker_attempted, vector_started = threading.Event(), threading.Event()
+        errors: list[BaseException] = []
+
+        class OrderedGate(ForegroundGate):
+            @contextmanager
+            def background(self, *, timeout_s=None, while_waiting=None, unit_type="unknown"):
+                if unit_type == "install-topo" and threading.current_thread().name.startswith("c294-topo-vector"):
+                    worker_attempted.set()
+                    vector_started.wait(3)
+                with super().background(timeout_s=timeout_s, while_waiting=while_waiting,
+                                        unit_type=unit_type):
+                    yield
+
+        gate = OrderedGate(timeout_s=5)
+
+        def ensure_geometry(gid, *, holes, on_hole_complete, **kwargs):
+            result = {"globalId": gid, "localHole": 1, "ok": True}
+            on_hole_complete(result)
+            return {"results": [result]}
+
+        def warm_vectors(*args, **kwargs):
+            vector_started.set()
+            time.sleep(1)
+
+        def render_topo(*args):
+            return True
+
+        def record_error(fn):
+            try:
+                fn()
+            except BaseException as exc:
+                errors.append(exc)
+
+        with TemporaryDirectory() as directory, \
+             patch.object(pw, "FOREGROUND_GATE", gate), \
+             patch.dict(os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}), \
+             patch.object(ci, "_launch"), patch.object(ci, "_schedule_retry"), \
+             patch.object(ci, "_launch_next_resumed_job"), \
+             patch.object(main, "_playing_install_matches", return_value=False), \
+             patch.object(main, "prefetch_garmin_rasters"), \
+             patch.object(main, "_probe_geometry_revision", return_value=("r1", "current")), \
+             patch.object(main, "_render_course_topo_one", side_effect=render_topo), \
+             patch("ai_caddie.caddie.mobile_live._ensure_geometry_for_course", side_effect=ensure_geometry), \
+             patch("ai_caddie.courses.vector_prep.warm_requested_vectors", side_effect=warm_vectors), \
+             patch.object(main, "_TOPO_PIPELINE_POOL", pool):
+            state = ci.enqueue(
+                global_id=901, tee_box="blue", loop_key="901:front", player_id="fixture",
+                refs=[{"globalId": 901, "localHole": 1, "displayHole": 1}],
+                requested={901: [1]}, ready={},
+            )
+            install = threading.Thread(
+                target=lambda: record_error(lambda: ci._run(state["jobId"])), daemon=True,
+            )
+            install.start()
+            self.assertTrue(worker_attempted.wait(3))
+            submitted = time.monotonic()
+            started: list[float] = []
+            pool.submit(lambda: started.append(time.monotonic()), priority=FOREGROUND).result(timeout=5)
+            latency = started[0] - submitted
+            install.join(5)
+            pool.shutdown(wait=False)
+
+        self.assertFalse(errors, errors)
+        self.assertTrue(vector_started.is_set())
+        self.assertFalse(install.is_alive(), "install worker did not settle")
+        self.assertLess(latency, 0.1, f"foreground topo prewarm delayed {latency * 1000:.0f} ms")
+
 
 class IoAdmissionTests(unittest.TestCase):
     """J4.2: IO coordinators yield before entering provider work and clean up context."""
