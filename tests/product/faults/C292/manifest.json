@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C292-01-replay-head-recheck",
+      "patch": "tests/product/faults/C292/01-replay-head-recheck.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_check_replayed_batch_head_is_rechecked_in_isolation",
+      "promise": "fault-runner infrastructure: W2 replayed batch heads receive independent load verification"
+    },
+    {
+      "id": "tests-product-faults-C292-02-relative-import-module-tracking",
+      "patch": "tests/product/faults/C292/02-relative-import-module-tracking.patch",
+      "kind": "python",
+      "target": "tests.test_fault_runner.ManifestFragmentTests.test_check_import_module_relative_cannot_hide_broken_shadow",
+      "promise": "fault-runner infrastructure: W4 relative import_module names are resolved before tracking"
+    }
+  ]
+}

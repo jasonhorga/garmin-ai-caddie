@@ -1,0 +1,13 @@
+diff --git a/tests/product/faults/run_faults.py b/tests/product/faults/run_faults.py
+index 76b26ca4..eca35b23 100644
+--- a/tests/product/faults/run_faults.py
++++ b/tests/product/faults/run_faults.py
+@@ -272,7 +272,7 @@ def probe_python_targets(targets: Iterable[str], repo: Path) -> dict[str, tuple[
+             if target in restart:
+                 continue
+             result = batch[target]
+-            if len(pending) > 1 and result[0] != "ok":
++            if len(pending) > 1 and result[0] != "ok" and pending is targets:
+                 result = _run_python_load_probe([target], repo)[target]
+             results[target] = result
+         # The first target never inherits contamination, so each pass makes
