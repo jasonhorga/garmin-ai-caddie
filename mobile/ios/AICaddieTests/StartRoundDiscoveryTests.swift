@@ -62,6 +62,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
             defaultCourseGlobalId: course.globalId,
             defaultTeeBox: course.teeBox ?? "blue",
             courseOptions: [course],
+            preselectedVenueOptions: [course],
             syncStatus: RoundStartFailure.unavailable.presentationMessage,
             roundStartFailure: .unavailable,
             canStartSimplifiedRound: true,
@@ -81,14 +82,15 @@ final class StartRoundDiscoveryTests: XCTestCase {
         host.view.frame = window.bounds
         host.view.layoutIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        func find(_ view: UIView) -> UIAccessibilityElement? {
+        func find(_ view: UIView) -> (() -> Bool)? {
             if let element = (view.accessibilityElements as? [UIAccessibilityElement])?.first(where: {
                 $0.accessibilityIdentifier == "start-round-cancel"
-            }) { return element }
+            }) { return { element.accessibilityActivate() } }
+            if view.accessibilityLabel == "取消" { return { view.accessibilityActivate() } }
             return view.subviews.lazy.compactMap(find).first
         }
-        let button = try XCTUnwrap(find(host.view), "the failure card must expose its cancel control")
-        XCTAssertTrue(button.accessibilityActivate(), "the cancel control must dispatch its callback")
+        let activate = try XCTUnwrap(find(host.view), "the failure card must expose its cancel control")
+        XCTAssertTrue(activate(), "the cancel control must dispatch its callback")
         XCTAssertEqual(cancellations, 1)
     }
 
@@ -103,6 +105,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
             defaultCourseGlobalId: course.globalId,
             defaultTeeBox: course.teeBox ?? "blue",
             courseOptions: [course],
+            preselectedVenueOptions: [course],
             isPreparing: true,
             onCancelRoundStart: { immediate += 1 },
             onCancelRoundStartIfReady: { gated += 1 },
@@ -116,14 +119,15 @@ final class StartRoundDiscoveryTests: XCTestCase {
         host.view.frame = window.bounds
         host.view.layoutIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        func find(_ view: UIView) -> UIAccessibilityElement? {
+        func find(_ view: UIView) -> (() -> Bool)? {
             if let element = (view.accessibilityElements as? [UIAccessibilityElement])?.first(where: {
                 $0.accessibilityIdentifier == "start-round-back-to-courses"
-            }) { return element }
+            }) { return { element.accessibilityActivate() } }
+            if view.accessibilityLabel == "返回" { return { view.accessibilityActivate() } }
             return view.subviews.lazy.compactMap(find).first
         }
-        let back = try XCTUnwrap(find(host.view), "setup must expose its back control")
-        XCTAssertTrue(back.accessibilityActivate())
+        let activate = try XCTUnwrap(find(host.view), "setup must expose its back control")
+        XCTAssertTrue(activate())
         XCTAssertEqual(immediate, 1)
         XCTAssertEqual(gated, 0)
     }
