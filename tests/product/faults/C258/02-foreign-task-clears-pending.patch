@@ -1,13 +1,13 @@
 diff --git a/.github/scripts/check_native_fixture_dns.py b/.github/scripts/check_native_fixture_dns.py
-index a3e50647..8ecaed05 100644
+index ef45d574..bdbc870e 100644
 --- a/.github/scripts/check_native_fixture_dns.py
 +++ b/.github/scripts/check_native_fixture_dns.py
-@@ -104,7 +104,7 @@ def _is_shim_route_line(line: str) -> bool:
-                 return False
-             if not origin_match or url_host != origin_match.group(1).lower().rstrip("."):
-                 return False
--        return len(task_ids) <= 1
-+        return True
-     # A split shim continuation can carry only the marker and its Task/UserInfo
-     # fields. It is safe when it has no DNS error or URL of its own; a marker
-     # spliced into a real CFNetwork error remains actionable.
+@@ -140,7 +140,7 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
+             pending_without_url = [
+                 pending
+                 for pending in pending_without_url
+-                if not (pending[2] and pending[2] & task_ids)
++                if False
+             ]
+             continue
+         match = _URL_RE.search(line)
