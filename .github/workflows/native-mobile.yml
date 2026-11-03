@@ -62,12 +62,38 @@ concurrency:
 jobs:
   native-quick:
     if: github.event_name == 'pull_request'
-    runs-on: ${{ vars.MAC_RUNNER == 'online' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
+    runs-on: [self-hosted, caddie-mba]
     timeout-minutes: 25
     concurrency:
       group: native-quick-${{ github.head_ref }}
       cancel-in-progress: true
     steps:
+      - &select_xcode_27
+        name: Select Xcode 27
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcode_path=""
+          if [[ -d /Applications/Xcode.app ]]; then
+            xcode_path="/Applications/Xcode.app"
+          else
+            for candidate in /Applications/Xcode_27*.app; do
+              if [[ -d "$candidate" ]]; then
+                xcode_path="$candidate"
+                break
+              fi
+            done
+          fi
+          [[ -n "$xcode_path" ]] || { echo "Xcode 27 installation not found" >&2; exit 1; }
+          developer_dir="$xcode_path/Contents/Developer"
+          export DEVELOPER_DIR="$developer_dir"
+          version="$(xcodebuild -version)"
+          printf '%s\n' "$version"
+          printf '%s\n' "$version" | grep -q '^Xcode 27\.' || {
+            echo "selected Xcode is not major version 27" >&2
+            exit 1
+          }
+          printf 'DEVELOPER_DIR=%s\n' "$developer_dir" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -95,7 +121,7 @@ jobs:
           mkdir -p native-quick-results
           IOS_UDID=$(xcrun simctl list devices available -j | jq -r '
             . as $inventory
-            | [["iPhone 16", "iPhone 17"] | to_entries[] as $preferred
+            | [["iPhone 16"] | to_entries[] as $preferred
               | $inventory.devices | to_entries[]
               | select(.key | contains("SimRuntime.iOS-"))
               | .key as $runtime
@@ -148,7 +174,7 @@ jobs:
           set -euo pipefail
           WATCH_UDID=$(xcrun simctl list devices available -j | jq -r '
             . as $inventory
-            | [["Apple Watch Series 10 (46mm)", "Apple Watch Series 12 (46mm)"] | to_entries[] as $preferred
+            | [["Apple Watch Series 10 (46mm)"] | to_entries[] as $preferred
               | $inventory.devices | to_entries[]
               | select(.key | contains("SimRuntime.watchOS-"))
               | .key as $runtime
@@ -206,15 +232,14 @@ jobs:
   # Live dispatch retains serial execution; fixture runners reuse the same launch and scan gates.
   native-live:
     if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fixture_mode }}
-    # Keep on GitHub until C332 fixes watchOS 27 SDK hit testing / vertical paging (full
-    # AICaddieWatch scheme incl. WatchHolePagesUITests); then move back to Mac.
-    runs-on: macos-15
+    runs-on: [self-hosted, caddie-mba]
     # Live dispatch keeps the existing serial capture path.
     timeout-minutes: 150
     env:
       NATIVE_ARTIFACT_SUFFIX: ''
       NATIVE_CAPTURE_SHARD: all
     steps:
+      - *select_xcode_27
       - &actions_checkout_v4
         uses: actions/checkout@v4
       - &select_fixture_port
@@ -1043,14 +1068,13 @@ jobs:
 
   native-unit-watch:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
-    # Keep on GitHub until C332 fixes iOS/watchOS 27 SDK transparent green
-    # button hit testing and Watch vertical paging; then move back to Mac.
-    runs-on: macos-15
+    runs-on: [self-hosted, caddie-mba]
     timeout-minutes: 45
     env:
       NATIVE_CAPTURE_SHARD: unit-watch
       NATIVE_ARTIFACT_SUFFIX: -unit-watch
     steps:
+      - *select_xcode_27
       - *actions_checkout_v4
       - *select_fixture_port
       - *test_transient_command_retry_gate
@@ -1100,12 +1124,13 @@ jobs:
 
   native-real-flow:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
-    runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
+    runs-on: [self-hosted, caddie-mba]
     timeout-minutes: 55
     env:
       NATIVE_CAPTURE_SHARD: real-flow
       NATIVE_ARTIFACT_SUFFIX: -real-flow
     steps:
+      - *select_xcode_27
       - *actions_checkout_v4
       - *select_fixture_port
       - *test_transient_command_retry_gate
@@ -1134,14 +1159,13 @@ jobs:
 
   native-screenshots:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
-    # Keep on GitHub until C332 fixes iOS/watchOS 27 SDK transparent green
-    # button hit testing and Watch vertical paging; then move back to Mac.
-    runs-on: macos-15
+    runs-on: [self-hosted, caddie-mba]
     timeout-minutes: 55
     env:
       NATIVE_CAPTURE_SHARD: screenshots
       NATIVE_ARTIFACT_SUFFIX: -screenshots
     steps:
+      - *select_xcode_27
       - *actions_checkout_v4
       - *select_fixture_port
       - *test_transient_command_retry_gate
@@ -1174,14 +1198,13 @@ jobs:
   # the tests launch the app with synthetic credentials against the in-process server.
   native-product-ui:
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit' }}
-    # Keep on GitHub until C332 fixes iOS/watchOS 27 SDK transparent green
-    # button hit testing and Watch vertical paging; then move back to Mac.
-    runs-on: macos-15
+    runs-on: [self-hosted, caddie-mba]
     # "Test iOS app target" (build + unit tests) took 12 min on run 40187234659. This scheme also
     # builds the UI-test bundle and then runs 13 serial tests with about 20 app launches, so about
     # 25 min is expected; 45 stops a hung simulator at roughly twice that.
     timeout-minutes: 45
     steps:
+      - *select_xcode_27
       - uses: actions/checkout@v4
       - name: Select runner fixture port
         env:

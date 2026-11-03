@@ -27,7 +27,6 @@ MOVED = {
     'agenthub-native-mutant.yml': ('native-mutant',),
     'watch-cold-start.yml': ('cold-start',),
 }
-# C307 r5: jobs running the full Watch scheme / iOS UI tests stay hosted until C332.
 SDK_HOSTED = {
     'native-mobile.yml': ('native-live', 'native-unit-watch', 'native-screenshots', 'native-product-ui'),
     'watch-runtime.yml': ('watch-runtime',),
@@ -410,18 +409,21 @@ while True:
                         values = {'vars.MAC_RUNNER': online, 'github.event_name': event,
                                   'github.repository': 'owner/repo',
                                   'github.event.pull_request.head.repo.full_name': repo}
+                        if name == 'native-mobile.yml':
+                            expected = ['self-hosted', 'caddie-mba']
                         self.assertEqual(evaluate(workflow(name)['jobs'][job]['runs-on'], values), expected)
 
     def test_sdk_affected_jobs_stay_hosted_even_when_mac_is_online(self):
-        # C307 r4 keeps 27 SDK hit testing / vertical paging under C332 on hosted SDKs.
+        # C333 moved these jobs to the self-hosted Xcode 27 Mac after C332.
         for name, job in [(n, j) for n, jobs in SDK_HOSTED.items() for j in jobs]:
             for event, repo in [('workflow_dispatch', ''), ('pull_request', 'owner/repo'),
                                 ('pull_request', 'fork/repo')]:
                 with self.subTest(workflow=name, job=job, event=event, repo=repo):
+                    expected = ['self-hosted', 'caddie-mba'] if name == 'native-mobile.yml' else 'macos-15'
                     self.assertEqual(evaluate(workflow(name)['jobs'][job]['runs-on'], {
                         'vars.MAC_RUNNER': 'online', 'github.event_name': event,
                         'github.repository': 'owner/repo',
-                        'github.event.pull_request.head.repo.full_name': repo}), 'macos-15')
+                        'github.event.pull_request.head.repo.full_name': repo}), expected)
 
     def test_owned_selection_boots_in_english_after_each_job_erase(self):
         # The host supplies Chinese defaults again on every erase; both platforms
