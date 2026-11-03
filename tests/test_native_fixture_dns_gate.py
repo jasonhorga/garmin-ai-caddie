@@ -304,6 +304,31 @@ Test Case '-[AICaddieTests.SyncClientTests testFetchRoundDetailRetriesTransientT
         self.assertEqual(1, len(findings))
         self.assertEqual("https://leak.example.test/package", findings[0][2])
 
+    def test_shim_line_does_not_clear_taskless_pending_dns_error(self) -> None:
+        """J4.2: a shim task cannot authorize an unrelated taskless pending error."""
+        shim_task = "F40B46E2-E860-4D7B-A598-0796AFA41219"
+        log = (
+            'Error Domain=NSURLErrorDomain Code=-1003 '
+            '"A server with the specified hostname could not be found." UserInfo={\n'
+            f'Task <{shim_task}>.<15> finished "route=shared origin=[host=ok.example.test]"\n'
+            '), NSErrorFailingURLStringKey=https://leak.example.test/package}\n'
+        )
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("https://leak.example.test/package", findings[0][2])
+
+    def test_loose_dns_disabled_text_does_not_authorize_error(self) -> None:
+        """J4.2: only the complete fixture offline description authorizes a shim."""
+        leak_task = "0D1E2F30-4152-6374-8596-A7B8C9D0E1F2"
+        log = (
+            f'Task <{leak_task}>.<7> finished with error [-1003] '
+            'Error Domain=NSURLErrorDomain Code=-1003 "DNS disabled" route=shared UserInfo={\n'
+            '), NSErrorFailingURLStringKey=https://leak.example.test/package}\n'
+        )
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("https://leak.example.test/package", findings[0][2])
+
     def test_real_shim_line_survives_every_other_log_splice_position(self) -> None:
         """J4.2: every cut in the observed shim line remains a clean fixture error."""
         first, tail = _real_shim_lines()
