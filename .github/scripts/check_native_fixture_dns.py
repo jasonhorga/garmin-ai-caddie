@@ -31,7 +31,12 @@ _NETWORK_ERROR_CODES = frozenset({
     -1200, -1201, -1202, -1203, -1204, -1205, -1206,
 })
 _HOSTNAME_FAILURE_RE = re.compile(r"hostname could not be found", re.IGNORECASE)
+# External CFNetwork records use the strict form so an embedded
+# ``LocalDataTask`` cannot be counted as a second, foreign task.  Shim
+# continuations may contain only that embedded form, so they need the wider
+# matcher when closing a pending error from the same request.
 _TASK_RE = re.compile(r"(?<![A-Za-z])Task <([0-9A-Fa-f-]{36})>\.<(\d+)>")
+_SHIM_TASK_RE = re.compile(r"(?<![A-Za-z])(?:LocalData)?Task <([0-9A-Fa-f-]{36})>\.<(\d+)>")
 _ROUTE_MARKER_RE = re.compile(r"(?<![?\w])route=(?:shared|explicit)(?![\w-])|CaddieTestRoute=")
 
 
@@ -88,6 +93,8 @@ def _is_shim_route_line(line: str) -> bool:
         return True
     if not _ROUTE_MARKER_RE.search(line):
         return False
+    # Keep LocalDataTask out of the foreign-task count.  A route line with an
+    # external Task and an embedded LocalDataTask must remain actionable.
     task_ids = {m.groups() for m in _TASK_RE.finditer(line)}
     if "origin=[" in line:
         # A route fragment spliced into a real one-line error must remain
@@ -137,10 +144,15 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
             # A route marker belongs only to this line. Its Task id may close
             # an earlier marker-only error from the same interleaved shim event,
             # but it never authorizes later lines carrying that id.
+            shim_task_ids = {m.groups() for m in _SHIM_TASK_RE.finditer(line)}
             pending_without_url = [
                 pending
                 for pending in pending_without_url
-                if not (pending[2] and pending[2] & task_ids)
+                if not (
+                    pending[2]
+                    and pending[2] & shim_task_ids
+                    and (not task_ids or task_ids <= pending[2])
+                )
             ]
             continue
         match = _URL_RE.search(line)
