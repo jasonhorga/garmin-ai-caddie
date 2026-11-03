@@ -4153,6 +4153,10 @@ def build_history_stats(
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     """Build the complete public projection, including auxiliary evidence overlays."""
+    # Correct once here so the core build and the overlay read the same view without paying the
+    # correction pass twice.
+    if not data.corrected:
+        data = corrected_history_data(data, player_id=player_id, annotations_root=annotations_root)
     core = build_history_stats_core(
         data,
         data_mode=data_mode,
@@ -4160,8 +4164,6 @@ def build_history_stats(
         reports_root=reports_root,
         player_id=player_id,
     )
-    if not data.corrected:
-        data = corrected_history_data(data, player_id=player_id, annotations_root=annotations_root)
     return apply_aux_overlay(
         core,
         data,

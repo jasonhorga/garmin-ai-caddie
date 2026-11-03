@@ -1345,3 +1345,30 @@ class StatsAuxOverlayProductTests(unittest.TestCase):
         header = timing.server_timing()
         self.assertIn("stats_aux;dur=", header)
         self.assertNotIn("stats_build;dur=", header)
+
+    def test_J42_real_scale_last20_after_evidence_writes_stays_under_cold_budget(self):
+        """J4.2: at production scale (~435 rounds / 70 courses) a weather + decision write must not
+        put the start package back on a cold last20 build. Stage names are the main assertion; the
+        wall budget is relative to the cold build measured in this process, so machine load scales
+        both sides (main re-ran the full build after either write)."""
+        import time
+
+        data = synthetic_history(num_rounds=435, num_courses=70)
+        cold = RequestTiming("c86-cold")
+        started = time.perf_counter()
+        with bind(cold):
+            stats_cache.cached_build_history_stats(data, data_mode="local", window="last20", **self.roots)
+        cold_s = time.perf_counter() - started
+        self.assertIn("stats_build;dur=", cold.server_timing())
+        store_weather_snapshot(self._weather(), root=self.tmp)
+        store_decision_audit(self._audit(), decision_id="r0059:1:1", root=self.tmp)
+        warm = RequestTiming("c86-warm")
+        started = time.perf_counter()
+        with bind(warm):
+            stats_cache.cached_build_history_stats(data, data_mode="local", window="last20", **self.roots)
+        warm_s = time.perf_counter() - started
+        header = warm.server_timing()
+        self.assertIn("stats_aux;dur=", header)
+        self.assertNotIn("stats_build;dur=", header)
+        self.assertNotIn("stats_disk;dur=", header)
+        self.assertLessEqual(warm_s, cold_s / 2, f"cold={cold_s:.3f}s after-write={warm_s:.3f}s")
