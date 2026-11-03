@@ -1,0 +1,8 @@
+diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
+index e714bed0..ff31a74c 100644
+--- a/.github/workflows/native-mobile.yml
++++ b/.github/workflows/native-mobile.yml
+@@ -1206,3 +1206,2 @@ jobs:
+     steps:
+-      - *select_xcode_27
+       - uses: actions/checkout@v4
