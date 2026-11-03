@@ -2280,7 +2280,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// distinction when a timed-out request finds a cached package: only a complete response may
     /// silently enter the live hole screen.
     private static func isCompleteCachedRoundPackage(_ package: LiveRoundPackage) -> Bool {
-        !package.clubProfiles.isEmpty
+        package.hasClubHistory
             && package.sourceCoverage.playerStatsWindow?.lowercased() != "deferred"
     }
 

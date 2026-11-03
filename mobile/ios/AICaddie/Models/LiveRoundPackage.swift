@@ -173,6 +173,9 @@ public struct LiveRoundPackage: Codable, Equatable {
     public let enrichmentState: PackageEnrichmentState?
     public let weatherSnapshot: WeatherSnapshot
     public let clubProfiles: [ClubProfile]
+    /// Whether the server shipped personal club history. Completeness checks read this, not
+    /// `effectiveClubProfiles`, because typed 球包 carries can fill rows into a map-only package.
+    public var hasClubHistory: Bool { !clubProfiles.isEmpty }
     public let caddieDecisionEndpoint: String
     public let offlinePackageStatus: OfflinePackageStatus
     /// Cross-surface package gate. `blocked` means download/progress only; it is not a prep map.
