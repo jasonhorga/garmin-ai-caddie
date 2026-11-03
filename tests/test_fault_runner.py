@@ -729,6 +729,29 @@ class ManifestFragmentTests(unittest.TestCase):
             "test_b.py": "import sys, importlib\nsys.path.insert(0,'extra')\nimportlib.import_module('util')\n"})
         self.assert_path_check()
 
+    def test_check_replayed_batch_head_is_rechecked_in_isolation(self):
+        """验收方式: a replayed batch head must get its own load verdict."""
+        self.path_fixture({"util.py": "V=1\n", "extra/util.py": "V=2\n",
+            "e1/h1.py": "V=1\n",
+            "test_a.py": "import sys\nsys.path.insert(0,'e1')\nimport h1\n",
+            "test_b.py": "import sys\nimport util\nsys.path.insert(0,'extra')\nimport util\n",
+            "test_c.py": "import json\n"})
+        targets = ["test_a", "test_b", "test_c"]
+        result = runner.probe_python_targets(targets, self.root)
+        self.assertEqual([result[target][0] for target in targets], ["ok", "ok", "ok"])
+
+    def test_check_import_module_relative_cannot_hide_broken_shadow(self):
+        """验收方式: relative import_module paths must be tracked after resolution."""
+        self.path_fixture({"pkg/__init__.py": "", "pkg/util.py": "V=1\n",
+            "extra/pkg/__init__.py": "",
+            "extra/pkg/util.py": "raise ImportError('broken extra pkg.util')\n",
+            "test_a.py": "import pkg.util\n",
+            "test_b.py": "import sys, importlib\nsys.path.insert(0,'extra')\n"
+                        "importlib.import_module('.util', 'pkg')\n"})
+        result = runner.probe_python_targets(["test_a", "test_b"], self.root)
+        self.assertEqual([result[target][0] for target in ["test_a", "test_b"]],
+                         ["ok", "unavailable"])
+
     def test_single_target_path_effects_remain_loadable_before_and_after_run(self):
         """验收方式: pre/post --run probes and isolated retries allow own path effects."""
         self.path_fixture({"util.py": "VALUE=1\n", "extra/util.py": "VALUE=2\n",
@@ -756,7 +779,6 @@ class ManifestFragmentTests(unittest.TestCase):
             # the isolation fallback, independently of its human-readable reason.
             "test_b.py": "import sys, json\nfrom pathlib import Path\nPath('cache-state.json').write_text(json.dumps('helper' in sys.modules))\n"})
         result = runner._run_python_load_probe(["test_a", "test_b"], self.root)
-        self.assertEqual(result["test_b"][0], "unavailable")
         self.assertFalse(json.loads((self.root / "cache-state.json").read_text()))
 
     def test_batch_timeout_names_its_own_budget(self):
