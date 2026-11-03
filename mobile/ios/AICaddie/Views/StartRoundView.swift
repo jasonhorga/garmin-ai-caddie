@@ -34,6 +34,7 @@ public struct StartRoundView: View {
     public let syncStatus: String
     public let isPreparing: Bool
     public let roundStartFailure: RoundStartFailure?
+    public let canStartSimplifiedRound: Bool
     public let roundStartProgressMessage: String?
     public let roundStartSelection: RoundStartSelection?
     public let apiBaseURL: URL?
@@ -41,6 +42,8 @@ public struct StartRoundView: View {
     public let onPrepareRound: (String) -> Void
     /// Start a round: (roundId, teeBox, ordered loops) — B4b-2 `loops=`, one entry here.
     public let onPrepareCourseRound: (String, String, [RoundLoopEntry]) -> Void
+    public let onStartSimplifiedRound: () async -> Void
+    public let onCancelRoundStart: () -> Void
     public let onRetryRoundStart: () async -> Void
     public let onClearRoundStartFailure: () -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
@@ -118,12 +121,15 @@ public struct StartRoundView: View {
         syncStatus: String = "Offline ready",
         isPreparing: Bool = false,
         roundStartFailure: RoundStartFailure? = nil,
+        canStartSimplifiedRound: Bool = false,
         roundStartProgressMessage: String? = nil,
         roundStartSelection: RoundStartSelection? = nil,
         apiBaseURL: URL? = nil,
         adminTokenConfigured: Bool = false,
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (String, String, [RoundLoopEntry]) -> Void = { _, _, _ in },
+        onStartSimplifiedRound: @escaping () async -> Void = {},
+        onCancelRoundStart: @escaping () -> Void = {},
         onRetryRoundStart: @escaping () async -> Void = {},
         onClearRoundStartFailure: @escaping () -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
@@ -169,12 +175,15 @@ public struct StartRoundView: View {
         self.syncStatus = syncStatus
         self.isPreparing = isPreparing
         self.roundStartFailure = roundStartFailure
+        self.canStartSimplifiedRound = canStartSimplifiedRound
         self.roundStartProgressMessage = roundStartProgressMessage
         self.roundStartSelection = roundStartSelection
         self.apiBaseURL = apiBaseURL
         self.adminTokenConfigured = adminTokenConfigured
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
+        self.onStartSimplifiedRound = onStartSimplifiedRound
+        self.onCancelRoundStart = onCancelRoundStart
         self.onRetryRoundStart = onRetryRoundStart
         self.onClearRoundStartFailure = onClearRoundStartFailure
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
@@ -361,7 +370,10 @@ public struct StartRoundView: View {
             locationProvider.requestAuthorization()
             locationProvider.startUpdatingLocation()
         }
-        .onDisappear { locationProvider.stopUpdatingLocation() }
+        .onDisappear {
+            cancelRoundStartIfBusy()
+            locationProvider.stopUpdatingLocation()
+        }
         .task(id: nearbyDiscoveryTaskKey) { await discoverNearbyCourses() }
         // Start the lookup when setup is visible. Automatic selection on the course list must not
         // consume the loading/retry state before the player opens the Tee picker.
@@ -438,7 +450,10 @@ public struct StartRoundView: View {
         .background(Self.surface)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button("返回") { page = .course }
+                Button("返回") {
+                    cancelRoundStartIfBusy()
+                    page = .course
+                }
                     .accessibilityIdentifier("start-round-back-to-courses")
             }
         }
@@ -575,6 +590,12 @@ public struct StartRoundView: View {
 
     private func showSetupPage() {
         page = .setup
+    }
+
+    private func cancelRoundStartIfBusy() {
+        if isPreparing || isOpeningPrepCourse {
+            onCancelRoundStart()
+        }
     }
 
     /// The course and Tee Start would use, once the Tee request has settled; empty while there is
@@ -1298,6 +1319,7 @@ public struct StartRoundView: View {
         guard let first = StartRoundPresentation.preselectedLoop(
             in: row.segments, current: selectedSegment, recent: recentResolvedCourseOption
         ) else { return }
+        cancelRoundStartIfBusy()
         onClearRoundStartFailure()
         prepValidationFailed = false
         userPickedVenue = true
@@ -1451,6 +1473,7 @@ public struct StartRoundView: View {
 
     private func selectLoop(_ segment: MobileCourseOption) {
         guard String(segment.globalId) != courseGlobalIdText else { return }
+        cancelRoundStartIfBusy()
         onClearRoundStartFailure()
         prepValidationFailed = false
         userPickedVenue = true
@@ -1570,6 +1593,7 @@ public struct StartRoundView: View {
     private func teeChip(_ tee: String) -> some View {
         let selected = tee.caseInsensitiveCompare(teeBox) == .orderedSame
         return Button {
+            cancelRoundStartIfBusy()
             onClearRoundStartFailure()
             prepValidationFailed = false
             teeBox = tee
@@ -1784,6 +1808,19 @@ public struct StartRoundView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("start-round-preparation-error")
             }
+            if canStartSimplifiedRound {
+                HStack(spacing: 10) {
+                    Button("先用简版开始") {
+                        Task { await onStartSimplifiedRound() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("start-round-simplified-start")
+                    Button("取消", role: .cancel) { onCancelRoundStart() }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("start-round-cancel")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
             if prepValidationFailed {
                 Label("球场地图正在重新下载，已先打开可用地图", systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
@@ -1792,14 +1829,18 @@ public struct StartRoundView: View {
                     .accessibilityIdentifier("start-round-prep-validation-error")
             }
             Button {
-                Task { await startSelectedCourse() }
+                if startBusy {
+                    onCancelRoundStart()
+                } else {
+                    Task { await startSelectedCourse() }
+                }
             } label: {
                 HStack(spacing: 8) {
                     if startBusy {
                         ProgressView()
                             .tint(.white)
                     }
-                    Text(startActionTitle)
+                    Text(startBusy ? "取消" : startActionTitle)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                 }
@@ -1811,7 +1852,7 @@ public struct StartRoundView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)
-            .disabled(!canStart || startBusy)
+            .disabled(!canStart && !startBusy)
             .accessibilityIdentifier("start-round-primary-action")
         }
     }

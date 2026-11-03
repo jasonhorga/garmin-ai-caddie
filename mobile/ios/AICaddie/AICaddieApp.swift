@@ -90,6 +90,7 @@ public struct AICaddieApp: App {
                         offlineStorageUsage: model.offlineStorageUsage,
                         isPreparingRound: model.isPreparingRound,
                         roundStartFailure: model.roundStartFailure,
+                        canStartSimplifiedRound: model.canStartSimplifiedRound,
                         roundStartProgressMessage: model.roundStartProgressMessage,
                         roundStartSelection: model.roundStartSelection,
                         isFinishingRound: model.isFinishingRound,
@@ -104,9 +105,13 @@ public struct AICaddieApp: App {
                             }
                         },
                         onPrepareCourseRound: { roundId, teeBox, loops in
-                            Task {
-                                await model.prepareCourseRound(roundId: roundId, teeBox: teeBox, loops: loops)
-                            }
+                            model.startCourseRound(roundId: roundId, teeBox: teeBox, loops: loops)
+                        },
+                        onStartSimplifiedRound: {
+                            await model.startSimplifiedRound()
+                        },
+                        onCancelRoundStart: {
+                            model.cancelRoundStart()
                         },
                         onRetryRoundStart: {
                             await model.retryRoundStart()
@@ -211,6 +216,7 @@ public struct AICaddieApp: App {
                             await model.validateReadyPrepCourse(record)
                         },
                         pendingLiveHole: model.pendingLiveHole,
+                        pendingLiveHoleIsFreshEntry: model.pendingLiveHoleIsFreshEntry,
                         onConsumePendingLiveHole: {
                             model.consumePendingLiveHole()
                         },
@@ -474,6 +480,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// When a NEW round is freshly prepared, the hole to jump straight into (so 开始记分 enters
     /// the live screen directly instead of bouncing back to the Hub). UI consumes + clears it.
     @Published public private(set) var pendingLiveHole: Int?
+    /// True only for a current start-generation entry. Other pending holes (second-loop turns,
+    /// Watch deliveries) retain their existing navigation semantics.
+    @Published public private(set) var pendingLiveHoleIsFreshEntry = false
     /// Only sealed outbox recovery is stored. A live round's affordance follows its durable
     /// quarantine and current playable holes, so abandon, loop edits and seal cannot leave a card.
     @Published public private(set) var sealedFinishRecovery: DeferredFinishRecovery? = nil
@@ -544,6 +553,7 @@ public final class LiveRoundAppModel: ObservableObject {
 
     public func consumePendingLiveHole() {
         pendingLiveHole = nil
+        pendingLiveHoleIsFreshEntry = false
     }
 
     /// Reopen the sealed round named by the Hub recovery card. The pending-finish ledger is removed
@@ -580,6 +590,7 @@ public final class LiveRoundAppModel: ObservableObject {
             watchBridge?.clearRoundSeed(roundId: recovery.roundId)
             finishErrorMessage = nil
             pendingLiveHole = recovery.hole
+            pendingLiveHoleIsFreshEntry = false
             try offlineStore.saveActiveHole(roundId: recovery.roundId, hole: recovery.hole)
             liveRoundState = try offlineStore.restoreLiveRoundState(
                 roundId: recovery.roundId,
@@ -679,6 +690,7 @@ public final class LiveRoundAppModel: ObservableObject {
     public func clearRoundStartFailure() {
         let hadRoundStartState = roundStartFailure != nil || roundStartSelection != nil
         roundStartFailure = nil
+        canStartSimplifiedRound = false
         pendingRoundStartRequest = nil
         roundStartSelection = nil
         if hadRoundStartState { syncStatus = "请选择球场后开始" }
@@ -693,16 +705,55 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    /// C365 cancellation hook. The first implementation intentionally only stops the task; the
-    /// token invalidation is added with the product fix after the red behavior tests land.
+    /// Cancel the current foreground start. Invalidate the generation before any late await can
+    /// publish a package, then cancel the model-owned task and the URLSession work for that token.
     public func cancelRoundStart() {
+        let token = roundPreparationToken
         activeRoundStartTask?.cancel()
         activeRoundStartTask = nil
+        if let token { finishRoundPreparation(token) }
+        else {
+            isPreparingRound = false
+            stopRoundProgress()
+        }
+        pendingRoundStartRequest = nil
+        roundStartSelection = nil
+        roundStartFailure = nil
+        canStartSimplifiedRound = false
+        pendingLiveHole = nil
+        pendingLiveHoleIsFreshEntry = false
+        if token != nil { syncStatus = "已取消开局" }
     }
 
-    /// C365 explicit escape hatch for an incomplete local template. Product implementation follows
-    /// the same persisted selection and first-hole entry path as a normal offline start.
-    public func startSimplifiedRound() async {}
+    /// C365 explicit escape hatch for an incomplete local template. It is deliberately user invoked;
+    /// the normal timeout path only advertises this action and never calls it implicitly.
+    public func startSimplifiedRound() async {
+        guard !isPreparingRound,
+              liveRoundState == nil,
+              let request = pendingRoundStartRequest,
+              case let .course(globalId, roundId, teeBox, loops, capturedAt) = request else { return }
+        let token = beginRoundPreparation()
+        defer { finishRoundPreparation(token) }
+        guard isCurrentRoundPreparation(token), loops.first?.globalId == globalId,
+              let local = installedRoundProjection(
+                  loops, roundId: roundId, teeBox: teeBox, preparedAt: capturedAt, requireComplete: false
+              ) else {
+            roundStartFailure = .unavailable
+            syncStatus = roundStartFailure?.presentationMessage ?? "网络不可用，没能开始，点重试"
+            return
+        }
+        do {
+            let persisted = try offlineStore.saveRoundPackage(local)
+            try activatePackage(persisted, status: "简版离线球场已就绪", rememberAsRecent: true)
+            guard isCurrentRoundPreparation(token) else { return }
+            signalFreshRoundEntry(revalidatePackage: true, preparationToken: token)
+            canStartSimplifiedRound = false
+            completeRoundStartRequest()
+        } catch {
+            roundStartFailure = .unavailable
+            syncStatus = roundStartFailure?.presentationMessage ?? "网络不可用，没能开始，点重试"
+        }
+    }
 
     /// Tee authority can answer while the foreground start is still in flight. Keep that request's
     /// progress/failure evidence until it has finished; the setup view also gates the callback.
@@ -1275,6 +1326,7 @@ public final class LiveRoundAppModel: ObservableObject {
         #endif
         isPreparingRound = false
         roundStartFailure = nil
+        canStartSimplifiedRound = false
         pendingRoundStartRequest = nil
         roundStartSelection = nil
         stopRoundProgress()
@@ -1291,6 +1343,7 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingEventCount = 0
         quarantinedEventCount = 0
         pendingLiveHole = nil
+        pendingLiveHoleIsFreshEntry = false
         sealedFinishRecovery = nil
         closePrepMode()
         restoreCachedCourseOptions()
@@ -1863,6 +1916,7 @@ public final class LiveRoundAppModel: ObservableObject {
         roundStartLastStepForTesting = "beginRoundPreparation"
         #endif
         roundStartFailure = nil
+        canStartSimplifiedRound = false
         syncClient?.beginRoundStart(token)
         newAreaTask?.cancel()
         offlineCourseDownloadTask?.cancel()
@@ -2051,7 +2105,7 @@ public final class LiveRoundAppModel: ObservableObject {
                ) {
                 let persisted = try offlineStore.saveRoundPackage(local)
                 try activatePackage(persisted, status: "本地球场已就绪", rememberAsRecent: true)
-                signalFreshRoundEntry(revalidatePackage: true)
+                signalFreshRoundEntry(revalidatePackage: true, preparationToken: preparationToken)
                 // Enter immediately from local facts, then verify the Garmin release in the
                 // background. Matching revisions reuse every byte; changed holes refresh only
                 // their prep/topo while a network failure leaves this playable snapshot intact.
@@ -2108,7 +2162,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 recordUITestLatency("course-start.activate.end globalId=\(globalId)")
                 if isNewRound {
                     recordUITestLatency("course-start.signal.begin globalId=\(globalId)")
-                    signalFreshRoundEntry(cacheOfflineAssets: true)
+                    signalFreshRoundEntry(cacheOfflineAssets: true, preparationToken: preparationToken)
                     recordUITestLatency("course-start.signal.end globalId=\(globalId)")
                     beginRoundEnrichmentIfNeeded()
                 } else {
@@ -2124,7 +2178,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 let persisted = try offlineStore.saveRoundPackage(cachedPackage)
                 try activatePackage(persisted, status: "已下载离线", rememberAsRecent: true)
                 if isNewRound {
-                    signalFreshRoundEntry(revalidatePackage: true)
+                    signalFreshRoundEntry(revalidatePackage: true, preparationToken: preparationToken)
                     beginRoundEnrichmentIfNeeded()
                 } else {
                     beginOfflineCourseDownload(revalidatePackage: true)
@@ -2137,17 +2191,21 @@ public final class LiveRoundAppModel: ObservableObject {
                 preparedAt: preparedAt,
                 requireComplete: false
             ) {
-                let persisted = try offlineStore.saveRoundPackage(
-                    local,
-                    allowHoleCountDecrease: isIntentionalHoleSetChange
-                )
-                try activatePackage(persisted, status: "离线球场已就绪", rememberAsRecent: true)
                 if isNewRound {
-                    signalFreshRoundEntry(revalidatePackage: true)
+                    // An incomplete template is useful only after an explicit player choice. A
+                    // timeout must leave the Start card visible with a clear escape hatch.
+                    canStartSimplifiedRound = true
+                    roundStartFailure = roundStartFailure ?? .unavailable
+                    syncStatus = roundStartFailure?.presentationMessage ?? "网络不可用，没能开始，点重试"
                 } else {
+                    let persisted = try offlineStore.saveRoundPackage(
+                        local,
+                        allowHoleCountDecrease: isIntentionalHoleSetChange
+                    )
+                    try activatePackage(persisted, status: "离线球场已就绪", rememberAsRecent: true)
                     beginOfflineCourseDownload(revalidatePackage: true)
+                    completeRoundStartRequest()
                 }
-                completeRoundStartRequest()
             } else {
                 roundStartFailure = roundStartFailure ?? .unavailable
                 syncStatus = roundStartFailure?.presentationMessage ?? "网络不可用，没能开始，点重试"
@@ -2294,9 +2352,15 @@ public final class LiveRoundAppModel: ObservableObject {
     /// After a fresh round is prepared, point the UI at its first hole so it enters the live screen.
     private func signalFreshRoundEntry(
         cacheOfflineAssets: Bool = false,
-        revalidatePackage: Bool = false
+        revalidatePackage: Bool = false,
+        preparationToken: UUID? = nil,
+        freshStartEntry: Bool = true
     ) {
+        if let preparationToken {
+            guard isCurrentRoundPreparation(preparationToken) else { return }
+        }
         pendingLiveHole = liveRoundState?.activeHole ?? package?.holes.first?.number
+        pendingLiveHoleIsFreshEntry = freshStartEntry
         deferredOfflineCourseDownloadRevalidation =
             (cacheOfflineAssets || revalidatePackage) ? revalidatePackage : nil
         armFreshEntryRelease(entryHole: pendingLiveHole)
@@ -4228,6 +4292,7 @@ public final class LiveRoundAppModel: ObservableObject {
               let first = package.secondLoop?.roundStartHole else { return }
         setActiveHole(first)
         pendingLiveHole = first
+        pendingLiveHoleIsFreshEntry = false
     }
 
     /// Save & End is local-first. The tap seals the round and exits live play immediately; delivery
@@ -4316,6 +4381,7 @@ public final class LiveRoundAppModel: ObservableObject {
             pendingEventCount = 0
             quarantinedEventCount = 0
             pendingLiveHole = nil
+            pendingLiveHoleIsFreshEntry = false
             finishErrorMessage = nil
             syncStatus = "本场已保存 · 后台同步中"
         }
@@ -4642,6 +4708,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
             }
             pendingLiveHole = start.activeHole
+            pendingLiveHoleIsFreshEntry = false
             return
         }
         // Never replace an unrelated active round with a delayed WatchConnectivity delivery.
@@ -4704,7 +4771,7 @@ public final class LiveRoundAppModel: ObservableObject {
             }
             pendingLiveHole = start.activeHole
             pendingWatchRoundStart = nil
-            signalFreshRoundEntry(revalidatePackage: true)
+            signalFreshRoundEntry(revalidatePackage: true, freshStartEntry: false)
             watchRoundStartRetryTasks.removeValue(forKey: roundId)?.cancel()
         } catch {
             AICaddieLog.watch.error(
@@ -5114,6 +5181,7 @@ public final class LiveRoundAppModel: ObservableObject {
             package.holes.contains(where: { $0.number == number }) ? number : nil
         }
         pendingLiveHole = target ?? package.holes.first?.number
+        pendingLiveHoleIsFreshEntry = false
     }
 
     /// Leaving the hole screen before the first stroke: nothing was recorded, so nothing is kept.
