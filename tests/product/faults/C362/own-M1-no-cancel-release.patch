@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 70750d5e..f94d3032 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -3145,7 +3145,7 @@ def run_course_install_job(identifier: str) -> None:
+         if admission_lease is not None:
+             # If a keyed request was deduplicated or cancelled before the worker starts, this
+             # callback still returns the transferred slot. Normal completion is idempotent.
+-            future.add_done_callback(lambda _completed, lease=admission_lease: lease.release())
++            pass
+         work_revision = int(current_row.get("workRevision") or 1)
+         topo_futures[future] = (gid, hole, geometry_revision, work_revision)
+         completion_event = threading.Event()
