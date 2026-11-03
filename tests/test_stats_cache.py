@@ -169,6 +169,7 @@ class StatsCacheTests(unittest.TestCase):
             self.assertEqual(calls["n"], 1)
             ann.write_text('[{"kind": "club_correction"}]')  # a manual correction
             stats_cache.cached_build_history_stats(data, data_mode="local")
+            # Annotations feed corrected/core fields and must still invalidate the core.
             self.assertEqual(calls["n"], 2)
 
     def test_unplayed_course_geometry_does_not_invalidate_player_stats(self) -> None:

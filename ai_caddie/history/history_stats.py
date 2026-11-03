@@ -4064,31 +4064,33 @@ def _score_trend(data: HistoryData, limit: int | None = None) -> dict[str, Any]:
     return {"points": points, "windowSize": len(points)}
 
 
-def build_history_stats(
+def build_history_stats_core(
     data: HistoryData,
     *,
     data_mode: DataModeName,
     annotations_root: Path | str | None = None,
-    weather_root: Path | str | None = None,
     reports_root: Path | str | None = None,
-    decision_audit_root: Path | str | None = None,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
+    """Build the expensive history projection without weather or decision-audit evidence.
+
+    The returned shape intentionally contains placeholder auxiliary rows.  ``apply_aux_overlay``
+    replaces those rows after the core projection is cached, preserving the public field order and
+    allowing evidence writes to update the small, evidence-derived portions independently.
+    """
     _clear_effective_shots_cache()  # fresh per build — memo only lives within this pass (see note above)
     annotations = list_annotations(root=annotations_root, player_id=player_id)
-    weather_snapshots = list_weather_snapshots(root=weather_root, player_id=player_id)
     # Aggregate stats consume only report coverage and explicit suggested-issue labels/refs.  Keep
     # the complete fact-bound report ledger authoritative for report/review endpoints without
     # retaining it wholesale in every windowed statistics build.
     report_records = list_report_stats_records(root=reports_root, player_id=player_id)
-    decision_audits = list_decision_audits(root=decision_audit_root, player_id=player_id)
     # Spec 3.1: every section reads the one corrected history (events + annotations over the source).
     if not data.corrected:
         data = corrected_history_data(data, player_id=player_id, annotations_root=annotations_root)
     hole_rows = _holes(data, annotations, report_records)
     issue_rows = _issues(data, annotations, report_records)
     diagnosis = _diagnosis(data, issue_rows)
-    diagnosis["decisionAuditTrends"] = _decision_audit_diagnosis(data, decision_audits)
+    diagnosis["decisionAuditTrends"] = _decision_audit_diagnosis(data, [])
     scoring = _scoring(data)
     clubs = _clubs(data, annotations)
     return {
@@ -4106,6 +4108,64 @@ def build_history_stats(
         "issues": issue_rows,
         "diagnosis": diagnosis,
         "playerProfile": _player_profile(data, scoring=scoring, clubs=clubs, diagnosis=diagnosis),
-        "dataQuality": _data_quality(data, annotations, weather_snapshots, hole_rows, report_records, decision_audits),
+        "dataQuality": _data_quality(data, annotations, [], hole_rows, report_records, []),
         "drillDown": build_drilldown_index(data),
     }
+
+
+def apply_aux_overlay(
+    stats: dict[str, Any],
+    data: HistoryData,
+    *,
+    weather_root: Path | str | None = None,
+    decision_audit_root: Path | str | None = None,
+    player_id: str = OWNER_ID,
+) -> dict[str, Any]:
+    """Overlay weather and decision-audit-derived fields onto a cached core projection."""
+    weather_snapshots = list_weather_snapshots(root=weather_root, player_id=player_id)
+    decision_audits = list_decision_audits(root=decision_audit_root, player_id=player_id)
+    # Only these two nested containers change.  Copy them before replacing rows so a cached core
+    # value remains immutable across requests and auxiliary evidence writes.
+    result = dict(stats)
+    diagnosis = dict(stats.get("diagnosis") or {})
+    diagnosis["decisionAuditTrends"] = _decision_audit_diagnosis(data, decision_audits)
+    result["diagnosis"] = diagnosis
+    quality = list(stats.get("dataQuality") or [])
+    replacements = {
+        "decision_audits": _decision_audit_quality(data, decision_audits),
+        "weather": _weather_quality(data, weather_snapshots),
+    }
+    result["dataQuality"] = [
+        replacements.get(str(row.get("label")), row) if isinstance(row, dict) else row
+        for row in quality
+    ]
+    return result
+
+
+def build_history_stats(
+    data: HistoryData,
+    *,
+    data_mode: DataModeName,
+    annotations_root: Path | str | None = None,
+    weather_root: Path | str | None = None,
+    reports_root: Path | str | None = None,
+    decision_audit_root: Path | str | None = None,
+    player_id: str = OWNER_ID,
+) -> dict[str, Any]:
+    """Build the complete public projection, including auxiliary evidence overlays."""
+    core = build_history_stats_core(
+        data,
+        data_mode=data_mode,
+        annotations_root=annotations_root,
+        reports_root=reports_root,
+        player_id=player_id,
+    )
+    if not data.corrected:
+        data = corrected_history_data(data, player_id=player_id, annotations_root=annotations_root)
+    return apply_aux_overlay(
+        core,
+        data,
+        weather_root=weather_root,
+        decision_audit_root=decision_audit_root,
+        player_id=player_id,
+    )
