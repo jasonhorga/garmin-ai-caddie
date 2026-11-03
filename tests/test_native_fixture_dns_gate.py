@@ -39,6 +39,46 @@ def _real_shim_lines() -> tuple[str, str]:
 
 
 class NativeFixtureDNSGateTests(unittest.TestCase):
+    def test_app_summary_does_not_clear_pending_dns_error_for_same_task(self) -> None:
+        """J4.2: an app summary line cannot authorize a later URL continuation."""
+        task = "Task <AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE>.<7>"
+        for code in (-1003, -1200):
+            with self.subTest(code=code):
+                log = (
+                    f'{task} finished with error [{code}] Error Domain=NSURLErrorDomain '
+                    f'Code={code} "fixture request failed" UserInfo={{_NSURLErrorFailingURLSessionTaskErrorKey=Local{task}\n'
+                    f'[network] fetch failed for {task}: Error Domain=NSURLErrorDomain '
+                    f'Code={code} _NSURLErrorFailingURLSessionTaskErrorKey=Local{task}\n'
+                    '), NSErrorFailingURLStringKey=https://caddie.example/p}}\n'
+                )
+                findings = _GATE.find_unhandled_fixture_dns(log)
+                self.assertEqual(1, len(findings))
+                self.assertEqual("https://caddie.example/p", findings[0][2])
+
+    def test_fixture_scoped_error_without_url_fails_closed(self) -> None:
+        """J4.2: fixture-scoped network errors without a URL remain actionable."""
+        task = "Task <AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE>.<7>"
+        for code in (-1004, -1006, -1200, -1202, -1203, -1204, -1205, -1206):
+            with self.subTest(code=code):
+                log = (
+                    f'{task} finished with error [{code}] Error Domain=NSURLErrorDomain '
+                    f'Code={code} "fixture request failed" UserInfo={{_NSURLErrorFailingURLSessionTaskErrorKey=Local{task}}}\n'
+                )
+                findings = _GATE.find_unhandled_fixture_dns(log)
+                self.assertEqual(1, len(findings))
+                self.assertEqual("<unknown URL>", findings[0][2])
+
+    def test_non_fixture_scoped_errors_without_url_are_ignored(self) -> None:
+        """J4.2: timeout and unknown errors remain outside the fixture DNS gate."""
+        task = "Task <AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE>.<7>"
+        for code in (-1001, -999):
+            with self.subTest(code=code):
+                log = (
+                    f'{task} finished with error [{code}] Error Domain=NSURLErrorDomain '
+                    f'Code={code} "fixture request failed" UserInfo={{_NSURLErrorFailingURLSessionTaskErrorKey=Local{task}}}\n'
+                )
+                self.assertEqual([], _GATE.find_unhandled_fixture_dns(log))
+
     def test_route_marked_fixture_failure_is_allowed(self) -> None:
         log = (
             'Task finished with error [-1003] Error Domain=NSURLErrorDomain '
