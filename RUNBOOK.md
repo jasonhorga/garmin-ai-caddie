@@ -53,7 +53,7 @@ gh pr view <PR> --repo jasonhorga/garmin-ai-caddie --json headRefOid,mergeable,s
 - 本地不跑后端全量（项目台、Codex、复审都不跑）：本地只跑本卡相关模块 + related-tests（按文件名找引用改动文件的测试模块）；全量交 PR 上的 CI `backend`，合并前必须绿。
 - iOS：Codex 交回后先跑「只编译 + 本卡相关测试」原生 job，编译过了才送复审；带真模拟器截图的 fixture 只在合并前跑一次。
 - 原生 mutant 不每轮实跑：复审只做静态判断，列出「可能假杀」的几条（被编译失败、崩溃或无关测试杀死，不是被断言杀死）；合并前只对这几条实跑一次。Python mutant 是秒级的，复审照常实跑。
-- 复审限轮：B（挡）只限产品行为真错/回归、或本卡验收测试不咬旧代码；其它都是 N，项目台另开卡，不许把 N 升级成 B。同一张卡到第 3 轮还在返工，就停下来重拆卡或重定方案，不再一轮轮磨。
+- 复审限轮：B（挡）只限产品行为真错/回归、或本卡验收测试不咬旧代码；其它都是 N：本卡下一轮一起修或直接放弃，不另开卡（除非是独立的用户可见问题，Jason 11-03），不许把 N 升级成 B。同一张卡到第 3 轮还在返工，就停下来重拆卡或重定方案，不再一轮轮磨。
 - 改同一个大文件的卡串行派（CurrentHoleView.swift、AICaddieApp.swift、StartRoundView.swift、LiveHoleComponents.swift、server_v2/main.py、ai_caddie/courses/course_prep.py 等）：开卡写清改哪些文件，和在途卡重叠就排队。
 
 `topo_render` 的 forkserver 常驻约 46 MiB RSS（约 18–30 MiB PSS）是有意为之：按生产参数（`AI_CADDIE_TOPO_RENDER_PROCESSES=3`）停止后首个任务重启 forkserver、预导入 `topo_render` 的冷启动实测中位 3325 ms、最大 4828 ms，超过 1 秒阈值；因此空闲回收仍只回收 worker 池，避免把开销落到下一次预热渲染。
@@ -376,7 +376,8 @@ gh workflow run ios-testflight-testers.yml --repo jasonhorga/garmin-ai-caddie --
 - 新 mutant 只进 `tests/product/faults/<卡>/manifest.json`，中央 manifest 不动；`run_faults.py --check` 查 HEAD，合并/改补丁后先提交再查。
 
 ### 9.3 返工轮数
-- 复审 B（挡）只限产品行为真错/回归、或本卡验收测试不咬旧代码；其它都是 N，另开卡，不升级成 B。
+- 复审 B（挡）只限产品行为真错/回归、或本卡验收测试不咬旧代码；其它都是 N，不升级成 B。
+- **复审 N 项要么在本卡下一轮一起修、要么直接放弃；不另开卡，除非是独立的用户可见问题**（Jason 11-03 经土土）。只补测试/mutant、CI 与工具小项、代码整洁一律放弃；放弃的在复审底稿里写一句理由即可。【判据】新开卡的来源若是 `review-<卡>-rN.md` 的 N 项，描述里必须写出用户可见的现象（不是「无测试守」「mutant 存活」），否则不开。
 - 同一张卡到第 3 轮还在返工 → 停下重拆卡或重定方案。
 
 ### 9.4 已知假红（先对号，再决定重跑还是查代码）
