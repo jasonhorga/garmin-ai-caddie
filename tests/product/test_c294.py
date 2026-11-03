@@ -195,6 +195,7 @@ class TopoAdmissionTests(unittest.TestCase):
             time.sleep(1)
 
         def render_topo(*args):
+            worker_attempted.set()
             return True
 
         def record_error(fn):
