@@ -14,7 +14,7 @@ from unittest.mock import patch
 import uvicorn
 
 from ai_caddie.courses import course_search
-from ai_caddie.courses.prep_work import PrepCancelled, checkpoint
+from ai_caddie.courses.prep_work import PrepCancelled, checkpoint, cancellation
 from server_v2 import main
 
 
@@ -133,6 +133,32 @@ class C366CancellationTests(unittest.TestCase):
             enqueue.assert_not_called()
         stop.set()
 
+    def test_J42_round_package_cold_key_does_not_wait_behind_own_foreground_gate(self):
+        """B1/J4.2: a cold package key must enter its own foreground lane immediately."""
+        import json
+        from collections import OrderedDict
+        from pathlib import Path
+        from server_v2.models import LiveRoundPackageResponse
+        from fastapi.testclient import TestClient
+        from ai_caddie.courses import prep_cache
+        fixture = Path("mobile/ios/AICaddie/Fixtures/live_round_package.fixture.json")
+        package = LiveRoundPackageResponse.model_validate(json.loads(fixture.read_text()))
+
+        def build(*args, **kwargs):
+            prep_cache._singleflight(OrderedDict(), 4, ("c366-cold-b1", time.time()), 1, lambda: 1)
+            return package
+
+        with patch.object(main, "build_mobile_round_package_response", side_effect=build), \
+             patch.object(main, "_record_round_activity"):
+            with TestClient(main.app) as client:
+                started = time.monotonic()
+                response = client.get(
+                    "/api/v2/mobile/rounds/c366-b1/package",
+                    headers={"X-AI-Caddie-Admin-Token": "fixture-admin"},
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertLess(time.monotonic() - started, 2.0)
+
 
 class C366NearbyAdmissionTests(unittest.TestCase):
     def test_J42_three_same_player_nearby_requests_only_latest_warms(self):
@@ -181,6 +207,62 @@ class C366NearbyAdmissionTests(unittest.TestCase):
             self.assertEqual(calls, 1)
             self.assertEqual(schedule.call_count, 1)
 
+    def test_J42_live_waiter_survives_another_waiter_disconnect(self):
+        """B2/N1/J4.2: one disconnected subscriber cannot cancel a shared live computation."""
+        key = ("nearby", 40.0, 116.0, 50)
+        entered, release = threading.Event(), threading.Event()
+        values, errors = {}, {}
+
+        def build():
+            entered.set()
+            self.assertTrue(release.wait(2))
+            return ["fresh"]
+
+        def run(name, holder):
+            try:
+                values[name] = main._shared_request(key, build, holder)
+            except BaseException as exc:
+                errors[name] = type(exc).__name__
+
+        holder_a, holder_b = {}, {}
+        a = threading.Thread(target=run, args=("a", holder_a))
+        b = threading.Thread(target=run, args=("b", holder_b))
+        a.start(); self.assertTrue(entered.wait(1)); b.start()
+        time.sleep(0.05)
+        main._cancel_shared_request(holder_a)
+        release.set(); a.join(2); b.join(2)
+        self.assertEqual(errors, {})
+        self.assertEqual(values["b"], ["fresh"])
+
+    def test_J42_cancelled_flight_is_removed_before_next_same_key_request(self):
+        """B2/J4.2: a cancelled flight is never a poison pill for its successor."""
+        key = ("nearby", 40.1, 116.1, 50)
+        holder = {}
+        entered, release = threading.Event(), threading.Event()
+
+        def old_build():
+            entered.set()
+            release.wait(2)
+            checkpoint()
+            return ["old"]
+
+        old_errors = []
+        old = threading.Thread(target=lambda: self._capture_shared(key, old_build, holder, old_errors))
+        old.start(); self.assertTrue(entered.wait(1)); main._cancel_shared_request(holder)
+        self.assertNotIn(key, main._REQUEST_FLIGHTS)
+
+        fresh = main._shared_request(key, lambda: ["fresh"], {})
+        release.set(); old.join(2)
+        self.assertEqual(fresh, ["fresh"])
+        self.assertEqual(old_errors, ["PrepCancelled"])
+
+    @staticmethod
+    def _capture_shared(key, build, holder, errors):
+        try:
+            main._shared_request(key, build, holder)
+        except BaseException as exc:
+            errors.append(type(exc).__name__)
+
 
 class C366RoundAdmissionTests(unittest.TestCase):
     def test_J42_nearby_warming_waits_for_round_package(self):
@@ -225,3 +307,33 @@ class C366RoundAdmissionTests(unittest.TestCase):
                 while not enqueue.called and time.monotonic() < deadline:
                     time.sleep(0.01)
                 self.assertTrue(enqueue.called)
+
+    def test_J42_round_start_gate_is_released_after_exception(self):
+        """N2/J4.2: each package gate owns and releases its own counter."""
+        self.assertFalse(main._round_start_is_in_flight())
+        with self.assertRaises(RuntimeError):
+            with main._round_start_in_flight("player-n2"):
+                self.assertTrue(main._round_start_is_in_flight("player-n2"))
+                raise RuntimeError("builder failed")
+        self.assertFalse(main._round_start_is_in_flight("player-n2"))
+
+    def test_J42_course_package_checks_disconnect_before_install_enqueue(self):
+        """N5/J4.2: a disconnect after build but before enqueue cannot create an install job."""
+        from server_v2.models import LiveRoundPackageResponse
+        import json
+        from pathlib import Path
+        fixture = Path("mobile/ios/AICaddie/Fixtures/live_round_package.fixture.json")
+        package = LiveRoundPackageResponse.model_validate(json.loads(fixture.read_text()))
+        with patch.object(main, "build_mobile_course_package_response", return_value=package), \
+             patch.object(main.course_install, "enqueue") as enqueue, \
+             patch.object(main, "_record_round_activity"):
+            with self.assertRaises(PrepCancelled):
+                with cancellation(threading.Event()):
+                    # The direct route call exercises the same cooperative checkpoint used by HTTP.
+                    event = threading.Event(); event.set()
+                    with cancellation(event):
+                        main.mobile_course_package(
+                            31795, BackgroundTasks(), loops="31795:front", background_geometry=True,
+                            include_event_cursor=False, player_id="n5",
+                        )
+            enqueue.assert_not_called()
