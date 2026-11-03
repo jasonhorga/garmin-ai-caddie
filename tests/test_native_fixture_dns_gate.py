@@ -17,6 +17,11 @@ _OTHER_LOG = (
     "2026-10-30 16:11:17.084681+0000 AICaddie[11685:37934] "
     "[network] Deferred round finish retained for retry c33-round: blockedByQuarantine\n"
 )
+_TEST_CASE_LOG = "Test Case '-[AICaddieTests.SyncClientTests testFetchRoundDetailRetriesTransientTLSHandshake]' started.\n"
+_ORDINARY_LOG = (
+    "2026-10-30 16:11:17.084681+0000 AICaddie[11685:37934] [Default] "
+    "retry state advanced for c33-round\n"
+)
 
 
 def _real_shim_lines() -> tuple[str, str]:
@@ -330,9 +335,10 @@ Test Case '-[AICaddieTests.SyncClientTests testFetchRoundDetailRetriesTransientT
         self.assertEqual("https://leak.example.test/package", findings[0][2])
 
     def test_real_shim_line_survives_every_other_log_splice_position(self) -> None:
-        """J4.2: every cut in the observed shim line remains a clean fixture error."""
+        """J4.2: every cut with an unrelated log line remains a clean fixture error."""
         first, tail = _real_shim_lines()
-        for split_at in range(1, len(first)):
-            with self.subTest(split_at=split_at):
-                log = first[:split_at] + _OTHER_LOG + first[split_at:] + tail
-                self.assertEqual([], _GATE.find_unhandled_fixture_dns(log))
+        for inserted in (_OTHER_LOG, _TEST_CASE_LOG, _ORDINARY_LOG):
+            for split_at in range(1, len(first)):
+                with self.subTest(inserted=inserted[:30], split_at=split_at):
+                    log = first[:split_at] + inserted + first[split_at:] + tail
+                    self.assertEqual([], _GATE.find_unhandled_fixture_dns(log))
