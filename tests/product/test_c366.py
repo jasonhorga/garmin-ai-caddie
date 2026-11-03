@@ -10,6 +10,7 @@ import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
+from fastapi import BackgroundTasks
 
 import uvicorn
 
@@ -312,10 +313,10 @@ class C366RoundAdmissionTests(unittest.TestCase):
         """N2/J4.2: each package gate owns and releases its own counter."""
         self.assertFalse(main._round_start_is_in_flight())
         with self.assertRaises(RuntimeError):
-            with main._round_start_in_flight("player-n2"):
-                self.assertTrue(main._round_start_is_in_flight("player-n2"))
+            with main._round_start_in_flight():
+                self.assertTrue(main._round_start_is_in_flight())
                 raise RuntimeError("builder failed")
-        self.assertFalse(main._round_start_is_in_flight("player-n2"))
+        self.assertFalse(main._round_start_is_in_flight())
 
     def test_J42_course_package_checks_disconnect_before_install_enqueue(self):
         """N5/J4.2: a disconnect after build but before enqueue cannot create an install job."""
@@ -327,13 +328,10 @@ class C366RoundAdmissionTests(unittest.TestCase):
         with patch.object(main, "build_mobile_course_package_response", return_value=package), \
              patch.object(main.course_install, "enqueue") as enqueue, \
              patch.object(main, "_record_round_activity"):
-            with self.assertRaises(PrepCancelled):
-                with cancellation(threading.Event()):
-                    # The direct route call exercises the same cooperative checkpoint used by HTTP.
-                    event = threading.Event(); event.set()
-                    with cancellation(event):
-                        main.mobile_course_package(
-                            31795, BackgroundTasks(), loops="31795:front", background_geometry=True,
-                            include_event_cursor=False, player_id="n5",
-                        )
+            event = threading.Event(); event.set()
+            with self.assertRaises(PrepCancelled), cancellation(event):
+                main.mobile_course_package(
+                    31795, BackgroundTasks(), loops="31795:front", background_geometry=True,
+                    include_event_cursor=False, player_id="n5",
+                )
             enqueue.assert_not_called()
