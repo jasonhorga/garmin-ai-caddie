@@ -376,7 +376,8 @@ gh workflow run ios-testflight-testers.yml --repo jasonhorga/garmin-ai-caddie --
 - 新 mutant 只进 `tests/product/faults/<卡>/manifest.json`，中央 manifest 不动；`run_faults.py --check` 查 HEAD，合并/改补丁后先提交再查。
 
 ### 9.3 返工轮数
-- 复审 B（挡）只限产品行为真错/回归、或本卡验收测试不咬旧代码；其它都是 N，另开卡，不升级成 B。
+- 复审 B（挡）只限产品行为真错/回归、或本卡验收测试不咬旧代码；其它都是 N，不升级成 B。
+- **复审 N 项要么在本卡下一轮一起修、要么直接放弃；不另开卡，除非是独立的用户可见问题**（Jason 11-03 经土土）。只补测试/mutant、CI 与工具小项、代码整洁一律放弃；放弃的在复审底稿里写一句理由即可。【判据】新开卡的来源若是 `review-<卡>-rN.md` 的 N 项，描述里必须写出用户可见的现象（不是「无测试守」「mutant 存活」），否则不开。
 - 同一张卡到第 3 轮还在返工 → 停下重拆卡或重定方案。
 
 ### 9.4 已知假红（先对号，再决定重跑还是查代码）
