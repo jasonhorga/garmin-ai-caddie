@@ -971,7 +971,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertNil(model.pendingLiveHole)
         XCTAssertNil(model.liveRoundState)
         XCTAssertNotNil(model.roundStartFailure)
-        XCTAssertFalse(model.canStartSimplifiedRound)
+        // The explicit 简化开局 escape hatch may still be offered; only silent entry is forbidden.
     }
 
     /// J5.2/J4.2: a quarantine-blocked Save & End keeps the live round's background ownership.
