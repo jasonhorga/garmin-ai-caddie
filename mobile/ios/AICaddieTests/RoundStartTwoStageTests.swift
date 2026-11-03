@@ -775,6 +775,53 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertFalse(model.isPreparingRound)
     }
 
+    /// J4.2 / C365-A1': a single-course prep start must drop a package answered after cancellation.
+    func testC365PrepCancelDropsLateCoursePackageAndDoesNotNavigate() async throws {
+        let host = "c365-prep-cancel.example.test"
+        let roundId = "c365-prep-cancel"
+        let map = try package(roundId: roundId, mapOnly: true, standalone: true, offlineState: "ready")
+        let data = try JSONEncoder().encode(map)
+        let held = C85HeldRequests()
+        let sent = expectation(description: "prep map package held")
+        let afterFetch = expectation(description: "prep package answered before cancellation boundary")
+        let releaseAfterFetch = C90RequestGate()
+        let requests = C85RequestLog()
+        let once = C33FirstMatch()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            if proto.request.url?.path.hasSuffix("/package") == true {
+                requests.append(proto.request)
+                held.hold(proto)
+                if once.claim() { sent.fulfill() }
+            } else {
+                proto.reply(404)
+            }
+        })
+        let fixture = makeModel(host: host, held: held, roundStartTimeoutInterval: 2)
+        let model = fixture.model
+        model.roundStartAfterFetchForTesting = {
+            afterFetch.fulfill()
+            await releaseAfterFetch.wait()
+        }
+        let course = MobileCourseOption(globalId: c85CourseId, name: "Prep fixture", holes: 9, teeBox: "blue")
+        XCTAssertTrue(model.openPrepCourse(course))
+        let start = try XCTUnwrap(model.activeRoundStartTaskForTesting)
+        await fulfillment(of: [sent], timeout: eventWait)
+
+        held.releaseAll(200, data)
+        await fulfillment(of: [afterFetch], timeout: eventWait)
+        model.cancelRoundStart()
+        await releaseAfterFetch.release()
+        await start.value
+
+        XCTAssertNil(model.prepPackage, "a cancelled prep start must not publish a prep package")
+        XCTAssertNil(model.pendingLiveHole, "a cancelled prep start must not navigate to a hole")
+        XCTAssertNil(model.liveRoundState)
+        XCTAssertNil(model.roundStartFailure, "cancel must not become a network failure")
+        XCTAssertFalse(model.syncStatus.contains("网络不可用"))
+        XCTAssertEqual(requests.all.count, 1)
+    }
+
     /// J4.2 / C365-A3: a timed-out package with only an incomplete template stays on Start and offers
     /// an explicit simplified entry. It may enter only after that affordance is chosen.
     func testC365IncompleteTemplateDoesNotSilentlyEnterAndSimplifiedStartIsExplicit() async throws {
@@ -820,6 +867,82 @@ final class RoundStartTwoStageTests: XCTestCase {
         )
 
         XCTAssertEqual(model.pendingLiveHole, 1, "a complete cached package remains offline usable")
+        XCTAssertFalse(model.canStartSimplifiedRound)
+    }
+
+    /// J4.2 / C365-N3: an intent timeout reuses a complete cached round without a second request.
+    func testC365IntentTimeoutFallsBackToCompleteCachedRoundWithoutDuplicateRequest() async throws {
+        let host = "c365-intent-fallback.example.test"
+        let roundId = "c365-intent-fallback"
+        let cached = try package(roundId: roundId, mapOnly: false, standalone: true, offlineState: "ready")
+        let held = C85HeldRequests()
+        let requests = C85RequestLog()
+        let intentSent = expectation(description: "intent producer held")
+        let once = C33FirstMatch()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host,
+                  proto.request.url?.path.hasSuffix("/package") == true else { proto.reply(404); return }
+            requests.append(proto.request)
+            held.hold(proto)
+            if once.claim() { intentSent.fulfill() }
+        }, onStop: { held.forget($0) })
+        let fixture = makeModel(
+            host: host, held: held, roundStartIntentWaitNanoseconds: 50_000_000,
+            roundStartTimeoutInterval: 2
+        )
+        let model = fixture.model
+        let course = MobileCourseOption(globalId: c85CourseId, name: "Intent fixture", holes: 9, teeBox: "blue")
+        model.prefetchIntendedCourses([course], teeBox: "blue")
+        await fulfillment(of: [intentSent], timeout: eventWait)
+        try fixture.store.saveRoundPackage(cached)
+
+        await model.prepareCourseRound(
+            roundId: roundId, teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: c85CourseId, half: "all")]
+        )
+
+        XCTAssertEqual(model.pendingLiveHole, 1)
+        XCTAssertFalse(model.canStartSimplifiedRound)
+        XCTAssertEqual(requests.all.count, 1, "intent timeout must not issue a duplicate package request")
+        held.releaseAll(503)
+    }
+
+    /// J4.2 / C365-N4: cancelling a visible failure clears the stale failure copy as well.
+    func testC365CancelAfterFailureClearsFailureCopy() async throws {
+        let host = "c365-cancel-failure.example.test"
+        let fixture = makeModel(host: host, roundStartTimeoutInterval: 0.05)
+        let model = fixture.model
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+        })
+        await model.prepareCourseRound(
+            roundId: "c365-cancel-failure", teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: c85CourseId, half: "all")]
+        )
+        XCTAssertNotNil(model.roundStartFailure)
+        model.cancelRoundStart()
+        XCTAssertNil(model.roundStartFailure)
+        XCTAssertFalse(model.syncStatus.contains("点重试"))
+    }
+
+    /// J4.2 / C365-N8: a degraded cached package is never an implicit offline entry.
+    func testC365DegradedCachedRoundDoesNotSilentlyEnter() async throws {
+        let host = "c365-degraded-cache.example.test"
+        let roundId = "c365-degraded-cache"
+        let cached = try package(roundId: roundId, mapOnly: false, standalone: true, offlineState: "degraded")
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+        })
+        let fixture = makeModel(host: host, roundStartTimeoutInterval: 0.05)
+        try fixture.store.saveRoundPackage(cached)
+        let model = fixture.model
+        await model.prepareCourseRound(
+            roundId: roundId, teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: c85CourseId, half: "all")]
+        )
+        XCTAssertNil(model.pendingLiveHole)
+        XCTAssertNil(model.liveRoundState)
+        XCTAssertNotNil(model.roundStartFailure)
         XCTAssertFalse(model.canStartSimplifiedRound)
     }
 

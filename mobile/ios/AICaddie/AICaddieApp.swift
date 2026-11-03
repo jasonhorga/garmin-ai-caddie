@@ -5065,6 +5065,9 @@ public final class LiveRoundAppModel: ObservableObject {
                     mapOnly: true
                 )
                 self.recordRoundStartStep("startPrepCourse.map-request-return found=\(opened != nil)", token: preparationToken)
+#if DEBUG
+                if let roundStartAfterFetchForTesting { await roundStartAfterFetchForTesting() }
+#endif
             }
             guard generation == self.prepOpenGeneration else { return }
             guard self.liveRoundState == nil else { return }
