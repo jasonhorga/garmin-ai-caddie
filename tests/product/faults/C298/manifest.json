@@ -5,7 +5,7 @@
       "id": "tests-product-faults-C298-01-fork-on-self-hosted",
       "patch": "tests/product/faults/C298/01-fork-on-self-hosted.patch",
       "kind": "python",
-      "target": "tests.test_c298_native_quick_runner.NativeQuickRunnerTests.test_runner_routes_online_same_repository_only",
+      "target": "tests.test_c298_native_quick_runner.NativeQuickRunnerTests.test_runner_routes_same_repository_to_mac_and_skips_forks",
       "promise": "C298 CI infrastructure contract"
     },
     {
