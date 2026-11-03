@@ -804,7 +804,7 @@ final class RoundStartTwoStageTests: XCTestCase {
     func testC365CompleteCachedRoundStillEntersAfterPackageTimeout() async throws {
         let host = "c365-complete-cache.example.test"
         let roundId = "c365-complete-cache"
-        let cached = try package(roundId: roundId, mapOnly: false)
+        let cached = try package(roundId: roundId, mapOnly: false, offlineState: "ready")
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host else { proto.reply(404); return }
             // The package timeout drives the cached fallback.
@@ -1276,7 +1276,8 @@ final class RoundStartTwoStageTests: XCTestCase {
         roundId: String,
         mapOnly: Bool,
         garminRasterVersion: String? = nil,
-        standalone: Bool = false
+        standalone: Bool = false,
+        offlineState: String? = nil
     ) throws -> LiveRoundPackage {
         var root = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(contentsOf: LiveRoundPackageFixture.url)) as? [String: Any]
@@ -1301,6 +1302,10 @@ final class RoundStartTwoStageTests: XCTestCase {
                                    "rounds": [[String: Any]](), "holes": [[String: Any]]()] as [String: Any]
         }
         root["sourceCoverage"] = coverage
+        if let offlineState, var status = root["offlinePackageStatus"] as? [String: Any] {
+            status["state"] = offlineState
+            root["offlinePackageStatus"] = status
+        }
         if let garminRasterVersion {
             var holes = try XCTUnwrap(root["holes"] as? [[String: Any]])
             for index in holes.indices {

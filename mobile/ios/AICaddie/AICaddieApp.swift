@@ -2181,7 +2181,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId),
-               cachedPackage.loopKey == loopKey {
+               cachedPackage.loopKey == loopKey,
+               cachedPackage.cacheState() != .degraded {
                 // Persist the active-round pointer for the offline/cached start too, so a round
                 // started without network still resumes on relaunch (continue card survives quit).
                 let persisted = try offlineStore.saveRoundPackage(cachedPackage)
