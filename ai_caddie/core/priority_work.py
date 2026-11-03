@@ -55,6 +55,54 @@ def work_priority(priority: int):
         _CURRENT_PRIORITY.reset(token)
 
 
+class BackgroundAdmissionLease:
+    """A background CPU slot acquired by one thread and activated by another."""
+
+    def __init__(self, gate: "ForegroundGate", *, unit: object | None, started: float,
+                 timing: Any, standalone: bool, marked: bool,
+                 unit_type: str, owned: bool = True) -> None:
+        self._gate = gate
+        self._unit = unit
+        self._started = started
+        self._timing = timing
+        self._standalone = standalone
+        self._marked = marked
+        self._unit_type = unit_type
+        self._owned = owned
+        self._lock = threading.Lock()
+        self._released = False
+
+    @contextmanager
+    def activate(self):
+        """Run work under this lease and release the slot on every exit path."""
+        with self._lock:
+            if self._released:
+                raise RuntimeError("background admission lease already released")
+        token = _BACKGROUND_ADMISSION.set(self._gate)
+        try:
+            if self._marked and self._standalone:
+                self._timing.finish(method="BACKGROUND", path="/internal/package-admission", status=200)
+            yield
+        finally:
+            _BACKGROUND_ADMISSION.reset(token)
+            self.release()
+
+    def release(self) -> None:
+        with self._lock:
+            if self._released:
+                return
+            self._released = True
+        if not self._owned:
+            return
+        with self._gate._condition:
+            self._gate._running.pop(self._unit, None)
+            self._gate._slot_warned.discard(self._unit)
+            self._gate._background = max(0, self._gate._background - 1)
+            self._gate._condition.notify_all()
+        logger.info("background_slot hold_ms=%.1f unit=%s",
+                    (self._gate._clock() - self._started) * 1000, self._unit_type)
+
+
 class ForegroundGate:
     """Coordinate synchronous package requests with background CPU units.
 
@@ -129,14 +177,17 @@ class ForegroundGate:
             deadline = min(deadline, now + _ABANDON_POLL_SECONDS)
         self._condition.wait(timeout=max(0.0, deadline - now))
 
-    @contextmanager
-    def background(self, *, timeout_s: float | None = None,
-                   while_waiting: Callable[[], None] | None = None,
-                   unit_type: str = "unknown"):
+    def acquire_background_lease(self, *, timeout_s: float | None = None,
+                                 while_waiting: Callable[[], None] | None = None,
+                                 unit_type: str = "unknown") -> BackgroundAdmissionLease:
+        """Acquire a CPU slot for work that will execute on another thread."""
         if _BACKGROUND_ADMISSION.get() is self:
-            # A unit nested in an admitted unit (same thread/context) is part of that unit.
-            yield
-            return
+            # The coordinator is already an admitted unit; borrowing its slot avoids a nested
+            # self-deadlock while still propagating the admission marker to the pool worker.
+            return BackgroundAdmissionLease(
+                self, unit=None, started=self._clock(), timing=None, standalone=False,
+                marked=False, unit_type=unit_type, owned=False,
+            )
         timeout = self.timeout_s if timeout_s is None else max(0.0, float(timeout_s))
         from ai_caddie.core.request_timing import RequestTiming, current, request_id
 
@@ -161,7 +212,7 @@ class ForegroundGate:
                         # ``mark`` names the stage that just ended: the work before this gate.
                         timing.mark("before_background_gate")
                         marked = True
-                    # A non-head waiter has no deadline of its own.  It wakes on release; a
+                    # A non-head waiter has no deadline of its own. It wakes on release; a
                     # disconnect callback still gets the short polling interval.
                     deadline = min((d for d in (foreground_deadline, slot_deadline)
                                     if d is not None), default=now + _ABANDON_POLL_SECONDS)
@@ -178,21 +229,24 @@ class ForegroundGate:
             started = self._clock()
             self._running[unit] = started
             self._background += 1
-        token = _BACKGROUND_ADMISSION.set(self)
-        try:
-            if marked and standalone:
-                # Process-owned warmers have no HTTP context. Persist their admission-only span
-                # through the same private timing writer; no player, URL query or payload data.
-                timing.finish(method="BACKGROUND", path="/internal/package-admission", status=200)
+        return BackgroundAdmissionLease(
+            self, unit=unit, started=started, timing=timing, standalone=standalone,
+            marked=marked, unit_type=unit_type,
+        )
+
+    @contextmanager
+    def background(self, *, timeout_s: float | None = None,
+                   while_waiting: Callable[[], None] | None = None,
+                   unit_type: str = "unknown"):
+        if _BACKGROUND_ADMISSION.get() is self:
+            # A unit nested in an admitted unit (same thread/context) is part of that unit.
             yield
-        finally:
-            _BACKGROUND_ADMISSION.reset(token)
-            with self._condition:
-                self._running.pop(unit, None)
-                self._slot_warned.discard(unit)
-                self._background = max(0, self._background - 1)
-                self._condition.notify_all()
-            logger.info("background_slot hold_ms=%.1f unit=%s", (self._clock() - started) * 1000, unit_type)
+            return
+        lease = self.acquire_background_lease(
+            timeout_s=timeout_s, while_waiting=while_waiting, unit_type=unit_type,
+        )
+        with lease.activate():
+            yield
 
     def yield_to_foreground(self, *, while_waiting: Callable[[], None] | None = None) -> None:
         """Pause an admitted unit, keeping its slot, while an unexpired package is live."""
@@ -276,6 +330,15 @@ def background_work(*, timeout_s: float | None = None,
     with FOREGROUND_GATE.background(timeout_s=timeout_s, while_waiting=while_waiting,
                                     unit_type=unit_type):
         yield
+
+
+def background_admission_lease(*, timeout_s: float | None = None,
+                               while_waiting: Callable[[], None] | None = None,
+                               unit_type: str = "unknown") -> BackgroundAdmissionLease:
+    """Acquire a background slot for a callable that will run on another thread."""
+    return FOREGROUND_GATE.acquire_background_lease(
+        timeout_s=timeout_s, while_waiting=while_waiting, unit_type=unit_type,
+    )
 
 
 def yield_to_foreground(*, while_waiting: Callable[[], None] | None = None) -> None:

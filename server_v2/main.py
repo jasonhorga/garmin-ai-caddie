@@ -43,6 +43,7 @@ from ai_caddie.core.priority_work import (
     NEARBY,
     SELECTED_COURSE,
     PriorityExecutor,
+    background_admission_lease,
     foreground_work,
     background_work,
     in_background,
@@ -3093,9 +3094,15 @@ def run_course_install_job(identifier: str) -> None:
             expected_work_revision=work_revision,
         )
 
-    def render_install_topo(gid: int, hole: int, expected_revision: str | None = None):
+    def render_install_topo(gid: int, hole: int, expected_revision: str | None = None,
+                            admission_lease=None):
         # Pool workers do not inherit ContextVars from the coordinator.
-        lane = background_work(unit_type="install-topo") if background_install else contextlib.nullcontext()
+        lane = (
+            admission_lease.activate()
+            if admission_lease is not None
+            else (background_work(unit_type="install-topo") if background_install
+                  else contextlib.nullcontext())
+        )
         with lane:
             return _render_course_topo_one(gid, hole, expected_revision)
 
@@ -3115,14 +3122,30 @@ def run_course_install_job(identifier: str) -> None:
             return
         if course_install._topo_ready(current_row):
             return
-        future = _TOPO_PIPELINE_POOL.submit_keyed(
-            ("install", gid, hole, geometry_revision),
-            render_install_topo,
-            gid,
-            hole,
-            geometry_revision,
-            priority=topo_priorities.get((gid, hole), priority),
+        # Acquire on the coordinator, then transfer the slot explicitly because ContextVars do
+        # not cross the pool thread. The worker holds it through rendering and releases it on every
+        # completion, exception, or cancellation path.
+        admission_lease = (
+            background_admission_lease(unit_type="install-topo") if background_install else None
         )
+        try:
+            future = _TOPO_PIPELINE_POOL.submit_keyed(
+                ("install", gid, hole, geometry_revision),
+                render_install_topo,
+                gid,
+                hole,
+                geometry_revision,
+                admission_lease,
+                priority=topo_priorities.get((gid, hole), priority),
+            )
+        except BaseException:
+            if admission_lease is not None:
+                admission_lease.release()
+            raise
+        if admission_lease is not None:
+            # If a keyed request was deduplicated or cancelled before the worker starts, this
+            # callback still returns the transferred slot. Normal completion is idempotent.
+            future.add_done_callback(lambda _completed, lease=admission_lease: lease.release())
         work_revision = int(current_row.get("workRevision") or 1)
         topo_futures[future] = (gid, hole, geometry_revision, work_revision)
         completion_event = threading.Event()
