@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C293-N1-snapshot-id-suffix",
+      "patch": "tests/product/faults/C293/N1-snapshot-id-suffix.patch",
+      "kind": "python",
+      "target": "tests.test_retention.PrivateVolumeRetentionTests.test_G2_snapshot_ids_with_suffixes_do_not_take_retention_slots",
+      "promise": "G2: suffixed snapshot IDs never consume standard snapshot retention slots"
+    },
+    {
+      "id": "tests-product-faults-C293-N2-regular-file-snapshot",
+      "patch": "tests/product/faults/C293/N2-regular-file-snapshot.patch",
+      "kind": "python",
+      "target": "tests.test_retention.PrivateVolumeRetentionTests.test_G2_regular_file_snapshot_pair_does_not_take_a_retention_slot",
+      "promise": "G2: ordinary files never consume snapshot directory-pair retention slots"
+    },
+    {
+      "id": "tests-product-faults-C293-N3-supported-empty-directories",
+      "patch": "tests/product/faults/C293/N3-supported-empty-directories.patch",
+      "kind": "python",
+      "target": "tests.test_retention.PrivateVolumeRetentionTests.test_G2_supported_topo_versions_preserve_empty_directories",
+      "promise": "G2: supported topo versions preserve empty roots and nested directories"
+    }
+  ]
+}
