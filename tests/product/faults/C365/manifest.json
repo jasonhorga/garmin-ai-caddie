@@ -30,8 +30,8 @@
       "promise": "J4.2"
     },
     {
-      "id": "tests-product-faults-C365-05-remove-prep-generation-guard",
-      "patch": "tests/product/faults/C365/05-remove-prep-generation-guard.patch",
+      "id": "tests-product-faults-C365-05-prep-cancel-old-semantics",
+      "patch": "tests/product/faults/C365/05-prep-cancel-old-semantics.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/RoundStartTwoStageTests/testC365PrepCancelDropsLateCoursePackageAndDoesNotNavigate",
       "promise": "J4.2"

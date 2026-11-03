@@ -1,12 +1,12 @@
 diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
-index 87300b7a..d8c02074 100644
+index 5e7d2817..c5e0f5fe 100644
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -2155,7 +2155,6 @@ public final class LiveRoundAppModel: ObservableObject {
-             // A timed-out intent already owns the in-flight request. Do not issue a second network
-             // request, but still fall through to the durable complete-package/template fallback.
-             if fetched == nil, !intentTimedOut {
--                guard isCurrentRoundPreparation(preparationToken), !Task.isCancelled else { return }
-                 fetched = await fetchRemoteCoursePackage(
-                     globalId: globalId,
-                     roundId: requestedRoundId,
+@@ -2015,7 +2015,6 @@ public final class LiveRoundAppModel: ObservableObject {
+                 capturedAt: preparedAt,
+                 preparationToken: preparationToken
+             )
+-            guard isCurrentRoundPreparation(preparationToken) else { return }
+             if let remotePackage = fetched.map(carryingInstalledPrecisePrep) {
+                 let persisted = try offlineStore.saveRoundPackage(remotePackage)
+                 try activatePackage(persisted, status: "已下载离线")
