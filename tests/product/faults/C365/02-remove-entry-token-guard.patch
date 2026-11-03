@@ -1,8 +1,8 @@
 diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
-index 1841ded0..dc4c0220 100644
+index 81ffd2ee..71967a65 100644
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -2356,9 +2356,6 @@ public final class LiveRoundAppModel: ObservableObject {
+@@ -2386,9 +2386,6 @@ public final class LiveRoundAppModel: ObservableObject {
          preparationToken: UUID? = nil,
          freshStartEntry: Bool = true
      ) {

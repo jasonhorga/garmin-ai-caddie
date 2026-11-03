@@ -1,0 +1,14 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 81ffd2ee..f0440401 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -5086,8 +5086,7 @@ public final class LiveRoundAppModel: ObservableObject {
+                 if let roundStartAfterFetchForTesting { await roundStartAfterFetchForTesting() }
+ #endif
+             }
+-            guard generation == self.prepOpenGeneration,
+-                  self.isCurrentRoundPreparation(preparationToken),
++            guard self.isCurrentRoundPreparation(preparationToken),
+                   !Task.isCancelled else { return }
+             guard self.liveRoundState == nil else { return }
+             guard let opened else {
