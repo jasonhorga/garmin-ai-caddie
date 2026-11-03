@@ -102,15 +102,18 @@ class NativeQuickRunnerTests(unittest.TestCase):
         rows = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
         return [row[1:] for row in rows if row[0] == tool]
 
-    def test_runner_routes_online_same_repository_only(self):
+    def test_runner_routes_same_repository_to_mac_and_skips_forks(self):
+        # C333: the Xcode 27 Mac is the only runner; a fork PR skips the job rather than
+        # running untrusted code on the self-hosted Mac (C307 rule: forks never reach it).
         for online, same_repo in itertools.product((True, False), repeat=2):
             with self.subTest(online=online, same_repo=same_repo):
                 values = {'vars.MAC_RUNNER': 'online' if online else 'offline',
+                          'github.event_name': 'pull_request',
                           'github.repository': 'example/caddie',
                           'github.event.pull_request.head.repo.full_name':
                               'example/caddie' if same_repo else 'fork/caddie'}
-                expected = ['self-hosted', 'caddie-mba']
-                self.assertEqual(expected, evaluate(self.job['runs-on'], values))
+                self.assertEqual(['self-hosted', 'caddie-mba'], evaluate(self.job['runs-on'], values))
+                self.assertIs(same_repo, evaluate(self.job['if'], values, condition=True))
 
     def test_simulator_priority_exact_names_numeric_runtime_and_build_udid(self):
         # The Xcode 27 Mac inventory has the iPhone 17 and Series 12 names on multiple runtimes;

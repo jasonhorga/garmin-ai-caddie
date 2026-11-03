@@ -61,7 +61,8 @@ concurrency:
 
 jobs:
   native-quick:
-    if: github.event_name == 'pull_request'
+    # Fork PR code never reaches the self-hosted Mac, and there is no hosted Xcode 27 to fall back to.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, caddie-mba]
     timeout-minutes: 25
     concurrency:
