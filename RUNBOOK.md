@@ -354,6 +354,46 @@ gh workflow run ios-testflight-testers.yml --repo jasonhorga/garmin-ai-caddie --
 后台任务或有上限的 until 循环，超时设该活正常耗时的约 2 倍（CI 10 分钟、native 45 分钟、
 上线 40 分钟、TestFlight 60 分钟）；超时 = 卡住，先查为什么，不直接重试。
 
+## 9. 排队规矩（给派卡脚本强制执行；11-03 从项目台 DESK.md 收拢）
+
+每张卡派出前、推送前、合并前都按下面判断。机器可读的判据写在每条末尾【判据】里，脚本照它拦。
+
+### 9.1 并发上限
+- **Mac（mba-admin-lan，10 核）上同时跑的 Codex 线 ≤3 条**（`operations/mac-codex.sh`，含服务端卡；Jason 11-02 定「尽量都在 Mac 跑」）。iOS/手表卡在途（已派到合并）也 ≤3 条。【判据】`ps` 里 `codex-mac/run.sh <lane>` 进程数 <3 才派。
+- **Mac 上托管 fixture 在跑时，不同时重跑别的 iOS 检查、不再派 iOS Codex**（负载会把时序测试打红，见 9.4 C337）。【判据】native-mobile.yml `fixture_mode=true` 的 run 在 in_progress 时，不派 iOS 卡、不 rerun iOS job。
+- **原生 mutant 实跑全仓同时 ≤2**，且只给已开 PR 的分支派（backend CI 只在 PR 上跑，没 PR 会白等超时，10-30 C236）。
+- **fixture 只在合并前跑 1 次**（C248）：每轮返工只跑 native-quick/backend；iOS 复审过了才派 fixture。
+- **排队 ≤10 分钟**：超了先减并发或减触发，不加 runner。
+
+### 9.2 同文件串行
+- 改同一个大文件的卡串行派，开卡时写清改哪些文件，和在途卡重叠就排队：
+  `mobile/ios/AICaddie/Views/CurrentHoleView.swift`、`mobile/ios/AICaddie/AICaddieApp.swift`、`StartRoundView.swift`、`LiveHoleComponents.swift`、`server_v2/main.py`、`ai_caddie/courses/course_prep.py`、`.github/workflows/native-mobile.yml`、`tests/test_mobile_contracts.py`、`.github/scripts/check_native_fixture_dns.py`。
+  【判据】新卡「改动文件」与任一【在做】卡的「改动文件」交集非空 → 状态写【未派·等 <卡号>】。
+- **两个 PR 改同一 workflow/契约测试**：后合的先 rebase 到新 main，让 backend 再绿一次再合（10-31 C252×C236 各自绿、合起来 main 红，挡了部署）。
+- **TestFlight 与部署互斥**：TF dispatch 时钉住当前生产 revision，TF 跑完前不部署；用后台「等 TF 完 → deploy-sha.sh」串起来。
+- 新 mutant 只进 `tests/product/faults/<卡>/manifest.json`，中央 manifest 不动；`run_faults.py --check` 查 HEAD，合并/改补丁后先提交再查。
+
+### 9.3 返工轮数
+- 复审 B（挡）只限产品行为真错/回归、或本卡验收测试不咬旧代码；其它都是 N，另开卡，不升级成 B。
+- 同一张卡到第 3 轮还在返工 → 停下重拆卡或重定方案。
+
+### 9.4 已知假红（先对号，再决定重跑还是查代码）
+| 现象 | 判断 | 处理 |
+|---|---|---|
+| iOS PR 检查红、失败用例每次不同、Mac 负载高（C337，11-02 负载 362/10 核） | Mac 超载时序假红 | `ssh mba-admin-lan uptime`；用例不重叠 → 重跑失败 job；同一用例反复红才查代码 |
+| `C33PackageTests.testPendingGeometryFailureReschedulesWithBackoff` 红（C347 #713，负载约 100） | 负载时序 | 重跑 |
+| `LiveRoundAppModelTests.testReenteringStartKeepsTheExistingProgressTimer`（数 yield 等计时器） | 调度时序（C287） | 重跑；C287 改成等确定信号 |
+| 托管 UI 测试打字后等按钮 5 s 超时（PrepDegradation/RealFlow） | 托管机查询慢（C245/C347） | 重跑；C347 放宽到 15 s |
+| `tests.product.test_c154b` J42 计时测试负载下红，main 同样红 | 墙钟阈值吃负载（C360） | 本机负载低时重跑；CI backend 为准 |
+| fixture 某分片贴着/超过时限，日志里多次 `App animations complete notification not received`（每次 60 s） | **不是假红**：app 不空闲（C332 根因：LiveGreenEntryButton 重写 exclusion 成更新环） | 查产品，不放宽时限 |
+| TF 预检 `OpenTimeout` | Funnel 公网入口断 | `python3 ~/homeserver-data/funnel-watch/funnel_watch.py --dry-run`，恢复后重出 |
+| TF 预检失败、刚部署过 | 部署改了 revision + 冷缓存（TF 钉旧 revision） | 等 TF 完再部署，见 9.2 |
+| 本地推送脚本真实地形探针 60 s 超时（负载 19 下 main 47 s） | 本机负载（C344） | 以 PR CI backend 为准；本地不跑后端全量 |
+| main backend 红、两个刚合的 PR 改了同一 workflow/契约测试 | 合并冲突（C252×C236） | 开修复 PR，部署用修好后的 main sha |
+| DNS 门把测试桩的 -1200/-1001 报成泄漏 | 门改错（C354）：桩错误不带 URL，不算泄漏 | 改门，8 份 CI 日志条数须与 main 一致 |
+| Mac Codex 「Reconnecting… waiting for network」 | mac-codex.sh 过 2 小时被后台上限杀、ssh -R 断（Mac 上 codex 仍在跑） | 不重派，`caddie-console-mac-reattach.sh <lane> <原端口> <clone>` 重接 |
+| 推送脚本报 No such file（/tmp/caddie-console-*.sh） | 容器重启清空 /tmp | `bash console-scripts/install.sh`（真身在 garmin-ai-caddie-data/console-scripts） |
+
 <!-- agenthub:collab -->
 ## AgentHub 协作
 
