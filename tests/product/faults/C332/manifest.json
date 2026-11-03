@@ -7,6 +7,13 @@
       "kind": "native-ui",
       "target": "AICaddieUITests/ProductPhoneUITests/test_j5_4_green_entry_accepts_a_coordinate_tap",
       "promise": "5.4"
+    },
+    {
+      "id": "C332-equal-green-entry-exclusions",
+      "patch": "tests/product/faults/C332/equal-green-entry-exclusions.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductGreenEntryTests/testJ5_4GreenEntrySkipsEqualChromeExclusionUpdates",
+      "promise": "J5.4"
     }
   ]
 }
