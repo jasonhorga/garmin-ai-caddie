@@ -1,13 +1,13 @@
 diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
-index e2f59159..b3755a40 100644
+index 07802071..9e6d9242 100644
 --- a/.github/workflows/native-mobile.yml
 +++ b/.github/workflows/native-mobile.yml
-@@ -1142,7 +1142,7 @@ jobs:
+@@ -1144,7 +1144,7 @@ jobs:
      if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
      # Keep on GitHub until C332 fixes iOS/watchOS 27 SDK transparent green
      # button hit testing and Watch vertical paging; then move back to Mac.
 -    runs-on: macos-15
 +    runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
-     timeout-minutes: 45
+     timeout-minutes: 55
      env:
        NATIVE_CAPTURE_SHARD: screenshots

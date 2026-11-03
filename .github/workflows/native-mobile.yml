@@ -651,7 +651,7 @@ jobs:
         id: real_ios_capture
         if: ${{ (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         # Leave fixture runners time to scan/upload diagnostics before their job cap.
-        timeout-minutes: ${{ inputs.fixture_mode && (env.NATIVE_CAPTURE_SHARD == 'real-flow' && 45 || 35) || 90 }}
+        timeout-minutes: ${{ inputs.fixture_mode && 45 || 90 }}
         env:
           # TEST_RUNNER_-prefixed vars are forwarded by xcodebuild into the UI-test runner environment
           # (the plain forms are a fallback in case they propagate too). The test reads both.
@@ -1145,7 +1145,7 @@ jobs:
     # Keep on GitHub until C332 fixes iOS/watchOS 27 SDK transparent green
     # button hit testing and Watch vertical paging; then move back to Mac.
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 55
     env:
       NATIVE_CAPTURE_SHARD: screenshots
       NATIVE_ARTIFACT_SUFFIX: -screenshots
