@@ -14,6 +14,12 @@ from tests.service_logging import preserve_service_logging
 
 LOGGING_ISOLATION_REQUIRED = True
 
+# Only a deadlock watchdog, never a responsiveness assertion. Allow the same
+# 30s as J4.2's package recovery window for a descheduled test thread. Ordering,
+# slot ownership and FIFO granule bounds below are checked independently. Gates
+# in these scenarios use a controlled clock so host delays cannot expire them.
+_THREAD_WATCHDOG = 30
+
 
 class _RunningApplicationLoggingSuite(unittest.TestSuite):
     def run(self, result, debug=False):
@@ -409,13 +415,38 @@ class SingleUnitAdmissionTests(unittest.TestCase):
         self.assertLess(entries.index("waiting"), entries.index("loop-1"))
 
     def test_J42_reduced_loop_starvation_scenarios_are_bounded(self):
-        """J4.2: short backfill-shaped loops cannot postpone a queued unit indefinitely."""
+        """J4.2: a queued unit waits at most one granule, even if the loop runs first."""
         for count, delay in ((200, .002), (40, .01)):
             with self.subTest(count=count, delay=delay):
-                gate = ForegroundGate(timeout_s=5)
+                now = [0.0]
+                gate = ForegroundGate(clock=lambda: now[0])
                 first_in, release, second_in = threading.Event(), threading.Event(), threading.Event()
-                completed = threading.Event()
+                queued, reacquire_decided = threading.Event(), threading.Event()
                 entries: list[str] = []
+                errors, admitted_at = [], []
+                original_wait = gate._condition.wait
+
+                def wait(timeout):
+                    if threading.current_thread() is second:
+                        queued.set()  # the real waiter holds the condition lock
+                        result = original_wait(timeout)
+                        # Give the looping worker the first scheduling turn after
+                        # release. Preserve Condition.wait's lock-on-return contract.
+                        gate._condition.release()
+                        try:
+                            if not reacquire_decided.wait(_THREAD_WATCHDOG):
+                                raise AssertionError("loop never attempted its next granule")
+                        finally:
+                            gate._condition.acquire()
+                        return result
+                    reacquire_decided.set()  # FIFO correctly blocked loop-1
+                    return original_wait(timeout)
+
+                def guarded(fn):
+                    try:
+                        fn()
+                    except BaseException as exc:
+                        errors.append(exc)
 
                 def looping_worker():
                     for index in range(count):
@@ -423,36 +454,42 @@ class SingleUnitAdmissionTests(unittest.TestCase):
                             entries.append(f"loop-{index}")
                             if index == 0:
                                 first_in.set()
-                                release.wait(2)
-                            # Keep each unit long enough for a non-FIFO reacquirer to run several
-                            # iterations before the queued waiter gets a scheduling turn.
-                            deadline = time.perf_counter() + delay
-                            while time.perf_counter() < deadline:
-                                pass
-                    completed.set()
+                                if not release.wait(_THREAD_WATCHDOG):
+                                    raise AssertionError("first granule was not released")
+                            else:
+                                reacquire_decided.set()  # a broken FIFO cut in
+                            now[0] += delay
 
                 def waiting_worker():
                     with gate.background():
                         entries.append("waiting")
+                        admitted_at.append(now[0])
                         second_in.set()
 
-                first = threading.Thread(target=looping_worker, daemon=True)
-                second = threading.Thread(target=waiting_worker, daemon=True)
-                first.start()
-                self.assertTrue(first_in.wait(1))
-                second.start()
-                deadline = time.monotonic() + 1
-                while time.monotonic() < deadline:
-                    with gate._condition:
-                        if gate._background_waiters:
-                            break
-                    time.sleep(.001)
-                release.set()
-                self.assertTrue(second_in.wait(1), "queued unit exceeded its bounded wait")
-                first.join(2)
-                second.join(1)
-                self.assertTrue(completed.is_set())
-                self.assertLess(entries.index("waiting") if "waiting" in entries else 0, 2)
+                first = threading.Thread(target=lambda: guarded(looping_worker), daemon=True)
+                second = threading.Thread(target=lambda: guarded(waiting_worker), daemon=True)
+                with patch.object(gate._condition, "wait", side_effect=wait):
+                    first.start()
+                    try:
+                        self.assertTrue(first_in.wait(_THREAD_WATCHDOG))
+                        second.start()
+                        self.assertTrue(queued.wait(_THREAD_WATCHDOG), "follower never queued")
+                        release.set()
+                        self.assertTrue(second_in.wait(_THREAD_WATCHDOG), "queued unit never admitted")
+                    finally:
+                        release.set()
+                        reacquire_decided.set()
+                        first.join(_THREAD_WATCHDOG)
+                        if second.ident is not None:
+                            second.join(_THREAD_WATCHDOG)
+                self.assertFalse(first.is_alive())
+                self.assertFalse(second.is_alive())
+                self.assertEqual(errors, [])
+                self.assertEqual(entries[:2], ["loop-0", "waiting"])
+                self.assertEqual(len(entries), count + 1)
+                # Virtual work time: the follower must run after just the current
+                # 2ms/10ms granule, not after all 200/40 granules (400ms).
+                self.assertEqual(admitted_at, [delay])
 
     def test_J42_nested_unit_shares_its_admission_and_a_stale_holder_stops_blocking(self):
         gate = ForegroundGate(timeout_s=5)
@@ -687,12 +724,19 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
     def setUp(self):
         from ai_caddie.core import priority_work as pw
         self.pw = pw
-        self.gate = ForegroundGate(timeout_s=5)
+        self.gate = ForegroundGate(clock=lambda: 0.0)
         self.enterContext(patch.object(pw, "FOREGROUND_GATE", self.gate))
 
     def assert_cpu_during_network(self, run, entered, release):
         errors = []
         computed = threading.Event()
+        decided = threading.Event()
+        counts = []
+        original_wait = self.gate._condition.wait
+
+        def wait(timeout):
+            decided.set()  # CPU admission blocked while the provider is held
+            return original_wait(timeout)
 
         def guarded(fn):
             try:
@@ -701,23 +745,29 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
                 errors.append(exc)
 
         def cpu():
-            with self.pw.background_work(unit_type="fixture-cpu"):
-                computed.set()
+            try:
+                with self.pw.background_work(unit_type="fixture-cpu"):
+                    counts.append(self.gate.background_count)
+                    computed.set()
+            finally:
+                decided.set()
 
         network = threading.Thread(target=lambda: guarded(run), daemon=True)
         compute = threading.Thread(target=lambda: guarded(cpu), daemon=True)
         network.start()
         try:
-            self.assertTrue(entered.wait(2), "network fixture did not start")
-            compute.start()
-            # J4.2's <1s foreground responsiveness: use a generous 0.5s watchdog for an
-            # event-only CPU body; network stays blocked until the assertion has run.
-            self.assertTrue(computed.wait(.5), "network wait occupied the background CPU slot")
+            self.assertTrue(entered.wait(_THREAD_WATCHDOG), "network fixture did not start")
+            with patch.object(self.gate._condition, "wait", side_effect=wait):
+                compute.start()
+                self.assertTrue(decided.wait(_THREAD_WATCHDOG), "CPU contender made no progress")
+                self.assertTrue(computed.is_set(), "network wait occupied the background CPU slot")
+                self.assertEqual(counts, [1], "CPU contender must own the unique slot")
+                self.assertFalse(release.is_set(), "CPU must finish before provider release")
         finally:
             release.set()
-            network.join(3)
+            network.join(_THREAD_WATCHDOG)
             if compute.ident is not None:
-                compute.join(3)
+                compute.join(_THREAD_WATCHDOG)
         self.assertFalse(network.is_alive())
         self.assertFalse(compute.is_alive())
         self.assertEqual(errors, [])
@@ -729,7 +779,7 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
 
         def fetch(*args, **kwargs):
             entered.set()
-            release.wait(3)
+            self.assertTrue(release.wait(_THREAD_WATCHDOG), "provider was not released")
             return {"release_version": 1}
 
         matches = [CourseMatch(901, "Fixture", 9, None, None, 1, distance_km=1)]
@@ -746,7 +796,7 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
 
         def coordinate(*args):
             entered.set()
-            release.wait(3)
+            self.assertTrue(release.wait(_THREAD_WATCHDOG), "provider was not released")
 
         with patch.object(ci, "_read", return_value=state), patch.object(ci, "_write"), \
              patch.object(ci, "_ACTIVE", set()), patch.object(ci, "_launch_next_resumed_job"), \
@@ -763,7 +813,7 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
 
         def download(*args, **kwargs):
             entered.set()
-            release.wait(3)
+            self.assertTrue(release.wait(_THREAD_WATCHDOG), "provider was not released")
             return None
 
         with TemporaryDirectory() as directory, patch.object(raster, "RASTER_CACHE_DIR", Path(directory)), \
@@ -781,7 +831,7 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
 
         def download(*args, **kwargs):
             entered.set()
-            release.wait(3)
+            self.assertTrue(release.wait(_THREAD_WATCHDOG), "provider was not released")
             return b"jpeg-fixture"
 
         with TemporaryDirectory() as directory, \
@@ -811,18 +861,29 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
         from server_v2 import garmin_raster as api
         from ai_caddie.geometry import garmin_raster as raster
         downloaded, release, matted = threading.Event(), threading.Event(), threading.Event()
+        release_matte, contender_in = threading.Event(), threading.Event()
         waits, observed = _observed_waits(self.gate)
         counts, errors = [], []
 
         def download(*args, **kwargs):
             downloaded.set()
-            release.wait(3)
+            self.assertTrue(release.wait(_THREAD_WATCHDOG), "download was not released")
             return b"jpeg-fixture"
 
         def matte(*args):
-            counts.append(self.gate.background_count)
+            counts.append((self.gate.background_count, self.gate.foreground_count))
+            waits.set()  # also decide immediately if admission was skipped
             matted.set()
+            self.assertTrue(release_matte.wait(_THREAD_WATCHDOG), "matte was not released")
             return b"webp-fixture"
+
+        def contend():
+            try:
+                with self.pw.background_work(unit_type="fixture-contender"):
+                    contender_in.set()
+                    waits.set()  # distinguish admission from a real gate wait
+            except BaseException as exc:
+                errors.append(exc)
 
         def run():
             try:
@@ -836,20 +897,33 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
              patch.object(raster, "_matte_cold", side_effect=matte), \
              patch.object(api, "course_hole_garmin_raster", return_value={"available": True}), observed:
             thread = threading.Thread(target=run, daemon=True)
+            contender = threading.Thread(target=contend, daemon=True)
             thread.start()
             try:
-                self.assertTrue(downloaded.wait(2))
+                self.assertTrue(downloaded.wait(_THREAD_WATCHDOG))
                 with self.gate.foreground():
                     release.set()
-                    self.assertTrue(waits.wait(1), "download completion skipped foreground checkpoint")
+                    self.assertTrue(waits.wait(_THREAD_WATCHDOG), "download completion skipped foreground checkpoint")
                     self.assertFalse(matted.is_set(), "background CPU ran beside foreground package")
-                thread.join(2)
+                self.assertTrue(matted.wait(_THREAD_WATCHDOG))
+                waits.clear()
+                contender.start()
+                self.assertTrue(waits.wait(_THREAD_WATCHDOG), "second CPU unit never waited")
+                self.assertFalse(contender_in.is_set(), "CPU units ran concurrently")
+                self.assertEqual(self.gate.background_count, 1)
             finally:
                 release.set()
-                thread.join(3)
+                release_matte.set()
+                thread.join(_THREAD_WATCHDOG)
+                if contender.ident is not None:
+                    contender.join(_THREAD_WATCHDOG)
+        self.assertFalse(thread.is_alive())
+        self.assertFalse(contender.is_alive())
         self.assertEqual(errors, [])
         self.assertTrue(matted.is_set())
-        self.assertEqual(counts, [1], "matting must own the unique background CPU slot")
+        self.assertTrue(contender_in.is_set(), "second CPU unit never resumed")
+        self.assertEqual(counts, [(1, 0)],
+                         "matting must own the unique CPU slot after foreground exits")
 
     def test_J42_install_cpu_callbacks_admit_on_their_own_threads(self):
         """J4.2: geometry/CPU pool threads must retain both admission and foreground priority."""
@@ -972,11 +1046,20 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
         downloaded, release = threading.Event(), threading.Event()
         waiting, observed = _observed_waits(self.gate)
         result, errors = [], []
+        foreground_done = threading.Event()
 
         def download(*args):
             downloaded.set()
-            release.wait(3)
+            self.assertTrue(release.wait(_THREAD_WATCHDOG), "download was not released")
             return b"jpeg-fixture"
+
+        def foreground_fetch():
+            try:
+                result.append(raster.fetch_matted_raster(901, 1, "v1"))
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                foreground_done.set()
 
         def background():
             try:
@@ -985,28 +1068,37 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
                     result.append(raster.fetch_matted_raster(901, 1, "v1"))
             except BaseException as exc:
                 errors.append(exc)
+            finally:
+                waiting.set()  # completion without admission is also a decision
 
         with TemporaryDirectory() as directory, patch.object(raster, "RASTER_CACHE_DIR", Path(directory)), \
              patch.object(raster, "fetch_raster", side_effect=download), \
              patch.object(raster, "_matte_cold", return_value=b"webp-fixture"), observed:
             worker = threading.Thread(target=background, daemon=True)
+            foreground = threading.Thread(target=foreground_fetch, daemon=True)
             worker.start()
             try:
-                self.assertTrue(downloaded.wait(2))
+                self.assertTrue(downloaded.wait(_THREAD_WATCHDOG))
                 with self.gate.foreground():
                     release.set()
-                    self.assertTrue(waiting.wait(1))
+                    self.assertTrue(waiting.wait(_THREAD_WATCHDOG))
+                    self.assertEqual(result, [], "background did not pause for the foreground")
                     # Simulate an HTTP foreground caller on a different thread/context. It must
                     # finish the same cache key while the background is paused before its lock.
-                    foreground = threading.Thread(target=lambda: result.append(raster.fetch_matted_raster(901, 1, "v1")), daemon=True)
                     foreground.start()
-                    foreground.join(1)
+                    self.assertTrue(foreground_done.wait(_THREAD_WATCHDOG),
+                                    "foreground waited on a paused background cache lock")
+                    foreground.join(_THREAD_WATCHDOG)
                     self.assertFalse(foreground.is_alive(), "foreground waited on a paused background cache lock")
-                worker.join(2)
-                foreground.join(2)
+                    self.assertEqual(result, [b"webp-fixture"],
+                                     "foreground must finish while background remains paused")
             finally:
                 release.set()
-                worker.join(3)
+                worker.join(_THREAD_WATCHDOG)
+                if foreground.ident is not None:
+                    foreground.join(_THREAD_WATCHDOG)
+        self.assertFalse(worker.is_alive())
+        self.assertFalse(foreground.is_alive())
         self.assertEqual(errors, [])
         self.assertEqual(result, [b"webp-fixture", b"webp-fixture"])
 

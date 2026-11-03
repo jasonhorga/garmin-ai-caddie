@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C360-01-fifo-bypass",
+      "patch": "tests/product/test_c154b.py",
+      "kind": "python-script",
+      "target": "-c 'import atexit\nkilled = False\natexit.register(lambda: print(str(int(killed)) + \"/1 killed: behavior assertion required\"))\nimport inspect\nimport textwrap\nimport unittest\nfrom unittest.mock import patch\nfrom ai_caddie.core import priority_work as pw\nfrom ai_caddie.geometry import garmin_raster as raster\nfrom tests.product import test_c154b\n\ndef run():\n    return unittest.TextTestRunner(verbosity=2).run(\n        unittest.defaultTestLoader.loadTestsFromName(TARGET))\n\nTARGET = '\"'\"'tests.product.test_c154b.SingleUnitAdmissionTests.test_J42_reduced_loop_starvation_scenarios_are_bounded'\"'\"'\ncontrol = run()\nif not control.wasSuccessful():\n    print(\"0/1 killed: green control failed\")\n    raise SystemExit(1)\noriginal = pw.ForegroundGate.acquire_background_lease\nsource = textwrap.dedent(inspect.getsource(original))\nsource = source.replace(\"is_head = self._background_waiters[0] is ticket\", \"is_head = True\")\nnamespace = {}\nexec(compile(source, pw.__file__, \"exec\"), pw.__dict__, namespace)\nmutant = patch.object(pw.ForegroundGate, \"acquire_background_lease\", namespace[original.__name__])\nwith mutant:\n    result = run()\nkilled = bool(result.failures) and not result.errors\nraise SystemExit(0 if killed else 1)\n'",
+      "promise": "4.2",
+      "note": "In-memory product mutant with green control; no product file is edited. The card permits only the test module and this manifest."
+    },
+    {
+      "id": "tests-product-faults-C360-02-lock-before-admission",
+      "patch": "tests/product/test_c154b.py",
+      "kind": "python-script",
+      "target": "-c 'import atexit\nkilled = False\natexit.register(lambda: print(str(int(killed)) + \"/1 killed: behavior assertion required\"))\nimport inspect\nimport textwrap\nimport unittest\nfrom unittest.mock import patch\nfrom ai_caddie.core import priority_work as pw\nfrom ai_caddie.geometry import garmin_raster as raster\nfrom tests.product import test_c154b\n\ndef run():\n    return unittest.TextTestRunner(verbosity=2).run(\n        unittest.defaultTestLoader.loadTestsFromName(TARGET))\n\nTARGET = '\"'\"'tests.product.test_c154b.CpuPhaseAdmissionTests.test_J42_background_matte_wait_leaves_same_key_foreground_free'\"'\"'\ncontrol = run()\nif not control.wasSuccessful():\n    print(\"0/1 killed: green control failed\")\n    raise SystemExit(1)\noriginal = raster.fetch_matted_raster\nsource = textwrap.dedent(inspect.getsource(original))\nsource = source.replace(\"with lane, lock:\", \"with lock, lane:\")\nnamespace = {}\nexec(compile(source, raster.__file__, \"exec\"), raster.__dict__, namespace)\nmutant = patch.object(raster, original.__name__, namespace[original.__name__])\nwith mutant:\n    result = run()\nkilled = bool(result.failures) and not result.errors\nraise SystemExit(0 if killed else 1)\n'",
+      "promise": "4.2",
+      "note": "In-memory product mutant with green control; no product file is edited. The card permits only the test module and this manifest."
+    },
+    {
+      "id": "tests-product-faults-C360-03-unlimited-cpu-slots",
+      "patch": "tests/product/test_c154b.py",
+      "kind": "python-script",
+      "target": "-c 'import atexit\nkilled = False\natexit.register(lambda: print(str(int(killed)) + \"/1 killed: behavior assertion required\"))\nimport inspect\nimport textwrap\nimport unittest\nfrom unittest.mock import patch\nfrom ai_caddie.core import priority_work as pw\nfrom ai_caddie.geometry import garmin_raster as raster\nfrom tests.product import test_c154b\n\ndef run():\n    return unittest.TextTestRunner(verbosity=2).run(\n        unittest.defaultTestLoader.loadTestsFromName(TARGET))\n\nTARGET = '\"'\"'tests.product.test_c154b.CpuPhaseAdmissionTests.test_J42_raster_cpu_stays_serial_and_yields_after_download'\"'\"'\ncontrol = run()\nif not control.wasSuccessful():\n    print(\"0/1 killed: green control failed\")\n    raise SystemExit(1)\nmutant = patch.object(pw.ForegroundGate, \"_slot_deadline_locked\", return_value=None)\nwith mutant:\n    result = run()\nkilled = bool(result.failures) and not result.errors\nraise SystemExit(0 if killed else 1)\n'",
+      "promise": "4.2",
+      "note": "In-memory product mutant with green control; no product file is edited. The card permits only the test module and this manifest."
+    },
+    {
+      "id": "tests-product-faults-C360-04-matte-skips-admission",
+      "patch": "tests/product/faults/C209/05-matte-skips-cpu-admission.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.CpuPhaseAdmissionTests.test_J42_background_matte_wait_leaves_same_key_foreground_free",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C360-05-matte-ignores-foreground",
+      "patch": "tests/product/faults/C154b/01-background-skips-gate.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.CpuPhaseAdmissionTests.test_J42_raster_cpu_stays_serial_and_yields_after_download",
+      "promise": "4.2"
+    }
+  ]
+}
