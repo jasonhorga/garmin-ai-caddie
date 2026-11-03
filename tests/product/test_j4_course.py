@@ -184,6 +184,16 @@ class PrepRouteQualityTests(unittest.TestCase):
         self.assertLessEqual(len(row["steps"]), 2)
         self.assertLessEqual(sum(s["targetCarry_m"] for s in row["steps"]) - 320, 30)
 
+    def test_j4_6_post_pin_buffer_does_not_add_a_stroke(self):
+        # J4.6: 197+160+121=478 finishes in three shots, 7 m before
+        # [485,510]. The buffered 197+102+102+68=469 needs four shots;
+        # clearance alone must not buy that extra swing.
+        for par in (4, 5):
+            with self.subTest(par=par):
+                row = self.prep("TRIG", par, 480, ((485, 510),))
+                self.assert_complete(row)
+                self.assertLessEqual(len(row["steps"]), 3)
+
     def test_j4_6_repair_does_not_move_a_safe_landing_into_post_pin_water(self):
         # J4.6: at L272, Driver200+7I120 lands at 320, beyond [277,302].
         # Replacing it with 200+50+50=300 would newly land in that real pond.
