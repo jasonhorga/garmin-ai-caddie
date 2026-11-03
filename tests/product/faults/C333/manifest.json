@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C333-01-hosted-runner",
+      "patch": "tests/product/faults/C333/01-hosted-runner.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.Xcode27NativeWorkflowTests.test_every_native_xcode_job_runs_on_the_xcode27_mac",
+      "promise": "C333 native jobs run on the Xcode 27 self-hosted Mac"
+    },
+    {
+      "id": "tests-product-faults-C333-02-missing-xcode-selection",
+      "patch": "tests/product/faults/C333/02-missing-xcode-selection.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.Xcode27NativeWorkflowTests.test_every_native_xcode_job_selects_and_verifies_xcode27_before_tools",
+      "promise": "C333 native jobs select Xcode 27 before xcodebuild or simctl"
+    },
+    {
+      "id": "tests-product-faults-C333-03-xcode26-verification",
+      "patch": "tests/product/faults/C333/03-xcode26-verification.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.Xcode27NativeWorkflowTests.test_every_native_xcode_job_selects_and_verifies_xcode27_before_tools",
+      "promise": "C333 native jobs reject a non-Xcode-27 selection"
+    }
+  ]
+}

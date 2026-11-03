@@ -1,0 +1,9 @@
+diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
+index e714bed0..de7246b6 100644
+--- a/.github/workflows/native-mobile.yml
++++ b/.github/workflows/native-mobile.yml
+@@ -91,3 +91,3 @@ jobs:
+           printf '%s\n' "$version"
+-          printf '%s\n' "$version" | grep -q '^Xcode 27\.' || {
++          printf '%s\n' "$version" | grep -q '^Xcode 26\.' || {
+             echo "selected Xcode is not major version 27" >&2

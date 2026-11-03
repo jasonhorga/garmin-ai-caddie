@@ -27,7 +27,6 @@ MOVED = {
     'agenthub-native-mutant.yml': ('native-mutant',),
     'watch-cold-start.yml': ('cold-start',),
 }
-# C307 r5: jobs running the full Watch scheme / iOS UI tests stay hosted until C332.
 SDK_HOSTED = {
     'native-mobile.yml': ('native-live', 'native-unit-watch', 'native-screenshots', 'native-product-ui'),
     'watch-runtime.yml': ('watch-runtime',),
@@ -37,6 +36,47 @@ SIM_JOBS = {**MOVED, **SDK_HOSTED, 'native-mobile.yml': MOBILE_JOBS}
 
 def workflow(name):
     return yaml.safe_load((ROOT / '.github/workflows' / name).read_text())
+
+
+class Xcode27NativeWorkflowTests(unittest.TestCase):
+    """C333: every native build/test path selects and verifies Xcode 27 on the Mac."""
+
+    WORKFLOWS = ('native-mobile.yml', 'ios-testflight.yml')
+
+    @classmethod
+    def xcode_jobs(cls):
+        for name in cls.WORKFLOWS:
+            for job_name, job in workflow(name)['jobs'].items():
+                steps = job.get('steps', [])
+                commands = '\n'.join(str(step.get('run', '')) for step in steps)
+                if 'xcodebuild' in commands or 'xcrun simctl' in commands:
+                    yield name, job_name, job, steps
+
+    def test_every_native_xcode_job_runs_on_the_xcode27_mac(self):
+        for name, job_name, job, _ in self.xcode_jobs():
+            with self.subTest(workflow=name, job=job_name):
+                self.assertEqual(job.get('runs-on'), ['self-hosted', 'caddie-mba'])
+
+    def test_every_native_xcode_job_selects_and_verifies_xcode27_before_tools(self):
+        for name, job_name, job, steps in self.xcode_jobs():
+            with self.subTest(workflow=name, job=job_name):
+                selection = [
+                    (index, step) for index, step in enumerate(steps)
+                    if step.get('name') == 'Select Xcode 27'
+                ]
+                self.assertEqual(len(selection), 1)
+                select_index, select_step = selection[0]
+                script = str(select_step.get('run', ''))
+                self.assertIn('/Applications/Xcode_27*.app', script)
+                self.assertIn('xcodebuild -version', script)
+                self.assertRegex(script, r"grep -q ['\"]\^Xcode 27\\\.['\"]")
+                self.assertIn('DEVELOPER_DIR=', script)
+                for index, step in enumerate(steps):
+                    if index == select_index:
+                        continue
+                    command = str(step.get('run', ''))
+                    if 'xcodebuild' in command or 'xcrun simctl' in command:
+                        self.assertLess(select_index, index)
 
 
 FAKE = r'''
@@ -369,18 +409,21 @@ while True:
                         values = {'vars.MAC_RUNNER': online, 'github.event_name': event,
                                   'github.repository': 'owner/repo',
                                   'github.event.pull_request.head.repo.full_name': repo}
+                        if name == 'native-mobile.yml':
+                            expected = ['self-hosted', 'caddie-mba']
                         self.assertEqual(evaluate(workflow(name)['jobs'][job]['runs-on'], values), expected)
 
     def test_sdk_affected_jobs_stay_hosted_even_when_mac_is_online(self):
-        # C307 r4 keeps 27 SDK hit testing / vertical paging under C332 on hosted SDKs.
+        # C333 moved these jobs to the self-hosted Xcode 27 Mac after C332.
         for name, job in [(n, j) for n, jobs in SDK_HOSTED.items() for j in jobs]:
             for event, repo in [('workflow_dispatch', ''), ('pull_request', 'owner/repo'),
                                 ('pull_request', 'fork/repo')]:
                 with self.subTest(workflow=name, job=job, event=event, repo=repo):
+                    expected = ['self-hosted', 'caddie-mba'] if name == 'native-mobile.yml' else 'macos-15'
                     self.assertEqual(evaluate(workflow(name)['jobs'][job]['runs-on'], {
                         'vars.MAC_RUNNER': 'online', 'github.event_name': event,
                         'github.repository': 'owner/repo',
-                        'github.event.pull_request.head.repo.full_name': repo}), 'macos-15')
+                        'github.event.pull_request.head.repo.full_name': repo}), expected)
 
     def test_owned_selection_boots_in_english_after_each_job_erase(self):
         # The host supplies Chinese defaults again on every erase; both platforms

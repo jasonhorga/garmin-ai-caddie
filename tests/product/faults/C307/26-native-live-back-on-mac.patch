@@ -1,13 +1,9 @@
 diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
-index 9c2ee5b7..d6fb3740 100644
+index e714bed0..1b6c3f67 100644
 --- a/.github/workflows/native-mobile.yml
 +++ b/.github/workflows/native-mobile.yml
-@@ -212,7 +212,7 @@ jobs:
+@@ -234,3 +234,3 @@ jobs:
      if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fixture_mode }}
-     # Keep on GitHub until C332 fixes watchOS 27 SDK hit testing / vertical paging (full
-     # AICaddieWatch scheme incl. WatchHolePagesUITests); then move back to Mac.
--    runs-on: macos-15
+-    runs-on: [self-hosted, caddie-mba]
 +    runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
      # Live dispatch keeps the existing serial capture path.
-     timeout-minutes: 150
-     env:
