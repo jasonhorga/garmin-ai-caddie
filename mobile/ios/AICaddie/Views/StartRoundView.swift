@@ -44,6 +44,7 @@ public struct StartRoundView: View {
     public let onPrepareCourseRound: (String, String, [RoundLoopEntry]) -> Void
     public let onStartSimplifiedRound: () async -> Void
     public let onCancelRoundStart: () -> Void
+    public let onCancelRoundStartIfReady: () -> Void
     public let onRetryRoundStart: () async -> Void
     public let onClearRoundStartFailure: () -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
@@ -131,6 +132,7 @@ public struct StartRoundView: View {
         onPrepareCourseRound: @escaping (String, String, [RoundLoopEntry]) -> Void = { _, _, _ in },
         onStartSimplifiedRound: @escaping () async -> Void = {},
         onCancelRoundStart: @escaping () -> Void = {},
+        onCancelRoundStartIfReady: @escaping () -> Void = {},
         onRetryRoundStart: @escaping () async -> Void = {},
         onClearRoundStartFailure: @escaping () -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
@@ -185,6 +187,7 @@ public struct StartRoundView: View {
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onStartSimplifiedRound = onStartSimplifiedRound
         self.onCancelRoundStart = onCancelRoundStart
+        self.onCancelRoundStartIfReady = onCancelRoundStartIfReady
         self.onRetryRoundStart = onRetryRoundStart
         self.onClearRoundStartFailure = onClearRoundStartFailure
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
@@ -373,7 +376,7 @@ public struct StartRoundView: View {
         }
         .onDisappear {
             locationProvider.stopUpdatingLocation()
-            cancelRoundStartIfBusy()
+            cancelRoundStartFromExit()
         }
         .task(id: nearbyDiscoveryTaskKey) { await discoverNearbyCourses() }
         // Start the lookup when setup is visible. Automatic selection on the course list must not
@@ -452,7 +455,7 @@ public struct StartRoundView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("返回") {
-                    cancelRoundStartIfBusy()
+                    cancelRoundStartFromExit()
                     page = .course
                 }
                     .accessibilityIdentifier("start-round-back-to-courses")
@@ -594,6 +597,17 @@ public struct StartRoundView: View {
     }
 
     private func cancelRoundStartIfBusy() {
+        if Self.cancellationRequiredForSetupExit(
+            isPreparing: isPreparing,
+            isOpeningPrepCourse: isOpeningPrepCourse,
+            isValidatingPrepCourse: isValidatingPrepCourse
+        ) {
+            startActionGeneration &+= 1
+            onCancelRoundStartIfReady()
+        }
+    }
+
+    private func cancelRoundStartFromExit() {
         if Self.cancellationRequiredForSetupExit(
             isPreparing: isPreparing,
             isOpeningPrepCourse: isOpeningPrepCourse,
@@ -1339,7 +1353,7 @@ public struct StartRoundView: View {
         guard let first = StartRoundPresentation.preselectedLoop(
             in: row.segments, current: selectedSegment, recent: recentResolvedCourseOption
         ) else { return }
-        cancelRoundStartIfBusy()
+        cancelRoundStartFromExit()
         onClearRoundStartFailure()
         prepValidationFailed = false
         userPickedVenue = true
@@ -1493,7 +1507,7 @@ public struct StartRoundView: View {
 
     private func selectLoop(_ segment: MobileCourseOption) {
         guard String(segment.globalId) != courseGlobalIdText else { return }
-        cancelRoundStartIfBusy()
+        cancelRoundStartFromExit()
         onClearRoundStartFailure()
         prepValidationFailed = false
         userPickedVenue = true
@@ -1613,7 +1627,7 @@ public struct StartRoundView: View {
     private func teeChip(_ tee: String) -> some View {
         let selected = tee.caseInsensitiveCompare(teeBox) == .orderedSame
         return Button {
-            cancelRoundStartIfBusy()
+            cancelRoundStartFromExit()
             onClearRoundStartFailure()
             prepValidationFailed = false
             teeBox = tee
@@ -1835,7 +1849,7 @@ public struct StartRoundView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("start-round-simplified-start")
-                    Button("取消", role: .cancel) { cancelRoundStartIfBusy() }
+                    Button("取消", role: .cancel) { onCancelRoundStart() }
                         .buttonStyle(.bordered)
                         .accessibilityIdentifier("start-round-cancel")
                 }
@@ -2383,7 +2397,7 @@ public struct StartRoundView: View {
     ) {
         let isSameCourse = courseGlobalId == selected.globalId
         guard let option = resolvedOption(for: selected) else { return }
-        cancelRoundStartIfBusy()
+        cancelRoundStartFromExit()
         // The explicit catalogue choice supersedes any prior nearby transport error. Do not leave
         // the old "nearby unavailable" banner beside a valid manually searched course.
         // Invalidate an in-flight nearby request as well; its late failure must not repaint this

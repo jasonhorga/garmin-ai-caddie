@@ -672,6 +672,7 @@ public struct RoundHomeView: View {
     public let onPrepareCourseRound: (String, String, [RoundLoopEntry]) -> Void
     public let onStartSimplifiedRound: () async -> Void
     public let onCancelRoundStart: () -> Void
+    public let onCancelRoundStartIfReady: () -> Void
     public let onRetryRoundStart: () async -> Void
     public let onClearRoundStartFailure: () -> Void
     /// Set, change or drop (nil) the second loop before it is played: (entry, roundId).
@@ -822,6 +823,7 @@ public struct RoundHomeView: View {
         onPrepareCourseRound: @escaping (String, String, [RoundLoopEntry]) -> Void = { _, _, _ in },
         onStartSimplifiedRound: @escaping () async -> Void = {},
         onCancelRoundStart: @escaping () -> Void = {},
+        onCancelRoundStartIfReady: @escaping () -> Void = {},
         onRetryRoundStart: @escaping () async -> Void = {},
         onClearRoundStartFailure: @escaping () -> Void = {},
         onSetSecondLoop: @escaping (RoundLoopEntry?, String) -> Void = { _, _ in },
@@ -912,6 +914,7 @@ public struct RoundHomeView: View {
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onStartSimplifiedRound = onStartSimplifiedRound
         self.onCancelRoundStart = onCancelRoundStart
+        self.onCancelRoundStartIfReady = onCancelRoundStartIfReady
         self.onRetryRoundStart = onRetryRoundStart
         self.onClearRoundStartFailure = onClearRoundStartFailure
         self.onSetSecondLoop = onSetSecondLoop
@@ -1748,6 +1751,7 @@ public struct RoundHomeView: View {
             onPrepareCourseRound: onPrepareCourseRound,
             onStartSimplifiedRound: onStartSimplifiedRound,
             onCancelRoundStart: onCancelRoundStart,
+            onCancelRoundStartIfReady: onCancelRoundStartIfReady,
             onRetryRoundStart: onRetryRoundStart,
             onClearRoundStartFailure: onClearRoundStartFailure,
             onSaveBackendConfiguration: onSaveBackendConfiguration,

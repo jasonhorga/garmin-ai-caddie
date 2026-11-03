@@ -111,6 +111,9 @@ public struct AICaddieApp: App {
                             await model.startSimplifiedRound()
                         },
                         onCancelRoundStart: {
+                            model.cancelRoundStart()
+                        },
+                        onCancelRoundStartIfReady: {
                             model.cancelRoundStartIfReady()
                         },
                         onRetryRoundStart: {
