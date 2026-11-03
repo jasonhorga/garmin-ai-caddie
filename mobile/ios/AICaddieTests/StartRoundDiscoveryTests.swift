@@ -73,14 +73,10 @@ final class StartRoundDiscoveryTests: XCTestCase {
         window.makeKeyAndVisible()
         defer { window.isHidden = true }
         host.view.layoutIfNeeded()
-        func dump(_ view: UIView, _ depth: Int = 0) {
-            print(String(repeating: " ", count: depth) + "\(type(of: view)) id=\(view.accessibilityIdentifier ?? "-") label=\(view.accessibilityLabel ?? "-")")
-            view.subviews.forEach { dump($0, depth + 1) }
-        }
-        dump(host.view)
-
-        func find(_ view: UIView) -> UIView? {
-            if view.accessibilityIdentifier == "start-round-cancel" { return view }
+        func find(_ view: UIView) -> UIAccessibilityElement? {
+            if let element = (view.accessibilityElements as? [UIAccessibilityElement])?.first(where: {
+                $0.accessibilityIdentifier == "start-round-cancel"
+            }) { return element }
             return view.subviews.lazy.compactMap(find).first
         }
         let button = try XCTUnwrap(find(host.view), "the failure card must expose its cancel control")
@@ -109,14 +105,10 @@ final class StartRoundDiscoveryTests: XCTestCase {
         window.makeKeyAndVisible()
         defer { window.isHidden = true }
         host.view.layoutIfNeeded()
-        func dump(_ view: UIView, _ depth: Int = 0) {
-            print(String(repeating: " ", count: depth) + "\(type(of: view)) id=\(view.accessibilityIdentifier ?? "-") label=\(view.accessibilityLabel ?? "-")")
-            view.subviews.forEach { dump($0, depth + 1) }
-        }
-        dump(host.view)
-
-        func find(_ view: UIView) -> UIView? {
-            if view.accessibilityIdentifier == "start-round-back-to-courses" { return view }
+        func find(_ view: UIView) -> UIAccessibilityElement? {
+            if let element = (view.accessibilityElements as? [UIAccessibilityElement])?.first(where: {
+                $0.accessibilityIdentifier == "start-round-back-to-courses"
+            }) { return element }
             return view.subviews.lazy.compactMap(find).first
         }
         let back = try XCTUnwrap(find(host.view), "setup must expose its back control")
