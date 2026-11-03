@@ -820,6 +820,16 @@ class DecisionGoldenTests(unittest.TestCase):
 
 class EventAppendTests(unittest.TestCase):
     def setUp(self):
+        from server_v2 import main
+
+        # The HTTP timing case recovers a playing lease as well as writing its temporary log.
+        # Own that selector state too, so later discovery is not blocked by a deleted fixture.
+        for name in ("_ACTIVE_ROUNDS", "_ACTIVE_COURSES", "_ACTIVE_SELECTIONS",
+                     "_ACTIVE_START_TIMES", "_ACTIVE_EVENT_TIMES", "_ACTIVE_EVENT_DEVICES",
+                     "_ROUND_START_CACHE", "_FINISH_INDEX_CACHE"):
+            self.enterContext(patch.object(main, name, {}))
+        self.enterContext(patch.object(main, "_ACTIVE_PACKAGED_ROUNDS", set()))
+        self.enterContext(patch.object(main.course_install, "_CURRENT_COURSE_IDS", {}))
         self._tmp = TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
