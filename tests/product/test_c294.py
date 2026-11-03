@@ -27,6 +27,7 @@ class TopoAdmissionTests(unittest.TestCase):
         pool = PriorityExecutor(max_workers=1, name="c294-topo-pipeline")
         holder_in, release_holder = threading.Event(), threading.Event()
         topo_started = threading.Event()
+        geometry_done = threading.Event()
         errors: list[BaseException] = []
 
         def hold_background_slot():
@@ -39,6 +40,7 @@ class TopoAdmissionTests(unittest.TestCase):
 
         def ensure_geometry(gid, *, holes, on_hole_complete, **kwargs):
             result = {"globalId": gid, "localHole": 1, "ok": True}
+            geometry_done.set()
             on_hole_complete(result)
             return {"results": [result]}
 
@@ -69,6 +71,7 @@ class TopoAdmissionTests(unittest.TestCase):
             install = threading.Thread(target=run_install, daemon=True)
             install.start()
             self.assertTrue(install_started.wait(_THREAD_WATCHDOG))
+            self.assertTrue(geometry_done.wait(_THREAD_WATCHDOG), "install geometry was not completed")
             submitted = time.monotonic()
             started: list[float] = []
             future = pool.submit(lambda: started.append(time.monotonic()), priority=FOREGROUND)
