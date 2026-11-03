@@ -858,11 +858,13 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
         from tempfile import TemporaryDirectory
         from server_v2 import course_install as ci, main
         downloaded, release, cpu_started = threading.Event(), threading.Event(), threading.Event()
+        topo_submitted, allow_topo = threading.Event(), threading.Event()
         waiting, observed = _observed_waits(self.gate)
-        counts, errors = {}, []
+        counts, contexts, errors = {}, {}, []
 
         def cpu(kind):
             counts[kind] = self.gate.background_count
+            contexts[kind] = self.pw.in_background()
             cpu_started.set()
             return True
 
@@ -894,7 +896,8 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
 
             class TopoPool:
                 def submit_keyed(self, key, fn, *args, **kwargs):
-                    return topo_pool.submit(fn, *args)
+                    topo_submitted.set()
+                    return topo_pool.submit(lambda: (allow_topo.wait(2), fn(*args))[1])
 
             with patch.object(main, "_TOPO_PIPELINE_POOL", TopoPool()):
                 worker = threading.Thread(target=ci._run, args=(state["jobId"],), daemon=True)
@@ -905,6 +908,8 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
                         release.set()
                         self.assertTrue(waiting.wait(1), "install callbacks skipped foreground admission")
                         self.assertFalse(cpu_started.wait(.1), "install CPU callback ran beside package")
+                    self.assertTrue(topo_submitted.wait(1), "install topo was not submitted after admission")
+                    allow_topo.set()
                     worker.join(3)
                 finally:
                     release.set()
@@ -912,6 +917,8 @@ class CpuPhaseAdmissionTests(unittest.TestCase):
                 self.assertFalse(worker.is_alive())
         self.assertEqual(errors, [])
         self.assertEqual(counts, {"topo": 1, "vector": 1}, "each CPU callback must own the single slot")
+        self.assertEqual(contexts, {"topo": True, "vector": True},
+                         "each CPU callback must retain background context")
 
     def test_J42_registration_admits_after_network_before_publishing_leader(self):
         from server_v2 import garmin_raster as api
