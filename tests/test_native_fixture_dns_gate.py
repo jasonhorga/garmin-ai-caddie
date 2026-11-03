@@ -55,8 +55,8 @@ class NativeFixtureDNSGateTests(unittest.TestCase):
                 self.assertEqual(1, len(findings))
                 self.assertEqual("https://caddie.example/p", findings[0][2])
 
-    def test_fixture_scoped_error_without_url_fails_closed(self) -> None:
-        """J4.2: fixture-scoped network errors without a URL remain actionable."""
+    def test_fixture_scoped_error_without_url_is_ignored(self) -> None:
+        """J4.2: fixture-scoped errors without a URL are not DNS findings."""
         task = "Task <AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE>.<7>"
         for code in (-1004, -1006, -1200, -1201, -1202, -1203, -1204, -1205, -1206):
             with self.subTest(code=code):
@@ -65,8 +65,17 @@ class NativeFixtureDNSGateTests(unittest.TestCase):
                     f'Code={code} "fixture request failed" UserInfo={{_NSURLErrorFailingURLSessionTaskErrorKey=Local{task}}}\n'
                 )
                 findings = _GATE.find_unhandled_fixture_dns(log)
-                self.assertEqual(1, len(findings))
-                self.assertEqual("<unknown URL>", findings[0][2])
+                self.assertEqual([], findings)
+
+    def test_transient_tls_handshake_fixture_log_without_url_is_ignored(self) -> None:
+        """J4.2: the real retry fixture's URL-less TLS error is not a DNS leak."""
+        log = """Test Case '-[AICaddieTests.SyncClientTests testFetchRoundDetailRetriesTransientTLSHandshake]' started.
+2026-11-03 06:15:50.371303+0800 AICaddie[4868:13793628] [Default] Task <05187862-EE95-4FE5-B456-1366B74237EB>.<1> finished with error [-1200] Error Domain=NSURLErrorDomain Code=-1200 \"(null)\" UserInfo={_NSURLErrorRelatedURLSessionTaskErrorKey=(
+    \"LocalDataTask <05187862-EE95-4FE5-B456-1366B74237EB>.<1>\"
+), _NSURLErrorFailingURLSessionTaskErrorKey=LocalDataTask <05187862-EE95-4FE5-B456-1366B74237EB>.<1>}
+Test Case '-[AICaddieTests.SyncClientTests testFetchRoundDetailRetriesTransientTLSHandshake]' passed (0.001 seconds).
+"""
+        self.assertEqual([], _GATE.find_unhandled_fixture_dns(log))
 
     def test_fixture_scoped_error_with_continuation_uses_that_url_host(self) -> None:
         """J4.2: a continuation URL decides whether a fixture error is reportable."""
