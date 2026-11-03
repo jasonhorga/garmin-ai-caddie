@@ -1,0 +1,13 @@
+diff --git a/.github/scripts/check_native_fixture_dns.py b/.github/scripts/check_native_fixture_dns.py
+index a3e50647..cf81bc0e 100644
+--- a/.github/scripts/check_native_fixture_dns.py
++++ b/.github/scripts/check_native_fixture_dns.py
+@@ -96,7 +96,7 @@ def _is_shim_route_line(line: str) -> bool:
+         url_match = _URL_RE.search(line)
+         if url_match:
+             if _HOSTNAME_FAILURE_RE.search(line):
+-                return False
++                return True
+             origin_match = re.search(r"origin=\[host=([^\s\]]+)", line)
+             try:
+                 url_host = (urlsplit(url_match.group(1)).hostname or "").lower().rstrip(".")

@@ -17,6 +17,11 @@ _OTHER_LOG = (
     "2026-10-30 16:11:17.084681+0000 AICaddie[11685:37934] "
     "[network] Deferred round finish retained for retry c33-round: blockedByQuarantine\n"
 )
+_TEST_CASE_LOG = "Test Case '-[AICaddieTests.SyncClientTests testFetchRoundDetailRetriesTransientTLSHandshake]' started.\n"
+_ORDINARY_LOG = (
+    "2026-10-30 16:11:17.084681+0000 AICaddie[11685:37934] [Default] "
+    "retry state advanced for c33-round\n"
+)
 
 
 def _real_shim_lines() -> tuple[str, str]:
@@ -241,6 +246,35 @@ Test Case '-[AICaddieTests.SyncClientTests testFetchRoundDetailRetriesTransientT
         self.assertEqual(1, len(findings))
         self.assertEqual("https://leak.example.test/package", findings[0][2])
 
+    def test_route_line_with_foreign_task_does_not_clear_pending_leak(self) -> None:
+        """J4.2: a shim line carrying another task id cannot hide its pending leak."""
+        shim_task = "F40B46E2-E860-4D7B-A598-0796AFA41219"
+        leak_task = "0D1E2F30-4152-6374-8596-A7B8C9D0E1F2"
+        log = (
+            f'Task <{leak_task}>.<7> finished with error [-1003] '
+            'Error Domain=NSURLErrorDomain Code=-1003 '
+            '"A server with the specified hostname could not be found." UserInfo={\n'
+            f'Task <{shim_task}>.<15> finished "route=shared origin=[host=ok.example.test]" '
+            f'[spliced LocalDataTask <{leak_task}>.<7>]\n'
+            f'    "LocalDataTask <{leak_task}>.<7>"\n'
+            '), NSErrorFailingURLStringKey=https://leak.example.test/package}\n'
+        )
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("https://leak.example.test/package", findings[0][2])
+
+    def test_single_line_leak_with_shim_fragment_remains_actionable(self) -> None:
+        """J4.2: a route fragment spliced into one physical leak line is still a leak."""
+        log = (
+            'Error Domain=NSURLErrorDomain Code=-1003 '
+            '"A server with the specified hostname could not be found." '
+            'route=shared origin=[host=ok.example.test] '
+            'UserInfo={NSErrorFailingURLStringKey=https://leak.example.test/package}\n'
+        )
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("https://leak.example.test/package", findings[0][2])
+
     def test_route_like_query_text_does_not_allow_single_line_leak(self) -> None:
         """J4.2: route= in a URL query is not a fixture shim marker."""
         log = (
@@ -252,10 +286,59 @@ Test Case '-[AICaddieTests.SyncClientTests testFetchRoundDetailRetriesTransientT
         self.assertEqual(1, len(findings))
         self.assertEqual("https://leak.example.test/p?route=hole", findings[0][2])
 
+    def test_route_marker_without_origin_does_not_allow_single_line_leak(self) -> None:
+        """J4.2: the shim route marker requires its origin framing."""
+        log = (
+            'Error Domain=NSURLErrorDomain Code=-1003 '
+            '"A server with the specified hostname could not be found." '
+            'route=shared UserInfo={NSErrorFailingURLStringKey=https://leak.example.test/package}\n'
+        )
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("https://leak.example.test/package", findings[0][2])
+
+    def test_gate_diagnostic_does_not_truncate_following_dns_failure(self) -> None:
+        """J4.2: a diagnostic phrase in a transcript cannot hide later log lines."""
+        log = (
+            'J4.2 native fixture DNS gate: prior diagnostic output\n'
+            'Error Domain=NSURLErrorDomain Code=-1003 '
+            '"A server with the specified hostname could not be found." '
+            'UserInfo={NSErrorFailingURLStringKey=https://leak.example.test/package}\n'
+        )
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("https://leak.example.test/package", findings[0][2])
+
+    def test_shim_line_does_not_clear_taskless_pending_dns_error(self) -> None:
+        """J4.2: a shim task cannot authorize an unrelated taskless pending error."""
+        shim_task = "F40B46E2-E860-4D7B-A598-0796AFA41219"
+        log = (
+            'Error Domain=NSURLErrorDomain Code=-1003 '
+            '"A server with the specified hostname could not be found." UserInfo={\n'
+            f'Task <{shim_task}>.<15> finished "route=shared origin=[host=ok.example.test]"\n'
+            '), NSErrorFailingURLStringKey=https://leak.example.test/package}\n'
+        )
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("https://leak.example.test/package", findings[0][2])
+
+    def test_loose_dns_disabled_text_does_not_authorize_error(self) -> None:
+        """J4.2: only the complete fixture offline description authorizes a shim."""
+        leak_task = "0D1E2F30-4152-6374-8596-A7B8C9D0E1F2"
+        log = (
+            f'Task <{leak_task}>.<7> finished with error [-1003] '
+            'Error Domain=NSURLErrorDomain Code=-1003 "DNS disabled" route=shared UserInfo={\n'
+            '), NSErrorFailingURLStringKey=https://leak.example.test/package}\n'
+        )
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("https://leak.example.test/package", findings[0][2])
+
     def test_real_shim_line_survives_every_other_log_splice_position(self) -> None:
-        """J4.2: every cut in the observed shim line remains a clean fixture error."""
+        """J4.2: every cut with an unrelated log line remains a clean fixture error."""
         first, tail = _real_shim_lines()
-        for split_at in range(1, len(first)):
-            with self.subTest(split_at=split_at):
-                log = first[:split_at] + _OTHER_LOG + first[split_at:] + tail
-                self.assertEqual([], _GATE.find_unhandled_fixture_dns(log))
+        for inserted in (_OTHER_LOG, _TEST_CASE_LOG, _ORDINARY_LOG):
+            for split_at in range(1, len(first)):
+                with self.subTest(inserted=inserted[:30], split_at=split_at):
+                    log = first[:split_at] + inserted + first[split_at:] + tail
+                    self.assertEqual([], _GATE.find_unhandled_fixture_dns(log))

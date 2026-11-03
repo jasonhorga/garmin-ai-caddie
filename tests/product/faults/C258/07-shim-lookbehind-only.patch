@@ -1,0 +1,13 @@
+diff --git a/.github/scripts/check_native_fixture_dns.py b/.github/scripts/check_native_fixture_dns.py
+index 99343abf..683781fd 100644
+--- a/.github/scripts/check_native_fixture_dns.py
++++ b/.github/scripts/check_native_fixture_dns.py
+@@ -36,7 +36,7 @@ _HOSTNAME_FAILURE_RE = re.compile(r"hostname could not be found", re.IGNORECASE)
+ # continuations may contain only that embedded form, so they need the wider
+ # matcher when closing a pending error from the same request.
+ _TASK_RE = re.compile(r"(?<![A-Za-z])Task <([0-9A-Fa-f-]{36})>\.<(\d+)>")
+-_SHIM_TASK_RE = re.compile(r"(?<![A-Za-z])(?:LocalData)?Task <([0-9A-Fa-f-]{36})>\.<(\d+)>")
++_SHIM_TASK_RE = re.compile(r"(?<![A-Za-z])Task <([0-9A-Fa-f-]{36})>\.<(\d+)>")
+ _ROUTE_MARKER_RE = re.compile(r"(?<![?\w])route=(?:shared|explicit)(?![\w-])|CaddieTestRoute=")
+ 
+ 

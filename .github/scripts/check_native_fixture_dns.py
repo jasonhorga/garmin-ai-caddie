@@ -31,7 +31,12 @@ _NETWORK_ERROR_CODES = frozenset({
     -1200, -1201, -1202, -1203, -1204, -1205, -1206,
 })
 _HOSTNAME_FAILURE_RE = re.compile(r"hostname could not be found", re.IGNORECASE)
-_TASK_RE = re.compile(r"Task <([0-9A-Fa-f-]{36})>\.<(\d+)>")
+# External CFNetwork records use the strict form so an embedded
+# ``LocalDataTask`` cannot be counted as a second, foreign task.  Shim
+# continuations may contain only that embedded form, so they need the wider
+# matcher when closing a pending error from the same request.
+_TASK_RE = re.compile(r"(?<![A-Za-z])Task <([0-9A-Fa-f-]{36})>\.<(\d+)>")
+_SHIM_TASK_RE = re.compile(r"(?<![A-Za-z])(?:LocalData)?Task <([0-9A-Fa-f-]{36})>\.<(\d+)>")
 _ROUTE_MARKER_RE = re.compile(r"(?<![?\w])route=(?:shared|explicit)(?![\w-])|CaddieTestRoute=")
 
 
@@ -76,24 +81,45 @@ def _is_app_network_summary(line: str) -> bool:
 def _is_shim_route_line(line: str) -> bool:
     """Return whether this line is the shim's own marked error message.
 
-    The shim prints its route marker together with ``origin=[...]`` plus the
-    stable offline description and ``CaddieTestOrigin=`` user-info field. The
-    latter two markers also survive a line splice, so use them to recognize the
-    same shim message when the route/origin text is split across lines.
+    The shim prints its route marker together with ``origin=[...]`` and the
+    stable offline description. The description survives a line splice, so use
+    it to recognize the same shim message when the route/origin text is split
+    across lines.
     """
 
     if _is_app_network_summary(line):
         return True
-    if "fixture intentionally offline; DNS disabled" in line or "CaddieTestOrigin=" in line:
+    if "fixture intentionally offline; DNS disabled" in line and _URL_RE.search(line) is None:
         return True
     if not _ROUTE_MARKER_RE.search(line):
         return False
+    # Keep LocalDataTask out of the foreign-task count.  A route line with an
+    # external Task and an embedded LocalDataTask must remain actionable.
+    task_ids = {m.groups() for m in _TASK_RE.finditer(line)}
     if "origin=[" in line:
-        return True
+        # A route fragment spliced into a real one-line error must remain
+        # actionable. A route line carrying a second task id is likewise an
+        # interleaving seam, not proof that the pending error belongs to it.
+        url_match = _URL_RE.search(line)
+        if url_match:
+            if _HOSTNAME_FAILURE_RE.search(line):
+                return False
+            origin_match = re.search(r"origin=\[host=([^\s\]]+)", line)
+            try:
+                url_host = (urlsplit(url_match.group(1)).hostname or "").lower().rstrip(".")
+            except ValueError:
+                return False
+            if not origin_match or url_host != origin_match.group(1).lower().rstrip("."):
+                return False
+        return len(task_ids) <= 1
     # A split shim continuation can carry only the marker and its Task/UserInfo
     # fields. It is safe when it has no DNS error or URL of its own; a marker
     # spliced into a real CFNetwork error remains actionable.
-    return not _has_actionable_network_error(line) and _URL_RE.search(line) is None
+    return (
+        not _has_actionable_network_error(line)
+        and _URL_RE.search(line) is None
+        and len(task_ids) <= 1
+    )
 
 
 def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]:
@@ -108,13 +134,6 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
     seen_urls: set[str] = set()
     pending_without_url: list[tuple[int, str, set[tuple[str, str]], bool]] = []
     lines = log_text.splitlines()
-    # Review evidence may be a complete Actions transcript, which appends the
-    # gate's own diagnostic output after the xcodebuild stream. Do not scan that
-    # diagnostic a second time as if it were app output.
-    for index, line in enumerate(lines):
-        if "J4.2 native fixture DNS gate:" in line and "echo " not in line:
-            lines = lines[:index]
-            break
     for line_number, line in enumerate(lines, start=1):
         if _is_app_network_summary(line):
             # A summary is not a shim authorization and must not clear a
@@ -125,10 +144,15 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
             # A route marker belongs only to this line. Its Task id may close
             # an earlier marker-only error from the same interleaved shim event,
             # but it never authorizes later lines carrying that id.
+            shim_task_ids = {m.groups() for m in _SHIM_TASK_RE.finditer(line)}
             pending_without_url = [
                 pending
                 for pending in pending_without_url
-                if not (pending[2] and pending[2] & task_ids)
+                if not (
+                    pending[2]
+                    and pending[2] & shim_task_ids
+                    and (not task_ids or task_ids <= pending[2])
+                )
             ]
             continue
         match = _URL_RE.search(line)

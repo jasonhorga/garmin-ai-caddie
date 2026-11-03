@@ -1,10 +1,10 @@
 diff --git a/.github/scripts/check_native_fixture_dns.py b/.github/scripts/check_native_fixture_dns.py
-index 5860b8e3..81e8dc6c 100644
+index a3e50647..163e9e73 100644
 --- a/.github/scripts/check_native_fixture_dns.py
 +++ b/.github/scripts/check_native_fixture_dns.py
-@@ -129,10 +129,6 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
-             lines = lines[:index]
-             break
+@@ -128,10 +128,6 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
+     pending_without_url: list[tuple[int, str, set[tuple[str, str]], bool]] = []
+     lines = log_text.splitlines()
      for line_number, line in enumerate(lines, start=1):
 -        if _is_app_network_summary(line):
 -            # A summary is not a shim authorization and must not clear a
