@@ -1,10 +1,10 @@
 diff --git a/.github/scripts/check_native_fixture_dns.py b/.github/scripts/check_native_fixture_dns.py
-index a3e50647..eaee4695 100644
+index 99343abf..783bdff0 100644
 --- a/.github/scripts/check_native_fixture_dns.py
 +++ b/.github/scripts/check_native_fixture_dns.py
-@@ -89,7 +89,9 @@ def _is_shim_route_line(line: str) -> bool:
-     if not _ROUTE_MARKER_RE.search(line):
-         return False
+@@ -96,7 +96,9 @@ def _is_shim_route_line(line: str) -> bool:
+     # Keep LocalDataTask out of the foreign-task count.  A route line with an
+     # external Task and an embedded LocalDataTask must remain actionable.
      task_ids = {m.groups() for m in _TASK_RE.finditer(line)}
 -    if "origin=[" in line:
 +    if "origin=[" in line or "route=shared" in line:
