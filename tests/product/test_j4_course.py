@@ -27,6 +27,7 @@ from ai_caddie.reports.reports import store_report
 from ai_caddie.rounds import round_corrections
 from tests.test_history_stats_perf import synthetic_history
 from tests.product._support_c16c import HTTPFixture, vectors
+from ai_caddie.core.request_timing import RequestTiming, bind
 
 
 def mesh(points, faces):
@@ -1333,3 +1334,14 @@ class StatsAuxOverlayProductTests(unittest.TestCase):
             (correction_dir / "r0000.jsonl").write_text("{}\n")
             stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
         self.assertEqual(calls["n"], 5)
+
+    def test_J42_server_timing_reports_aux_hit_after_weather_write(self):
+        """J4.2: the warm start path exposes stats_aux and omits stats_build."""
+        stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+        store_weather_snapshot(self._weather(), root=self.tmp)
+        timing = RequestTiming("c86-test")
+        with bind(timing):
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+        header = timing.server_timing()
+        self.assertIn("stats_aux;dur=", header)
+        self.assertNotIn("stats_build;dur=", header)
