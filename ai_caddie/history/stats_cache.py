@@ -101,8 +101,8 @@ _inflight: dict[tuple, threading.Event] = {}
 # back-nine cards of one 18-hole venue keep their own loop key instead of folding into the front;
 # v6: all differential consumers reject nine-hole ratings on 18-hole rows).
 _PERSISTENT_CACHE_SCHEMA = "ai-caddie-history-stats-cache-v6"
-_PERSISTENT_CACHE_SCHEMA = _PERSISTENT_CACHE_SCHEMA + "-aux-overlay-v1"
 _PERSISTENT_CACHE_MAX_BYTES = 64 * 1024 * 1024
+_PERSISTENT_CACHE_SCHEMA = _PERSISTENT_CACHE_SCHEMA + "-aux-overlay-v1"
 # A stats projection can be tens of megabytes on a real history.  Never make the first package
 # caller serialize and write that projection synchronously: the request only needs the in-memory
 # value, while this bounded/coalescing writer makes it available to the next process restart.
@@ -748,6 +748,9 @@ def cached_history_stats_snapshot(
         key = (player_id, data_mode, ".", ".", ".", ".", window)
         with _lock:
             hit = _cache.get(key)
+            aux_hit = _aux_cache.get(key)
+            if aux_hit is not None and aux_hit[2] is not None:
+                hit = (hit[0] if hit is not None else aux_hit[0], aux_hit[2])
         if hit is not None and isinstance(hit[1], dict):
             stored_revision = _cache_source_revisions.get(key)
             current_revision = history_source_revision(player_id)
