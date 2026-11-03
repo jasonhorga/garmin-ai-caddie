@@ -621,7 +621,7 @@ public final class SyncClient {
 
     func endRoundStart(_ owner: UUID) {
         let ended = packageWorkLock.withLock { () -> (ended: Bool, foreground: [Task<Data, Error>]) in
-            guard roundStartOwner == owner { return (false, []) }
+            guard roundStartOwner == owner else { return (false, []) }
             roundStartOwner = nil
             let foreground = packageWork.values.compactMap { entry in
                 entry.kind == .foregroundStart ? entry.task : nil
