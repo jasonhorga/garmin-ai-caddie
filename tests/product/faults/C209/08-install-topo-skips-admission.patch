@@ -1,12 +1,17 @@
 diff --git a/server_v2/main.py b/server_v2/main.py
-index db3cf3ce..5ea54ecc 100644
+index 70750d5e..4080fb4a 100644
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -3082,7 +3082,7 @@ def run_course_install_job(identifier: str) -> None:
- 
-     def render_install_topo(gid: int, hole: int, expected_revision: str | None = None):
+@@ -3097,12 +3097,7 @@ def run_course_install_job(identifier: str) -> None:
+     def render_install_topo(gid: int, hole: int, expected_revision: str | None = None,
+                             admission_lease=None):
          # Pool workers do not inherit ContextVars from the coordinator.
--        lane = background_work(unit_type="install-topo") if background_install else contextlib.nullcontext()
+-        lane = (
+-            admission_lease.activate()
+-            if admission_lease is not None
+-            else (background_work(unit_type="install-topo") if background_install
+-                  else contextlib.nullcontext())
+-        )
 +        lane = contextlib.nullcontext()
          with lane:
              return _render_course_topo_one(gid, hole, expected_revision)

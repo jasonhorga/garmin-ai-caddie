@@ -28,6 +28,20 @@
       "kind": "python",
       "target": "tests.product.test_c294.IoAdmissionTests.test_J42_io_context_does_not_leak_across_reused_worker_threads",
       "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C294-N2-install-topo-second-waiter",
+      "patch": "tests/product/faults/C294/N2-install-topo-second-waiter.patch",
+      "kind": "python",
+      "target": "tests.product.test_c294.TopoAdmissionTests.test_J42_install_topo_keeps_admission_for_worker_with_second_waiter",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C294-N3-install-vector-seed-admission",
+      "patch": "tests/product/faults/C294/N3-install-vector-seed-admission.patch",
+      "kind": "python",
+      "target": "tests.product.test_c294.TopoAdmissionTests.test_J42_install_vector_seed_does_not_retain_topo_worker",
+      "promise": "4.2"
     }
   ]
 }
