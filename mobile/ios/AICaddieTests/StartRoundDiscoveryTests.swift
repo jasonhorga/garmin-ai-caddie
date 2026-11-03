@@ -78,7 +78,9 @@ final class StartRoundDiscoveryTests: XCTestCase {
         window.rootViewController = host
         window.makeKeyAndVisible()
         defer { window.isHidden = true }
+        host.view.frame = window.bounds
         host.view.layoutIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         func find(_ view: UIView) -> UIAccessibilityElement? {
             if let element = (view.accessibilityElements as? [UIAccessibilityElement])?.first(where: {
                 $0.accessibilityIdentifier == "start-round-cancel"
@@ -111,7 +113,9 @@ final class StartRoundDiscoveryTests: XCTestCase {
         window.rootViewController = host
         window.makeKeyAndVisible()
         defer { window.isHidden = true }
+        host.view.frame = window.bounds
         host.view.layoutIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         func find(_ view: UIView) -> UIAccessibilityElement? {
             if let element = (view.accessibilityElements as? [UIAccessibilityElement])?.first(where: {
                 $0.accessibilityIdentifier == "start-round-back-to-courses"
