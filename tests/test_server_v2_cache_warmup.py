@@ -243,7 +243,7 @@ class AppStartupTests(ServiceLoggingIsolationMixin, unittest.TestCase):
             boot.assert_called_once_with()
 
     def test_background_entry_starts_all_four_workers(self) -> None:
-        """G2: boot schedules retention before the other background workers."""
+        """G2: boot schedules retention and the other background workers."""
         from server_v2 import main
 
         resume, prepare, monitor = Mock(), Mock(), Mock()

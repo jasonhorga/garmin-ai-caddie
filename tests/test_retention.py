@@ -151,6 +151,88 @@ class PrivateVolumeRetentionTests(unittest.TestCase):
             self.assertTrue(snapshot_victim.exists())
             self.assertTrue(snapshot_link.is_symlink())
 
+    def test_G2_snapshot_ids_with_suffixes_do_not_take_retention_slots(self) -> None:
+        """G2: standard IDs with suffixes stay untouched and never evict valid pairs (A9)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            standard = (
+                "20261001T000000Z", "20261002T000000Z", "20261003T000000Z",
+                "20261004T000000Z", "20261005T000000Z",
+            )
+            for stamp in standard:
+                self._make_snapshot(root, stamp)
+            suffixed = (
+                "20261009T000000Z_manual", "20261009T000000Z.bak", "20261009T000000Zx",
+            )
+            for stamp in suffixed:
+                self._make_snapshot(root, stamp)
+
+            cleanup_private_volume(root=root)
+
+            snapshots = root / "data" / "snapshots"
+            # Latest three of the five standard pairs, regardless of newer suffixed names.
+            for suffix in ("", ".json"):
+                with self.subTest(suffix=suffix):
+                    self.assertEqual(
+                        [stamp for stamp in standard if (snapshots / f"garmin_cn_{stamp}{suffix}").exists()],
+                        ["20261003T000000Z", "20261004T000000Z", "20261005T000000Z"],
+                        "suffixed snapshot IDs must not consume the three standard-pair slots",
+                    )
+            for stamp in suffixed:
+                self.assertTrue((snapshots / f"garmin_cn_{stamp}").is_dir())
+                self.assertEqual((snapshots / f"garmin_cn_{stamp}.json").read_text(),
+                                 '{"createdAt":"2026-10-01T00:00:00Z"}')
+
+    def test_G2_regular_file_snapshot_pair_does_not_take_a_retention_slot(self) -> None:
+        """G2: a standard-named file plus manifest is not a snapshot directory pair (A9)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            standard = (
+                "20261001T000000Z", "20261002T000000Z",
+                "20261003T000000Z", "20261004T000000Z",
+            )
+            for stamp in standard:
+                self._make_snapshot(root, stamp)
+            snapshots = root / "data" / "snapshots"
+            impostor = snapshots / "garmin_cn_20261010T000000Z"
+            impostor.write_text("ordinary file")
+            manifest = snapshots / "garmin_cn_20261010T000000Z.json"
+            manifest.write_text("{}")
+
+            cleanup_private_volume(root=root)
+
+            # Latest three real pairs; the newer ordinary file cannot displace October 2.
+            for suffix in ("", ".json"):
+                with self.subTest(suffix=suffix):
+                    self.assertEqual(
+                        [stamp for stamp in standard if (snapshots / f"garmin_cn_{stamp}{suffix}").exists()],
+                        ["20261002T000000Z", "20261003T000000Z", "20261004T000000Z"],
+                        "ordinary files must not consume a snapshot retention slot",
+                    )
+            self.assertEqual(impostor.read_text(), "ordinary file")
+            self.assertEqual(manifest.read_text(), "{}")
+
+    def test_G2_supported_topo_versions_preserve_empty_directories(self) -> None:
+        """G2: supported versions preserve empty roots and detail trees (A2/A3)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache = root / "output" / "topo_render_cache"
+            directories = (
+                "topo-v12/green-detail", "topo-v11", "topo-v12/topo-v3/empty",
+            )
+            for relative in directories:
+                (cache / relative).mkdir(parents=True)
+            supported_file = cache / "topo-v12" / "gid1_h01_topo-v12-a.png"
+            supported_file.write_bytes(b"keep")
+
+            cleanup_private_volume(root=root)
+
+            for relative in directories:
+                with self.subTest(directory=relative):
+                    self.assertTrue((cache / relative).is_dir(),
+                                    f"supported cache directory must remain: {relative}")
+            self.assertEqual(supported_file.read_bytes(), b"keep")
+
     def test_G2_snapshot_ranking_requires_complete_standard_timestamp_pairs(self) -> None:
         """G2: only complete standard timestamp pairs rank; unknown times stay untouched."""
         with tempfile.TemporaryDirectory() as tmp:
