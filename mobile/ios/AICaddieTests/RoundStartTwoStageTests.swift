@@ -688,6 +688,123 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertEqual(model.package?.clubProfiles, [], "the personal package was never merged")
     }
 
+    /// J4.2 / C365-A1: cancelling a foreground start must drop a package that answers after the
+    /// cancel tap. The held URLProtocol deliberately still replies after URLSession cancellation so
+    /// this catches a missing preparation-generation invalidation, rather than only transport stop.
+    func testC365CancelDropsLateCoursePackageAndDoesNotNavigate() async throws {
+        let host = "c365-cancel.example.test"
+        let roundId = "c365-cancel"
+        let map = try package(roundId: roundId, mapOnly: true)
+        let data = try JSONEncoder().encode(map)
+        let held = C85HeldRequests()
+        let sent = expectation(description: "foreground package held")
+        let requests = C85RequestLog()
+        let once = C33FirstMatch()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            requests.append(proto.request)
+            held.hold(proto)
+            if once.claim() { sent.fulfill() }
+        })
+        let fixture = makeModel(host: host, held: held, roundStartTimeoutInterval: 2)
+        let model = fixture.model
+        model.startCourseRound(
+            roundId: roundId, teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: c85CourseId, half: "all")]
+        )
+        let start = try XCTUnwrap(model.activeRoundStartTaskForTesting)
+        await fulfillment(of: [sent], timeout: eventWait)
+
+        model.cancelRoundStart()
+        held.releaseAll(200, data)
+        await start.value
+
+        XCTAssertNil(model.pendingLiveHole, "a late package must not publish a hole after cancel")
+        XCTAssertNil(model.liveRoundState, "cancelled start must not activate a round")
+        XCTAssertFalse(model.isPreparingRound)
+        XCTAssertEqual(requests.all.count, 1, "cancel must not issue a replacement start request")
+    }
+
+    /// J4.2 / C365-A2: returning from setup to the course list uses the same cancellation boundary as
+    /// the explicit button. This model call is the callback wired by StartRoundView's 返回 action.
+    func testC365ReturningToCourseListDropsLateCoursePackage() async throws {
+        let host = "c365-return.example.test"
+        let roundId = "c365-return"
+        let map = try package(roundId: roundId, mapOnly: true)
+        let data = try JSONEncoder().encode(map)
+        let held = C85HeldRequests()
+        let sent = expectation(description: "foreground package held")
+        let once = C33FirstMatch()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            held.hold(proto)
+            if once.claim() { sent.fulfill() }
+        })
+        let fixture = makeModel(host: host, held: held, roundStartTimeoutInterval: 2)
+        let model = fixture.model
+        model.startCourseRound(
+            roundId: roundId, teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: c85CourseId, half: "all")]
+        )
+        let start = try XCTUnwrap(model.activeRoundStartTaskForTesting)
+        await fulfillment(of: [sent], timeout: eventWait)
+
+        // StartRoundView invokes this callback before changing page to .course.
+        model.cancelRoundStart()
+        held.releaseAll(200, data)
+        await start.value
+
+        XCTAssertNil(model.pendingLiveHole)
+        XCTAssertNil(model.liveRoundState)
+        XCTAssertFalse(model.isPreparingRound)
+    }
+
+    /// J4.2 / C365-A3: a timed-out package with only an incomplete template stays on Start and offers
+    /// an explicit simplified entry. It may enter only after that affordance is chosen.
+    func testC365IncompleteTemplateDoesNotSilentlyEnterAndSimplifiedStartIsExplicit() async throws {
+        let host = "c365-incomplete.example.test"
+        let roundId = "c365-incomplete"
+        let incomplete = try package(roundId: roundId, mapOnly: true)
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            // The short injected foreground timeout ends this request; no package response is
+            // delivered before the fallback decision.
+        })
+        let fixture = makeModel(host: host, roundStartTimeoutInterval: 0.05)
+        try fixture.store.saveCourseTemplate(incomplete)
+        let model = fixture.model
+        await model.prepareCourseRound(
+            roundId: roundId, teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: c85CourseId, half: "all")]
+        )
+
+        XCTAssertNil(model.pendingLiveHole, "an incomplete template cannot silently open hole 1")
+        XCTAssertTrue(model.canStartSimplifiedRound)
+        await model.startSimplifiedRound()
+        XCTAssertEqual(model.pendingLiveHole, 1, "the explicit simplified action may enter the hole")
+    }
+
+    /// J4.2 / C365-A4: an already cached complete round keeps the existing offline start behavior.
+    func testC365CompleteCachedRoundStillEntersAfterPackageTimeout() async throws {
+        let host = "c365-complete-cache.example.test"
+        let roundId = "c365-complete-cache"
+        let cached = try package(roundId: roundId, mapOnly: false)
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            // The package timeout drives the cached fallback.
+        })
+        let fixture = makeModel(host: host, roundStartTimeoutInterval: 0.05)
+        try fixture.store.saveRoundPackage(cached)
+        let model = fixture.model
+        await model.prepareCourseRound(
+            roundId: roundId, teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: c85CourseId, half: "all")]
+        )
+
+        XCTAssertEqual(model.pendingLiveHole, 1, "a complete cached package remains offline usable")
+        XCTAssertFalse(model.canStartSimplifiedRound)
+    }
+
     /// J5.2/J4.2: a quarantine-blocked Save & End keeps the live round's background ownership.
     func testQuarantineBlockedFinishKeepsRoundBackgroundWorkAlive() async throws {
         let (fixture, package, _) = try await startRoundWithHeldBackgroundWork(
@@ -1108,7 +1225,8 @@ final class RoundStartTwoStageTests: XCTestCase {
     private func makeModel(
         host: String,
         held: C85HeldRequests? = nil,
-        roundStartIntentWaitNanoseconds: UInt64 = LiveRoundAppModel.defaultRoundStartIntentWaitNanoseconds
+        roundStartIntentWaitNanoseconds: UInt64 = LiveRoundAppModel.defaultRoundStartIntentWaitNanoseconds,
+        roundStartTimeoutInterval: TimeInterval = 30
     ) -> ModelFixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("c85-\(UUID().uuidString)", isDirectory: true)
@@ -1120,7 +1238,8 @@ final class RoundStartTwoStageTests: XCTestCase {
         let client = SyncClient(
             baseURL: URL(string: "https://\(host)")!,
             session: session,
-            retrySleep: { _ in }
+            retrySleep: { _ in },
+            roundStartTimeoutInterval: roundStartTimeoutInterval
         )
         let model = c33Model(
             store,

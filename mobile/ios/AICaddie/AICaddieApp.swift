@@ -464,6 +464,8 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var roundStartProgressMessage: String?
     @Published public private(set) var roundStartSelection: RoundStartSelection?
     @Published public private(set) var isPreparingRound = false
+    /// C365: an incomplete local template is available only as an explicit simplified start.
+    @Published public private(set) var canStartSimplifiedRound = false
     @Published public private(set) var isFinishingRound = false
     @Published public private(set) var finishErrorMessage: String?
     /// True until the first bootstrap() resolves, so the root shows a loading state instead of
@@ -681,6 +683,26 @@ public final class LiveRoundAppModel: ObservableObject {
         roundStartSelection = nil
         if hadRoundStartState { syncStatus = "请选择球场后开始" }
     }
+
+    /// C365 test/production entry point. The view owns no detached preparation task: the model
+    /// keeps the handle so the explicit cancel action can stop the whole start operation.
+    public func startCourseRound(roundId: String, teeBox: String, loops: [RoundLoopEntry]) {
+        activeRoundStartTask?.cancel()
+        activeRoundStartTask = Task { @MainActor [weak self] in
+            await self?.prepareCourseRound(roundId: roundId, teeBox: teeBox, loops: loops)
+        }
+    }
+
+    /// C365 cancellation hook. The first implementation intentionally only stops the task; the
+    /// token invalidation is added with the product fix after the red behavior tests land.
+    public func cancelRoundStart() {
+        activeRoundStartTask?.cancel()
+        activeRoundStartTask = nil
+    }
+
+    /// C365 explicit escape hatch for an incomplete local template. Product implementation follows
+    /// the same persisted selection and first-hole entry path as a normal offline start.
+    public func startSimplifiedRound() async {}
 
     /// Tee authority can answer while the foreground start is still in flight. Keep that request's
     /// progress/failure evidence until it has finished; the setup view also gates the callback.
