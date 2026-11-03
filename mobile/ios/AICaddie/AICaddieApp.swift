@@ -709,8 +709,12 @@ public final class LiveRoundAppModel: ObservableObject {
     /// publish a package, then cancel the model-owned task and the URLSession work for that token.
     public func cancelRoundStart() {
         let token = roundPreparationToken
+        let intentKey = foregroundRoundStartIntentKey
         activeRoundStartTask?.cancel()
         activeRoundStartTask = nil
+        if let intentKey {
+            intentPrefetchTasks[intentKey]?.cancel()
+        }
         if let token { finishRoundPreparation(token) }
         else {
             isPreparingRound = false
