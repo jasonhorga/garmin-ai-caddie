@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C347-stable-budget-back-to-five",
+      "patch": "tests/product/faults/C347/01-stable-budget-back-to-five.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/RealFlowUITests/testC30PrepReworkJourney",
+      "promise": "Hosted UI tests wait at least 12 seconds for stable hit testing",
+      "kills": "Restoring the helper's five-second budget can exhaust both accessibility evaluations; the test's XCTAssertTrue tapWhenHittable assertion for realflow-course-search-submit at RealFlowUITests.swift:232 fails."
+    }
+  ]
+}

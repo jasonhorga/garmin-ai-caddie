@@ -228,12 +228,12 @@ final class RealFlowUITests: XCTestCase {
             )
         )
         let search = app.buttons["course-catalog-search-action"]
-        XCTAssertTrue(waitUntilEnabled(search, timeout: 5))
+        XCTAssertTrue(waitUntilEnabled(search, timeout: 15))
         XCTAssertTrue(
             UITapHelpers.tapWhenHittable(
                 search,
                 app: app,
-                timeout: 5,
+                timeout: 15,
                 diagnosticName: "realflow-course-search-submit"
             )
         )
@@ -646,7 +646,7 @@ final class RealFlowUITests: XCTestCase {
             )
         )
         let prepSearch = app.buttons["course-catalog-search-action"]
-        XCTAssertTrue(waitUntilEnabled(prepSearch, timeout: 5))
+        XCTAssertTrue(waitUntilEnabled(prepSearch, timeout: 15))
         XCTAssertTrue(
             UITapHelpers.tapWhenHittable(
                 prepSearch,
@@ -1420,12 +1420,12 @@ final class RealFlowUITests: XCTestCase {
             )
         )
         let manualSearch = app.buttons["course-catalog-search-action"]
-        XCTAssertTrue(waitUntilEnabled(manualSearch, timeout: 5))
+        XCTAssertTrue(waitUntilEnabled(manualSearch, timeout: 15))
         XCTAssertTrue(
             UITapHelpers.tapWhenHittable(
                 manualSearch,
                 app: app,
-                timeout: 5,
+                timeout: 15,
                 diagnosticName: "realflow-evidence-search-submit"
             )
         )

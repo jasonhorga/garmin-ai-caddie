@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddieUITests/UITapHelpers.swift b/mobile/ios/AICaddieUITests/UITapHelpers.swift
+index 2860fa43..ede1d180 100644
+--- a/mobile/ios/AICaddieUITests/UITapHelpers.swift
++++ b/mobile/ios/AICaddieUITests/UITapHelpers.swift
+@@ -179,7 +179,7 @@ enum UITapHelpers {
+         var previousFrame: CGRect?
+         // A stable hit point requires two complete accessibility evaluations. Hosted runners can
+         // spend several seconds on one evaluation, so preserve enough budget for both rounds.
+-        let stabilityBudget = max(timeout, 12)
++        let stabilityBudget = timeout
+         return waitForCondition({
+             guard isTapGeometryReady(element, in: app), element.isEnabled,
+                   !isCoveredBySheet(element, in: app) else {

@@ -177,6 +177,9 @@ enum UITapHelpers {
         timeout: TimeInterval
     ) -> Bool {
         var previousFrame: CGRect?
+        // A stable hit point requires two complete accessibility evaluations. Hosted runners can
+        // spend several seconds on one evaluation, so preserve enough budget for both rounds.
+        let stabilityBudget = max(timeout, 12)
         return waitForCondition({
             guard isTapGeometryReady(element, in: app), element.isEnabled,
                   !isCoveredBySheet(element, in: app) else {
@@ -200,7 +203,7 @@ enum UITapHelpers {
             // Only ask XCTest for a hit point after the geometry and presentation have settled.
             // A stable underlying button alone is insufficient while a sheet is still moving.
             return stable && isSafelyHittable(element, in: app)
-        }, timeout: timeout)
+        }, timeout: stabilityBudget)
     }
 
     private static func waitForCondition(_ condition: @escaping () -> Bool, timeout: TimeInterval) -> Bool {

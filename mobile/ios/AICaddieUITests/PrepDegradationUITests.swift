@@ -124,7 +124,7 @@ final class PrepDegradationUITests: XCTestCase {
         )
         let search = app.buttons["course-catalog-search-action"]
         assertAndCapture(
-            waitUntilEnabled(search, timeout: 5),
+            waitUntilEnabled(search, timeout: 15),
             "a valid keyword must enable catalogue search",
             "b4c-search-button-not-ready"
         )
