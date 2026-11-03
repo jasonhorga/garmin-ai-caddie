@@ -52,9 +52,13 @@ struct LiveGreenEntryButton: UIViewRepresentable {
         control.hitPath = hitPath.cgPath
         // Nested reports include both a padded chrome group and its real control. Only the
         // innermost frame blocks touch; counting the padded group would hide exposed map space.
-        control.activationExclusions = exclusions.filter { rect in
+        let filteredExclusions = exclusions.filter { rect in
             !exclusions.contains { other in other != rect && rect.contains(other) }
         }
+        // Preference updates can arrive while the representable is being laid out. Rewriting
+        // the UIKit exclusion array for an equal value invalidates the hosted view and feeds
+        // the preference/layout cycle that keeps XCTest from observing an idle app.
+        control.setActivationExclusions(filteredExclusions)
         context.coordinator.action = action
     }
 
@@ -102,7 +106,14 @@ struct LiveGreenEntryButton: UIViewRepresentable {
 
     final class Control: UIButton {
         var hitPath: CGPath?
-        var activationExclusions: [CGRect] = []
+        private(set) var activationExclusions: [CGRect] = []
+        private(set) var activationExclusionWriteCount = 0
+
+        func setActivationExclusions(_ exclusions: [CGRect]) {
+            guard activationExclusions != exclusions else { return }
+            activationExclusions = exclusions
+            activationExclusionWriteCount += 1
+        }
 
         override var accessibilityFrame: CGRect {
             get {

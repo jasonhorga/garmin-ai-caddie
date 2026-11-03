@@ -52,7 +52,7 @@ final class ProductGreenEntryTests: XCTestCase {
         XCTAssertEqual(button.alpha, 1)
         let centre = button.convert(CGPoint(x: 38, y: 38), to: nil)
         let coveringChrome = CGRect(x: centre.x - 10, y: centre.y - 10, width: 20, height: 20)
-        button.activationExclusions = [coveringChrome]
+        button.setActivationExclusions([coveringChrome])
         let activation = button.accessibilityActivationPoint
         XCTAssertFalse(coveringChrome.contains(activation), "the accessible tap avoids floating chrome")
         XCTAssertTrue(button.point(inside: button.convert(activation, from: nil), with: nil), "the accessible tap remains inside the green")
@@ -63,5 +63,22 @@ final class ProductGreenEntryTests: XCTestCase {
         button.isEnabled = false
         XCTAssertFalse(button.accessibilityActivate())
         XCTAssertEqual(opened, 2, "disabled controls cannot activate")
+    }
+
+    /// J5.4: equal chrome frames must not keep invalidating the hosted green entry while the
+    /// hole screen is returning from the green detail surface.
+    func testJ5_4GreenEntrySkipsEqualChromeExclusionUpdates() {
+        let control = LiveGreenEntryButton.Control(frame: CGRect(x: 0, y: 0, width: 80, height: 80))
+        let exclusions = [CGRect(x: 12, y: 18, width: 24, height: 20)]
+
+        control.setActivationExclusions(exclusions)
+        control.setActivationExclusions(exclusions)
+
+        XCTAssertEqual(
+            control.activationExclusionWriteCount,
+            1,
+            "J5.4 returning to the hole screen must not rewrite equal chrome exclusions"
+        )
+        XCTAssertEqual(control.activationExclusions, exclusions)
     }
 }
