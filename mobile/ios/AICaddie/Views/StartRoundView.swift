@@ -6,6 +6,20 @@ struct CourseDownloadAction: Equatable {
     let retrying: Bool
 }
 
+public enum CourseTeeLoadFailure: Equatable {
+    case timedOut
+    case unavailable
+
+    public var presentationMessage: String {
+        switch self {
+        case .timedOut:
+            return "服务器较慢，发球台没拿到；可先用球场默认 T 开始"
+        case .unavailable:
+            return "网络不可用，发球台没拿到；可先用球场默认 T 开始"
+        }
+    }
+}
+
 /// 开始一场(README §8, `pre-round.html` 第 2 屏)— 一个球场列表(附近在前带距离，其后是搜索、
 /// 最近、已下载，不分区；附近还在查时顶上只有一行“正在找附近球场…”；洞数写明覆盖范围：附近/搜索是整场，最近/已下载写“已下载 18 洞”或“最近打过 9 洞”)；只选第一个 9 洞环(A / B / C 大块)；发球台是颜色圆点 +
 /// 这个环的码数；普通球场按钮统一写「开始」，第一杆决定从哪洞进入。第二个环在打完第一个环时选(NineLoopPlan)。
@@ -54,6 +68,7 @@ public struct StartRoundView: View {
     /// 拉取所选球场的可选发球台(GET /courses/{id}/tees:颜色 + 总码数 + 默认台)。
     /// 离线/出错返回 []：已安装球场可保留包内 Tee；全库新球场必须重试真实 Tee authority。
     public let onLoadCourseTees: (Int) async -> [CourseTee]
+    public let onCourseTeesFailure: (Int) async -> CourseTeeLoadFailure?
     /// Garmin 全库名称搜索。只返回轻量 metadata；选中后仍走本页已有的单球场准备链。
     public let onSearchCourses: (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch]
     /// Garmin 全库坐标发现。半径内完整分页，只返回轻量 metadata。
@@ -96,11 +111,12 @@ public struct StartRoundView: View {
     @State private var offlineCourseOptions: [MobileCourseOption] = []
     @State private var showingCourseSearch = false
     @State private var isLoadingTees = false
-    @State private var teeLoadFailed = false
+    @State private var teeLoadFailure: CourseTeeLoadFailure?
     @State private var isLoadingNearby = false
     @State private var nearbyStatusText: String?
     @State private var nearbyDiscoveryFailed = false
     @State private var nearbyRetryToken = 0
+    @State private var nearbyLastAutomaticRefreshAt: Date?
     @State private var announcedIntentKeys = Set<String>()
     @State private var teeRequestToken: UUID?
     @State private var nearbyRequestToken: UUID?
@@ -139,6 +155,7 @@ public struct StartRoundView: View {
         onClearBackendConfiguration: @escaping () -> Void = {},
         onConnectGarmin: @escaping () -> Void = {},
         onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
+        onCourseTeesFailure: @escaping (Int) async -> CourseTeeLoadFailure? = { _ in nil },
         onSearchCourses: @escaping (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _, _ in [] },
         onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
         onCourseIntent: @escaping ([MobileCourseOption], String) -> Void = { _, _ in },
@@ -194,6 +211,7 @@ public struct StartRoundView: View {
         self.onClearBackendConfiguration = onClearBackendConfiguration
         self.onConnectGarmin = onConnectGarmin
         self.onLoadCourseTees = onLoadCourseTees
+        self.onCourseTeesFailure = onCourseTeesFailure
         self.onSearchCourses = onSearchCourses
         self.onNearbyCourses = onNearbyCourses
         self.onCourseIntent = onCourseIntent
@@ -378,7 +396,7 @@ public struct StartRoundView: View {
             locationProvider.stopUpdatingLocation()
             cancelRoundStartFromExit()
         }
-        .task(id: nearbyDiscoveryTaskKey) { await discoverNearbyCourses() }
+        .task(id: nearbyRetryToken) { await discoverNearbyCourses() }
         // Start the lookup when setup is visible. Automatic selection on the course list must not
         // consume the loading/retry state before the player opens the Tee picker.
         .task(id: Self.teeLookupKey(page: page, globalIdText: courseGlobalIdText)) {
@@ -671,9 +689,10 @@ public struct StartRoundView: View {
         teeRequestToken = requestToken
         guard let globalId = courseGlobalId else {
             isLoadingTees = false
-            teeLoadFailed = false
+            teeLoadFailure = nil
             return
         }
+        let hadCarriedTees = !(carriedCourseTees[globalId] ?? []).isEmpty
         guard let tees = await Self.courseTeeRows(
             globalId: globalId,
             carried: carriedCourseTees,
@@ -681,10 +700,18 @@ public struct StartRoundView: View {
                 if teeRequestToken == requestToken { isLoadingTees = loading }
             },
             setFailed: { failed in
-                if teeRequestToken == requestToken { teeLoadFailed = failed }
+                if teeRequestToken == requestToken, !failed { teeLoadFailure = nil }
             },
             request: { await requestTees(globalId: $0, requestToken: requestToken) }
-        ) else { return }
+        ) else {
+            if !hadCarriedTees, teeRequestToken == requestToken {
+                teeLoadFailure = await onCourseTeesFailure(globalId) ?? .timedOut
+            }
+            return
+        }
+        if !hadCarriedTees, teeRequestToken == requestToken {
+            teeLoadFailure = await onCourseTeesFailure(globalId)
+        }
         fetchedTees = tees
         let pickedTee = userPickedTee ? teeBox : nil
         let caller = (preselectedVenueOptions + courseLookupOptions).first { $0.globalId == callerCourseGlobalId }
@@ -807,7 +834,7 @@ public struct StartRoundView: View {
         // loading gate, even when SwiftUI invokes this setter during catalogue refresh.
         selectedCourseWasManualSearch = retainsManualSearch
         fetchedTees = []
-        teeLoadFailed = false
+        teeLoadFailure = nil
         applySelectedCourse(first)
     }
 
@@ -1375,7 +1402,7 @@ public struct StartRoundView: View {
             state: .init(
                 selection: .init(globalIdText: courseGlobalIdText, roundId: roundId, teeBox: teeBox),
                 userPickedTee: userPickedTee,
-                fetchedTees: fetchedTees, teeLoadFailed: teeLoadFailed
+                fetchedTees: fetchedTees, teeLoadFailed: teeLoadFailure != nil
             ),
             lastUsedTee: Self.lastUsedTeeForCourse(
                 for: first, recent: recentCourseOption,
@@ -1388,7 +1415,7 @@ public struct StartRoundView: View {
         teeBox = state.selection.teeBox
         userPickedTee = state.userPickedTee
         fetchedTees = state.fetchedTees
-        teeLoadFailed = state.teeLoadFailed
+        teeLoadFailure = state.teeLoadFailed ? .timedOut : nil
         showSetupPage()
     }
 
@@ -1524,7 +1551,7 @@ public struct StartRoundView: View {
             next: segment
         )
         fetchedTees = []
-        teeLoadFailed = false
+        teeLoadFailure = nil
         applySelectedCourse(segment)
     }
 
@@ -1594,18 +1621,23 @@ public struct StartRoundView: View {
             }
             if Self.showsTeeRetry(
                 requiresRemoteTees: selectedCourseRequiresRemoteTees,
-                teeLoadFailed: teeLoadFailed,
+                teeLoadFailed: teeLoadFailure != nil,
                 fetchedTees: fetchedTees,
                 courseTees: selectedCourseTeeNames
             ) {
                 HStack(spacing: 12) {
+                    if let teeLoadFailure {
+                        Text(teeLoadFailure.presentationMessage)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .accessibilityIdentifier("start-round-course-tees-error")
+                    }
                     Button {
                         Task { await loadTees() }
                     } label: {
                         Label("重试获取发球台", systemImage: "arrow.clockwise")
-                            .labelStyle(.iconOnly)
                             .font(.title3.weight(.semibold))
-                            .frame(width: 44, height: 44)
+                            .frame(minHeight: 44)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(LiveHoleStyle.green)
@@ -1629,6 +1661,10 @@ public struct StartRoundView: View {
         courseTees: [String]
     ) -> Bool {
         teeLoadFailed && fetchedTees.isEmpty
+    }
+
+    static func teeLoadFailureMessage(_ failure: CourseTeeLoadFailure) -> String {
+        failure.presentationMessage
     }
 
     private func teeChip(_ tee: String) -> some View {
@@ -2433,7 +2469,7 @@ public struct StartRoundView: View {
         if !isSameCourse {
             fetchedTees = []
             teeBox = ""
-            teeLoadFailed = false
+            teeLoadFailure = nil
         }
         // Apply the resolved option directly. State writes are coalesced by SwiftUI, so looking
         // the option up again immediately after assigning remoteCourseOptions can observe the
@@ -2538,11 +2574,6 @@ public struct StartRoundView: View {
             latitude: coordinate.latitude,
             longitude: coordinate.longitude
         )
-    }
-
-    /// A retry changes the task identity even when the GPS bucket is unchanged.
-    private var nearbyDiscoveryTaskKey: String {
-        "\(locationDiscoveryKey)#retry-\(nearbyRetryToken)"
     }
 
     /// Nearby discovery starts with a 5 km query, then expands when too few venues are visible.
@@ -2734,10 +2765,18 @@ public struct StartRoundView: View {
         currentRequestKey: String,
         manualSearchSelected: Bool
     ) -> Bool {
-        !isCancelled
+        _ = requestKey
+        _ = currentRequestKey
+        return !isCancelled
             && activeRequestToken == requestToken
-            && currentRequestKey == requestKey
             && !manualSearchSelected
+    }
+
+    static func nearbyAutomaticRefreshDelay(
+        lastRefreshAt: Date?, now: Date, minimumInterval: TimeInterval = 60
+    ) -> TimeInterval {
+        guard let lastRefreshAt else { return 0 }
+        return max(0, minimumInterval - now.timeIntervalSince(lastRefreshAt))
     }
 
     /// Nearby selection must compare physical venues, because one venue can expose several global
@@ -2859,9 +2898,13 @@ public struct StartRoundView: View {
     }
 
     @MainActor
-    private func discoverNearbyCourses() async {
+    private func discoverNearbyCourses(automaticFollowUp: Bool = false) async {
         let requestToken = UUID()
         nearbyRequestToken = requestToken
+        let retryTokenAtStart = nearbyRetryToken
+        if !automaticFollowUp, nearbyRetryToken == 0 {
+            nearbyLastAutomaticRefreshAt = Date()
+        }
         // Once the player has chosen a manual search result, nearby discovery is background noise.
         // Do not let a new GPS bucket or a late transport failure overwrite that explicit choice.
         guard !selectedCourseWasManualSearch else {
@@ -2935,6 +2978,21 @@ public struct StartRoundView: View {
         } else {
             nearbyStatusText = "当前位置 50 km 内没有找到球场；可以按名称搜索。"
         }
+        guard !Task.isCancelled,
+              !selectedCourseWasManualSearch,
+              locationDiscoveryKey != requestKey,
+              nearbyRetryToken == retryTokenAtStart else { return }
+        let delay = Self.nearbyAutomaticRefreshDelay(
+            lastRefreshAt: nearbyLastAutomaticRefreshAt,
+            now: Date()
+        )
+        if delay > 0 {
+            do { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+            catch { return }
+        }
+        guard !Task.isCancelled, nearbyRetryToken == retryTokenAtStart else { return }
+        nearbyLastAutomaticRefreshAt = Date()
+        await discoverNearbyCourses(automaticFollowUp: true)
     }
 
     private func resolvedOfflineOptions(_ options: [MobileCourseOption]) -> [MobileCourseOption] {
@@ -2952,7 +3010,7 @@ public struct StartRoundView: View {
         roundId = defaultRoundId
         teeBox = ""
         fetchedTees = []
-        teeLoadFailed = false
+        teeLoadFailure = nil
         selectedCourseWasManualSearch = false
     }
 

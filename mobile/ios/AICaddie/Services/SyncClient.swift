@@ -839,14 +839,14 @@ public final class SyncClient {
         return "client_error"
     }
 
-    private func coursePackageData(_ request: URLRequest, foregroundStart: Bool, requestKind: PackageRequestKind = .background, maximumAttempts: Int = SyncClient.courseAssetMaximumAttempts) async throws -> Data {
+    private func coursePackageData(_ request: URLRequest, foregroundStart: Bool, foregroundTimeoutInterval: TimeInterval? = nil, requestKind: PackageRequestKind = .background, maximumAttempts: Int = SyncClient.courseAssetMaximumAttempts) async throws -> Data {
         let id = UUID()
         let producer = try packageWorkLock.withLock { () throws -> Task<Data, Error> in
             guard requestKind != .background || roundStartOwner == nil else { throw CancellationError() }
             let task = Task<Data, Error> {
                 try Task.checkCancellation()
                 if foregroundStart {
-                    return try await self.boundedRoundStartData(request)
+                    return try await self.boundedRoundStartData(request, timeoutInterval: foregroundTimeoutInterval)
                 }
                 return try await self.fetchRetriableGetData(request, maximumAttempts: maximumAttempts)
             }
@@ -861,7 +861,7 @@ public final class SyncClient {
         }
     }
 
-    private func boundedRoundStartData(_ request: URLRequest) async throws -> Data {
+    private func boundedRoundStartData(_ request: URLRequest, timeoutInterval: TimeInterval? = nil) async throws -> Data {
         // URLRequest.timeoutInterval is an inactivity timeout and some transports ignore it.
         // Race the whole operation against one wall-clock deadline; there is no start retry.
         try await withThrowingTaskGroup(of: Data.self) { group in
@@ -871,7 +871,8 @@ public final class SyncClient {
                 return data
             }
             group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(self.roundStartTimeoutInterval * 1_000_000_000))
+                let timeout = timeoutInterval ?? self.roundStartTimeoutInterval
+                try await Task.sleep(nanoseconds: UInt64(max(0.001, timeout) * 1_000_000_000))
                 throw URLError(.timedOut)
             }
             defer { group.cancelAll() }
@@ -910,7 +911,7 @@ public final class SyncClient {
     }
 
     /// The round's ordered loops (`loops=`): one or two entries, the first on `globalId`.
-    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, loops: [RoundLoopEntry], capturedAt: Date = Date(), ensureGeometry: Bool = false, backgroundGeometry: Bool = false, mapOnly: Bool = false, includeEventCursor: Bool = true, foregroundStart: Bool = false, requestKind: PackageRequestKind? = nil, priorityHole: Int? = nil) async throws -> LiveRoundPackage {
+    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, loops: [RoundLoopEntry], capturedAt: Date = Date(), ensureGeometry: Bool = false, backgroundGeometry: Bool = false, mapOnly: Bool = false, includeEventCursor: Bool = true, foregroundStart: Bool = false, foregroundTimeoutInterval: TimeInterval? = nil, requestKind: PackageRequestKind? = nil, priorityHole: Int? = nil) async throws -> LiveRoundPackage {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/mobile/courses/\(globalId)/package"),
             resolvingAgainstBaseURL: false
@@ -945,7 +946,7 @@ public final class SyncClient {
         if foregroundStart { request.networkServiceType = .responsiveData }
         applyAuth(to: &request)
         let kind = requestKind ?? (foregroundStart ? .foregroundStart : .background)
-        let data = try await coursePackageData(request, foregroundStart: foregroundStart, requestKind: kind)
+        let data = try await coursePackageData(request, foregroundStart: foregroundStart, foregroundTimeoutInterval: foregroundTimeoutInterval, requestKind: kind)
         // B4b-2 §6: a contradictory or incomplete v2 identity is rejected before any use.
         return try decoder.decode(LiveRoundPackage.self, from: data).validatedRoundIdentity()
     }

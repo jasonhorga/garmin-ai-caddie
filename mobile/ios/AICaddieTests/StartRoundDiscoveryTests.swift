@@ -583,6 +583,41 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertNil(RoundStartProgress.message(after: 7.99))
         XCTAssertEqual(RoundStartProgress.message(after: 8), "服务器在准备球场，稍等…")
         XCTAssertEqual(RoundStartProgress.message(after: 20), "服务器还在准备，最多再等 10 秒")
+        XCTAssertEqual(RoundStartProgress.remainingSeconds(after: 20), 10, "J4.2 uses the 30-second foreground budget")
+    }
+
+    /// J4.2/W1: Tee failures explain whether the server timed out or the network was unavailable,
+    /// while the retry action remains a visible button label.
+    func testJ42TeeFailureMessagesAreVisibleAndTruthful() {
+        XCTAssertEqual(
+            StartRoundView.teeLoadFailureMessage(.timedOut),
+            "服务器较慢，发球台没拿到；可先用球场默认 T 开始"
+        )
+        XCTAssertEqual(
+            StartRoundView.teeLoadFailureMessage(.unavailable),
+            "网络不可用，发球台没拿到；可先用球场默认 T 开始"
+        )
+    }
+
+    /// J4.1/W4: movement-triggered refreshes wait a full minute after the last automatic pass;
+    /// a manual retry has no such delay.
+    func testJ41NearbyAutomaticRefreshIsDebouncedForSixtySeconds() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(
+            StartRoundView.nearbyAutomaticRefreshDelay(lastRefreshAt: start, now: start.addingTimeInterval(59)),
+            1,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            StartRoundView.nearbyAutomaticRefreshDelay(lastRefreshAt: start, now: start.addingTimeInterval(60)),
+            0,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            StartRoundView.nearbyAutomaticRefreshDelay(lastRefreshAt: nil, now: start),
+            0,
+            accuracy: 0.001
+        )
     }
 
     /// J4.2/C134: the slow-start explanation and the primary button share one busy state.
@@ -594,9 +629,9 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(
             StartRoundPresentation.roundStartProgressText(
                 isBusy: true,
-                message: "服务器还在准备，最多再等十几秒"
+                message: "服务器还在准备，最多再等 10 秒"
             ),
-            "服务器还在准备，最多再等十几秒"
+            "服务器还在准备，最多再等 10 秒"
         )
         XCTAssertNil(StartRoundPresentation.roundStartProgressText(isBusy: false, message: "旧提示"))
     }

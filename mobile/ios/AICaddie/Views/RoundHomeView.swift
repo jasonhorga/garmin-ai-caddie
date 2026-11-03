@@ -699,6 +699,7 @@ public struct RoundHomeView: View {
     public let onClearBackendConfiguration: () -> Void
     /// 拉取所选球场的可选发球台(供「开始一场」的选台器);仅转发给 StartRoundView。
     public let onLoadCourseTees: (Int) async -> [CourseTee]
+    public let onCourseTeesFailure: (Int) async -> CourseTeeLoadFailure?
     /// Garmin 全库名称搜索；StartRoundView 只保留本次结果，选中后走现有单球场准备链。
     public let onSearchCourses: (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch]
     /// The course the player is about to play (在这个球场, or settled on 开始一场): its loops and
@@ -845,6 +846,7 @@ public struct RoundHomeView: View {
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
         onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
+        onCourseTeesFailure: @escaping (Int) async -> CourseTeeLoadFailure? = { _ in nil },
         onSearchCourses: @escaping (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _, _ in [] },
         onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
         onCourseIntent: @escaping ([MobileCourseOption], String) -> Void = { _, _ in },
@@ -936,6 +938,7 @@ public struct RoundHomeView: View {
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
         self.onLoadCourseTees = onLoadCourseTees
+        self.onCourseTeesFailure = onCourseTeesFailure
         self.onSearchCourses = onSearchCourses
         self.onCourseIntent = onCourseIntent
         self.onNearbyCourses = onNearbyCourses
@@ -1758,6 +1761,7 @@ public struct RoundHomeView: View {
             onClearBackendConfiguration: onClearBackendConfiguration,
             onConnectGarmin: { showSettings = true },
             onLoadCourseTees: onLoadCourseTees,
+            onCourseTeesFailure: onCourseTeesFailure,
             onSearchCourses: onSearchCourses,
             onNearbyCourses: onNearbyCourses,
             onCourseIntent: onCourseIntent,

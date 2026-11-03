@@ -473,5 +473,30 @@ final class C89HoleMapFrameTests: XCTestCase {
         try await LiveHolePrepProbe.foregroundWait(seconds: 3, isActive: { true }, sleep: { foreground.append($0) })
         XCTAssertEqual(foreground.reduce(0, +), 3)
     }
+
+    /// J4.5/W3: the 30-second wall clock is independent of a fetch that remains suspended; a
+    /// ready row that arrives afterwards still upgrades the hole.
+    func testJ45PreciseMapTimeoutRunsWhileFetchIsSuspended() async {
+        let ready = try? ProductInputs.prep()
+        var timedOut = false
+        var fetchYields = 0
+        let result = await LiveHolePrepProbe.run(
+            fetch: {
+                for _ in 0..<20 {
+                    fetchYields += 1
+                    await Task.yield()
+                }
+                return ready
+            },
+            publishInterim: { _ in },
+            wait: { _ in },
+            timeoutSeconds: 30,
+            timeoutSleep: { _ in },
+            onTimeout: { timedOut = true }
+        )
+        XCTAssertTrue(timedOut, "J4.5 timeout fires independently of the in-flight fetch")
+        XCTAssertNotNil(result, "a late ready response still publishes the precise map")
+        XCTAssertGreaterThan(fetchYields, 0)
+    }
 }
 #endif
