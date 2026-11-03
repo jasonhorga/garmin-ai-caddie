@@ -16,6 +16,40 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(StartRoundView.nearbyDelayMilliseconds(45_000, radiusKm: 50), 0)
     }
 
+    /// C365-N2: the setup page's real 返回/disappearance boundary must cancel every in-flight
+    /// start flavour, including the single-course validation path.
+    func testC365SetupExitCancelsValidationAndPrepOpening() {
+        XCTAssertTrue(StartRoundView.cancellationRequiredForSetupExit(
+            isPreparing: false, isOpeningPrepCourse: false, isValidatingPrepCourse: true
+        ))
+        XCTAssertTrue(StartRoundView.cancellationRequiredForSetupExit(
+            isPreparing: false, isOpeningPrepCourse: true, isValidatingPrepCourse: false
+        ))
+        XCTAssertTrue(StartRoundView.cancellationRequiredForSetupExit(
+            isPreparing: true, isOpeningPrepCourse: false, isValidatingPrepCourse: false
+        ))
+        XCTAssertFalse(StartRoundView.cancellationRequiredForSetupExit(
+            isPreparing: false, isOpeningPrepCourse: false, isValidatingPrepCourse: false
+        ))
+    }
+
+    /// C365-N5: a fresh hole signal is consumed only while the Start route still owns the page.
+    func testC365FreshPendingHoleIsDroppedAfterLeavingStartRoute() {
+        XCTAssertTrue(RoundHomeView.shouldEnterPendingLiveHole(path: [.start], isFreshEntry: true))
+        XCTAssertTrue(RoundHomeView.shouldEnterPendingLiveHole(
+            path: [.startCourse(globalId: 31795, teeBox: "blue")], isFreshEntry: true
+        ))
+        XCTAssertFalse(RoundHomeView.shouldEnterPendingLiveHole(path: [.hole(1)], isFreshEntry: true))
+        XCTAssertTrue(RoundHomeView.shouldEnterPendingLiveHole(path: [.hole(1)], isFreshEntry: false))
+    }
+
+    /// C365-A1'': a validation continuation belongs to the same Start action generation as the
+    /// tap that launched it; returning while it is suspended must discard its eventual answer.
+    func testC365ValidationContinuationIsDroppedAfterSetupExit() {
+        XCTAssertFalse(StartRoundView.shouldContinueStartAction(startGeneration: 7, currentGeneration: 8))
+        XCTAssertTrue(StartRoundView.shouldContinueStartAction(startGeneration: 7, currentGeneration: 7))
+    }
+
     /// J4.1/J4.2: cross-section venue deduplication retains download progress on the surviving row.
     func testNearbyVenueRetainsDownloadStatusAfterOfflineRowIsDeduplicated() {
         let a = loop(82001, venue: "Example", label: "A")

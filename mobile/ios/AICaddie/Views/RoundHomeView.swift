@@ -1207,11 +1207,9 @@ public struct RoundHomeView: View {
     /// 开始记分后直接进实战屏:把刚开的洞设为唯一路径(替换掉「开始一场」),不弹回 Hub。
     private func enterPendingLiveHole(_ hole: Int?) {
         guard let hole else { return }
-        if pendingLiveHoleIsFreshEntry {
-            guard path.contains(where: Self.isStartRoute) else {
-                onConsumePendingLiveHole()
-                return
-            }
+        guard Self.shouldEnterPendingLiveHole(path: path, isFreshEntry: pendingLiveHoleIsFreshEntry) else {
+            onConsumePendingLiveHole()
+            return
         }
         #if DEBUG
         UITestEventLatencyTrace.record(
@@ -1229,6 +1227,10 @@ public struct RoundHomeView: View {
             "round-home.enter.end hole=\(hole) course=\(package?.course.globalId ?? -1)"
         )
         #endif
+    }
+
+    static func shouldEnterPendingLiveHole(path: [HubRoute], isFreshEntry: Bool) -> Bool {
+        !isFreshEntry || path.contains(where: Self.isStartRoute)
     }
 
     /// The hole screen's package: the live round's, else the 备战 course's, else the home package.

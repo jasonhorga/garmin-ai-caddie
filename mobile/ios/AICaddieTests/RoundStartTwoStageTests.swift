@@ -775,6 +775,34 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertFalse(model.isPreparingRound)
     }
 
+    /// C365-N6: the first half-second of a new Start belongs to the tap transition, so a second
+    /// tap cannot immediately cancel the operation it just created.
+    func testC365ImmediateSecondCancelIsIgnoredDuringStartTransition() async throws {
+        let host = "c365-double-tap.example.test"
+        let held = C85HeldRequests()
+        let sent = expectation(description: "start request held")
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            held.hold(proto)
+            sent.fulfill()
+        }, onStop: { held.forget($0) })
+        let fixture = makeModel(host: host, held: held, roundStartTimeoutInterval: 2)
+        let model = fixture.model
+        model.startCourseRound(
+            roundId: "c365-double-tap", teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: c85CourseId, half: "all")]
+        )
+        let deadline = ProcessInfo.processInfo.systemUptime + 1
+        while !model.isPreparingRound {
+            guard ProcessInfo.processInfo.systemUptime < deadline else { throw NSError(domain: "C365", code: 1) }
+            await Task.yield()
+        }
+        await fulfillment(of: [sent], timeout: eventWait)
+        model.cancelRoundStartIfReady()
+        XCTAssertTrue(model.isPreparingRound, "the transition guard must ignore an immediate second tap")
+        held.releaseAll(200)
+    }
+
     /// J4.2 / C365-A1': a single-course prep start must drop a package answered after cancellation.
     func testC365PrepCancelDropsLateCoursePackageAndDoesNotNavigate() async throws {
         let host = "c365-prep-cancel.example.test"

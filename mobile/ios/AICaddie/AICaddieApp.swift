@@ -2202,7 +2202,8 @@ public final class LiveRoundAppModel: ObservableObject {
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId),
                cachedPackage.loopKey == loopKey,
-               cachedPackage.cacheState() != .degraded {
+               cachedPackage.cacheState() != .degraded,
+               Self.isCompleteCachedRoundPackage(cachedPackage) {
                 // Persist the active-round pointer for the offline/cached start too, so a round
                 // started without network still resumes on relaunch (continue card survives quit).
                 let persisted = try offlineStore.saveRoundPackage(cachedPackage)
@@ -2272,6 +2273,15 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         return LiveRoundPackage.projecting(loops, templates: templates, roundId: roundId)?
             .rebasedForOfflineStart(roundId: roundId, generatedAt: preparedAt)
+    }
+
+    /// A map-only package is durable and useful for the explicit simplified action, but it does
+    /// not contain the personal round facts required by the ordinary offline start.  Keep that
+    /// distinction when a timed-out request finds a cached package: only a complete response may
+    /// silently enter the live hole screen.
+    private static func isCompleteCachedRoundPackage(_ package: LiveRoundPackage) -> Bool {
+        !package.clubProfiles.isEmpty
+            && package.sourceCoverage.playerStatsWindow?.lowercased() != "deferred"
     }
 
     private struct IntentPrefetchWaitTimeout: Error {}

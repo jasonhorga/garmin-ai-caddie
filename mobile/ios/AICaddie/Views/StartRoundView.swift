@@ -594,10 +594,28 @@ public struct StartRoundView: View {
     }
 
     private func cancelRoundStartIfBusy() {
-        if isPreparing || isOpeningPrepCourse || isValidatingPrepCourse {
+        if Self.cancellationRequiredForSetupExit(
+            isPreparing: isPreparing,
+            isOpeningPrepCourse: isOpeningPrepCourse,
+            isValidatingPrepCourse: isValidatingPrepCourse
+        ) {
             startActionGeneration &+= 1
             onCancelRoundStart()
         }
+    }
+
+    /// Every way out of the setup page (back, course change, and disappearance) shares the same
+    /// cancellation boundary. Keeping this predicate pure makes that route wiring testable.
+    static func cancellationRequiredForSetupExit(
+        isPreparing: Bool,
+        isOpeningPrepCourse: Bool,
+        isValidatingPrepCourse: Bool
+    ) -> Bool {
+        isPreparing || isOpeningPrepCourse || isValidatingPrepCourse
+    }
+
+    static func shouldContinueStartAction(startGeneration: Int, currentGeneration: Int) -> Bool {
+        startGeneration == currentGeneration
     }
 
     /// The course and Tee Start would use, once the Tee request has settled; empty while there is
@@ -1883,7 +1901,10 @@ public struct StartRoundView: View {
             isValidatingPrepCourse = true
             let valid = await onValidateReadyPrepCourse(record)
             isValidatingPrepCourse = false
-            guard actionGeneration == startActionGeneration else { return }
+            guard Self.shouldContinueStartAction(
+                startGeneration: actionGeneration,
+                currentGeneration: startActionGeneration
+            ) else { return }
             prepValidationFailed = !valid
         }
         if usesCombinedLoops {
