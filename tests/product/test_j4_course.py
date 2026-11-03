@@ -166,17 +166,23 @@ class PrepRouteQualityTests(unittest.TestCase):
         # J4.6: 170+48=218 stops 19 m before OWNER's [237,262];
         # 160+121=281 stops 24 m before TRIG's [305,330]. Both finish
         # within the 20 m scoring window in two shots: no extra swing for 8 m clearance.
-        for bag, length, pond in (("OWNER", 232, (237, 262)),
-                                  ("TRIG", 300, (305, 330))):
-            with self.subTest(bag=bag, length=length):
-                row = self.prep(bag, 4, length, (pond,))
+        cases = (
+            ("OWNER", 4, 232, (237, 262), 2),
+            ("TRIG", 4, 300, (305, 330), 2),
+            # J4.6 Par 5 witness from the measured post-pin route matrix:
+            # same three-stroke count must still leave 8 m before [475,500].
+            ("OWNER", 5, 470, (475, 500), 3),
+        )
+        for bag, par, length, pond, max_strokes in cases:
+            with self.subTest(bag=bag, par=par, length=length):
+                row = self.prep(bag, par, length, (pond,))
                 self.assert_complete(row)
-                self.assertLessEqual(len(row["steps"]), 2)
+                self.assertLessEqual(len(row["steps"]), max_strokes)
                 physical = sum(s["targetCarry_m"] for s in row["steps"])
                 self.assertGreaterEqual(pond[0] - physical, 8)
 
     def test_j4_6_post_pin_buffer_does_not_cost_a_stroke_or_force_flyover(self):
-        # J4.6: TRIG's 160+160=320 is a complete two-shot route before
+        # J4.6: TRIG's 197+121=318 is a complete two-shot route before
         # [325,350]. Keep that fallback if buffered choices need three shots;
         # discarding it would select a +44 m flyover instead.
         row = self.prep("TRIG", 4, 320, ((325, 350),))
