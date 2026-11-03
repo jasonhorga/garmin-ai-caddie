@@ -95,6 +95,40 @@ class C366CancellationTests(IsolatedRequestTests):
             return {"schema": "fixture"}
         return build
 
+    def test_J42_nearby_warms_after_event_timing_fixture_releases_its_round(self):
+        """J4.2: an earlier timing fixture cannot leave admission blocked for discovery."""
+        from tests.product.test_j5_play import EventAppendTests
+        from server_v2 import map_startup
+
+        # Keep this fixture-isolation witness independent of the containing suite's state.
+        for name in ("_ACTIVE_START_TIMES", "_ACTIVE_EVENT_TIMES", "_ACTIVE_EVENT_DEVICES",
+                     "_ROUND_START_CACHE", "_FINISH_INDEX_CACHE"):
+            self.enterContext(patch.object(main, name, {}))
+        self.enterContext(patch.object(main, "_ACTIVE_PACKAGED_ROUNDS", set()))
+        self.enterContext(patch.object(main.course_install, "_CURRENT_COURSE_IDS", {}))
+        result = unittest.TestResult()
+        with patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "", "AI_CADDIE_SECURITY_PROFILE": ""}):
+            EventAppendTests("test_j59_event_append_persists_request_and_storage_stage_timings").run(result)
+        self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+
+        match = course_search.CourseMatch(31795, "Fixture", 18, "北京", "北京", 0.0, 40.0, 116.5, 0.0)
+        with patch.object(main.course_search, "courseview_nearby", return_value=[match]), \
+             patch.object(main, "_reconcile_player_course_matches", return_value=[match]), \
+             patch.object(main, "_persist_courseview_venue_loops"), \
+             patch.object(map_startup, "enqueue_nearby") as enqueue, \
+             patch.object(map_startup, "prefetch_nearby_releases") as prefetch:
+            with TestClient(main.app) as client:
+                response = client.get("/api/v2/courses/nearby", params={
+                    "latitude": 40, "longitude": 116.5, "radius_km": 50,
+                }, headers={"X-AI-Caddie-Admin-Token": "fixture-admin"})
+                self.assertEqual(response.status_code, 200)
+                worker = map_startup._NEARBY_DISPATCH_THREAD
+                if worker is not None:
+                    worker.join(2)
+                    self.assertFalse(worker.is_alive())
+            enqueue.assert_called_once_with([match])
+            prefetch.assert_called_once_with([match])
+
     def test_J42_nearby_disconnect_cancels_without_scheduling(self):
         entered, cancelled, stop = threading.Event(), threading.Event(), threading.Event()
         match = course_search.CourseMatch(31795, "Fixture", 18, "北京", "北京", 0.0, 40.0, 116.5, 0.0)
