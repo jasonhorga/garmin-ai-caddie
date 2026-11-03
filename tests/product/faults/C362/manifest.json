@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C362-M1-cancelled-topo-release",
+      "patch": "tests/product/faults/C362/own-M1-no-cancel-release.patch",
+      "kind": "python",
+      "target": "tests.product.test_c294.BackgroundLeaseReleaseTests.test_J42_cancelled_topo_future_releases_background_slot_before_worker_start",
+      "promise": "4.2",
+      "kills": "Cancelling a queued topo future must release its transferred background admission lease before the worker starts."
+    },
+    {
+      "id": "tests-product-faults-C362-M3-worker-error-release",
+      "patch": "tests/product/faults/C362/own-M3-no-release-on-exception.patch",
+      "kind": "python",
+      "target": "tests.product.test_c294.BackgroundLeaseReleaseTests.test_J42_failed_background_worker_releases_background_slot",
+      "promise": "4.2",
+      "kills": "A worker exception must release its transferred background admission lease."
+    }
+  ]
+}
