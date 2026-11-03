@@ -3115,14 +3115,21 @@ def run_course_install_job(identifier: str) -> None:
             return
         if course_install._topo_ready(current_row):
             return
-        future = _TOPO_PIPELINE_POOL.submit_keyed(
-            ("install", gid, hole, geometry_revision),
-            render_install_topo,
-            gid,
-            hole,
-            geometry_revision,
-            priority=topo_priorities.get((gid, hole), priority),
+        # Do not let the single topo worker wait on the background CPU gate: a later foreground
+        # prewarm must be able to overtake while this install unit is waiting for admission.
+        admission = (
+            background_work(unit_type="install-topo")
+            if background_install else contextlib.nullcontext()
         )
+        with admission:
+            future = _TOPO_PIPELINE_POOL.submit_keyed(
+                ("install", gid, hole, geometry_revision),
+                render_install_topo,
+                gid,
+                hole,
+                geometry_revision,
+                priority=topo_priorities.get((gid, hole), priority),
+            )
         work_revision = int(current_row.get("workRevision") or 1)
         topo_futures[future] = (gid, hole, geometry_revision, work_revision)
         completion_event = threading.Event()
