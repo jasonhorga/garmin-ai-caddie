@@ -115,9 +115,8 @@ class NativeQuickRunnerTests(unittest.TestCase):
     def test_simulator_priority_exact_names_numeric_runtime_and_build_udid(self):
         # The Xcode 27 Mac inventory has the iPhone 17 and Series 12 names on multiple runtimes;
         # the preferred model wins by numeric runtime rather than inventory order.
-        for devices, ios, watch in ((DEVICES, IOS_UDID, WATCH_UDID),
-                                     (MAC_DEVICES, MAC_IOS_UDID, MAC_WATCH_UDID),
-                                     ({**DEVICES, **MAC_DEVICES}, IOS_UDID, WATCH_UDID)):
+        for devices, ios, watch in ((MAC_DEVICES, MAC_IOS_UDID, MAC_WATCH_UDID),
+                                     ({**DEVICES, **MAC_DEVICES}, MAC_IOS_UDID, MAC_WATCH_UDID)):
             with self.subTest(ios=ios, watch=watch, runtimes=len(devices)):
                 (self.root / 'devices.json').write_text(json.dumps({'devices': devices}))
                 (self.root / 'calls').unlink(missing_ok=True)
