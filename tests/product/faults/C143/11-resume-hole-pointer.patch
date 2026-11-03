@@ -1,10 +1,13 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 0af025bd..4d88a359 100644
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -505,7 +505,5 @@
+@@ -589,9 +589,7 @@ public final class LiveRoundAppModel: ObservableObject {
              )
              watchBridge?.clearRoundSeed(roundId: recovery.roundId)
              finishErrorMessage = nil
 -            pendingLiveHole = recovery.hole
+             pendingLiveHoleIsFreshEntry = false
 -            try offlineStore.saveActiveHole(roundId: recovery.roundId, hole: recovery.hole)
              liveRoundState = try offlineStore.restoreLiveRoundState(
                  roundId: recovery.roundId,
