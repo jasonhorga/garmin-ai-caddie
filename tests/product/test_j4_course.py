@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import shutil
+import tempfile
 from tempfile import TemporaryDirectory
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -16,6 +18,14 @@ from ai_caddie.courses import course_prep, course_reference, course_search
 from ai_caddie.geometry import elevation
 from ai_caddie.caddie import mobile_live
 from ai_caddie.history.history import HistoryData
+from ai_caddie.history import stats_cache
+from ai_caddie.history.history_stats import build_history_stats
+from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
+from ai_caddie.caddie.decision import store_decision_audit
+from ai_caddie.reports.annotations import add_annotation
+from ai_caddie.reports.reports import store_report
+from ai_caddie.rounds import round_corrections
+from tests.test_history_stats_perf import synthetic_history
 from tests.product._support_c16c import HTTPFixture, vectors
 
 
@@ -1224,3 +1234,102 @@ class InstallSupplementTests(unittest.TestCase):
         journal = self.ci.state_for_worker(self.job)
         self.assertEqual(journal['phase'], 'queued')
         self.assertEqual(journal['holes']['123:1']['derivatives'], 'queued')
+
+
+class StatsAuxOverlayProductTests(unittest.TestCase):
+    """J4.2/J3.1/1.1: evidence writes keep the start path on warm history stats."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.addCleanup(stats_cache.clear)
+        stats_cache.clear()
+        self.data = synthetic_history(num_rounds=60, num_courses=4)
+        self.roots = {name: self.tmp for name in (
+            "annotations_root", "weather_root", "reports_root", "decision_audit_root")}
+
+    def _weather(self):
+        return build_weather_snapshot(
+            round_id="r0059", hole=1, captured_at="2026-12-04T12:00:00Z",
+            latitude=1.0, longitude=2.0, source="manual", observed={"temperatureC": 20},
+        )
+
+    def _audit(self):
+        return {
+            "decisionSourceRef": "r0059:1:1", "selectedOptionId": "safe",
+            "actualOptionId": "safe", "classification": "good",
+            "actualShotRefs": ["r0059:1:1"],
+        }
+
+    def test_J31_weather_write_keeps_core_warm_and_refreshes_quality(self):
+        calls = {"n": 0}
+        real = stats_cache._build_history_stats
+        def counted(data, **kwargs):
+            calls["n"] += 1
+            return real(data, **kwargs)
+        with patch.object(stats_cache, "_build_history_stats", side_effect=counted):
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="all", **self.roots)
+            self.assertEqual(calls["n"], 2)
+            store_weather_snapshot(self._weather(), root=self.tmp)
+            for window in ("last20", "all"):
+                value = stats_cache.cached_build_history_stats(
+                    self.data, data_mode="local", window=window, **self.roots)
+                weather = next(row for row in value["dataQuality"] if row["label"] == "weather")
+                self.assertGreaterEqual(weather["ready"], 1)
+            self.assertEqual(calls["n"], 2)
+
+    def test_J31_decision_audit_write_keeps_core_warm_and_refreshes_diagnosis(self):
+        calls = {"n": 0}
+        real = stats_cache._build_history_stats
+        def counted(data, **kwargs):
+            calls["n"] += 1
+            return real(data, **kwargs)
+        with patch.object(stats_cache, "_build_history_stats", side_effect=counted):
+            for window in ("last20", "all"):
+                stats_cache.cached_build_history_stats(self.data, data_mode="local", window=window, **self.roots)
+            self.assertEqual(calls["n"], 2)
+            store_decision_audit(self._audit(), decision_id="r0059:1:1", root=self.tmp)
+            for window in ("last20", "all"):
+                value = stats_cache.cached_build_history_stats(
+                    self.data, data_mode="local", window=window, **self.roots)
+                audits = next(row for row in value["dataQuality"] if row["label"] == "decision_audits")
+                self.assertGreaterEqual(audits["auditCount"], 1)
+                self.assertTrue(value["diagnosis"]["decisionAuditTrends"])
+            self.assertEqual(calls["n"], 2)
+
+    def test_11_cached_value_equals_uncached_after_aux_write_for_each_window(self):
+        store_weather_snapshot(self._weather(), root=self.tmp)
+        store_decision_audit(self._audit(), decision_id="r0059:1:1", root=self.tmp)
+        for window in ("last20", "all"):
+            cached = stats_cache.cached_build_history_stats(
+                self.data, data_mode="local", window=window, **self.roots)
+            uncached = build_history_stats(
+                __import__('ai_caddie.history.history_stats', fromlist=['windowed_history_data']).windowed_history_data(self.data, window),
+                data_mode="local", player_id="me", **self.roots)
+            self.assertEqual(json.loads(json.dumps(cached, sort_keys=True, default=str)),
+                             json.loads(json.dumps(uncached, sort_keys=True, default=str)))
+
+    def test_J31_score_annotations_reports_and_corrections_still_rebuild_core(self):
+        calls = {"n": 0}
+        real = stats_cache._build_history_stats
+        def counted(data, **kwargs):
+            calls["n"] += 1
+            return real(data, **kwargs)
+        scorecards = self.tmp / "scorecards"
+        scorecards.mkdir()
+        correction_dir = self.tmp / "corrections"
+        with patch.object(stats_cache, "_build_history_stats", side_effect=counted), \
+             patch.object(stats_cache, "_FINGERPRINT_DIRS", (scorecards,)), \
+             patch.object(round_corrections, "corrections_dir", return_value=correction_dir):
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+            (scorecards / "new.json").write_text("{}")
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+            add_annotation("round", "r0000", "round_note", {"text": "x"}, root=self.tmp)
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+            store_report({"summary": "x"}, kind="round", subject_id="r0000", root=self.tmp)
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+            correction_dir.mkdir(parents=True)
+            (correction_dir / "r0000.jsonl").write_text("{}\n")
+            stats_cache.cached_build_history_stats(self.data, data_mode="local", window="last20", **self.roots)
+        self.assertEqual(calls["n"], 5)
