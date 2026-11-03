@@ -940,6 +940,9 @@ public final class LiveRoundAppModel: ObservableObject {
     private var roundPreparationTokenSetAtForTesting = "none"
     private var roundStartLastStepForTesting = "none"
     private var roundStartDiagnosticTokenForTesting: UUID?
+    /// DEBUG-only deterministic boundary for C365 late package tests: cancellation can happen after
+    /// transport has answered but before the model publishes navigation.
+    var roundStartAfterFetchForTesting: (() async -> Void)?
     #endif
     private var roundPreparationToken: UUID?
     private var roundPreparationGeneration: UInt64 = 0
@@ -2143,6 +2146,9 @@ public final class LiveRoundAppModel: ObservableObject {
             recordUITestLatency(
                 "course-start.fetch.end globalId=\(globalId) found=\(fetched != nil)"
             )
+            #if DEBUG
+            if let roundStartAfterFetchForTesting { await roundStartAfterFetchForTesting() }
+            #endif
             guard isCurrentRoundPreparation(preparationToken) else { return }
             if let remotePackage = fetched.map(carryingInstalledPrecisePrep) {
                 // Warm only the first playable topo while the package is being persisted and the
