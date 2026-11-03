@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 53a3a554..8b967a2e 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -1965,7 +1965,7 @@ def course_nearby_endpoint(
+         _flight_holder is None
+         or not _flight_holder.get("subscription", (None, {"cancelled": False}))[1].get("cancelled")
+     ) and (
+-        _generation is None or _nearby_generation_current(player_id, _generation)
++        True
+     ):
+         # Durable full map prep replaces metadata-only warming. All provider courses in 30 km
+         # enter the bounded low-priority lane; this response never waits for downloads/renders.

@@ -8,6 +8,38 @@
       "target": "tests.product.test_c366.C366CancellationTests.test_J42_nearby_disconnect_cancels_without_scheduling",
       "promise": "J4.2",
       "kills": "A disconnected nearby request must invoke the cooperative cancellation callback so its builder receives PrepCancelled."
+    },
+    {
+      "id": "tests-product-faults-C366-02-no-tees-cancel-callback",
+      "patch": "tests/product/faults/C366/no-tees-cancel-callback.patch",
+      "kind": "python",
+      "target": "tests.product.test_c366.C366CancellationTests.test_J42_tees_disconnect_cancels_cold_release",
+      "promise": "J4.2",
+      "kills": "A disconnected /tees request must cancel its shared computation."
+    },
+    {
+      "id": "tests-product-faults-C366-03-package-route-no-cancel",
+      "patch": "tests/product/faults/C366/package-route-no-cancel.patch",
+      "kind": "python",
+      "target": "tests.product.test_c366.C366CancellationTests.test_J42_round_package_disconnect_cancels_without_install_enqueue",
+      "promise": "J4.2",
+      "kills": "A disconnected round package must deliver cooperative cancellation to its builder."
+    },
+    {
+      "id": "tests-product-faults-C366-04-nearby-old-request-still-warms",
+      "patch": "tests/product/faults/C366/nearby-old-request-still-warms.patch",
+      "kind": "python",
+      "target": "tests.product.test_c366.C366NearbyAdmissionTests.test_J42_three_same_player_nearby_requests_only_latest_warms",
+      "promise": "J4.2",
+      "kills": "An obsolete nearby request must not schedule warming after a newer request supersedes it."
+    },
+    {
+      "id": "tests-product-faults-C366-05-nearby-ignores-round-gate",
+      "patch": "tests/product/faults/C366/nearby-ignores-round-gate.patch",
+      "kind": "python",
+      "target": "tests.product.test_c366.C366RoundAdmissionTests.test_J42_nearby_warming_waits_for_round_package",
+      "promise": "J4.2",
+      "kills": "Nearby warming must remain deferred while a round package is in flight."
     }
   ]
 }

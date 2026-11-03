@@ -1,0 +1,24 @@
+diff --git a/server_v2/prep_work.py b/server_v2/prep_work.py
+index 2614af4a..3d3d4fc6 100644
+--- a/server_v2/prep_work.py
++++ b/server_v2/prep_work.py
+@@ -53,7 +53,8 @@ async def run_prep(
+             if message["type"] == "http.disconnect":
+                 if worker.done():
+                     return
+-                cancelled.set()
++                if unit_type != "package":
++                    cancelled.set()
+                 if on_cancel is not None:
+                     try:
+                         on_cancel()
+@@ -81,7 +82,8 @@ async def run_prep(
+         raise
+     finally:
+         # Cancelling a thread's await cannot stop CPU work. Signal the actual builder too.
+-        cancelled.set()
++        if unit_type != "package":
++            cancelled.set()
+         watcher.cancel()
+         # BaseHTTPMiddleware's receive proxy sits in anyio's CancelScope, which swallows native
+         # cancellation rather than deferring it. Do not wait for that proxy here: the handler must
