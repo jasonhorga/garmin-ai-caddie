@@ -72,6 +72,11 @@ async def run_prep(
         await watcher  # Propagate receive failures; only an actual disconnect means 499.
         return Response(status_code=499)
     except asyncio.CancelledError:
+        if on_cancel is not None:
+            try:
+                on_cancel()
+            except Exception:
+                pass
         mark("prep_cancelled")
         raise
     finally:
