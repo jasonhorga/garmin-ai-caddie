@@ -136,6 +136,19 @@ Test Case '-[AICaddieTests.SyncClientTests testFetchRoundDetailRetriesTransientT
         self.assertEqual(1, len(findings))
         self.assertEqual("<unknown URL>", findings[0][2])
 
+    def test_duplicate_unknown_url_pending_errors_are_reported_once(self) -> None:
+        """J4.2: duplicate URL-less diagnostics for one pending request count once."""
+        task = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+        log = (
+            f'Task <{task}>.<7> finished with error [-1003] '
+            'Error Domain=NSURLErrorDomain Code=-1003 "DNS failed"\n'
+            f'Task <{task}>.<7> finished with error [-1003] '
+            'Error Domain=NSURLErrorDomain Code=-1003 "DNS failed"\n'
+        )
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("<unknown URL>", findings[0][2])
+
     def test_unmarked_tls_failure_to_fixture_host_is_reported(self) -> None:
         """J4.2: every fixture-host NSURLError reaches the gate, including TLS errors."""
         log = (
@@ -262,6 +275,56 @@ Test Case '-[AICaddieTests.SyncClientTests testFetchRoundDetailRetriesTransientT
         findings = _GATE.find_unhandled_fixture_dns(log)
         self.assertEqual(1, len(findings))
         self.assertEqual("https://leak.example.test/package", findings[0][2])
+
+    def test_route_line_with_multiple_tasks_does_not_clear_pending_leak(self) -> None:
+        """J4.2: an origin line with multiple external Tasks is an interleaving seam."""
+        task = "F40B46E2-E860-4D7B-A598-0796AFA41219"
+        other = "0D1E2F30-4152-6374-8596-A7B8C9D0E1F2"
+        log = (
+            f'Task <{task}>.<7> finished with error [-1003] '
+            f'Error Domain=NSURLErrorDomain Code=-1003 UserInfo={{ [spliced Task <{other}>.<9>]\n'
+            f'Task <{task}>.<7> finished "route=shared origin=[host=ok.example.test]" '
+            f'Task <{other}>.<9>\n'
+            '), NSErrorFailingURLStringKey=https://leak.example.test/package}\n'
+        )
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("https://leak.example.test/package", findings[0][2])
+
+    def test_route_origin_must_match_continuation_url_host(self) -> None:
+        """J4.2: a route origin for another host cannot authorize a DNS error."""
+        log = (
+            'Error Domain=NSURLErrorDomain Code=-1003 "DNS failed" '
+            'route=shared origin=[host=ok.example.test] '
+            'UserInfo={NSErrorFailingURLStringKey=https://leak.example.test/package}\n'
+        )
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("https://leak.example.test/package", findings[0][2])
+
+    def test_offline_description_with_url_is_not_a_shim_authorization(self) -> None:
+        """J4.2: the URL-less offline description must not authorize a URL-bearing error."""
+        log = (
+            'Error Domain=NSURLErrorDomain Code=-1003 '
+            '"fixture intentionally offline; DNS disabled" '
+            'UserInfo={NSErrorFailingURLStringKey=https://leak.example.test/package}\n'
+        )
+        findings = _GATE.find_unhandled_fixture_dns(log)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("https://leak.example.test/package", findings[0][2])
+
+    def test_local_data_task_does_not_count_as_foreign_task(self) -> None:
+        """J4.2: an embedded LocalDataTask must not make a valid route look interleaved."""
+        task = "F40B46E2-E860-4D7B-A598-0796AFA41219"
+        other = "0D1E2F30-4152-6374-8596-A7B8C9D0E1F2"
+        log = (
+            f'Task <{task}>.<7> finished with error [-1003] '
+            'Error Domain=NSURLErrorDomain Code=-1003 UserInfo={\n'
+            f'Task <{task}>.<7> finished "route=shared origin=[host=ok.example.test]" '
+            f'LocalDataTask <{other}>.<8>\n'
+            '), NSErrorFailingURLStringKey=https://ok.example.test/package}\n'
+        )
+        self.assertEqual([], _GATE.find_unhandled_fixture_dns(log))
 
     def test_single_line_leak_with_shim_fragment_remains_actionable(self) -> None:
         """J4.2: a route fragment spliced into one physical leak line is still a leak."""
