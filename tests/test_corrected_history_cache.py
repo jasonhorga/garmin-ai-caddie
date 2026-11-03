@@ -268,7 +268,11 @@ class CorrectedHistoryCacheTests(unittest.TestCase):
             self.assertEqual(fingerprint.call_count, 2)
 
     def test_stats_projection_revision_includes_each_auxiliary_store_and_source(self):
-        """J1/1.1, J3/3.1: new history or evidence must invalidate the warm projection."""
+        """J1/1.1, J3/3.1: new history, annotations or reports invalidate the warm projection.
+
+        J4.2: weather snapshots and decision audits only feed the cheap overlay applied after the
+        projection, so writing them must not recompute the corrected projection (their freshness is
+        asserted in tests.product.test_j4_course.StatsAuxOverlayProductTests)."""
         from dataclasses import replace
 
         data = fixture_history_data()
@@ -280,19 +284,21 @@ class CorrectedHistoryCacheTests(unittest.TestCase):
             kwargs = dict(data_mode="fixture", annotations_root=directory,
                           weather_root=directory, reports_root=directory, decision_audit_root=directory)
             stats_cache.cached_build_history_stats(data, **kwargs)
-            for index, path in enumerate(stats_cache._aux_files(**{k: v for k, v in kwargs.items() if k != "data_mode"}), 2):
+            # _aux_files order: annotations, weather, reports, decision audits.
+            expected_calls = (2, 2, 3, 3)
+            for path, expected in zip(stats_cache._aux_files(**{k: v for k, v in kwargs.items() if k != "data_mode"}), expected_calls):
                 with self.subTest(store=path.name):
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text("")
                     stats_cache.cached_build_history_stats(data, **kwargs)
                     stats_cache.cached_build_history_stats(data, **kwargs)
-                    self.assertEqual(fingerprint.call_count, index)
+                    self.assertEqual(fingerprint.call_count, expected)
             source = Path(directory) / "history" / "new.json"
             source.parent.mkdir()
             source.write_text("{}")
             stats_cache.cached_build_history_stats(data, **kwargs)
-            self.assertEqual(fingerprint.call_count, 6)
+            self.assertEqual(fingerprint.call_count, 4)
             # Separate unversioned in-memory histories may have the same ids and shot count.
             changed = replace(data, shots=[dict(shot, club="Changed") for shot in data.shots])
             stats_cache.cached_build_history_stats(changed, **kwargs)
-            self.assertEqual(fingerprint.call_count, 7)
+            self.assertEqual(fingerprint.call_count, 5)

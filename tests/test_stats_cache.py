@@ -93,12 +93,15 @@ class StatsCacheTests(unittest.TestCase):
         """A stats formula change must not read a projection written by the prior schema."""
         path = self.tmp / "old-stats.json"
         fingerprint = ("source", 1)
-        path.write_text(json.dumps({
-            "schema": "ai-caddie-history-stats-cache-v5",
-            "fingerprint": stats_cache._cache_digest(fingerprint),
-            "value": {"averageDifferential": 50.8},
-        }))
-        self.assertIsNone(stats_cache._read_persistent_value(path, fingerprint))
+        # v6 persisted full values with weather/decision-audit rows baked in; v7 persists the core.
+        for schema in ("ai-caddie-history-stats-cache-v5", "ai-caddie-history-stats-cache-v6"):
+            with self.subTest(schema=schema):
+                path.write_text(json.dumps({
+                    "schema": schema,
+                    "fingerprint": stats_cache._cache_digest(fingerprint),
+                    "value": {"averageDifferential": 50.8},
+                }))
+                self.assertIsNone(stats_cache._read_persistent_value(path, fingerprint))
 
     def test_cache_recomputes_when_a_new_score_lands(self) -> None:
         calls = {"n": 0}
