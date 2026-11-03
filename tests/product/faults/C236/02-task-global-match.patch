@@ -1,11 +1,11 @@
 diff --git a/.github/scripts/check_native_fixture_dns.py b/.github/scripts/check_native_fixture_dns.py
-index 5860b8e3..f6a9d908 100644
+index a3e50647..f4fa6460 100644
 --- a/.github/scripts/check_native_fixture_dns.py
 +++ b/.github/scripts/check_native_fixture_dns.py
-@@ -128,12 +128,20 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
-         if "J4.2 native fixture DNS gate:" in line and "echo " not in line:
-             lines = lines[:index]
-             break
+@@ -127,12 +127,20 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
+     seen_urls: set[str] = set()
+     pending_without_url: list[tuple[int, str, set[tuple[str, str]], bool]] = []
+     lines = log_text.splitlines()
 +    marked_tasks = {
 +        task_id
 +        for marked_line in lines
