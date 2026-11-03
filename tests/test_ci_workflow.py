@@ -1188,6 +1188,18 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
             },
         )
         self.assertEqual(native_complete.returncode, 0, native_complete.stderr)
+        leak_log = (
+            "Task finished with error [-1003] Error Domain=NSURLErrorDomain "
+            "Code=-1003 NSErrorFailingURLStringKey=https://fixture.invalid/api/v2/courses\n"
+        )
+        native_leak = run_step(
+            native_gate,
+            {
+                "native-mobile-results/ios-app-xcodebuild.log": leak_log,
+                "native-mobile-results/watch-xcodebuild.log": "",
+            },
+        )
+        self.assertNotEqual(native_leak.returncode, 0, native_leak.stderr)
         product_missing = run_step(product_gate, {})
         self.assertNotEqual(product_missing.returncode, 0, product_missing.stderr)
         product_complete = run_step(
@@ -1195,6 +1207,11 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
             {"product-ui-results/xcodebuild.log": ""},
         )
         self.assertEqual(product_complete.returncode, 0, product_complete.stderr)
+        product_leak = run_step(
+            product_gate,
+            {"product-ui-results/xcodebuild.log": leak_log},
+        )
+        self.assertNotEqual(product_leak.returncode, 0, product_leak.stderr)
 
     def test_native_review_capture_scope_exits_normally_after_post_round_evidence(self) -> None:
         workflow_path = Path(".github/workflows/native-mobile.yml")
