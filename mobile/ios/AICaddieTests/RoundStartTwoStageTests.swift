@@ -803,6 +803,36 @@ final class RoundStartTwoStageTests: XCTestCase {
         held.releaseAll(200)
     }
 
+    /// J4.2 / C365-N1: a setup exit uses the immediate cancellation callback, so returning right
+    /// after Start (inside the 0.5 s primary-button window) still drops the operation.
+    func testC365ImmediateSetupExitCancelsStartDuringTransition() async throws {
+        let host = "c365-immediate-exit.example.test"
+        let held = C85HeldRequests()
+        let sent = expectation(description: "start request held")
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            held.hold(proto)
+            sent.fulfill()
+        }, onStop: { held.forget($0) })
+        let fixture = makeModel(host: host, held: held, roundStartTimeoutInterval: 2)
+        let model = fixture.model
+        model.startCourseRound(
+            roundId: "c365-immediate-exit", teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: c85CourseId, half: "all")]
+        )
+        let deadline = ProcessInfo.processInfo.systemUptime + 1
+        while !model.isPreparingRound {
+            guard ProcessInfo.processInfo.systemUptime < deadline else { throw NSError(domain: "C365", code: 2) }
+            await Task.yield()
+        }
+        await fulfillment(of: [sent], timeout: eventWait)
+        model.cancelRoundStart()
+        XCTAssertFalse(model.isPreparingRound)
+        XCTAssertNil(model.pendingLiveHole)
+        XCTAssertNil(model.liveRoundState)
+        held.releaseAll(200)
+    }
+
     /// J4.2 / C365-A1': a single-course prep start must drop a package answered after cancellation.
     func testC365PrepCancelDropsLateCoursePackageAndDoesNotNavigate() async throws {
         let host = "c365-prep-cancel.example.test"
