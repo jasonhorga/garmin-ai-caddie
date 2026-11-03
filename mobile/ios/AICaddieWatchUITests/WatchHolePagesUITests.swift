@@ -63,14 +63,21 @@ final class WatchHolePagesUITests: XCTestCase {
         XCTAssertTrue(instrument.waitForExistence(timeout: 10), "the club tag opens the caddie page")
     }
 
-    /// A finger drag with explicit interior endpoints and velocity. watchOS 27's generic
-    /// collection-view swipe does not commit this system pager; the same real drag does.
+    /// watchOS 27's generic collection-view swipe does not commit this system pager, so it
+    /// gets a finger drag with explicit interior endpoints and velocity. Older watchOS (the
+    /// hosted Xcode 16.4 runner) does not page on that slow drag but does on the plain flick.
     private func swipe(up: Bool) {
         let pager = app.collectionViews["PUICPageViewController_collectionView"]
         XCTAssertTrue(pager.waitForExistence(timeout: 5), "the 本洞 pager is on screen")
-        let start = pager.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.8 : 0.2))
-        let end = pager.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.2 : 0.8))
-        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0)
+        if #available(watchOS 27, *) {
+            let start = pager.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.8 : 0.2))
+            let end = pager.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.2 : 0.8))
+            start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0)
+        } else if up {
+            pager.swipeUp()
+        } else {
+            pager.swipeDown()
+        }
     }
 
     private func assertPage(_ name: String, _ marker: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
