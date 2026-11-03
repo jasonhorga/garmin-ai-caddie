@@ -12,7 +12,7 @@
       "id": "tests-product-faults-C365-02-remove-entry-token-guard",
       "patch": "tests/product/faults/C365/02-remove-entry-token-guard.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/RoundStartTwoStageTests/testC365ReturningToCourseListDropsLateCoursePackage",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testC365CancelDropsLateCoursePackageAndDoesNotNavigate",
       "promise": "J4.2"
     },
     {
