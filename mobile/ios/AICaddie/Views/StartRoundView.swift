@@ -106,6 +106,7 @@ public struct StartRoundView: View {
     @State private var page: Page
     @State private var isValidatingPrepCourse = false
     @State private var prepValidationFailed = false
+    @State private var startActionGeneration = 0
 
     public init(
         // 不在消费者界面里写死可读的原始局号(如 900001):没显式传时生成一个不透明的本地局号,
@@ -372,6 +373,7 @@ public struct StartRoundView: View {
         }
         .onDisappear {
             locationProvider.stopUpdatingLocation()
+            cancelRoundStartIfBusy()
         }
         .task(id: nearbyDiscoveryTaskKey) { await discoverNearbyCourses() }
         // Start the lookup when setup is visible. Automatic selection on the course list must not
@@ -592,7 +594,8 @@ public struct StartRoundView: View {
     }
 
     private func cancelRoundStartIfBusy() {
-        if isPreparing || isOpeningPrepCourse {
+        if isPreparing || isOpeningPrepCourse || isValidatingPrepCourse {
+            startActionGeneration &+= 1
             onCancelRoundStart()
         }
     }
@@ -1814,7 +1817,7 @@ public struct StartRoundView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("start-round-simplified-start")
-                    Button("取消", role: .cancel) { onCancelRoundStart() }
+                    Button("取消", role: .cancel) { cancelRoundStartIfBusy() }
                         .buttonStyle(.bordered)
                         .accessibilityIdentifier("start-round-cancel")
                 }
@@ -1829,7 +1832,7 @@ public struct StartRoundView: View {
             }
             Button {
                 if startBusy {
-                    onCancelRoundStart()
+                    cancelRoundStartIfBusy()
                 } else {
                     Task { await startSelectedCourse() }
                 }
@@ -1859,6 +1862,7 @@ public struct StartRoundView: View {
     @MainActor
     private func startSelectedCourse() async {
         guard let courseGlobalId else { return }
+        let actionGeneration = startActionGeneration
         let fallback = courseRows
             .flatMap(\.segments)
             .first(where: { $0.globalId == courseGlobalId })
@@ -1879,6 +1883,7 @@ public struct StartRoundView: View {
             isValidatingPrepCourse = true
             let valid = await onValidateReadyPrepCourse(record)
             isValidatingPrepCourse = false
+            guard actionGeneration == startActionGeneration else { return }
             prepValidationFailed = !valid
         }
         if usesCombinedLoops {

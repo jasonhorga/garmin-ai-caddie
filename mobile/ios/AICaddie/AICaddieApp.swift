@@ -111,7 +111,7 @@ public struct AICaddieApp: App {
                             await model.startSimplifiedRound()
                         },
                         onCancelRoundStart: {
-                            model.cancelRoundStart()
+                            model.cancelRoundStartIfReady()
                         },
                         onRetryRoundStart: {
                             await model.retryRoundStart()
@@ -715,7 +715,9 @@ public final class LiveRoundAppModel: ObservableObject {
         if let intentKey {
             intentPrefetchTasks[intentKey]?.cancel()
         }
-        if let token { finishRoundPreparation(token) }
+        if isOpeningPrepCourse {
+            closePrepMode()
+        } else if let token { finishRoundPreparation(token) }
         else {
             isPreparingRound = false
             stopRoundProgress()
@@ -726,7 +728,18 @@ public final class LiveRoundAppModel: ObservableObject {
         canStartSimplifiedRound = false
         pendingLiveHole = nil
         pendingLiveHoleIsFreshEntry = false
-        if token != nil { syncStatus = "已取消开局" }
+        syncStatus = "已取消开局"
+    }
+
+    /// The first half-second belongs to the Start tap's state transition. The UI uses this gate so
+    /// a double tap cannot turn the just-created start into an immediate cancellation; explicit
+    /// model callers retain `cancelRoundStart()` for deterministic cancellation.
+    public func cancelRoundStartIfReady() {
+        if let blockedUntil = roundStartCancellationBlockedUntil,
+           roundStartNow() < blockedUntil {
+            return
+        }
+        cancelRoundStart()
     }
 
     /// C365 explicit escape hatch for an incomplete local template. It is deliberately user invoked;
@@ -948,6 +961,7 @@ public final class LiveRoundAppModel: ObservableObject {
     var roundStartAfterFetchForTesting: (() async -> Void)?
     #endif
     private var roundPreparationToken: UUID?
+    private var roundStartCancellationBlockedUntil: Date?
     private var roundPreparationGeneration: UInt64 = 0
     private var roundStartProgressGeneration: UInt64 = 0
     private var roundStartProgressTask: Task<Void, Never>?
@@ -1938,6 +1952,7 @@ public final class LiveRoundAppModel: ObservableObject {
         // spared a prep-library row such as 28242 and let it consume the connection beside Start.
         pausePrepCourseDownload(preserveIntentPrefetch: true)
         isPreparingRound = true
+        roundStartCancellationBlockedUntil = roundStartNow().addingTimeInterval(0.5)
         // Re-entering Start replaces the request token but keeps the same user-visible operation;
         // resetting the timer here used to erase the slow-server explanation while the button kept
         // spinning.
@@ -1963,6 +1978,7 @@ public final class LiveRoundAppModel: ObservableObject {
         syncClient?.endRoundStart(token)
         guard roundPreparationToken == token else { return }
         roundPreparationToken = nil
+        roundStartCancellationBlockedUntil = nil
         recordRoundStartStep("finishRoundPreparation.token-cleared", token: token)
         foregroundRoundStartIntentKey = nil
         isPreparingRound = false
@@ -2139,6 +2155,7 @@ public final class LiveRoundAppModel: ObservableObject {
             // A timed-out intent already owns the in-flight request. Do not issue a second network
             // request, but still fall through to the durable complete-package/template fallback.
             if fetched == nil, !intentTimedOut {
+                guard isCurrentRoundPreparation(preparationToken), !Task.isCancelled else { return }
                 fetched = await fetchRemoteCoursePackage(
                     globalId: globalId,
                     roundId: requestedRoundId,
@@ -5069,7 +5086,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 if let roundStartAfterFetchForTesting { await roundStartAfterFetchForTesting() }
 #endif
             }
-            guard generation == self.prepOpenGeneration else { return }
+            guard generation == self.prepOpenGeneration,
+                  self.isCurrentRoundPreparation(preparationToken),
+                  !Task.isCancelled else { return }
             guard self.liveRoundState == nil else { return }
             guard let opened else {
                 self.roundStartFailure = self.roundStartFailure ?? .unavailable
@@ -5077,6 +5096,10 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             self.recordRoundStartStep("startPrepCourse.publish-map", token: preparationToken)
+            // Mark the prep start committed before publishing the package. The Start view can
+            // disappear synchronously when the hole route is installed; its onDisappear must not
+            // cancel a result that has already crossed this guard.
+            self.isOpeningPrepCourse = false
             self.enterPrepMode(with: opened, hole: hole)
             self.prepPriorityRoundID = opened.roundId
             self.prepPriorityHole = hole ?? opened.holes.first?.number ?? 1
@@ -5084,7 +5107,6 @@ public final class LiveRoundAppModel: ObservableObject {
             self.completeRoundStartRequest()
             // Entering the map-only package is the foreground contract. Tee authority may continue
             // in the background and must never keep the Start spinner or block the hole screen.
-            self.isOpeningPrepCourse = false
             self.finishRoundPreparation(preparationToken)
             preparationFinished = true
             self.beginPrepEnrichmentIfNeeded()

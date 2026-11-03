@@ -1208,7 +1208,10 @@ public struct RoundHomeView: View {
     private func enterPendingLiveHole(_ hole: Int?) {
         guard let hole else { return }
         if pendingLiveHoleIsFreshEntry {
-            guard path.contains(where: Self.isStartRoute) else { return }
+            guard path.contains(where: Self.isStartRoute) else {
+                onConsumePendingLiveHole()
+                return
+            }
         }
         #if DEBUG
         UITestEventLatencyTrace.record(
