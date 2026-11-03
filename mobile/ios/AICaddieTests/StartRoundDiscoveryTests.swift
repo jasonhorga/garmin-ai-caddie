@@ -61,8 +61,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let view = StartRoundView(
             defaultCourseGlobalId: course.globalId,
             defaultTeeBox: course.teeBox ?? "blue",
-            courseOptions: [course],
             preselectedVenueOptions: [course],
+            courseOptions: [course],
             syncStatus: RoundStartFailure.unavailable.presentationMessage,
             roundStartFailure: .unavailable,
             canStartSimplifiedRound: true,
@@ -104,8 +104,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let view = StartRoundView(
             defaultCourseGlobalId: course.globalId,
             defaultTeeBox: course.teeBox ?? "blue",
-            courseOptions: [course],
             preselectedVenueOptions: [course],
+            courseOptions: [course],
             isPreparing: true,
             onCancelRoundStart: { immediate += 1 },
             onCancelRoundStartIfReady: { gated += 1 },
