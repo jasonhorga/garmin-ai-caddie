@@ -70,7 +70,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 teeBox: "blue",
                 loops: PrepCourseDownloadRecord(course: course).loops
             ),
-            onCancelRoundStart: { cancellations += 1 }
+            onCancelRoundStart: { cancellations += 1 },
+            initialNearby: .answered([course])
         )
         let host = UIHostingController(rootView: view)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 430, height: 900))
@@ -102,7 +103,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
             courseOptions: [course],
             isPreparing: true,
             onCancelRoundStart: { immediate += 1 },
-            onCancelRoundStartIfReady: { gated += 1 }
+            onCancelRoundStartIfReady: { gated += 1 },
+            initialNearby: .answered([course])
         )
         let host = UIHostingController(rootView: view)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 430, height: 900))
