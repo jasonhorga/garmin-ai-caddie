@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C258-01-route-fragment-clears-leak",
+      "patch": "tests/product/faults/C258/01-route-fragment-clears-leak.patch",
+      "kind": "python",
+      "target": "tests.test_native_fixture_dns_gate.NativeFixtureDNSGateTests.test_single_line_leak_with_shim_fragment_remains_actionable",
+      "promise": "J4.2",
+      "kills": "A hostname failure with a route fragment must remain actionable."
+    },
+    {
+      "id": "tests-product-faults-C258-02-foreign-task-clears-pending",
+      "patch": "tests/product/faults/C258/02-foreign-task-clears-pending.patch",
+      "kind": "python",
+      "target": "tests.test_native_fixture_dns_gate.NativeFixtureDNSGateTests.test_route_line_with_foreign_task_does_not_clear_pending_leak",
+      "promise": "J4.2",
+      "kills": "An interleaved route line carrying another task cannot clear a pending DNS error."
+    },
+    {
+      "id": "tests-product-faults-C258-03-gate-diagnostic-truncates-log",
+      "patch": "tests/product/faults/C258/03-gate-diagnostic-truncates-log.patch",
+      "kind": "python",
+      "target": "tests.test_native_fixture_dns_gate.NativeFixtureDNSGateTests.test_gate_diagnostic_does_not_truncate_following_dns_failure",
+      "promise": "J4.2",
+      "kills": "A diagnostic line must not truncate subsequent fixture log scanning."
+    },
+    {
+      "id": "tests-product-faults-C258-04-route-without-origin-allows-leak",
+      "patch": "tests/product/faults/C258/04-route-without-origin-allows-leak.patch",
+      "kind": "python",
+      "target": "tests.test_native_fixture_dns_gate.NativeFixtureDNSGateTests.test_route_marker_without_origin_does_not_allow_single_line_leak",
+      "promise": "J4.2",
+      "kills": "The route marker requires origin framing before it can authorize a shim line."
+    }
+  ]
+}

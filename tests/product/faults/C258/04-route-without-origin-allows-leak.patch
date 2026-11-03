@@ -1,0 +1,15 @@
+diff --git a/.github/scripts/check_native_fixture_dns.py b/.github/scripts/check_native_fixture_dns.py
+index a3e50647..eaee4695 100644
+--- a/.github/scripts/check_native_fixture_dns.py
++++ b/.github/scripts/check_native_fixture_dns.py
+@@ -89,7 +89,9 @@ def _is_shim_route_line(line: str) -> bool:
+     if not _ROUTE_MARKER_RE.search(line):
+         return False
+     task_ids = {m.groups() for m in _TASK_RE.finditer(line)}
+-    if "origin=[" in line:
++    if "origin=[" in line or "route=shared" in line:
++        if "origin=[" not in line:
++            return True
+         # A route fragment spliced into a real one-line error must remain
+         # actionable. A route line carrying a second task id is likewise an
+         # interleaving seam, not proof that the pending error belongs to it.
