@@ -58,7 +58,7 @@ class NativeFixtureDNSGateTests(unittest.TestCase):
     def test_fixture_scoped_error_without_url_fails_closed(self) -> None:
         """J4.2: fixture-scoped network errors without a URL remain actionable."""
         task = "Task <AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE>.<7>"
-        for code in (-1004, -1006, -1200, -1202, -1203, -1204, -1205, -1206):
+        for code in (-1004, -1006, -1200, -1201, -1202, -1203, -1204, -1205, -1206):
             with self.subTest(code=code):
                 log = (
                     f'{task} finished with error [{code}] Error Domain=NSURLErrorDomain '
@@ -68,10 +68,26 @@ class NativeFixtureDNSGateTests(unittest.TestCase):
                 self.assertEqual(1, len(findings))
                 self.assertEqual("<unknown URL>", findings[0][2])
 
-    def test_non_fixture_scoped_errors_without_url_are_ignored(self) -> None:
-        """J4.2: timeout and unknown errors remain outside the fixture DNS gate."""
+    def test_fixture_scoped_error_with_continuation_uses_that_url_host(self) -> None:
+        """J4.2: a continuation URL decides whether a fixture error is reportable."""
         task = "Task <AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE>.<7>"
-        for code in (-1001, -999):
+        for url, expected in (
+            ("https://caddie.example/p", 1),
+            ("https://api.garmin.com/p", 0),
+        ):
+            with self.subTest(url=url):
+                log = (
+                    f'{task} finished with error [-1200] Error Domain=NSURLErrorDomain '
+                    f'Code=-1200 "fixture request failed" UserInfo={{_NSURLErrorFailingURLSessionTaskErrorKey=Local{task}\n'
+                    f'), NSErrorFailingURLStringKey={url}}}\n'
+                )
+                findings = _GATE.find_unhandled_fixture_dns(log)
+                self.assertEqual(expected, len(findings))
+
+    def test_non_fixture_scoped_errors_without_url_are_ignored(self) -> None:
+        """J4.2: timeout, transport-loss, and unknown errors remain outside the fixture DNS gate."""
+        task = "Task <AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE>.<7>"
+        for code in (-1001, -1005, -1009, -999):
             with self.subTest(code=code):
                 log = (
                     f'{task} finished with error [{code}] Error Domain=NSURLErrorDomain '

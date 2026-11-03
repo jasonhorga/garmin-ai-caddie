@@ -30,6 +30,15 @@ _NETWORK_ERROR_CODES = frozenset({
     -1003, -1004, -1005, -1006, -1009,
     -1200, -1201, -1202, -1203, -1204, -1205, -1206,
 })
+# These errors can represent an unexpected fixture request even when
+# CFNetwork omitted NSErrorFailingURLStringKey.  -1005 and -1009 are emitted
+# by the offline URLProtocol itself without a URL, so keep those fixture-result
+# errors out of the URL-less fallback while still checking them when a URL is
+# present.
+_URLLESS_FIXTURE_ERROR_CODES = frozenset({
+    -1003, -1004, -1006,
+    -1200, -1201, -1202, -1203, -1204, -1205, -1206,
+})
 _HOSTNAME_FAILURE_RE = re.compile(r"hostname could not be found", re.IGNORECASE)
 _TASK_RE = re.compile(r"Task <([0-9A-Fa-f-]{36})>\.<(\d+)>")
 _ROUTE_MARKER_RE = re.compile(r"(?<![?\w])route=(?:shared|explicit)(?![\w-])|CaddieTestRoute=")
@@ -61,6 +70,10 @@ def _network_error_code(line: str) -> int | None:
 def _has_actionable_network_error(line: str) -> bool:
     code = _network_error_code(line)
     return code in _NETWORK_ERROR_CODES or bool(_HOSTNAME_FAILURE_RE.search(line))
+
+
+def _is_url_less_fixture_error(line: str) -> bool:
+    return _network_error_code(line) in _URLLESS_FIXTURE_ERROR_CODES
 
 
 def _applies_to_all_hosts(line: str) -> bool:
@@ -106,7 +119,7 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
 
     findings: list[tuple[str, int, str, str]] = []
     seen_urls: set[str] = set()
-    pending_without_url: list[tuple[int, str, set[tuple[str, str]], bool]] = []
+    pending_without_url: list[tuple[int, str, set[tuple[str, str]], bool, bool]] = []
     lines = log_text.splitlines()
     # Review evidence may be a complete Actions transcript, which appends the
     # gate's own diagnostic output after the xcodebuild stream. Do not scan that
@@ -116,6 +129,10 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
             lines = lines[:index]
             break
     for line_number, line in enumerate(lines, start=1):
+        if _is_app_network_summary(line):
+            # A summary is not a shim authorization and must not clear a
+            # pending CFNetwork error from the same Task id.
+            continue
         task_ids = {m.groups() for m in _TASK_RE.finditer(line)}
         if _is_shim_route_line(line):
             # A route marker belongs only to this line. Its Task id may close
@@ -155,7 +172,13 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
             # xcodebuild can put the URL on the following NSError user-info line.
             # Keep the marker as a pending event and merge it when that line arrives.
             pending_without_url.append(
-                (line_number, line.rstrip(), task_ids, _applies_to_all_hosts(line))
+                (
+                    line_number,
+                    line.rstrip(),
+                    task_ids,
+                    _applies_to_all_hosts(line),
+                    _is_url_less_fixture_error(line),
+                )
             )
             continue
         url = match.group(1).rstrip(")]")
@@ -182,11 +205,10 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
             for pending in pending_without_url
             if line_number - pending[0] > 4
         ]
-    for line_number, line, _, all_hosts in pending_without_url:
+    for line_number, line, _, all_hosts, fixture_scoped in pending_without_url:
         # URL-less errors with a fixture-scoped code cannot identify a fixture
-        # host; keep the DNS-style fail-closed behavior only for -1003/
-        # hostname failures, which apply to every host.
-        if all_hosts:
+        # host; fail closed. Hostname failures and -1003 apply to every host.
+        if all_hosts or fixture_scoped:
             findings.append(("<log>", line_number, "<unknown URL>", line))
     return findings
 
