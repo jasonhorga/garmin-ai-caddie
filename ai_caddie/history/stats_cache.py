@@ -102,7 +102,7 @@ _inflight: dict[tuple, threading.Event] = {}
 # v6: all differential consumers reject nine-hole ratings on 18-hole rows).
 _PERSISTENT_CACHE_SCHEMA = "ai-caddie-history-stats-cache-v6"
 _PERSISTENT_CACHE_MAX_BYTES = 64 * 1024 * 1024
-_PERSISTENT_CACHE_SCHEMA = _PERSISTENT_CACHE_SCHEMA + "-aux-overlay-v1"
+_PERSISTENT_CACHE_SCHEMA_RUNTIME = _PERSISTENT_CACHE_SCHEMA + "-aux-overlay-v1"
 # A stats projection can be tens of megabytes on a real history.  Never make the first package
 # caller serialize and write that projection synchronously: the request only needs the in-memory
 # value, while this bounded/coalescing writer makes it available to the next process restart.
@@ -143,7 +143,7 @@ def _read_persistent_value(path: Path | None, fingerprint: tuple) -> Any | None:
         return None
     if not isinstance(payload, dict):
         return None
-    if payload.get("schema") != _PERSISTENT_CACHE_SCHEMA:
+    if payload.get("schema") != _PERSISTENT_CACHE_SCHEMA_RUNTIME:
         return None
     if payload.get("fingerprint") != _cache_digest(fingerprint):
         return None
@@ -162,7 +162,7 @@ def _write_persistent_value(path: Path | None, fingerprint: tuple, value: Any, s
     if path is None or not isinstance(value, dict):
         return
     payload = {
-        "schema": _PERSISTENT_CACHE_SCHEMA,
+        "schema": _PERSISTENT_CACHE_SCHEMA_RUNTIME,
         "fingerprint": _cache_digest(fingerprint),
         "sourceRevision": source_revision,
         "value": value,
@@ -780,7 +780,7 @@ def cached_history_stats_snapshot(
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError):
             continue
-        if not isinstance(payload, dict) or payload.get("schema") != _PERSISTENT_CACHE_SCHEMA:
+        if not isinstance(payload, dict) or payload.get("schema") != _PERSISTENT_CACHE_SCHEMA_RUNTIME:
             continue
         value = payload.get("value")
         if not isinstance(value, dict):
