@@ -13,6 +13,6 @@ index 3563ef52..3972cc99 100644
 +            raise
 +        _BACKGROUND_ADMISSION.reset(token)
 +        self.release()
- 
+
      def release(self) -> None:
          with self._lock:
