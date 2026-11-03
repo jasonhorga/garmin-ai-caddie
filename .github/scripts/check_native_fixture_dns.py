@@ -76,24 +76,43 @@ def _is_app_network_summary(line: str) -> bool:
 def _is_shim_route_line(line: str) -> bool:
     """Return whether this line is the shim's own marked error message.
 
-    The shim prints its route marker together with ``origin=[...]`` plus the
-    stable offline description and ``CaddieTestOrigin=`` user-info field. The
-    latter two markers also survive a line splice, so use them to recognize the
-    same shim message when the route/origin text is split across lines.
+    The shim prints its route marker together with ``origin=[...]`` and the
+    stable offline description. The description survives a line splice, so use
+    it to recognize the same shim message when the route/origin text is split
+    across lines.
     """
 
     if _is_app_network_summary(line):
         return True
-    if "fixture intentionally offline; DNS disabled" in line or "CaddieTestOrigin=" in line:
+    if "fixture intentionally offline; DNS disabled" in line and _URL_RE.search(line) is None:
         return True
     if not _ROUTE_MARKER_RE.search(line):
         return False
+    task_ids = {m.groups() for m in _TASK_RE.finditer(line)}
     if "origin=[" in line:
-        return True
+        # A route fragment spliced into a real one-line error must remain
+        # actionable. A route line carrying a second task id is likewise an
+        # interleaving seam, not proof that the pending error belongs to it.
+        url_match = _URL_RE.search(line)
+        if url_match:
+            if _HOSTNAME_FAILURE_RE.search(line):
+                return False
+            origin_match = re.search(r"origin=\[host=([^\s\]]+)", line)
+            try:
+                url_host = (urlsplit(url_match.group(1)).hostname or "").lower().rstrip(".")
+            except ValueError:
+                return False
+            if not origin_match or url_host != origin_match.group(1).lower().rstrip("."):
+                return False
+        return len(task_ids) <= 1
     # A split shim continuation can carry only the marker and its Task/UserInfo
     # fields. It is safe when it has no DNS error or URL of its own; a marker
     # spliced into a real CFNetwork error remains actionable.
-    return not _has_actionable_network_error(line) and _URL_RE.search(line) is None
+    return (
+        not _has_actionable_network_error(line)
+        and _URL_RE.search(line) is None
+        and len(task_ids) <= 1
+    )
 
 
 def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]:
@@ -108,13 +127,6 @@ def find_unhandled_fixture_dns(log_text: str) -> list[tuple[str, int, str, str]]
     seen_urls: set[str] = set()
     pending_without_url: list[tuple[int, str, set[tuple[str, str]], bool]] = []
     lines = log_text.splitlines()
-    # Review evidence may be a complete Actions transcript, which appends the
-    # gate's own diagnostic output after the xcodebuild stream. Do not scan that
-    # diagnostic a second time as if it were app output.
-    for index, line in enumerate(lines):
-        if "J4.2 native fixture DNS gate:" in line and "echo " not in line:
-            lines = lines[:index]
-            break
     for line_number, line in enumerate(lines, start=1):
         if _is_app_network_summary(line):
             # A summary is not a shim authorization and must not clear a
