@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/courses/course_prep.py b/ai_caddie/courses/course_prep.py
+index cde53499..edebe02b 100644
+--- a/ai_caddie/courses/course_prep.py
++++ b/ai_caddie/courses/course_prep.py
+@@ -2482,7 +2482,7 @@ def _strategy(
+                 route_len_m - tee_carry, repair_ladder, [], start_m=tee_carry,
+                 hazards=planning_hazards, maximum_carry_m=tee_carry,
+                 player_id=player_id,
+-                maximum_steps=(4 if incomplete or not post_pin_safe or post_pin_flyover else
++                maximum_steps=(4 if incomplete or not post_pin_safe else
+                                len(steps) - 1 if has_long_short else max(1, len(steps) - 2)),
+                 post_pin_water=post_pin_water, preserve_layup=False,
+             )

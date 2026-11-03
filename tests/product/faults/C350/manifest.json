@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C350-post-pin-flyover-trigger",
+      "patch": "tests/product/faults/C350/post-pin-flyover-trigger.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_post_pin_water_prefers_stopping_before_the_pond",
+      "promise": "4.6"
+    },
+    {
+      "id": "tests-product-faults-C350-post-pin-flyover-step-budget",
+      "patch": "tests/product/faults/C350/post-pin-flyover-step-budget.patch",
+      "kind": "python",
+      "target": "tests.product.test_j4_course.PrepRouteQualityTests.test_j4_6_post_pin_water_prefers_stopping_before_the_pond",
+      "promise": "4.6"
+    }
+  ]
+}
