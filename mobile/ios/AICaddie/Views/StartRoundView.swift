@@ -371,7 +371,6 @@ public struct StartRoundView: View {
             locationProvider.startUpdatingLocation()
         }
         .onDisappear {
-            cancelRoundStartIfBusy()
             locationProvider.stopUpdatingLocation()
         }
         .task(id: nearbyDiscoveryTaskKey) { await discoverNearbyCourses() }
