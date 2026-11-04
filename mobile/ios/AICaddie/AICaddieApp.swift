@@ -711,8 +711,14 @@ public final class LiveRoundAppModel: ObservableObject {
     /// keeps the handle so the explicit cancel action can stop the whole start operation.
     public func startCourseRound(roundId: String, teeBox: String, loops: [RoundLoopEntry]) {
         activeRoundStartTask?.cancel()
+        let foregroundDeadline = roundStartNow().addingTimeInterval(Self.roundStartForegroundTimeoutInterval)
         activeRoundStartTask = Task { @MainActor [weak self] in
-            await self?.prepareCourseRound(roundId: roundId, teeBox: teeBox, loops: loops)
+            await self?.prepareCourseRound(
+                roundId: roundId,
+                teeBox: teeBox,
+                loops: loops,
+                foregroundDeadline: foregroundDeadline
+            )
         }
     }
 
@@ -2068,7 +2074,12 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Start a round on ordered loops (B4b-2): one entry for a nine-hole start (`G:all`, or
     /// `G:front` / `G:back` of an 18-hole course), two for a full round in play order. The same
     /// round id re-prepares that round (e.g. after a failed start) and keeps its identity.
-    public func prepareCourseRound(roundId: String, teeBox: String, loops: [RoundLoopEntry]) async {
+    public func prepareCourseRound(
+        roundId: String,
+        teeBox: String,
+        loops: [RoundLoopEntry],
+        foregroundDeadline: Date? = nil
+    ) async {
         guard let globalId = loops.first?.globalId else {
             syncStatus = "无法开始这一场,请重试"
             return
@@ -2093,7 +2104,7 @@ public final class LiveRoundAppModel: ObservableObject {
         ))
         await prepareCourseRound(
             globalId: globalId, roundId: effectiveRoundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt,
-            foregroundDeadline: roundStartNow().addingTimeInterval(Self.roundStartForegroundTimeoutInterval)
+            foregroundDeadline: foregroundDeadline ?? roundStartNow().addingTimeInterval(Self.roundStartForegroundTimeoutInterval)
         )
     }
 
