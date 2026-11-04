@@ -5065,6 +5065,8 @@ public final class LiveRoundAppModel: ObservableObject {
         hole: Int?
     ) -> Bool {
         guard liveRoundState == nil else { return false }
+        // J4.2: one tap-time deadline covers the intent wait and the map-only fallback.
+        let foregroundDeadline = roundStartNow().addingTimeInterval(Self.roundStartForegroundTimeoutInterval)
         prepOpenGeneration &+= 1
         let generation = prepOpenGeneration
         activeRoundStartTask?.cancel()
@@ -5082,8 +5084,6 @@ public final class LiveRoundAppModel: ObservableObject {
             globalId: course.globalId, teeBox: teeBox
         )
         let preparationToken = beginRoundPreparation()
-        // J4.2: one tap-time deadline covers the intent wait and the map-only fallback.
-        let foregroundDeadline = roundStartNow().addingTimeInterval(Self.roundStartForegroundTimeoutInterval)
         // Raise the foreground gate first: the independent durable download is queued without
         // creating a worker that beginRoundPreparation would immediately cancel.
         downloadPrepCourse(course)
