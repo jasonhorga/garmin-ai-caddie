@@ -1,12 +1,12 @@
 diff --git a/.github/scripts/runner-sim-cleanup.sh b/.github/scripts/runner-sim-cleanup.sh
-index 1338ed38..d99e7c3f 100755
+index 716e69f9..c5b5a9dd 100755
 --- a/.github/scripts/runner-sim-cleanup.sh
 +++ b/.github/scripts/runner-sim-cleanup.sh
-@@ -29,7 +29,7 @@ except (OSError, subprocess.CalledProcessError, json.JSONDecodeError):
+@@ -33,7 +33,7 @@ except (OSError, subprocess.CalledProcessError, json.JSONDecodeError):
  owned = []
  for runtime, devices in all_devices.items():
      for device in devices:
--        if str(device.get('name', '')).startswith(prefix):
+-        if device.get('name', '') in owned_names:
 +        if True:
              owned.append((runtime, device))
  
