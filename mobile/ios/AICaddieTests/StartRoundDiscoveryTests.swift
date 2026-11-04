@@ -206,6 +206,17 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertNil(rows, "an empty /tees answer must not be applied as a successful refresh")
     }
 
+    /// J4.2: a cancelled or superseded lookup returns nil, which is not a timeout/failure.
+    @MainActor
+    func testDiscardedTeeLookupDoesNotReportFailure() async {
+        var failed = false
+        let rows = await StartRoundView.courseTeeRows(
+            globalId: 31832, carried: [:], setFailed: { failed = $0 }, request: { _ in nil }
+        )
+        XCTAssertNil(rows)
+        XCTAssertFalse(failed)
+    }
+
     /// J4.2/B1: a failed refresh keeps the player's Tee and same-parameter start beside retry.
     @MainActor
     func testEmptyTeeRefreshKeepsSelectionStartableAndOffersRetry() async {
@@ -582,7 +593,133 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(RoundStartFailure.reauthentication.presentationMessage, "需重新登录后才能开始")
         XCTAssertNil(RoundStartProgress.message(after: 7.99))
         XCTAssertEqual(RoundStartProgress.message(after: 8), "服务器在准备球场，稍等…")
-        XCTAssertEqual(RoundStartProgress.message(after: 20), "服务器还在准备，最多再等十几秒")
+        XCTAssertEqual(RoundStartProgress.message(after: 20), "服务器还在准备，最多再等 10 秒")
+        XCTAssertEqual(RoundStartProgress.remainingSeconds(after: 20), 10, "J4.2 uses the 30-second foreground budget")
+    }
+
+    /// J4.2/W1: Tee failures explain whether the server timed out or the network was unavailable,
+    /// while the retry action remains a visible button label.
+    func testJ42TeeFailureMessagesAreVisibleAndTruthful() {
+        XCTAssertEqual(
+            StartRoundView.teeLoadFailureMessage(.timedOut),
+            "服务器较慢，发球台没拿到；可先用球场默认 T 开始"
+        )
+        XCTAssertEqual(
+            StartRoundView.teeLoadFailureMessage(.unavailable),
+            "网络不可用，发球台没拿到；可先用球场默认 T 开始"
+        )
+    }
+
+    /// J4.1/W4: movement-triggered refreshes wait a full minute after the last automatic pass;
+    /// a manual retry has no such delay.
+    func testJ41NearbyAutomaticRefreshIsDebouncedForSixtySeconds() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(
+            StartRoundView.nearbyAutomaticRefreshDelay(lastRefreshAt: start, now: start.addingTimeInterval(59)),
+            1,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            StartRoundView.nearbyAutomaticRefreshDelay(lastRefreshAt: start, now: start.addingTimeInterval(60)),
+            0,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            StartRoundView.nearbyAutomaticRefreshDelay(lastRefreshAt: nil, now: start),
+            0,
+            accuracy: 0.001
+        )
+    }
+
+    /// J4.1: arriving at the first GPS fix starts immediately, even after waiting on permission.
+    func testJ41FirstLocationImmediatelyStartsNearbyDiscovery() {
+        var state = NearbyDiscoveryRefreshState()
+        let now = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(state.locationChanged(nil, now: now), .none)
+        XCTAssertEqual(state.locationChanged("first", now: now), .start("first"))
+        XCTAssertEqual(state.inFlight, "first")
+    }
+
+    /// J4.1: movement after completion still refreshes, once at 60 s and never at 59 s.
+    func testJ41MovementAfterCompletionSchedulesOneRefreshAtSixtySeconds() {
+        var state = NearbyDiscoveryRefreshState()
+        let now = Date(timeIntervalSince1970: 1_000)
+        _ = state.locationChanged("first", now: now)
+        _ = state.finished(now: now)
+        XCTAssertEqual(state.locationChanged("second", now: now.addingTimeInterval(10)), .schedule(now.addingTimeInterval(60)))
+        XCTAssertEqual(state.locationChanged("latest", now: now.addingTimeInterval(59)), .none)
+        XCTAssertEqual(state.timerFired(now: now.addingTimeInterval(59)), .schedule(now.addingTimeInterval(60)))
+        XCTAssertNil(state.inFlight, "59 s: no request")
+        XCTAssertEqual(state.timerFired(now: now.addingTimeInterval(60)), .start("latest"))
+        XCTAssertEqual(state.inFlight, "latest", "60 s: one request uses the newest fix")
+    }
+
+    /// J4.1/W4: a held automatic lookup plus ten moves produces only one latest-location follow-up.
+    func testJ41HeldLookupAndTenMovesProduceAtMostTwoRequests() {
+        var state = NearbyDiscoveryRefreshState()
+        let now = Date(timeIntervalSince1970: 1_000)
+        var requests: [String] = []
+        func record(_ action: NearbyDiscoveryRefreshState.Action) {
+            if case let .start(bucket) = action { requests.append(bucket) }
+        }
+        record(state.locationChanged("first", now: now))
+        for index in 1...10 {
+            record(state.locationChanged("move-\(index)", now: now.addingTimeInterval(Double(index))))
+            XCTAssertEqual(requests, ["first"], "at most one request while the first is held")
+        }
+        record(state.finished(now: now.addingTimeInterval(20)))
+        record(state.timerFired(now: now.addingTimeInterval(59)))
+        XCTAssertEqual(requests.count, 1, "59 seconds: no automatic follow-up")
+        record(state.timerFired(now: now.addingTimeInterval(60)))
+        XCTAssertEqual(requests, ["first", "move-10"])
+        record(state.finished(now: now.addingTimeInterval(61)))
+        record(state.timerFired(now: now.addingTimeInterval(90)))
+        XCTAssertEqual(requests.count, 2, "no stacked timers or extra follow-up")
+        record(state.locationChanged("later", now: now.addingTimeInterval(120)))
+        XCTAssertEqual(requests.last, "later", "idle movement after 60 seconds starts immediately")
+    }
+
+    /// J4.1/W4: ten moves during one held request preserve that request and coalesce to one follow-up.
+    func testJ41TenInFlightMovesCoalesceAndManualRetryCancelsSchedule() {
+        var state = NearbyDiscoveryRefreshState()
+        let now = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(state.locationChanged("first", now: now), .start("first"))
+        for index in 1...10 {
+            XCTAssertEqual(state.locationChanged("move-\(index)", now: now.addingTimeInterval(Double(index))), .none)
+            XCTAssertEqual(state.inFlight, "first", "movement cannot cancel/restart the held request")
+        }
+        XCTAssertEqual(state.finished(now: now.addingTimeInterval(20)), .schedule(now.addingTimeInterval(60)))
+        XCTAssertEqual(state.retry(now: now.addingTimeInterval(21)), .start("move-10"))
+        XCTAssertNil(state.scheduledAt, "manual retry cancels the pending timer")
+        state.selectManual()
+        _ = state.finished(now: now.addingTimeInterval(22))
+        XCTAssertEqual(state.locationChanged("after-search", now: now.addingTimeInterval(90)), .none)
+        XCTAssertEqual(state.timerFired(now: now.addingTimeInterval(90)), .none)
+    }
+
+    /// J4.1: leaving a manual search result restores nearby retry and movement refreshes.
+    func testJ41ClearingManualSearchRestoresNearbyRefresh() {
+        var state = NearbyDiscoveryRefreshState()
+        let now = Date(timeIntervalSince1970: 1_000)
+        _ = state.locationChanged("first", now: now)
+        _ = state.finished(now: now)
+        state.selectManual()
+        XCTAssertEqual(state.retry(now: now.addingTimeInterval(5)), .none)
+        state.clearManual()
+        XCTAssertEqual(state.retry(now: now.addingTimeInterval(6)), .start("first"))
+        _ = state.finished(now: now.addingTimeInterval(7))
+        XCTAssertEqual(state.locationChanged("moved", now: now.addingTimeInterval(120)), .start("moved"))
+    }
+
+    /// J4.1: choosing a manual result while a nearby lookup is held, then returning to nearby,
+    /// still refreshes on movement (the discarded lookup never reports finished).
+    func testJ41ManualSearchDuringHeldLookupDoesNotBlockLaterRefresh() {
+        var state = NearbyDiscoveryRefreshState()
+        let now = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(state.locationChanged("first", now: now), .start("first"))
+        state.selectManual()
+        state.clearManual()
+        XCTAssertEqual(state.locationChanged("moved", now: now.addingTimeInterval(120)), .start("moved"))
     }
 
     /// J4.2/C134: the slow-start explanation and the primary button share one busy state.
@@ -594,9 +731,9 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(
             StartRoundPresentation.roundStartProgressText(
                 isBusy: true,
-                message: "服务器还在准备，最多再等十几秒"
+                message: "服务器还在准备，最多再等 10 秒"
             ),
-            "服务器还在准备，最多再等十几秒"
+            "服务器还在准备，最多再等 10 秒"
         )
         XCTAssertNil(StartRoundPresentation.roundStartProgressText(isBusy: false, message: "旧提示"))
     }
@@ -922,7 +1059,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 manualSearchSelected: false
             )
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             StartRoundView.shouldApplyNearbyDiscoveryResult(
                 isCancelled: false,
                 requestToken: current,
@@ -930,7 +1067,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 requestKey: "4004:11654",
                 currentRequestKey: "4006:11656",
                 manualSearchSelected: false
-            )
+            ),
+            "J4.1: a GPS bucket change while the request is in flight keeps that request authoritative"
         )
         XCTAssertFalse(
             StartRoundView.shouldApplyNearbyDiscoveryResult(

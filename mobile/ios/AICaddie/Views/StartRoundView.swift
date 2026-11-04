@@ -6,6 +6,20 @@ struct CourseDownloadAction: Equatable {
     let retrying: Bool
 }
 
+public enum CourseTeeLoadFailure: Equatable {
+    case timedOut
+    case unavailable
+
+    public var presentationMessage: String {
+        switch self {
+        case .timedOut:
+            return "服务器较慢，发球台没拿到；可先用球场默认 T 开始"
+        case .unavailable:
+            return "网络不可用，发球台没拿到；可先用球场默认 T 开始"
+        }
+    }
+}
+
 /// 开始一场(README §8, `pre-round.html` 第 2 屏)— 一个球场列表(附近在前带距离，其后是搜索、
 /// 最近、已下载，不分区；附近还在查时顶上只有一行“正在找附近球场…”；洞数写明覆盖范围：附近/搜索是整场，最近/已下载写“已下载 18 洞”或“最近打过 9 洞”)；只选第一个 9 洞环(A / B / C 大块)；发球台是颜色圆点 +
 /// 这个环的码数；普通球场按钮统一写「开始」，第一杆决定从哪洞进入。第二个环在打完第一个环时选(NineLoopPlan)。
@@ -54,6 +68,7 @@ public struct StartRoundView: View {
     /// 拉取所选球场的可选发球台(GET /courses/{id}/tees:颜色 + 总码数 + 默认台)。
     /// 离线/出错返回 []：已安装球场可保留包内 Tee；全库新球场必须重试真实 Tee authority。
     public let onLoadCourseTees: (Int) async -> [CourseTee]
+    public let onCourseTeesFailure: (Int) async -> CourseTeeLoadFailure?
     /// Garmin 全库名称搜索。只返回轻量 metadata；选中后仍走本页已有的单球场准备链。
     public let onSearchCourses: (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch]
     /// Garmin 全库坐标发现。半径内完整分页，只返回轻量 metadata。
@@ -96,11 +111,13 @@ public struct StartRoundView: View {
     @State private var offlineCourseOptions: [MobileCourseOption] = []
     @State private var showingCourseSearch = false
     @State private var isLoadingTees = false
-    @State private var teeLoadFailed = false
+    @State private var teeLoadFailure: CourseTeeLoadFailure?
     @State private var isLoadingNearby = false
     @State private var nearbyStatusText: String?
     @State private var nearbyDiscoveryFailed = false
     @State private var nearbyRetryToken = 0
+    @State private var nearbyRefresh = NearbyDiscoveryRefreshState()
+    @State private var nearbyRefreshGeneration = 0
     @State private var announcedIntentKeys = Set<String>()
     @State private var teeRequestToken: UUID?
     @State private var nearbyRequestToken: UUID?
@@ -139,6 +156,7 @@ public struct StartRoundView: View {
         onClearBackendConfiguration: @escaping () -> Void = {},
         onConnectGarmin: @escaping () -> Void = {},
         onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
+        onCourseTeesFailure: @escaping (Int) async -> CourseTeeLoadFailure? = { _ in nil },
         onSearchCourses: @escaping (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _, _ in [] },
         onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
         onCourseIntent: @escaping ([MobileCourseOption], String) -> Void = { _, _ in },
@@ -194,6 +212,7 @@ public struct StartRoundView: View {
         self.onClearBackendConfiguration = onClearBackendConfiguration
         self.onConnectGarmin = onConnectGarmin
         self.onLoadCourseTees = onLoadCourseTees
+        self.onCourseTeesFailure = onCourseTeesFailure
         self.onSearchCourses = onSearchCourses
         self.onNearbyCourses = onNearbyCourses
         self.onCourseIntent = onCourseIntent
@@ -378,7 +397,28 @@ public struct StartRoundView: View {
             locationProvider.stopUpdatingLocation()
             cancelRoundStartFromExit()
         }
-        .task(id: nearbyDiscoveryTaskKey) { await discoverNearbyCourses() }
+        .onChange(of: locationDiscoveryKey) { _, _ in
+            nearbyLocationChanged()
+        }
+        .onChange(of: selectedCourseWasManualSearch) { _, selected in
+            if selected { nearbyRefresh.selectManual() } else { nearbyRefresh.clearManual() }
+        }
+        .task(id: nearbyRetryToken) {
+            if nearbyRetryToken == 0 { nearbyLocationChanged() }
+            else { applyNearbyRefreshAction(nearbyRefresh.retry(now: Date())) }
+        }
+        .task(id: nearbyRefreshGeneration) {
+            guard nearbyRefresh.inFlight != nil else { return }
+            await discoverNearbyCourses()
+        }
+        .task(id: nearbyRefresh.scheduledAt) {
+            guard let deadline = nearbyRefresh.scheduledAt else { return }
+            do {
+                try await Task.sleep(nanoseconds: UInt64(max(0, deadline.timeIntervalSinceNow) * 1_000_000_000))
+            } catch { return }
+            guard !Task.isCancelled else { return }
+            applyNearbyRefreshAction(nearbyRefresh.timerFired(now: Date()))
+        }
         // Start the lookup when setup is visible. Automatic selection on the course list must not
         // consume the loading/retry state before the player opens the Tee picker.
         .task(id: Self.teeLookupKey(page: page, globalIdText: courseGlobalIdText)) {
@@ -671,9 +711,10 @@ public struct StartRoundView: View {
         teeRequestToken = requestToken
         guard let globalId = courseGlobalId else {
             isLoadingTees = false
-            teeLoadFailed = false
+            teeLoadFailure = nil
             return
         }
+        var requestFailed = false
         guard let tees = await Self.courseTeeRows(
             globalId: globalId,
             carried: carriedCourseTees,
@@ -681,10 +722,22 @@ public struct StartRoundView: View {
                 if teeRequestToken == requestToken { isLoadingTees = loading }
             },
             setFailed: { failed in
-                if teeRequestToken == requestToken { teeLoadFailed = failed }
+                requestFailed = failed
+                if teeRequestToken == requestToken, !failed { teeLoadFailure = nil }
             },
             request: { await requestTees(globalId: $0, requestToken: requestToken) }
-        ) else { return }
+        ) else {
+            guard requestFailed, !Task.isCancelled,
+                  teeRequestToken == requestToken, courseGlobalId == globalId else { return }
+            let failure = await onCourseTeesFailure(globalId) ?? .unavailable
+            guard !Task.isCancelled, teeRequestToken == requestToken,
+                  courseGlobalId == globalId else { return }
+            teeLoadFailure = failure
+            return
+        }
+        guard !Task.isCancelled, teeRequestToken == requestToken,
+              courseGlobalId == globalId else { return }
+        teeLoadFailure = nil
         fetchedTees = tees
         let pickedTee = userPickedTee ? teeBox : nil
         let caller = (preselectedVenueOptions + courseLookupOptions).first { $0.globalId == callerCourseGlobalId }
@@ -807,7 +860,7 @@ public struct StartRoundView: View {
         // loading gate, even when SwiftUI invokes this setter during catalogue refresh.
         selectedCourseWasManualSearch = retainsManualSearch
         fetchedTees = []
-        teeLoadFailed = false
+        teeLoadFailure = nil
         applySelectedCourse(first)
     }
 
@@ -1375,7 +1428,7 @@ public struct StartRoundView: View {
             state: .init(
                 selection: .init(globalIdText: courseGlobalIdText, roundId: roundId, teeBox: teeBox),
                 userPickedTee: userPickedTee,
-                fetchedTees: fetchedTees, teeLoadFailed: teeLoadFailed
+                fetchedTees: fetchedTees, teeLoadFailed: teeLoadFailure != nil
             ),
             lastUsedTee: Self.lastUsedTeeForCourse(
                 for: first, recent: recentCourseOption,
@@ -1388,7 +1441,7 @@ public struct StartRoundView: View {
         teeBox = state.selection.teeBox
         userPickedTee = state.userPickedTee
         fetchedTees = state.fetchedTees
-        teeLoadFailed = state.teeLoadFailed
+        teeLoadFailure = state.teeLoadFailed ? (teeLoadFailure ?? .timedOut) : nil
         showSetupPage()
     }
 
@@ -1524,7 +1577,7 @@ public struct StartRoundView: View {
             next: segment
         )
         fetchedTees = []
-        teeLoadFailed = false
+        teeLoadFailure = nil
         applySelectedCourse(segment)
     }
 
@@ -1594,18 +1647,23 @@ public struct StartRoundView: View {
             }
             if Self.showsTeeRetry(
                 requiresRemoteTees: selectedCourseRequiresRemoteTees,
-                teeLoadFailed: teeLoadFailed,
+                teeLoadFailed: teeLoadFailure != nil,
                 fetchedTees: fetchedTees,
                 courseTees: selectedCourseTeeNames
             ) {
                 HStack(spacing: 12) {
+                    if let teeLoadFailure {
+                        Text(teeLoadFailure.presentationMessage)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .accessibilityIdentifier("start-round-course-tees-error")
+                    }
                     Button {
                         Task { await loadTees() }
                     } label: {
                         Label("重试获取发球台", systemImage: "arrow.clockwise")
-                            .labelStyle(.iconOnly)
                             .font(.title3.weight(.semibold))
-                            .frame(width: 44, height: 44)
+                            .frame(minHeight: 44)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(LiveHoleStyle.green)
@@ -1629,6 +1687,10 @@ public struct StartRoundView: View {
         courseTees: [String]
     ) -> Bool {
         teeLoadFailed && fetchedTees.isEmpty
+    }
+
+    static func teeLoadFailureMessage(_ failure: CourseTeeLoadFailure) -> String {
+        failure.presentationMessage
     }
 
     private func teeChip(_ tee: String) -> some View {
@@ -2433,7 +2495,7 @@ public struct StartRoundView: View {
         if !isSameCourse {
             fetchedTees = []
             teeBox = ""
-            teeLoadFailed = false
+            teeLoadFailure = nil
         }
         // Apply the resolved option directly. State writes are coalesced by SwiftUI, so looking
         // the option up again immediately after assigning remoteCourseOptions can observe the
@@ -2538,11 +2600,6 @@ public struct StartRoundView: View {
             latitude: coordinate.latitude,
             longitude: coordinate.longitude
         )
-    }
-
-    /// A retry changes the task identity even when the GPS bucket is unchanged.
-    private var nearbyDiscoveryTaskKey: String {
-        "\(locationDiscoveryKey)#retry-\(nearbyRetryToken)"
     }
 
     /// Nearby discovery starts with a 5 km query, then expands when too few venues are visible.
@@ -2734,10 +2791,18 @@ public struct StartRoundView: View {
         currentRequestKey: String,
         manualSearchSelected: Bool
     ) -> Bool {
-        !isCancelled
+        _ = requestKey
+        _ = currentRequestKey
+        return !isCancelled
             && activeRequestToken == requestToken
-            && currentRequestKey == requestKey
             && !manualSearchSelected
+    }
+
+    static func nearbyAutomaticRefreshDelay(
+        lastRefreshAt: Date?, now: Date, minimumInterval: TimeInterval = 60
+    ) -> TimeInterval {
+        guard let lastRefreshAt else { return 0 }
+        return max(0, minimumInterval - now.timeIntervalSince(lastRefreshAt))
     }
 
     /// Nearby selection must compare physical venues, because one venue can expose several global
@@ -2858,10 +2923,39 @@ public struct StartRoundView: View {
         ))
     }
 
+    private func applyNearbyRefreshAction(_ action: NearbyDiscoveryRefreshState.Action) {
+        if case .start = action { nearbyRefreshGeneration &+= 1 }
+    }
+
+    private func nearbyLocationChanged() {
+        guard !selectedCourseWasManualSearch else { return }
+        let bucket = locationProvider.latestFix == nil ? nil : locationDiscoveryKey
+        applyNearbyRefreshAction(nearbyRefresh.locationChanged(bucket, now: Date()))
+        if bucket == nil { updateNearbyLocationUnavailable() }
+    }
+
+    private func updateNearbyLocationUnavailable() {
+        reduceNearbyDiscoveryState(.locationUnavailable)
+        offlineCourseOptions = resolvedOfflineOptions(downloadedCourseOptions)
+        nearbyDiscoveryFailed = false
+        isLoadingNearby = locationProvider.authorizationStatus == .notDetermined
+            || locationProvider.authorizationStatus == .authorizedAlways
+            || locationProvider.authorizationStatus == .authorizedWhenInUse
+        nearbyStatusText = locationProvider.authorizationStatus == .denied
+            || locationProvider.authorizationStatus == .restricted
+            ? "定位权限未开启；可以直接按城市或球场名搜索。"
+            : nil
+    }
+
     @MainActor
     private func discoverNearbyCourses() async {
         let requestToken = UUID()
         nearbyRequestToken = requestToken
+        defer {
+            if nearbyRequestToken == requestToken, !Task.isCancelled {
+                applyNearbyRefreshAction(nearbyRefresh.finished(now: Date()))
+            }
+        }
         // Once the player has chosen a manual search result, nearby discovery is background noise.
         // Do not let a new GPS bucket or a late transport failure overwrite that explicit choice.
         guard !selectedCourseWasManualSearch else {
@@ -2869,16 +2963,7 @@ public struct StartRoundView: View {
             return
         }
         guard let fix = locationProvider.latestFix else {
-            reduceNearbyDiscoveryState(.locationUnavailable)
-            offlineCourseOptions = resolvedOfflineOptions(downloadedCourseOptions)
-            nearbyDiscoveryFailed = false
-            isLoadingNearby = locationProvider.authorizationStatus == .notDetermined
-                || locationProvider.authorizationStatus == .authorizedAlways
-                || locationProvider.authorizationStatus == .authorizedWhenInUse
-            nearbyStatusText = locationProvider.authorizationStatus == .denied
-                || locationProvider.authorizationStatus == .restricted
-                ? "定位权限未开启；可以直接按城市或球场名搜索。"
-                : nil
+            updateNearbyLocationUnavailable()
             return
         }
         let localNearby = Self.locallyAvailableNearbyCourses(
@@ -2952,7 +3037,7 @@ public struct StartRoundView: View {
         roundId = defaultRoundId
         teeBox = ""
         fetchedTees = []
-        teeLoadFailed = false
+        teeLoadFailure = nil
         selectedCourseWasManualSearch = false
     }
 
@@ -2963,5 +3048,66 @@ public struct StartRoundView: View {
             catalogue: courseOptions.first { $0.globalId == match.globalId },
             downloaded: downloadedCourseOptions.first { $0.globalId == match.globalId }
         )
+    }
+}
+
+/// J4.1: one in-flight lookup, one pending destination, and one automatic refresh per minute.
+/// Supplying `now` makes all trigger and throttle decisions independent of wall-clock sleeps.
+struct NearbyDiscoveryRefreshState {
+    enum Action: Equatable { case none, start(String), schedule(Date) }
+    private(set) var inFlight: String?
+    private(set) var latest: String?
+    private(set) var lastAutomaticStart: Date?
+    private(set) var scheduledAt: Date?
+    private(set) var manualSelection = false
+
+    mutating func locationChanged(_ bucket: String?, now: Date) -> Action {
+        let previous = latest
+        latest = bucket
+        guard !manualSelection, inFlight == nil else { return .none }
+        guard let bucket else { scheduledAt = nil; return .none }
+        guard bucket != previous else { return .none }
+        // Permission/GPS arrival must not wait behind an earlier automatic lookup.
+        if previous == nil {
+            scheduledAt = nil
+            inFlight = bucket
+            lastAutomaticStart = now
+            return .start(bucket)
+        }
+        if scheduledAt != nil { return .none }
+        return due(now: now)
+    }
+    mutating func retry(now: Date) -> Action {
+        scheduledAt = nil
+        guard !manualSelection, let latest else { return .none }
+        inFlight = latest
+        return .start(latest)
+    }
+    mutating func finished(now: Date) -> Action {
+        let completed = inFlight
+        inFlight = nil
+        guard latest != completed else { return .none }
+        return due(now: now)
+    }
+    mutating func timerFired(now: Date) -> Action {
+        guard scheduledAt != nil else { return .none }
+        scheduledAt = nil
+        return due(now: now)
+    }
+    /// The in-flight lookup's result is discarded once a manual result is chosen, so it no longer blocks refreshes.
+    mutating func selectManual() { manualSelection = true; scheduledAt = nil; inFlight = nil }
+    /// Leaving a manual search result (picking a nearby row, resetting) restores retry and movement refreshes.
+    mutating func clearManual() { manualSelection = false }
+    private mutating func due(now: Date) -> Action {
+        guard !manualSelection, inFlight == nil, let latest else { return .none }
+        if let lastAutomaticStart, now.timeIntervalSince(lastAutomaticStart) < 60 {
+            let deadline = lastAutomaticStart.addingTimeInterval(60)
+            scheduledAt = deadline
+            return .schedule(deadline)
+        }
+        inFlight = latest
+        lastAutomaticStart = now
+        scheduledAt = nil
+        return .start(latest)
     }
 }

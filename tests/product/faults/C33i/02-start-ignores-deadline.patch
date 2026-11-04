@@ -1,15 +1,17 @@
+diff --git a/mobile/ios/AICaddie/Services/SyncClient.swift b/mobile/ios/AICaddie/Services/SyncClient.swift
+index 6ae28f97..9362971b 100644
 --- a/mobile/ios/AICaddie/Services/SyncClient.swift
 +++ b/mobile/ios/AICaddie/Services/SyncClient.swift
-@@ -587,7 +587,7 @@
-                 return data
+@@ -873,7 +873,7 @@ public final class SyncClient {
              }
              group.addTask {
--                try await Task.sleep(nanoseconds: UInt64(self.roundStartTimeoutInterval * 1_000_000_000))
-+                try await Task.sleep(nanoseconds: UInt64(30_000_000_000))
+                 let timeout = timeoutInterval ?? self.roundStartTimeoutInterval
+-                try await self.roundStartDeadlineSleep(UInt64(max(0.001, timeout) * 1_000_000_000))
++                try await self.roundStartDeadlineSleep(30_000_000_000)
                  throw URLError(.timedOut)
              }
              defer { group.cancelAll() }
-@@ -617,7 +617,7 @@
+@@ -903,7 +903,7 @@ public final class SyncClient {
          }
          applyAuth(to: &request)
          if foregroundStart {

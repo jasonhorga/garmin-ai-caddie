@@ -191,6 +191,7 @@ public struct AICaddieApp: App {
                             }
                         },
                         onLoadCourseTees: { globalId in await model.loadCourseTees(globalId: globalId) },
+                        onCourseTeesFailure: { globalId in model.courseTeesFailures[globalId] },
                         onSearchCourses: { name, city, latitude, longitude in
                             try await model.searchCourses(
                                 name: name,
@@ -353,8 +354,15 @@ public enum RoundStartFailure: Equatable {
 }
 
 public enum RoundStartProgress {
+    public static func remainingSeconds(after elapsed: TimeInterval) -> Int {
+        max(0, Int(ceil(LiveRoundAppModel.roundStartForegroundTimeoutInterval - elapsed)))
+    }
+
     public static func message(after elapsed: TimeInterval) -> String? {
-        if elapsed >= 20 { return "服务器还在准备，最多再等十几秒" }
+        if elapsed >= 20 {
+            let remaining = remainingSeconds(after: elapsed)
+            return "服务器还在准备，最多再等 \(remaining) 秒"
+        }
         if elapsed >= 8 { return "服务器在准备球场，稍等…" }
         return nil
     }
@@ -703,8 +711,14 @@ public final class LiveRoundAppModel: ObservableObject {
     /// keeps the handle so the explicit cancel action can stop the whole start operation.
     public func startCourseRound(roundId: String, teeBox: String, loops: [RoundLoopEntry]) {
         activeRoundStartTask?.cancel()
+        let foregroundDeadline = roundStartNow().addingTimeInterval(Self.roundStartForegroundTimeoutInterval)
         activeRoundStartTask = Task { @MainActor [weak self] in
-            await self?.prepareCourseRound(roundId: roundId, teeBox: teeBox, loops: loops)
+            await self?.prepareCourseRound(
+                roundId: roundId,
+                teeBox: teeBox,
+                loops: loops,
+                foregroundDeadline: foregroundDeadline
+            )
         }
     }
 
@@ -900,6 +914,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// never overlaps one: live Native 37729778000 showed the home's 在这个球场 prefetch holding the
     /// 开始一场 Tee request for 90 s, so Start never enabled.
     private var foregroundCourseRequestCount = 0
+    var courseTeesFailures: [Int: CourseTeeLoadFailure] = [:]
     private var resultsCacheRefreshTask: Task<Void, Never>?
     private var lastResultsCacheRefreshAt: Date?
     /// Bumped whenever a running refresh is abandoned (a foreground request, a round start, a Garmin
@@ -1053,6 +1068,7 @@ public final class LiveRoundAppModel: ObservableObject {
     private let preferredRoundId: String?
     private let offlineGeometryRetryDelaysNanoseconds: [UInt64]
     public nonisolated static let defaultRoundStartIntentWaitNanoseconds: UInt64 = 30_000_000_000
+    public nonisolated static let roundStartForegroundTimeoutInterval: TimeInterval = 30
     private let roundStartIntentWaitNanoseconds: UInt64
     /// C85 开局两段: the wait before each attempt of the background personal package after a
     /// map-only start. The attempts end with the list; the next foreground starts them again.
@@ -2058,7 +2074,12 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Start a round on ordered loops (B4b-2): one entry for a nine-hole start (`G:all`, or
     /// `G:front` / `G:back` of an 18-hole course), two for a full round in play order. The same
     /// round id re-prepares that round (e.g. after a failed start) and keeps its identity.
-    public func prepareCourseRound(roundId: String, teeBox: String, loops: [RoundLoopEntry]) async {
+    public func prepareCourseRound(
+        roundId: String,
+        teeBox: String,
+        loops: [RoundLoopEntry],
+        foregroundDeadline: Date? = nil
+    ) async {
         guard let globalId = loops.first?.globalId else {
             syncStatus = "无法开始这一场,请重试"
             return
@@ -2082,12 +2103,14 @@ public final class LiveRoundAppModel: ObservableObject {
             globalId: globalId, roundId: effectiveRoundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt
         ))
         await prepareCourseRound(
-            globalId: globalId, roundId: effectiveRoundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt
+            globalId: globalId, roundId: effectiveRoundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt,
+            foregroundDeadline: foregroundDeadline ?? roundStartNow().addingTimeInterval(Self.roundStartForegroundTimeoutInterval)
         )
     }
 
     private func prepareCourseRound(
-        globalId: Int, roundId: String, teeBox: String, loops: [RoundLoopEntry], capturedAt: Date
+        globalId: Int, roundId: String, teeBox: String, loops: [RoundLoopEntry], capturedAt: Date,
+        foregroundDeadline: Date? = nil
     ) async {
         let requestedRoundId = roundId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !requestedRoundId.isEmpty,
@@ -2097,6 +2120,7 @@ public final class LiveRoundAppModel: ObservableObject {
             return
         }
         let loopKey = RoundLoopEntry.loopKey(loops)
+        let foregroundDeadline = foregroundDeadline ?? roundStartNow().addingTimeInterval(Self.roundStartForegroundTimeoutInterval)
         recordUITestLatency(
             "course-start.begin globalId=\(globalId) loops=\(loopKey) tee=\(teeBox)"
         )
@@ -2150,7 +2174,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     teeBox: teeBox,
                     roundId: requestedRoundId,
                     generatedAt: preparedAt,
-                    preparationToken: preparationToken
+                    preparationToken: preparationToken,
+                    deadline: foregroundDeadline
                 )
                 intentTimedOut = intent.timedOut
                 fetched = intent.package
@@ -2166,7 +2191,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     loops: loops,
                     capturedAt: preparedAt,
                     preparationToken: preparationToken,
-                    mapOnly: isNewRound
+                    mapOnly: isNewRound,
+                    foregroundTimeoutInterval: max(0.001, foregroundDeadline.timeIntervalSince(roundStartNow()))
                 )
             }
             recordUITestLatency(
@@ -2344,15 +2370,26 @@ public final class LiveRoundAppModel: ObservableObject {
         teeBox: String,
         roundId: String,
         generatedAt: Date,
-        preparationToken: UUID
+        preparationToken: UUID,
+        deadline: Date? = nil
     ) async -> (package: LiveRoundPackage?, timedOut: Bool) {
+        let deadline = deadline ?? roundStartNow().addingTimeInterval(Self.roundStartForegroundTimeoutInterval)
         let key = PrepCourseDownloadRecord.intentKey(globalId: globalId, teeBox: teeBox)
         if let cached = intentPrefetchPackages[key] {
             return (cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt), false)
         }
         guard let task = intentPrefetchTasks[key] else { return (nil, false) }
         do {
-            let waitNanoseconds = roundStartIntentWaitNanoseconds
+            let remaining = deadline.timeIntervalSince(roundStartNow())
+            guard remaining > 0 else {
+                roundStartFailure = .timedOut
+                syncStatus = roundStartFailure?.presentationMessage ?? "服务器较慢，没能开始，点重试"
+                return (nil, true)
+            }
+            let waitNanoseconds = min(
+                roundStartIntentWaitNanoseconds,
+                UInt64(max(0.001, remaining) * 1_000_000_000)
+            )
             let race = IntentPrefetchWaitRace<LiveRoundPackage>()
             let cached = try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation {
@@ -5028,6 +5065,8 @@ public final class LiveRoundAppModel: ObservableObject {
         hole: Int?
     ) -> Bool {
         guard liveRoundState == nil else { return false }
+        // J4.2: one tap-time deadline covers the intent wait and the map-only fallback.
+        let foregroundDeadline = roundStartNow().addingTimeInterval(Self.roundStartForegroundTimeoutInterval)
         prepOpenGeneration &+= 1
         let generation = prepOpenGeneration
         activeRoundStartTask?.cancel()
@@ -5076,7 +5115,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     teeBox: teeBox,
                     roundId: roundId,
                     generatedAt: capturedAt,
-                    preparationToken: preparationToken
+                    preparationToken: preparationToken,
+                    deadline: foregroundDeadline
                 )
                 self.recordRoundStartStep("startPrepCourse.intent-return timedOut=\(intent.timedOut) found=\(intent.package != nil)", token: preparationToken)
                 if intent.timedOut { return }
@@ -5092,7 +5132,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     capturedAt: capturedAt,
                     preparationToken: preparationToken,
                     priorityHole: hole ?? 1,
-                    mapOnly: true
+                    mapOnly: true,
+                    foregroundTimeoutInterval: max(0.001, foregroundDeadline.timeIntervalSince(self.roundStartNow()))
                 )
                 self.recordRoundStartStep("startPrepCourse.map-request-return found=\(opened != nil)", token: preparationToken)
 #if DEBUG
@@ -6503,7 +6544,8 @@ public final class LiveRoundAppModel: ObservableObject {
         capturedAt: Date = Date(),
         preparationToken: UUID? = nil,
         priorityHole: Int? = nil,
-        mapOnly: Bool = false
+        mapOnly: Bool = false,
+        foregroundTimeoutInterval: TimeInterval? = nil
     ) async -> LiveRoundPackage? {
         #if DEBUG
         // Native UI coverage can hold the same foreground request long enough to exercise the
@@ -6549,7 +6591,7 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             // A newly generated round has no server events yet. Replay/ACK owns recovery later;
             // scanning the owner's historical event log here only delays the first-hole screen.
-            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, mapOnly: mapOnly, includeEventCursor: false, foregroundStart: preparationToken != nil, priorityHole: priorityHole)
+            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, mapOnly: mapOnly, includeEventCursor: false, foregroundStart: preparationToken != nil, foregroundTimeoutInterval: foregroundTimeoutInterval, priorityHole: priorityHole)
         } catch {
             if Task.isCancelled
                 || error is CancellationError
@@ -7797,14 +7839,17 @@ public final class LiveRoundAppModel: ObservableObject {
     /// retain their bundled names. The picker treats [] as a failed refresh and offers retry,
     /// including recent courses whose teeBox only records the last-used selection.
     public func loadCourseTees(globalId: Int) async -> [CourseTee] {
+        courseTeesFailures[globalId] = nil
         beginForegroundCourseRequest()
         defer { endForegroundCourseRequest() }
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            courseTeesFailures[globalId] = .unavailable
             return []
         }
         // Exercise /tees failure with catalogue and nearby still online, as on a slow course release.
         if ProcessInfo.processInfo.environment["UITEST_FORCE_COURSE_TEES_FAILURE"] == "1" {
+            courseTeesFailures[globalId] = .unavailable
             return []
         }
         // Deterministic regression seam for the exact cold-release race: while Tee authority is in
@@ -7815,10 +7860,14 @@ public final class LiveRoundAppModel: ObservableObject {
             try? await Task.sleep(nanoseconds: delayMS * 1_000_000)
         }
         #endif
-        guard let syncClient else { return [] }
+        guard let syncClient else {
+            courseTeesFailures[globalId] = .unavailable
+            return []
+        }
         do {
             return try await syncClient.fetchCourseTees(globalId: globalId).tees
         } catch {
+            courseTeesFailures[globalId] = (error as? URLError)?.code == .timedOut ? .timedOut : .unavailable
             invalidateAppleSessionIfNeeded(error)
             AICaddieLog.network.error("Course tees fetch failed (preserving current course state): \(String(describing: error), privacy: .public)")
             return []

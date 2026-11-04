@@ -417,7 +417,7 @@ final class C33StartTests: XCTestCase {
                 sawEight = true
                 eight.fulfill()
             }
-            if message == "服务器还在准备，最多再等十几秒" {
+            if message == "服务器还在准备，最多再等 10 秒" {
                 sawTwenty = true
                 twenty.fulfill()
             }

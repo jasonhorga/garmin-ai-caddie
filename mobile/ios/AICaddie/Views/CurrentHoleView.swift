@@ -278,8 +278,23 @@ enum LiveHolePrepProbe {
         fetch: () async -> CoursePrepHole?,
         publishInterim: (CoursePrepHole) async -> Void,
         wait: (UInt64) async throws -> Void,
-        nowEpoch: () -> Double = { Date().timeIntervalSince1970 }
+        nowEpoch: () -> Double = { Date().timeIntervalSince1970 },
+        timeoutSeconds: UInt64? = nil,
+        timeoutSleep: @escaping (UInt64) async throws -> Void = { seconds in
+            try await Task.sleep(nanoseconds: seconds * 1_000_000_000)
+        },
+        onTimeout: @escaping () -> Void = {}
     ) async -> CoursePrepHole? {
+        let timeoutTask: Task<Void, Never>? = timeoutSeconds.map { seconds in
+            Task {
+                do {
+                    try await timeoutSleep(seconds)
+                    guard !Task.isCancelled else { return }
+                    onTimeout()
+                } catch { return }
+            }
+        }
+        defer { timeoutTask?.cancel() }
         var delaySeconds = firstDelaySeconds
         while !Task.isCancelled {
             do { try await wait(delaySeconds) } catch { return nil }
@@ -4993,14 +5008,8 @@ public struct CurrentHoleView: View {
         // hole responsive with a short first probe, then back off (LiveHolePrepProbe): a cold
         // course's geometry can take minutes, and the hole being played should still switch to its
         // precise map when it lands. Leaving the hole cancels this.
-        let deadline = Date().addingTimeInterval(30)
         let ready = await LiveHolePrepProbe.run(
             fetch: {
-                if !preciseMapTimedOut, Date() >= deadline {
-                    // Stop presenting the lightweight route as pending after a bounded wait, so the
-                    // player is never held behind a spinner, but keep probing.
-                    preciseMapTimedOut = true
-                }
                 return try? await client.fetchHolePrep(
                     globalId: mapGlobalId,
                     localHole: mapLocalHole,
@@ -5026,7 +5035,9 @@ public struct CurrentHoleView: View {
                     isActive: { liveSceneIsActive },
                     sleep: { try await Task.sleep(nanoseconds: $0 * 1_000_000_000) }
                 )
-            }
+            },
+            timeoutSeconds: 30,
+            onTimeout: { preciseMapTimedOut = true }
         )
         guard let ready else {
             // A failed obstacle export ends the wait: the row on screen is the hole's final map.

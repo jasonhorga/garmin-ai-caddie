@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 3654aa3e..f807aed5 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -3095,7 +3095,7 @@ struct NearbyDiscoveryRefreshState {
+         return due(now: now)
+     }
+     /// The in-flight lookup's result is discarded once a manual result is chosen, so it no longer blocks refreshes.
+-    mutating func selectManual() { manualSelection = true; scheduledAt = nil; inFlight = nil }
++    mutating func selectManual() { manualSelection = true; scheduledAt = nil }
+     /// Leaving a manual search result (picking a nearby row, resetting) restores retry and movement refreshes.
+     mutating func clearManual() { manualSelection = false }
+     private mutating func due(now: Date) -> Action {

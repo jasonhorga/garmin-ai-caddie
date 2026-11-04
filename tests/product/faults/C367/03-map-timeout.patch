@@ -1,0 +1,21 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+index e3192e0f..3c01e1db 100644
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -285,16 +285,6 @@ enum LiveHolePrepProbe {
+         },
+         onTimeout: @escaping () -> Void = {}
+     ) async -> CoursePrepHole? {
+-        let timeoutTask: Task<Void, Never>? = timeoutSeconds.map { seconds in
+-            Task {
+-                do {
+-                    try await timeoutSleep(seconds)
+-                    guard !Task.isCancelled else { return }
+-                    onTimeout()
+-                } catch { return }
+-            }
+-        }
+-        defer { timeoutTask?.cancel() }
+         var delaySeconds = firstDelaySeconds
+         while !Task.isCancelled {
+             do { try await wait(delaySeconds) } catch { return nil }

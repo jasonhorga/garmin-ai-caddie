@@ -79,6 +79,8 @@ final class ProductPhoneUITests: XCTestCase {
         XCTAssertTrue(retryRow.waitForExistence(timeout: 15))
         retryRow.tap()
         XCTAssertTrue(element("start-round-retry-course-tees").waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["重试获取发球台"].waitForExistence(timeout: 5), "J4.2 retry is visible, not only an accessibility label")
+        XCTAssertTrue(app.staticTexts["网络不可用，发球台没拿到；可先用球场默认 T 开始"].waitForExistence(timeout: 5))
         XCTAssertTrue(element("start-round-tee-blue").waitForExistence(timeout: 5), "known Tee stays visible after failure")
         XCTAssertEqual(element("start-round-tee-blue").value as? String, "已选择")
         XCTAssertTrue(element("start-round-primary-action").isEnabled, "known Tee remains startable after failure")
