@@ -286,6 +286,28 @@ class MacRunnerJobsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return _command_file(Path(self.env['GITHUB_ENV']))
 
+    def test_quick_build_and_watch_use_real_runner_owned_selection(self):
+        # C372: executing the actual quick shell with the real selector must create owned
+        # devices despite shared exact-model devices already being available.
+        self.fake_tool('xcodebuild', 'exit 0')
+        values = {'CADDIE_SIM_PREFIX': 'runner-one'}
+        selected = []
+        for name, platform, suffix in (
+            ('Build iOS tests while prebooting simulator', 'iOS', 'iphone'),
+            ('Test Watch unit target when affected', 'watchOS', 'watch'),
+        ):
+            step = self.mobile_step(name, job='native-quick')
+            result = self.shell(step['run'] + '\nwait\n', **values)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            values.update(_command_file(Path(self.env['GITHUB_ENV'])))
+            selected.append('created-runner-one-' + suffix)
+            self.assertEqual(values['NATIVE_QUICK_' + ('IOS' if platform == 'iOS' else 'WATCH') + '_UDID'], selected[-1])
+        calls = self.calls()
+        self.assertCountEqual([['simctl', 'boot', udid] for udid in selected],
+                              [row for row in calls if row[:2] == ['simctl', 'boot']])
+        self.assertEqual(values['CADDIE_SIM_UDIDS'].split(), selected)
+        self.assertFalse([row for row in calls if row[:2] == ['simctl', 'shutdown'] and row[2] not in selected])
+
     def test_runner_ports_are_distinct_and_hosted_retains_9000(self):
         # C307 card gives these exact reserved assignments, independent of job/run IDs.
         for runner, port in [('caddie-mba', '9001'), ('caddie-mba-2', '9002'), ('caddie-mba-3', '9003')]:

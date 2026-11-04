@@ -50,6 +50,7 @@ on:
       - '.github/scripts/select-sim.sh'
       - '.github/scripts/set-sim-locale.py'
       - '.github/scripts/shutdown-owned-sims.sh'
+      - '.github/scripts/runner-sim-cleanup.sh'
       - '.github/scripts/check_native_fixture_dns.py'
       - '.github/scripts/scan_artifacts_for_secrets.py'
       - '.github/scripts/test-retry-transient-command.sh'
@@ -98,6 +99,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - &runner_sim_cleanup_start
+        name: Clean up runner simulator state
+        run: bash .github/scripts/runner-sim-cleanup.sh
       - name: Detect Watch-related changes
         id: watch_changes
         env:
@@ -120,17 +124,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p native-quick-results
-          IOS_UDID=$(xcrun simctl list devices available -j | jq -r '
-            . as $inventory
-            | [["iPhone 17"] | to_entries[] as $preferred
-              | $inventory.devices | to_entries[]
-              | select(.key | contains("SimRuntime.iOS-"))
-              | .key as $runtime
-              | .value[]
-              | select(.isAvailable == true and .name == $preferred.value)
-              | {udid: .udid, priority: $preferred.key,
-                 version: ($runtime | split("-")[1:] | map(tonumber))}]
-            | sort_by([-.priority, .version]) | last | .udid // empty')
+          : "${CADDIE_SIM_PREFIX:?runner simulator prefix is required}"
+          IOS_UDID=$(bash .github/scripts/select-sim.sh ios)
           test -n "$IOS_UDID"
           echo "NATIVE_QUICK_IOS_UDID=$IOS_UDID" >> "$GITHUB_ENV"
           # Do not wait for boot/data migration until compilation has finished.
@@ -173,17 +168,8 @@ jobs:
         if: ${{ !cancelled() && steps.quick_build.outcome == 'success' && steps.watch_changes.outputs.needed == 'true' && steps.quick_products.outputs.ready == 'true' }}
         run: |
           set -euo pipefail
-          WATCH_UDID=$(xcrun simctl list devices available -j | jq -r '
-            . as $inventory
-            | [["Apple Watch Series 12 (46mm)"] | to_entries[] as $preferred
-              | $inventory.devices | to_entries[]
-              | select(.key | contains("SimRuntime.watchOS-"))
-              | .key as $runtime
-              | .value[]
-              | select(.isAvailable == true and .name == $preferred.value)
-              | {udid: .udid, priority: $preferred.key,
-                 version: ($runtime | split("-")[1:] | map(tonumber))}]
-            | sort_by([-.priority, .version]) | last | .udid // empty')
+          : "${CADDIE_SIM_PREFIX:?runner simulator prefix is required}"
+          WATCH_UDID=$(bash .github/scripts/select-sim.sh watch)
           test -n "$WATCH_UDID"
           echo "NATIVE_QUICK_WATCH_UDID=$WATCH_UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$WATCH_UDID" > native-quick-results/watch-boot.log 2>&1 &
@@ -223,12 +209,11 @@ jobs:
           if-no-files-found: warn
       - name: Shut down quick simulators on self-hosted runner
         if: ${{ always() && runner.environment == 'self-hosted' }}
-        run: |
-          for udid in "${NATIVE_QUICK_IOS_UDID:-}" "${NATIVE_QUICK_WATCH_UDID:-}"; do
-            if [ -n "$udid" ]; then
-              xcrun simctl shutdown "$udid" || true
-            fi
-          done
+        run: bash .github/scripts/shutdown-owned-sims.sh
+      - &runner_sim_cleanup_end
+        name: Clean up runner simulator state
+        if: ${{ always() }}
+        run: bash .github/scripts/runner-sim-cleanup.sh
 
   # Live dispatch retains serial execution; fixture runners reuse the same launch and scan gates.
   native-live:
@@ -243,6 +228,7 @@ jobs:
       - *select_xcode_27
       - &actions_checkout_v4
         uses: actions/checkout@v4
+      - *runner_sim_cleanup_start
       - &select_fixture_port
         name: Select runner fixture port
         if: ${{ inputs.fixture_mode }}
@@ -673,7 +659,7 @@ jobs:
         id: real_ios_capture
         if: ${{ (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         # Leave fixture runners time to scan/upload diagnostics before their job cap.
-        timeout-minutes: ${{ inputs.fixture_mode && 45 || 90 }}
+        timeout-minutes: ${{ inputs.fixture_mode && (env.NATIVE_CAPTURE_SHARD == 'real-flow' && 45 || 35) || 90 }}
         env:
           # TEST_RUNNER_-prefixed vars are forwarded by xcodebuild into the UI-test runner environment
           # (the plain forms are a fallback in case they propagate too). The test reads both.
@@ -1064,141 +1050,14 @@ jobs:
         name: Shut down owned simulators
         if: ${{ always() && runner.environment == 'self-hosted' }}
         run: bash .github/scripts/shutdown-owned-sims.sh
-
-  # Four independent macOS runners; no cross-runner build transfer or fixture sharing.
-
-  native-unit-watch:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
-    runs-on: [self-hosted, caddie-mba]
-    timeout-minutes: 45
-    env:
-      NATIVE_CAPTURE_SHARD: unit-watch
-      NATIVE_ARTIFACT_SUFFIX: -unit-watch
-    steps:
-      - *select_xcode_27
-      - *actions_checkout_v4
-      - *select_fixture_port
-      - *test_transient_command_retry_gate
-      - *install_xcodegen
-      - *generate_native_project
-      - *select_job_simulators
-      - *show_simulator_inventory
-      - *install_uv_for_isolated_ci_fixture
-      - *start_isolated_ci_fixture
-      - *upload_fixture_startup_diagnostics
-      - *upload_fixture_startup_diagnostics_artifact
-      - *configure_live_native_auth
-      - *resolve_live_api_host_for_hosted_runners
-      - *validate_native_launch_prerequisites
-      - *validate_native_launch_environment_app_target
-      - *validate_native_launch_environment
-      - *test_ios_app_target
-      - *verify_swiftjcs_consumer_boundaries
-      - *collect_design_snapshots
-      - *scan_design_snapshots_for_secret_bytes
-      - *upload_design_snapshots
-      - *resolve_and_boot_watch_test_simulator
-      - *test_watch_app_target
-      - *j4_2_fixture_dns_gate_native_tests
-      - *collect_watch_design_snapshots
-      - *scan_watch_design_snapshots_for_secret_bytes
-      - *upload_watch_design_snapshots
-      - *real_watch_round_seed_and_restore_screenshots
-      - *scan_watch_runtime_screenshots_for_secret_bytes
-      - *upload_watch_real_screenshots
-      - name: Write native build evidence
-        if: ${{ always() && github.event.inputs.capture_scope != 'edit' }}
-        env:
-          NATIVE_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
-          IOS_TARGET_OUTCOME: ${{ steps.test_ios_app.outcome }}
-          IOS_CAPTURE_OUTCOME: ${{ steps.test_ios_app.outcome }}
-          WATCH_TEST_OUTCOME: ${{ steps.test_watch_app.outcome }}
-          FIXTURE_MODE: ${{ inputs.fixture_mode }}
-          FIXTURE_START_OUTCOME: ${{ steps.start_fixture.outcome }}
-          LAUNCH_VALIDATION_OUTCOME: ${{ steps.validate_native_launch_environment.outcome }}
-          LAUNCH_PREREQ_OUTCOME: ${{ steps.validate_native_launch_prereq.outcome }}
-        run: *write_native_build_evidence_script
-      - *scan_native_build_evidence_for_secret_bytes
-      - *upload_native_build_evidence
-      - *stop_isolated_ci_fixture
-      - *shutdown_owned_simulators
-
-  native-real-flow:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
-    runs-on: [self-hosted, caddie-mba]
-    timeout-minutes: 55
-    env:
-      NATIVE_CAPTURE_SHARD: real-flow
-      NATIVE_ARTIFACT_SUFFIX: -real-flow
-    steps:
-      - *select_xcode_27
-      - *actions_checkout_v4
-      - *select_fixture_port
-      - *test_transient_command_retry_gate
-      - *install_xcodegen
-      - *generate_native_project
-      - *select_job_simulators
-      - *show_simulator_inventory
-      - *install_uv_for_isolated_ci_fixture
-      - *start_isolated_ci_fixture
-      - *upload_fixture_startup_diagnostics
-      - *upload_fixture_startup_diagnostics_artifact
-      - *configure_live_native_auth
-      - *resolve_live_api_host_for_hosted_runners
-      - *validate_native_launch_prerequisites
-      - *validate_native_launch_environment_app_target
-      - *validate_native_launch_environment
-      - *preflight_live_course_discovery
-      - *real_simulator_screenshots_ios_xcuitest_against_live_backend
-      - *collect_real_screenshots
-      - *scan_real_native_evidence_for_secret_bytes
-      - *upload_real_screenshots
-      - *upload_real_video
-      - *remove_ui_test_app_data
-      - *stop_isolated_ci_fixture
-      - *shutdown_owned_simulators
-
-  native-screenshots:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
-    runs-on: [self-hosted, caddie-mba]
-    timeout-minutes: 55
-    env:
-      NATIVE_CAPTURE_SHARD: screenshots
-      NATIVE_ARTIFACT_SUFFIX: -screenshots
-    steps:
-      - *select_xcode_27
-      - *actions_checkout_v4
-      - *select_fixture_port
-      - *test_transient_command_retry_gate
-      - *install_xcodegen
-      - *generate_native_project
-      - *select_job_simulators
-      - *show_simulator_inventory
-      - *install_uv_for_isolated_ci_fixture
-      - *start_isolated_ci_fixture
-      - *upload_fixture_startup_diagnostics
-      - *upload_fixture_startup_diagnostics_artifact
-      - *configure_live_native_auth
-      - *resolve_live_api_host_for_hosted_runners
-      - *validate_native_launch_prerequisites
-      - *validate_native_launch_environment_app_target
-      - *validate_native_launch_environment
-      - *preflight_live_course_discovery
-      - *real_simulator_screenshots_ios_xcuitest_against_live_backend
-      - *collect_real_screenshots
-      - *scan_real_native_evidence_for_secret_bytes
-      - *upload_real_screenshots
-      - *upload_real_video
-      - *remove_ui_test_app_data
-      - *stop_isolated_ci_fixture
-      - *shutdown_owned_simulators
+      - *runner_sim_cleanup_end
 
   # C16e ProductPhoneUITests on its own runner. ProductFixtureServer binds the only fixture origin the
   # DEBUG app accepts (loopback ports 9000–9009, BackendConfigurationStore.normalizedAPIBaseURL), which
   # the job above gives to the Python fixture in fixture_mode. No Python fixture and no secrets here:
   # the tests launch the app with synthetic credentials against the in-process server.
   native-product-ui:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
     runs-on: [self-hosted, caddie-mba]
     # "Test iOS app target" (build + unit tests) took 12 min on run 40187234659. This scheme also
     # builds the UI-test bundle and then runs 13 serial tests with about 20 app launches, so about
@@ -1207,6 +1066,7 @@ jobs:
     steps:
       - *select_xcode_27
       - uses: actions/checkout@v4
+      - *runner_sim_cleanup_start
       - name: Select runner fixture port
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
@@ -1218,9 +1078,11 @@ jobs:
       - *select_job_simulators
       - name: Show simulator inventory
         run: xcrun simctl list devices available
-      - name: Prepare Product UI fixture port
+      - &product_ui_step_0
+        name: Prepare Product UI fixture port
         run: python3 .github/scripts/fixture-port.py prepare
-      - name: Resolve and boot iOS UI-test simulator
+      - &product_ui_step_1
+        name: Resolve and boot iOS UI-test simulator
         run: |
           set -eu
           UDID="$IOS_UDID"
@@ -1229,7 +1091,8 @@ jobs:
           echo "PRODUCT_UI_UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$UDID" -b
-      - name: Test Product UI tests
+      - &product_ui_step_2
+        name: Test Product UI tests
         id: product_ui_tests
         timeout-minutes: 35
         run: |
@@ -1258,7 +1121,8 @@ jobs:
               print(f"::error title=UI test failure::{name} :: {text}")' || true
           fi
           exit "$TEST_STATUS"
-      - name: Verify every Product UI test ran
+      - &product_ui_step_3
+        name: Verify every Product UI test ran
         if: ${{ always() && steps.product_ui_tests.outcome != 'skipped' }}
         run: |
           set -euo pipefail
@@ -1296,7 +1160,8 @@ jobs:
           if expected == 0 or len(ran) != expected or summary.get("skippedTests"):
               raise SystemExit("ProductPhoneUITests did not run every test method")
           PY
-      - name: J4.2 fixture DNS gate (Product UI tests)
+      - &product_ui_step_4
+        name: J4.2 fixture DNS gate (Product UI tests)
         if: ${{ always() && steps.product_ui_tests.outcome != 'skipped' }}
         run: |
           set -euo pipefail
@@ -1305,7 +1170,8 @@ jobs:
             exit 1
           }
           python3 .github/scripts/check_native_fixture_dns.py product-ui-results/xcodebuild.log
-      - name: Collect Product UI failure screenshots
+      - &product_ui_step_5
+        name: Collect Product UI failure screenshots
         if: ${{ failure() }}
         run: |
           mkdir -p product-ui-screenshots
@@ -1315,7 +1181,8 @@ jobs:
               --output-path product-ui-screenshots || true
           fi
           ls -la product-ui-screenshots || true
-      - name: Upload Product UI xcresult
+      - &product_ui_step_6
+        name: Upload Product UI xcresult
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
@@ -1323,7 +1190,8 @@ jobs:
           name: product-ui-xcresult
           path: product-ui-results/
           if-no-files-found: warn
-      - name: Upload Product UI screenshots
+      - &product_ui_step_7
+        name: Upload Product UI screenshots
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
@@ -1333,10 +1201,169 @@ jobs:
           if-no-files-found: warn
 
       - *shutdown_owned_simulators
+      - *runner_sim_cleanup_end
 
-      - name: Check Product UI fixture stopped
+      - &product_ui_step_8
+        name: Check Product UI fixture stopped
         if: ${{ always() && env.CADDIE_FIXTURE_PORT != '' }}
         run: python3 .github/scripts/fixture-port.py free
+
+
+  # Three Mac lanes run concurrently; Product UI follows the unit/watch lane to fit the runner pool.
+
+  native-unit-watch:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
+    runs-on: [self-hosted, caddie-mba]
+    timeout-minutes: 50
+    env:
+      NATIVE_CAPTURE_SHARD: unit-watch
+      NATIVE_ARTIFACT_SUFFIX: -unit-watch
+    steps:
+      - *select_xcode_27
+      - *actions_checkout_v4
+      - *runner_sim_cleanup_start
+      - *select_fixture_port
+      - *test_transient_command_retry_gate
+      - *install_xcodegen
+      - *generate_native_project
+      - *select_job_simulators
+      - *show_simulator_inventory
+      - *install_uv_for_isolated_ci_fixture
+      - *start_isolated_ci_fixture
+      - *upload_fixture_startup_diagnostics
+      - *upload_fixture_startup_diagnostics_artifact
+      - *configure_live_native_auth
+      - *resolve_live_api_host_for_hosted_runners
+      - *validate_native_launch_prerequisites
+      - *validate_native_launch_environment_app_target
+      - *validate_native_launch_environment
+      - *resolve_and_boot_watch_test_simulator
+      - <<: *test_watch_app_target
+        timeout-minutes: 7
+      - name: J4.2 fixture DNS gate (Watch tests)
+        if: ${{ always() && steps.test_watch_app.outcome != 'skipped' }}
+        run: |
+          set -euo pipefail
+          test -f native-mobile-results/watch-xcodebuild.log
+          python3 .github/scripts/check_native_fixture_dns.py native-mobile-results/watch-xcodebuild.log
+      - *collect_watch_design_snapshots
+      - *scan_watch_design_snapshots_for_secret_bytes
+      - *upload_watch_design_snapshots
+      - *real_watch_round_seed_and_restore_screenshots
+      - *scan_watch_runtime_screenshots_for_secret_bytes
+      - *upload_watch_real_screenshots
+      - name: Write native build evidence
+        if: ${{ always() && github.event.inputs.capture_scope != 'edit' }}
+        env:
+          NATIVE_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
+          IOS_TARGET_OUTCOME: skipped
+          IOS_CAPTURE_OUTCOME: skipped
+          WATCH_TEST_OUTCOME: ${{ steps.test_watch_app.outcome }}
+          FIXTURE_MODE: ${{ inputs.fixture_mode }}
+          FIXTURE_START_OUTCOME: ${{ steps.start_fixture.outcome }}
+          LAUNCH_VALIDATION_OUTCOME: ${{ steps.validate_native_launch_environment.outcome }}
+          LAUNCH_PREREQ_OUTCOME: ${{ steps.validate_native_launch_prereq.outcome }}
+        run: *write_native_build_evidence_script
+      - *scan_native_build_evidence_for_secret_bytes
+      - *upload_native_build_evidence
+      - *stop_isolated_ci_fixture
+      - *product_ui_step_0
+      - *product_ui_step_1
+      - *product_ui_step_2
+      - *product_ui_step_3
+      - *product_ui_step_4
+      - *product_ui_step_5
+      - *product_ui_step_6
+      - *product_ui_step_7
+      - *product_ui_step_8
+      - *shutdown_owned_simulators
+      - *runner_sim_cleanup_end
+
+  native-real-flow:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
+    runs-on: [self-hosted, caddie-mba]
+    timeout-minutes: 60
+    env:
+      NATIVE_CAPTURE_SHARD: real-flow
+      NATIVE_ARTIFACT_SUFFIX: -real-flow
+    steps:
+      - *select_xcode_27
+      - *actions_checkout_v4
+      - *runner_sim_cleanup_start
+      - *select_fixture_port
+      - *test_transient_command_retry_gate
+      - *install_xcodegen
+      - *generate_native_project
+      - *select_job_simulators
+      - *show_simulator_inventory
+      - *install_uv_for_isolated_ci_fixture
+      - *start_isolated_ci_fixture
+      - *upload_fixture_startup_diagnostics
+      - *upload_fixture_startup_diagnostics_artifact
+      - *configure_live_native_auth
+      - *resolve_live_api_host_for_hosted_runners
+      - *validate_native_launch_prerequisites
+      - *validate_native_launch_environment_app_target
+      - *validate_native_launch_environment
+      - <<: *test_ios_app_target
+        timeout-minutes: 10
+      - *verify_swiftjcs_consumer_boundaries
+      - *collect_design_snapshots
+      - *scan_design_snapshots_for_secret_bytes
+      - *upload_design_snapshots
+      - name: J4.2 fixture DNS gate (iOS tests)
+        if: ${{ always() && steps.test_ios_app.outcome != 'skipped' }}
+        run: |
+          set -euo pipefail
+          test -f native-mobile-results/ios-app-xcodebuild.log
+          python3 .github/scripts/check_native_fixture_dns.py native-mobile-results/ios-app-xcodebuild.log
+      - *preflight_live_course_discovery
+      - *real_simulator_screenshots_ios_xcuitest_against_live_backend
+      - *collect_real_screenshots
+      - *scan_real_native_evidence_for_secret_bytes
+      - *upload_real_screenshots
+      - *upload_real_video
+      - *remove_ui_test_app_data
+      - *stop_isolated_ci_fixture
+      - *shutdown_owned_simulators
+      - *runner_sim_cleanup_end
+
+  native-screenshots:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
+    runs-on: [self-hosted, caddie-mba]
+    timeout-minutes: 45
+    env:
+      NATIVE_CAPTURE_SHARD: screenshots
+      NATIVE_ARTIFACT_SUFFIX: -screenshots
+    steps:
+      - *select_xcode_27
+      - *actions_checkout_v4
+      - *runner_sim_cleanup_start
+      - *select_fixture_port
+      - *test_transient_command_retry_gate
+      - *install_xcodegen
+      - *generate_native_project
+      - *select_job_simulators
+      - *show_simulator_inventory
+      - *install_uv_for_isolated_ci_fixture
+      - *start_isolated_ci_fixture
+      - *upload_fixture_startup_diagnostics
+      - *upload_fixture_startup_diagnostics_artifact
+      - *configure_live_native_auth
+      - *resolve_live_api_host_for_hosted_runners
+      - *validate_native_launch_prerequisites
+      - *validate_native_launch_environment_app_target
+      - *validate_native_launch_environment
+      - *preflight_live_course_discovery
+      - *real_simulator_screenshots_ios_xcuitest_against_live_backend
+      - *collect_real_screenshots
+      - *scan_real_native_evidence_for_secret_bytes
+      - *upload_real_screenshots
+      - *upload_real_video
+      - *remove_ui_test_app_data
+      - *stop_isolated_ci_fixture
+      - *shutdown_owned_simulators
+      - *runner_sim_cleanup_end
 
   # Keep the public job conclusion and artifact names consumed by the project console.
   # This runner only combines already secret-scanned evidence; it never starts a simulator.
@@ -1362,7 +1389,7 @@ jobs:
           edit = os.environ['CAPTURE_SCOPE'] == 'edit'
           expected = ['native-screenshots'] if fixture else ['native-live']
           if fixture and not edit:
-              expected += ['native-product-ui', 'native-unit-watch', 'native-real-flow']
+              expected += ['native-unit-watch', 'native-real-flow']
           failures = {name: jobs[name]['result'] for name in expected
                       if jobs[name]['result'] != 'success'}
           print('Required native job conclusions:', {name: jobs[name]['result'] for name in expected})
@@ -1446,10 +1473,9 @@ jobs:
               raise SystemExit('Missing native build evidence from the unit runner')
           if not edit and stamp.is_file():
               evidence = json.loads(stamp.read_text())
-              if evidence['ios']['status'] == 'passed':
-                  results = [jobs[f'native-{shard}']['result'] for shard in shards]
-                  evidence['ios']['status'] = ('passed' if all(r == 'success' for r in results)
-                                               else 'failed' if 'failure' in results else 'skipped')
+              results = [jobs[f'native-{shard}']['result'] for shard in shards]
+              evidence['ios']['status'] = ('passed' if all(r == 'success' for r in results)
+                                           else 'failed' if 'failure' in results else 'skipped')
               output = Path('native-build-evidence-ci-fixture/native_build_evidence.json')
               output.parent.mkdir(exist_ok=True)
               output.write_text(json.dumps(evidence, indent=2, sort_keys=True) + '\n')
