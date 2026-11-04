@@ -1,0 +1,12 @@
+diff --git a/server_v2/garmin_raster.py b/server_v2/garmin_raster.py
+index 8232497f..c8cf7d41 100644
+--- a/server_v2/garmin_raster.py
++++ b/server_v2/garmin_raster.py
+@@ -97,6 +97,7 @@ def _cached_image(request: Request, global_id: int, hole: int, v: str | None, *,
+ 
+ 
+ def _cached_projection(global_id: int, hole: int) -> dict[str, Any] | None:
++    return None
+     version = _cached_asset_version(global_id, hole)
+     if not version:
+         return None

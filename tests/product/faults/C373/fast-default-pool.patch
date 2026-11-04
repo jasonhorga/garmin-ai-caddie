@@ -1,0 +1,13 @@
+diff --git a/server_v2/garmin_raster.py b/server_v2/garmin_raster.py
+index 8232497f..c80184da 100644
+--- a/server_v2/garmin_raster.py
++++ b/server_v2/garmin_raster.py
+@@ -59,7 +59,7 @@ def _http_limiters() -> tuple[anyio.CapacityLimiter, anyio.CapacityLimiter]:
+ 
+ async def _dispatch_raster(cached: Callable, slow: Callable, *args):
+     fast_limiter, slow_limiter = _http_limiters()
+-    result = await anyio.to_thread.run_sync(partial(cached, *args), limiter=fast_limiter)
++    result = await anyio.to_thread.run_sync(partial(cached, *args), limiter=anyio.to_thread.current_default_thread_limiter())
+     if result is not None:
+         return result
+     return await anyio.to_thread.run_sync(partial(slow, *args), limiter=slow_limiter)

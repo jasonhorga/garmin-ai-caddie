@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C373-cached-release-fetch",
+      "patch": "tests/product/faults/C373/cached-release-fetch.patch",
+      "kind": "python",
+      "target": "tests.product.test_garmin_raster_fast_lane.GarminRasterFastLaneTests.test_J42_cached_http_bypasses_stale_release_refresh_lock",
+      "promise": "J4.2",
+      "kills": "A cached raster/projection must bypass a held stale-release refresh lock."
+    },
+    {
+      "id": "C373-fast-default-pool",
+      "patch": "tests/product/faults/C373/fast-default-pool.patch",
+      "kind": "python",
+      "target": "tests.product.test_garmin_raster_fast_lane.GarminRasterFastLaneTests.test_J42_cached_http_bypasses_full_default_package_pool",
+      "promise": "J4.2",
+      "kills": "Cached HTTP must return in <1 s with the package default pool full."
+    },
+    {
+      "id": "C373-no-json-fast-lane",
+      "patch": "tests/product/faults/C373/no-json-fast-lane.patch",
+      "kind": "python",
+      "target": "tests.product.test_garmin_raster_fast_lane.GarminRasterFastLaneTests.test_J42_projection_cache_bypasses_registration_lock",
+      "promise": "J4.2",
+      "kills": "Projection hits must not wait for cold registration locks."
+    },
+    {
+      "id": "C373-slow-default-pool",
+      "patch": "tests/product/faults/C373/slow-default-pool.patch",
+      "kind": "python",
+      "target": "tests.product.test_garmin_raster_fast_lane.GarminRasterFastLaneTests.test_J42_cold_projection_completes_and_persists_with_default_pool_full",
+      "promise": "J4.2",
+      "kills": "Cold JSON must complete and save projection independently of the full default pool."
+    }
+  ]
+}

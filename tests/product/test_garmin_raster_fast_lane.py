@@ -224,7 +224,9 @@ class GarminRasterFastLaneTests(unittest.TestCase):
 
     def test_J42_cold_projection_completes_and_persists_with_default_pool_full(self):
         raster._projection_cache_path(GID, 1, "777").unlink()
-        with (patch.object(api, "_register_one", return_value=CACHED) as register,
+        with (patch.object(raster, "register_details", return_value=(PROJECTION, "H", None)) as register,
+              patch.object(raster, "load_mesh_geometry", return_value=({}, {})),
+              patch.object(api, "_authority_ready", return_value=True),
               TestClient(self.app) as client, ThreadPoolExecutor(max_workers=4) as pool):
             with self.occupied_default_pool(client, pool):
                 job = pool.submit(client.get, BASE)
