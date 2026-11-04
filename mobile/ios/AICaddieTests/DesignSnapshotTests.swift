@@ -1470,7 +1470,7 @@ final class DesignSnapshotTests: XCTestCase {
             scoring: courseScoring,
             topoURL: { ref in topoFiles["\(ref.globalId)-\(ref.localHole)"] }
         )
-        try captureScreen(NavigationStack { courseView }, named: "course-detail", settle: 2.0)
+        try captureScreen(NavigationStack { courseView }, named: "course-detail")
         // Degradation: a course without any topo keeps the ground-coloured cards and no backdrop.
         try captureScreen(
             NavigationStack { CourseStatsDetailView(course: course, scoring: courseScoring) },
@@ -1585,7 +1585,12 @@ final class DesignSnapshotTests: XCTestCase {
                 restore.cancel()
                 restoringSync.activate(playerId: nil, migrateLegacy: false)
             }
-            while restoringSync.restoreState != .restoring { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+            var restoreSteps = 0
+            while restoringSync.restoreState != .restoring && restoreSteps < 500 {
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+                restoreSteps += 1
+            }
+            XCTAssertEqual(restoringSync.restoreState, .restoring, "bag restore did not enter restoring state")
             XCTAssertFalse(restoringSync.canEdit)
             try captureScreen(
                 NavigationStack {
@@ -1612,7 +1617,12 @@ final class DesignSnapshotTests: XCTestCase {
             ClubBagStore.saveRealBag(bag)
             failedSync.configure(sender: { _, _ in }, fetcher: { _ in throw URLError(.notConnectedToInternet) })
             let failedRestore = Task { await failedSync.restoreFromServer() }
-            while failedSync.restoreState != .failed { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+            var failedSteps = 0
+            while failedSync.restoreState != .failed && failedSteps < 500 {
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+                failedSteps += 1
+            }
+            XCTAssertEqual(failedSync.restoreState, .failed, "bag restore did not reach failed state")
             _ = failedRestore
             XCTAssertFalse(failedSync.canEdit)
             try captureScreen(
@@ -2076,7 +2086,6 @@ final class DesignSnapshotTests: XCTestCase {
         _ view: some View,
         named name: String,
         dark: Bool = false,
-        settle: TimeInterval = 1.0,
         expectsPresentation: Bool = false
     ) throws -> Data {
         let size = CGSize(width: 390, height: 844)
@@ -2091,23 +2100,29 @@ final class DesignSnapshotTests: XCTestCase {
         window.makeKeyAndVisible()
         host.view.setNeedsLayout()
         host.view.layoutIfNeeded()
-        // Pump the runloop so SwiftUI commits its first render, then capture the layer tree
-        // (synchronous; works headless, unlike drawHierarchy(afterScreenUpdates:) which needs
-        // a live display and renders blank in CI).
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: settle))
-        host.view.layoutIfNeeded()
+        // Pump until two consecutive layer renders are byte-identical. This waits for actual
+        // SwiftUI layout/state completion instead of sleeping a fixed second per screen.
+        var stable = 0
+        var previous: Data?
+        var rendered: UIImage?
+        for _ in 0..<500 {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+            host.view.layoutIfNeeded()
+            let renderer = UIGraphicsImageRenderer(size: size)
+            let image = renderer.image { ctx in window.layer.render(in: ctx.cgContext) }
+            guard let pixels = image.cgImage?.dataProvider?.data else { continue }
+            let data = pixels as Data
+            rendered = image
+            if data == previous { stable += 1 } else { stable = 0 }
+            previous = data
+            if stable >= 2 && (!expectsPresentation || host.presentedViewController != nil) { break }
+        }
+        XCTAssertGreaterThanOrEqual(stable, 2, "\(name) did not reach a stable render")
         if expectsPresentation {
             // The capture must contain the screen's own sheet, not a standalone copy of its content.
             XCTAssertNotNil(host.presentedViewController, "\(name) presents the real sheet")
         }
-        let renderer = UIGraphicsImageRenderer(size: size)
-        let image = renderer.image { ctx in
-            window.layer.render(in: ctx.cgContext)
-        }
-        guard let data = image.pngData() else {
-            XCTFail("no png for \(name)")
-            return Data()
-        }
+        guard let data = rendered?.pngData() else { XCTFail("no png for \(name)"); return Data() }
         let dir = try FileManager.default
             .url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             .appendingPathComponent("design-snapshots", isDirectory: true)

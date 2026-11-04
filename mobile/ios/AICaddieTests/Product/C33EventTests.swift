@@ -903,7 +903,7 @@ final class C33EventTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = OfflineStore(directoryURL: directory)
         let session = C33URLProtocol.session()
-        let client = SyncClient(baseURL: URL(string: "https://c145-status.example.test")!, session: session)
+        let client = SyncClient(baseURL: URL(string: "https://c145-status.example.test")!, session: session, retrySleep: { _ in })
         let model = c33Model(store, client)
         let package = try c33Package()
         C33URLProtocol.setHandlers(onStart: { proto in
@@ -937,7 +937,7 @@ final class C33EventTests: XCTestCase {
         let store = OfflineStore(directoryURL: directory)
         let session = C33URLProtocol.session()
         let observer = C33NetworkObserver()
-        let client = SyncClient(baseURL: URL(string: "https://c145-sync.example.test")!, session: session)
+        let client = SyncClient(baseURL: URL(string: "https://c145-sync.example.test")!, session: session, retrySleep: { _ in })
         let model = LiveRoundAppModel(
             offlineStore: store, apiBaseURL: client.baseURL, watchBridge: nil,
             garminSessionStore: nil, syncClient: client,

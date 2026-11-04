@@ -2988,7 +2988,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let revision = "live-topo-retry-release"
         let png = minimalPNGData()
         // Leave just hole 9 missing. Its incremental pass and first topo-loop pass return 404,
-        // forcing the real live 5-second topo retry (independent of geometry retry injection).
+        // forcing the injected live 5-second topo retry (independent of geometry retry injection).
         for hole in online.holes where hole.number != 9 {
             _ = try store.saveCourseTopoImage(
                 png, globalId: hole.sourceGlobalId, localHole: hole.sourceLocalHole,
@@ -3052,12 +3052,15 @@ final class LiveRoundAppModelTests: XCTestCase {
             watchBridge: nil, garminSessionStore: nil, syncClient: client,
             offlineGeometryRetryDelaysNanoseconds: []
         )
+        var retryDelays: [UInt64] = []
+        model.prepTopoSleep = { retryDelays.append($0) }
         await model.prepareCourseRound(
             roundId: online.roundId, teeBox: online.course.teeBox, loops: online.loopEntries
         )
         model.liveHoleInitialLoadDidFinish()
         await model.waitForOfflineCourseDownloadForTesting()
 
+        XCTAssertEqual(retryDelays, [5_000_000_000], "J4.2 first live topo retry requests five seconds")
         XCTAssertEqual(model.liveRoundState?.roundId, online.roundId)
         XCTAssertEqual(requestLock.withLock { topoCount }, 3, "incremental 404 + topo pass 404 + live retry PNG")
         XCTAssertEqual(requestLock.withLock { statusCount }, 1, "only asset entry; live topo loops never probe status")

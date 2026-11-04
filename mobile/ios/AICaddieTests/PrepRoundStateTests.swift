@@ -153,17 +153,13 @@ final class PrepRoundStateTests: XCTestCase {
         )
 
         XCTAssertTrue(model.openPrepCourse(course, hole: 5))
-        for _ in 0..<100 where model.prepPackage == nil {
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
+        await model.waitForPrepOpenForTesting()
         XCTAssertNotNil(model.prepPackage)
         XCTAssertEqual(lock.withLock { priorities }, [5])
 
         model.prioritizePrepHole(6)
         model.prioritizePrepHole(6)
-        for _ in 0..<100 where lock.withLock({ priorities.count }) < 2 {
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
+        await model.waitForPrepPriorityForTesting()
         XCTAssertEqual(lock.withLock { priorities }, [5, 6])
         model.closePrepMode()
         await model.cancelPrepCourseDownloadForTesting()
@@ -244,9 +240,7 @@ final class PrepRoundStateTests: XCTestCase {
         let key = PrepCourseDownloadRecord.key(globalId: course.globalId, teeBox: course.teeBox ?? "blue")
         XCTAssertTrue(model.downloadedCourseKeys.contains(key))
         XCTAssertTrue(model.openPrepCourse(course, hole: 5))
-        for _ in 0..<100 where model.prepPackage == nil {
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
+        await model.waitForPrepOpenForTesting()
         let openedRoundID = try XCTUnwrap(model.prepPackage?.roundId)
         model.prioritizePrepHole(6)
         try await Task.sleep(nanoseconds: 20_000_000)

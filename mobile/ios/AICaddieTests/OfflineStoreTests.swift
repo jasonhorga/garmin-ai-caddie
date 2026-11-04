@@ -1,4 +1,5 @@
 import XCTest
+import Darwin
 @testable import AICaddie
 
 private func makeCustomAnchoredOfflineStore(
@@ -1536,24 +1537,29 @@ final class OfflineStoreTests: XCTestCase {
             ]
         )
 
-        // Fastest of up to 3 runs, each in a fresh store: a real regression is slow every time,
-        // while a CI simulator stall (seen at 1.5-14 s, C52) lands on only one of them.
-        var fastest = TimeInterval.infinity
-        for _ in 0..<3 where fastest >= 2.0 {
+        // Thread CPU time excludes simulator descheduling under load while retaining the synchronous
+        // append/reload regression signal for club selection.
+        var fastestCPU = TimeInterval.infinity
+        for _ in 0..<3 where fastestCPU >= 2.0 {
             let directory = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString, isDirectory: true)
             defer { try? FileManager.default.removeItem(at: directory) }
             let store = OfflineStore(directoryURL: directory)
-            let startedAt = ProcessInfo.processInfo.systemUptime
+            var started = timespec()
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &started)
             try store.appendEvent(event)
             let reloaded = try store.loadEvents()
-            fastest = min(fastest, ProcessInfo.processInfo.systemUptime - startedAt)
+            var ended = timespec()
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ended)
+            let elapsedCPU = TimeInterval(ended.tv_sec - started.tv_sec)
+                + TimeInterval(ended.tv_nsec - started.tv_nsec) / 1_000_000_000
+            fastestCPU = min(fastestCPU, elapsedCPU)
             XCTAssertEqual(reloaded, [event])
         }
         XCTAssertLessThan(
-            fastest,
+            fastestCPU,
             2.0,
-            "club selection persisted and reloaded in \(fastest)s at best; this runs synchronously on tap"
+            "club selection persisted and reloaded in \(fastestCPU)s thread CPU time; this runs synchronously on tap"
         )
     }
 

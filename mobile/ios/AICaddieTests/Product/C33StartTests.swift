@@ -57,6 +57,47 @@ final class C33StartTests: XCTestCase {
         XCTAssertTrue(SharedTopoURLProtocol.records().urls.contains(url))
     }
 
+    /// J4.5: a failed topo stays neutral until the 0/5/15-second retry sequence succeeds.
+    /// The injected download and sleep advance all three attempts without wall-clock waiting.
+    func testProductSpec45TopoRetriesInOrderAndDrainsTheActualPrefetch() async throws {
+        let url = try XCTUnwrap(URL(string: "https://topo-retries.example.test/topo.png"))
+        var attempts = 0
+        var delays: [UInt64] = []
+        TopoHoleImageStore.imageDataForTesting = { requested in
+            XCTAssertEqual(requested, url)
+            attempts += 1
+            return attempts == 3 ? validOnePixelPNGData() : nil
+        }
+        TopoHoleImageStore.retrySleepForTesting = { delays.append($0) }
+        TopoHoleImageStore.prefetch(url)
+        await TopoHoleImageStore.waitForPrefetchCompletionForTesting()
+        XCTAssertEqual(attempts, 3, "initial request plus two topo retries")
+        XCTAssertEqual(delays, [5_000_000_000, 15_000_000_000], "topo retry order is 0/5/15 seconds")
+        XCTAssertTrue(TopoHoleImageStore.isMemoryCached(url), "drain completes only after the final PNG is cached")
+        // This request used the injected downloader and is intentionally absent from URLProtocol.
+    }
+
+    /// J4.5: resetting a fixture cancels the outer retry sleeper as well as its inner download.
+    func testProductSpec45ResetCancelsAnEnsureLoadedRetrySleeper() async throws {
+        let url = try XCTUnwrap(URL(string: "https://topo-reset.example.test/topo.png"))
+        let sleeping = expectation(description: "first topo retry reached injected sleeper")
+        let gate = C33StartSleepGate()
+        var attempts = 0
+        TopoHoleImageStore.imageDataForTesting = { _ in attempts += 1; return nil }
+        TopoHoleImageStore.retrySleepForTesting = { _ in
+            sleeping.fulfill()
+            await gate.wait()
+        }
+        let load = Task { await TopoHoleImageStore.ensureLoaded(url) }
+        await fulfillment(of: [sleeping], timeout: eventWait)
+        TopoHoleImageStore.resetForUITesting()
+        await gate.release()
+        let loaded = await load.value
+        XCTAssertFalse(loaded)
+        XCTAssertEqual(attempts, 1, "reset must stop the retry chain before a second request")
+        await TopoHoleImageStore.waitForPrefetchCompletionForTesting()
+    }
+
     func testStartCancelsPreviousCourseAndSendsWithoutWaitingForIt() async throws {
         let host = "c33.example.test"
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -176,6 +217,9 @@ final class C33StartTests: XCTestCase {
             baseURL: URL(string: "https://\(host)")!, session: session,
             roundStartTimeoutInterval: 0.2
         )
+        let deadlineGate = C33RetrySleepGate()
+        client.roundStartDeadlineSleep = { _ in try await deadlineGate.wait() }
+
         let sent = expectation(description: "round package request held")
         let sentOnce = C33FirstMatch()
         let timeoutLock = NSLock()
@@ -186,7 +230,7 @@ final class C33StartTests: XCTestCase {
                 proto.reply(404); return
             }
             timeoutLock.lock(); requestTimeout = proto.request.timeoutInterval; timeoutLock.unlock()
-            if sentOnce.claim() { sent.fulfill() } // Intentionally never reply.
+            if sentOnce.claim() { sent.fulfill(); Task { await deadlineGate.release() } } // Intentionally never reply.
         })
         defer { client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.setHandlers(onStart: nil) }
         let failed = expectation(description: "resumed start failed within its budget")
@@ -198,9 +242,7 @@ final class C33StartTests: XCTestCase {
             failed.fulfill()
         }
         defer { resume.cancel() }
-        // Resuming a round by id is a foreground start too: the same short total budget applies. The
-        // request is never answered, so only the injected 0.2 s budget can end it within the wait;
-        // a 30 s deadline or a longer request timeout cannot.
+        // The real request callback advances the injected deadline; no wall-clock timer ends it.
         await fulfillment(of: [sent, failed], timeout: eventWait)
         timeoutLock.lock(); let timeout = requestTimeout; timeoutLock.unlock()
         XCTAssertLessThanOrEqual(try XCTUnwrap(timeout), 30)
@@ -208,7 +250,7 @@ final class C33StartTests: XCTestCase {
 
     func testUserDownloadAndWatchStartSurviveForegroundStartCancellation() async throws {
         let session = C33URLProtocol.session()
-        let client = SyncClient(baseURL: URL(string: "https://c33-kinds.example.test")!, session: session)
+        let client = SyncClient(baseURL: URL(string: "https://c33-kinds.example.test")!, session: session, retrySleep: { _ in })
         let owner = UUID(); client.beginRoundStart(owner)
         let sent = expectation(description: "non-background requests sent")
         let requestLock = NSLock()
@@ -255,6 +297,9 @@ final class C33StartTests: XCTestCase {
             baseURL: URL(string: "https://\(host)")!, session: session,
             roundStartTimeoutInterval: 0.05
         )
+        let deadlineGate = C33RetrySleepGate()
+        client.roundStartDeadlineSleep = { _ in try await deadlineGate.wait() }
+
         let model = c33Model(OfflineStore(directoryURL: directory), client)
         // Only the held start request drives `stopped`. Requests that complete normally (this
         // model's other 404s, or strays from earlier tests) also call stopLoading.
@@ -270,7 +315,7 @@ final class C33StartTests: XCTestCase {
             let first = heldURL == nil
             if first { heldURL = proto.request.url }
             heldLock.unlock()
-            if first { sent.fulfill() } // Intentionally never reply.
+            if first { sent.fulfill(); Task { await deadlineGate.release() } } // Intentionally never reply.
         }, onStop: { request in
             heldLock.lock(); let held = heldURL; heldLock.unlock()
             guard let held, request.url == held else { return }
@@ -286,9 +331,7 @@ final class C33StartTests: XCTestCase {
             roundId: "c33-timeout", teeBox: "blue", loops: [.init(globalId: 32850, half: "all")]
         ) }
         defer { start.cancel() }
-        // The 30 s budget itself is the `timeoutInterval` asserted on the request above. Here the
-        // injected 0.05 s budget must end the never-answered request: without a total budget it would
-        // hang for the 120 s package timeout, and a hard-coded 30 s would also miss this wait.
+        // The request's real callback advances the virtual deadline and cancels the held request.
         await fulfillment(of: [sent, stopped, failed], timeout: eventWait)
         await start.value
         XCTAssertFalse(model.isPreparingRound)
@@ -322,6 +365,9 @@ final class C33StartTests: XCTestCase {
             baseURL: URL(string: "https://\(host)")!, session: session,
             roundStartTimeoutInterval: 1
         )
+        let deadlineGate = C33RetrySleepGate()
+        client.roundStartDeadlineSleep = { _ in try await deadlineGate.wait() }
+
         let model = LiveRoundAppModel(
             offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: client.baseURL,
             watchBridge: nil, garminSessionStore: nil, syncClient: client,
@@ -338,6 +384,7 @@ final class C33StartTests: XCTestCase {
             lock.lock(); requests.append(proto.request); let count = requests.count; lock.unlock()
             if count == 1 {
                 firstSent.fulfill()
+                Task { await deadlineGate.release() }
             } else if count == 2 {
                 proto.reply(503)
             } else {
@@ -449,6 +496,9 @@ final class C33StartTests: XCTestCase {
             baseURL: URL(string: "https://\(host)")!, session: session,
             roundStartTimeoutInterval: 0.05
         )
+        let deadlineGate = C33RetrySleepGate()
+        client.roundStartDeadlineSleep = { _ in try await deadlineGate.wait() }
+
         let model = c33Model(OfflineStore(directoryURL: directory), client)
         let sent = expectation(description: "prep package start reached server")
         let sentOnce = C33FirstMatch()
@@ -457,7 +507,7 @@ final class C33StartTests: XCTestCase {
                   proto.request.url?.path.contains("/api/v2/mobile/courses/32850/package") == true else {
                 proto.reply(404); return
             }
-            if sentOnce.claim() { sent.fulfill() } // Intentionally never reply: the injected foreground budget must end it.
+            if sentOnce.claim() { sent.fulfill(); Task { await deadlineGate.release() } } // Intentionally never reply: the injected foreground budget must end it.
         })
         defer {
             client.invalidateForTesting(); session.invalidateAndCancel()
