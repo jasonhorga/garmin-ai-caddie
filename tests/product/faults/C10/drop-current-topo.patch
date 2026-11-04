@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/ops/retention.py b/ai_caddie/ops/retention.py
+index 2a71cd69..d3f840a0 100644
+--- a/ai_caddie/ops/retention.py
++++ b/ai_caddie/ops/retention.py
+@@ -50,7 +50,7 @@ def _clean_topo_cache(cache_root: Path, *, remove_empty: bool = False) -> None:
+     # Only the current renderer version is ever read or written (``topo_render.cache_dir``);
+     # older versions that the API still accepts as a request parameter are served from it too,
+     # so their on-disk PNGs are dead weight (C374: topo-v11 held 1.4G a week after v12 shipped).
+-    current = topo_render.STYLE_VERSION
++    current = None
+     try:
+         entries = sorted(cache_root.rglob("*"), key=lambda path: len(path.parts), reverse=True)
+     except OSError:

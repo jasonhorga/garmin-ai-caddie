@@ -47,7 +47,10 @@ def _style_version(relative_path: Path) -> str | None:
 def _clean_topo_cache(cache_root: Path, *, remove_empty: bool = False) -> None:
     if not cache_root.is_dir():
         return
-    supported = topo_render.SUPPORTED_STYLE_VERSIONS
+    # Only the current renderer version is ever read or written (``topo_render.cache_dir``);
+    # older versions that the API still accepts as a request parameter are served from it too,
+    # so their on-disk PNGs are dead weight (C374: topo-v11 held 1.4G a week after v12 shipped).
+    current = topo_render.STYLE_VERSION
     try:
         entries = sorted(cache_root.rglob("*"), key=lambda path: len(path.parts), reverse=True)
     except OSError:
@@ -59,13 +62,13 @@ def _clean_topo_cache(cache_root: Path, *, remove_empty: bool = False) -> None:
             relative = path.relative_to(cache_root)
             version = _style_version(relative)
             if path.is_file() or path.is_symlink():
-                if version is not None and version not in supported:
+                if version is not None and version != current:
                     path.unlink()
             elif path.is_dir() and _STYLE_VERSION_RE.fullmatch(path.name):
                 # Remove an expired version directory only after recognized files have gone.
                 # Its generated detail trees can be empty but have arbitrary names, so drain
                 # those empty directories before removing the version root.
-                if version is not None and version not in supported:
+                if version is not None and version != current:
                     expired_versions.append(path)
         except OSError:
             logger.warning("retention could not remove topo cache entry", exc_info=True)

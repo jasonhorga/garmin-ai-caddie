@@ -19,8 +19,8 @@
       "id": "tests-product-faults-C293-N3-supported-empty-directories",
       "patch": "tests/product/faults/C293/N3-supported-empty-directories.patch",
       "kind": "python",
-      "target": "tests.test_retention.PrivateVolumeRetentionTests.test_G2_supported_topo_versions_preserve_empty_directories",
-      "promise": "G2: supported topo versions preserve empty roots and nested directories"
+      "target": "tests.test_retention.PrivateVolumeRetentionTests.test_G2_current_topo_version_preserves_empty_directories",
+      "promise": "G2: the current topo version preserves empty roots and nested directories"
     }
   ]
 }
