@@ -1441,7 +1441,7 @@ public struct StartRoundView: View {
         teeBox = state.selection.teeBox
         userPickedTee = state.userPickedTee
         fetchedTees = state.fetchedTees
-        teeLoadFailure = state.teeLoadFailed ? .timedOut : nil
+        teeLoadFailure = state.teeLoadFailed ? (teeLoadFailure ?? .timedOut) : nil
         showSetupPage()
     }
 
@@ -3094,7 +3094,8 @@ struct NearbyDiscoveryRefreshState {
         scheduledAt = nil
         return due(now: now)
     }
-    mutating func selectManual() { manualSelection = true; scheduledAt = nil }
+    /// The in-flight lookup's result is discarded once a manual result is chosen, so it no longer blocks refreshes.
+    mutating func selectManual() { manualSelection = true; scheduledAt = nil; inFlight = nil }
     /// Leaving a manual search result (picking a nearby row, resetting) restores retry and movement refreshes.
     mutating func clearManual() { manualSelection = false }
     private mutating func due(now: Date) -> Action {

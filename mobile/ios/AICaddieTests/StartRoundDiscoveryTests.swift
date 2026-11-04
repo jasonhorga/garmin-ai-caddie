@@ -711,6 +711,17 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(state.locationChanged("moved", now: now.addingTimeInterval(120)), .start("moved"))
     }
 
+    /// J4.1: choosing a manual result while a nearby lookup is held, then returning to nearby,
+    /// still refreshes on movement (the discarded lookup never reports finished).
+    func testJ41ManualSearchDuringHeldLookupDoesNotBlockLaterRefresh() {
+        var state = NearbyDiscoveryRefreshState()
+        let now = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(state.locationChanged("first", now: now), .start("first"))
+        state.selectManual()
+        state.clearManual()
+        XCTAssertEqual(state.locationChanged("moved", now: now.addingTimeInterval(120)), .start("moved"))
+    }
+
     /// J4.2/C134: the slow-start explanation and the primary button share one busy state.
     func testRoundStartProgressAndButtonUseOneBusyState() {
         XCTAssertEqual(

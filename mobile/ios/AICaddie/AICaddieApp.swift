@@ -5082,6 +5082,8 @@ public final class LiveRoundAppModel: ObservableObject {
             globalId: course.globalId, teeBox: teeBox
         )
         let preparationToken = beginRoundPreparation()
+        // J4.2: one tap-time deadline covers the intent wait and the map-only fallback.
+        let foregroundDeadline = roundStartNow().addingTimeInterval(Self.roundStartForegroundTimeoutInterval)
         // Raise the foreground gate first: the independent durable download is queued without
         // creating a worker that beginRoundPreparation would immediately cancel.
         downloadPrepCourse(course)
@@ -5113,7 +5115,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     teeBox: teeBox,
                     roundId: roundId,
                     generatedAt: capturedAt,
-                    preparationToken: preparationToken
+                    preparationToken: preparationToken,
+                    deadline: foregroundDeadline
                 )
                 self.recordRoundStartStep("startPrepCourse.intent-return timedOut=\(intent.timedOut) found=\(intent.package != nil)", token: preparationToken)
                 if intent.timedOut { return }
@@ -5129,7 +5132,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     capturedAt: capturedAt,
                     preparationToken: preparationToken,
                     priorityHole: hole ?? 1,
-                    mapOnly: true
+                    mapOnly: true,
+                    foregroundTimeoutInterval: max(0.001, foregroundDeadline.timeIntervalSince(self.roundStartNow()))
                 )
                 self.recordRoundStartStep("startPrepCourse.map-request-return found=\(opened != nil)", token: preparationToken)
 #if DEBUG

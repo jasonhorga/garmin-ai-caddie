@@ -421,6 +421,45 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertNil(model.pendingLiveHole)
     }
 
+    /// J4.2/W2 (default 开始 → 备战 path): the same single 30-second budget as a loop start.
+    /// The fallback transport never answers; only its deadline can end Start.
+    func testJ42PrepStartIntentFailureAndHeldFallbackShareThirtySecondDeadline() async throws {
+        let clock = C367StartClock()
+        let held = C85HeldRequests()
+        let intentSent = expectation(description: "intent held")
+        let fallbackSent = expectation(description: "fallback held forever")
+        let fallbackGate = C90RequestGate()
+        let once = C33FirstMatch()
+        let requests = C85RequestLog()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            requests.append(proto.request)
+            held.hold(proto)
+            if once.claim() { intentSent.fulfill() } else { fallbackSent.fulfill(); Task { await fallbackGate.release() } }
+        }, onStop: { held.forget($0) })
+        let fixture = makeModel(host: "prep-start-budget.example.test", held: held, roundStartNow: { clock.now })
+        fixture.client.roundStartDeadlineSleep = { nanoseconds in
+            await fallbackGate.wait()
+            clock.advance(by: Double(nanoseconds) / 1_000_000_000)
+        }
+        let model = fixture.model
+        let course = MobileCourseOption(globalId: c85CourseId, name: "Intent nine", holes: 9, teeBox: "blue")
+        model.prefetchIntendedCourses([course], teeBox: "blue")
+        await fulfillment(of: [intentSent], timeout: eventWait)
+        model.roundStartIntentWaitDidBeginForTesting = {
+            clock.advance(by: 25)
+            // A permanent intent error at controlled t=25; no transport retry.
+            held.releaseAll(400)
+        }
+        XCTAssertTrue(model.openPrepCourse(course))
+        await model.activeRoundStartTaskForTesting?.value
+        await fulfillment(of: [fallbackSent], timeout: eventWait)
+        XCTAssertEqual(requests.all.count, 2)
+        XCTAssertEqual(model.roundStartFailure, .timedOut)
+        // J4.2 promises 30 s from Start, tolerance at most 1 s (not 25 + another 30).
+        XCTAssertEqual(clock.elapsed, 30, accuracy: 1, "J4.2: intent and fallback share the tap-time deadline")
+        XCTAssertNil(model.pendingLiveHole)
+    }
+
     func testCompletedCourseIntentIsReusedByStart() async throws {
         let host = "c85-intent-complete.example.test"
         let roundId = "c85-intent-complete"
