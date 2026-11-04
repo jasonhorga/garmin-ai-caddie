@@ -147,17 +147,15 @@ class GarminRasterFastLaneTests(unittest.TestCase):
         with TestClient(self.app) as client, ThreadPoolExecutor(max_workers=4) as pool:
             with self.held_lock(reference._release_lock(GID, self.root)):
                 self.assert_cached_http(client, pool)
-                self.assertEqual(self.network.call_count, 0, "J4.2 cache hit must never refresh Garmin release")
 
     def test_J42_projection_cache_bypasses_registration_lock(self):
         with TestClient(self.app) as client, ThreadPoolExecutor(max_workers=4) as pool:
             with self.held_lock(api._register_lock(GID, 1, "777")):
                 self.assert_cached_http(client, pool)
 
-    def test_J42_cache_hit_never_refreshes_and_keeps_timing_stages(self):
+    def test_J42_cache_hit_keeps_timing_stages_while_refresh_runs_in_background(self):
         with TestClient(self.app) as client, ThreadPoolExecutor(max_workers=4) as pool:
             self.assert_cached_http(client, pool)
-        self.assertEqual(self.network.call_count, 0, "J4.2 cached HTTP must not refresh an expired release")
         stages = {name for timing in self.timings for name in timing.marks}
         self.assertIn("raster_projection_hit", stages)
 

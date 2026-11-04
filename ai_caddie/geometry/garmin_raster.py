@@ -155,6 +155,15 @@ def raster_asset_version(global_id: int, hole: object, *, allow_fetch: bool = Tr
     return version if url else None
 
 
+def raster_release_refresh_due(global_id: int, hole: object) -> bool:
+    """Return whether the cached release is past its refresh age without fetching it."""
+    try:
+        info, _ = _release_hole(int(global_id), hole, allow_fetch=False)
+        return bool(info and info.get("_refresh_due"))
+    except Exception:
+        return False
+
+
 def raster_image_version(asset: str) -> str:
     """The WebP's version: Garmin's asset version plus the sky matte that produced the pixels."""
     return f"{asset}-{RASTER_MATTE_VERSION}"
