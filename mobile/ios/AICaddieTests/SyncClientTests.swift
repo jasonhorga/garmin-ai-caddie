@@ -266,6 +266,170 @@ final class SyncClientTests: XCTestCase {
         XCTAssertNotNil(headers["X-AI-Caddie-Request-ID"])
     }
 
+    private enum TimingUploadFailure {
+        case transport(URLError.Code)
+        case status(Int)
+    }
+
+    private func waitForTimingUploads(_ capture: LockedTimingCapture, count: Int) async throws {
+        for _ in 0..<40 where capture.counts().uploads < count {
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        // Let the store finish requeueing before the caller asserts or records again.
+        try await Task.sleep(nanoseconds: 50_000_000)
+    }
+
+    /// First upload fails transiently; a foreground start holds the retry; after it ends the
+    /// next window resends the same records without changing the business request count.
+    private func assertTransientUploadKeepsBatch(
+        _ failure: TimingUploadFailure,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
+        let session = URLSession(configuration: configuration)
+        let capture = LockedTimingCapture()
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-prep-v1","globalId":31870,"holeCount":0,"clubs":[],"holes":[]}"#.utf8
+        )
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.path == "/api/v2/mobile/client-timing" {
+                capture.recordUpload(body: try CapturingURLProtocol.requestBodyData(from: request), headers: request.allHTTPHeaderFields ?? [:])
+                if capture.counts().uploads == 1 {
+                    switch failure {
+                    case .transport(let code):
+                        throw URLError(code)
+                    case .status(let code):
+                        return (HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: nil)!, Data())
+                    }
+                }
+                return (HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(#"{"accepted":11,"rejected":0}"#.utf8))
+            }
+            capture.recordBusiness()
+            return (HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let clock = LockedTimingClock(100)
+        let store = ClientTimingStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("c368-retry-\(UUID().uuidString).jsonl"), now: { clock.now() })
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")), session: session,
+            retrySleep: { _ in }, monotonicNow: { clock.now() }, timingStore: store
+        )
+        for _ in 0..<10 { _ = try await client.fetchCoursePrep(globalId: 31870, render: false) }
+        try await waitForTimingUploads(capture, count: 1)
+        XCTAssertEqual(capture.counts().uploads, 1, "the tenth record starts one upload", file: file, line: line)
+
+        let owner = UUID()
+        client.beginRoundStart(owner)
+        clock.advance(by: 61)
+        _ = try await client.fetchCoursePrep(globalId: 31870, render: false)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(capture.counts().uploads, 1, "no retry while a start is running", file: file, line: line)
+
+        client.endRoundStart(owner)
+        try await waitForTimingUploads(capture, count: 2)
+        let counts = capture.counts()
+        XCTAssertEqual(counts.uploads, 2, "the failed batch is retried in the next window", file: file, line: line)
+        XCTAssertEqual(counts.business, 11, "diagnostics never add or remove business requests", file: file, line: line)
+        let bodies = capture.uploadBodies
+        guard bodies.count >= 2 else { return }
+        let first = try XCTUnwrap(JSONSerialization.jsonObject(with: bodies[0]) as? [[String: Any]], file: file, line: line)
+        let second = try XCTUnwrap(JSONSerialization.jsonObject(with: bodies[1]) as? [[String: Any]], file: file, line: line)
+        let firstIds = first.compactMap { $0["request_id"] as? String }
+        XCTAssertEqual(firstIds.count, 10, file: file, line: line)
+        XCTAssertEqual(Array(second.compactMap { $0["request_id"] as? String }.prefix(10)), firstIds, file: file, line: line)
+    }
+
+    /// Product spec 8.4: a timed-out upload keeps the same batch for the next window.
+    func testProductSpec84TransientUploadRetriesSameBatch() async throws {
+        try await assertTransientUploadKeepsBatch(.transport(.timedOut))
+    }
+
+    /// Product spec 8.4: a server 5xx is transient, so the batch is retried.
+    func testProductSpec84ServerErrorUploadRetriesSameBatch() async throws {
+        try await assertTransientUploadKeepsBatch(.status(503))
+    }
+
+    /// Product spec 8.4: a 499 (client disconnect recorded by the server) is retried, not dropped.
+    func testProductSpec84ClientDisconnectUploadRetriesSameBatch() async throws {
+        try await assertTransientUploadKeepsBatch(.status(499))
+    }
+
+    /// Product spec 8.4: an explicit 4xx rejection drops diagnostics without retrying.
+    func testProductSpec84ExplicitClientRejectionDropsBatch() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
+        let session = URLSession(configuration: configuration)
+        let capture = LockedTimingCapture()
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-prep-v1","globalId":31870,"holeCount":0,"clubs":[],"holes":[]}"#.utf8
+        )
+        CapturingURLProtocol.requestHandler = { request in
+            if request.url?.path == "/api/v2/mobile/client-timing" {
+                capture.recordUpload(body: try CapturingURLProtocol.requestBodyData(from: request), headers: request.allHTTPHeaderFields ?? [:])
+                return (HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            capture.recordBusiness()
+            return (HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let store = ClientTimingStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("c368-drop-\(UUID().uuidString).jsonl"))
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")), session: session,
+            retrySleep: { _ in }, monotonicNow: { 100 }, timingStore: store
+        )
+        for _ in 0..<10 { _ = try await client.fetchCoursePrep(globalId: 31870, render: false) }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(capture.counts().uploads, 1)
+        _ = try await client.fetchCoursePrep(globalId: 31870, render: false)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(capture.counts().uploads, 1)
+        XCTAssertEqual(capture.counts().business, 11)
+    }
+
+    /// Product spec 8.4: transient failures are capped at two retries per record.
+    func testProductSpec84TransientUploadRetriesAreCapped() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
+        let session = URLSession(configuration: configuration)
+        let capture = LockedTimingCapture()
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-prep-v1","globalId":31870,"holeCount":0,"clubs":[],"holes":[]}"#.utf8
+        )
+        CapturingURLProtocol.requestHandler = { request in
+            if request.url?.path == "/api/v2/mobile/client-timing" {
+                capture.recordUpload(body: try CapturingURLProtocol.requestBodyData(from: request), headers: request.allHTTPHeaderFields ?? [:])
+                throw URLError(.networkConnectionLost)
+            }
+            capture.recordBusiness()
+            return (HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let store = ClientTimingStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("c368-cap-\(UUID().uuidString).jsonl"))
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")), session: session,
+            retrySleep: { _ in }, monotonicNow: { 100 }, timingStore: store
+        )
+        // Records 1-10 fail once, then ride along in retries 1 and 2 (each started by the next record).
+        for _ in 0..<10 { _ = try await client.fetchCoursePrep(globalId: 31870, render: false) }
+        try await waitForTimingUploads(capture, count: 1)
+        for attempt in 2...3 {
+            _ = try await client.fetchCoursePrep(globalId: 31870, render: false)
+            try await waitForTimingUploads(capture, count: attempt)
+        }
+        XCTAssertEqual(capture.counts().uploads, 3)
+        // After the third failure records 1-10 are gone; records 11-14 stay below the batch threshold.
+        for _ in 0..<2 { _ = try await client.fetchCoursePrep(globalId: 31870, render: false) }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(capture.counts().uploads, 3)
+        XCTAssertEqual(capture.counts().business, 14)
+    }
+
     /// Product spec 8.4: a foreground start suppresses upload until the start ends.
     func testProductSpec84ForegroundStartSuppressesUploadUntilEnd() async throws {
         let configuration = URLSessionConfiguration.ephemeral

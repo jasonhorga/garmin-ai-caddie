@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 9bfdb493..9fa96747 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -580,7 +580,7 @@ async def http_exception_handler_with_disconnect(request: Request, exc: Starlett
+         route = request.scope.get("route")
+         route_path = getattr(route, "path", None) or "<unmatched>"
+         logger.info("client_disconnected path=%s during=body", route_path)
+-        return Response(status_code=499)
++        return Response(status_code=400)
+     return await http_exception_handler(request, exc)
+ 
+ 

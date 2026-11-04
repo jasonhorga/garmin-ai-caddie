@@ -18,8 +18,11 @@ from typing import Any, Annotated, Literal
 
 from fastapi import BackgroundTasks, Body, Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.requests import ClientDisconnect
 from fastapi.responses import JSONResponse
 from starlette.datastructures import QueryParams
 
@@ -568,6 +571,17 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
                 "errors": detail,
             }}, status_code=422)
     return JSONResponse({"detail": detail}, status_code=422)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler_with_disconnect(request: Request, exc: StarletteHTTPException) -> Response:
+    """Keep abandoned request bodies distinct from malformed client input."""
+    if isinstance(exc.__cause__, ClientDisconnect):
+        route = request.scope.get("route")
+        route_path = getattr(route, "path", None) or "<unmatched>"
+        logger.info("client_disconnected path=%s during=body", route_path)
+        return Response(status_code=499)
+    return await http_exception_handler(request, exc)
 
 
 def _security_profile_requires_admin() -> bool:

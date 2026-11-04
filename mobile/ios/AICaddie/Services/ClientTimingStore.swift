@@ -107,6 +107,7 @@ final class ClientTimingStore: @unchecked Sendable {
     private var loaded: Bool
     private var pending: [ClientTimingRecord] = []
     private var pendingAges: [TimeInterval] = []
+    private var pendingAttempts: [Int] = []
     private var uploadInFlight = false
     private var uploadHandler: ClientTimingUploadHandler?
 
@@ -228,10 +229,12 @@ final class ClientTimingStore: @unchecked Sendable {
         }
         pending.append(value)
         pendingAges.append(timestamp)
+        pendingAttempts.append(0)
         if pending.count > Self.maxRecords {
             let excess = pending.count - Self.maxRecords
             pending.removeFirst(excess)
             pendingAges.removeFirst(excess)
+            pendingAttempts.removeFirst(excess)
         }
         let snapshot = persists && loaded ? records : nil
         if let snapshot, persistenceQueue != nil {
@@ -253,7 +256,7 @@ final class ClientTimingStore: @unchecked Sendable {
     }
 
     /// Compatibility seam for the focused store tests. Production scheduling uses the uploader
-    /// configured above, so a failed network call is discarded and never requeued.
+    /// configured above, which requeues transient failures and drops explicit rejections.
     func takeBatchIfDue(
         now timestamp: TimeInterval,
         foregroundStartRunning: Bool,
@@ -291,19 +294,34 @@ final class ClientTimingStore: @unchecked Sendable {
         let upload = reserved.records.map(\.uploadValue)
         Task {
             let outcome = await handler(upload)
-            store.finishUpload(outcome: outcome, records: reserved.records, ages: reserved.ages)
+            store.finishUpload(outcome: outcome, records: reserved.records, ages: reserved.ages, attempts: reserved.attempts)
         }
     }
 
     private func finishUpload(
         outcome: ClientTimingUploadOutcome,
         records: [ClientTimingRecord],
-        ages: [TimeInterval]
+        ages: [TimeInterval],
+        attempts: [Int]
     ) {
         lock.lock()
         if outcome == .unavailable {
-            pending = records + pending
-            pendingAges = ages + pendingAges
+            // A transient failure puts the batch back for the next throttle window. Each record
+            // gets at most two retries, and the pending queue keeps the same newest-200 bound.
+            let retry = zip(zip(records, ages), attempts).compactMap { pair -> (ClientTimingRecord, TimeInterval, Int)? in
+                let ((record, age), attempt) = pair
+                guard attempt < 2 else { return nil }
+                return (record, age, attempt + 1)
+            }
+            pending = retry.map(\.0) + pending
+            pendingAges = retry.map(\.1) + pendingAges
+            pendingAttempts = retry.map(\.2) + pendingAttempts
+            if pending.count > Self.maxRecords {
+                let excess = pending.count - Self.maxRecords
+                pending.removeFirst(excess)
+                pendingAges.removeFirst(excess)
+                pendingAttempts.removeFirst(excess)
+            }
         }
         uploadInFlight = false
         lock.unlock()
@@ -314,13 +332,15 @@ final class ClientTimingStore: @unchecked Sendable {
         return pending.count >= threshold || timestamp - first >= interval
     }
 
-    private func reserveBatchLocked() -> (records: [ClientTimingRecord], ages: [TimeInterval]) {
+    private func reserveBatchLocked() -> (records: [ClientTimingRecord], ages: [TimeInterval], attempts: [Int]) {
         let count = min(Self.maxUploadBatch, pending.count)
         let records = Array(pending.prefix(count))
         let ages = Array(pendingAges.prefix(count))
+        let attempts = Array(pendingAttempts.prefix(count))
         pending.removeFirst(count)
         pendingAges.removeFirst(count)
-        return (records, ages)
+        pendingAttempts.removeFirst(count)
+        return (records, ages, attempts)
     }
 
     private static func foregroundStartIsRunning() -> Bool {

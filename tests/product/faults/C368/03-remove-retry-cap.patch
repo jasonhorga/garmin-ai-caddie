@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Services/ClientTimingStore.swift b/mobile/ios/AICaddie/Services/ClientTimingStore.swift
+index 444a3847..b8b04564 100644
+--- a/mobile/ios/AICaddie/Services/ClientTimingStore.swift
++++ b/mobile/ios/AICaddie/Services/ClientTimingStore.swift
+@@ -310,7 +310,7 @@ final class ClientTimingStore: @unchecked Sendable {
+             // gets at most two retries, and the pending queue keeps the same newest-200 bound.
+             let retry = zip(zip(records, ages), attempts).compactMap { pair -> (ClientTimingRecord, TimeInterval, Int)? in
+                 let ((record, age), attempt) = pair
+-                guard attempt < 2 else { return nil }
++                guard attempt < Int.max else { return nil }
+                 return (record, age, attempt + 1)
+             }
+             pending = retry.map(\.0) + pending

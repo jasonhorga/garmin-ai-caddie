@@ -795,16 +795,22 @@ public final class SyncClient {
         applyAuth(to: &request)
         do {
             let (_, response) = try await requestData(for: request, in: session, recordTiming: false)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            guard let http = response as? HTTPURLResponse else {
                 AICaddieLog.net.debug("Client timing upload rejected")
-                return .dropped
+                return .unavailable
             }
-            return .sent
-        } catch {
-            // The batch was intentionally removed before the request. Timing must never retry or
-            // affect the business request that triggered this best-effort upload.
-            AICaddieLog.net.debug("Client timing upload dropped: \(String(describing: error), privacy: .public)")
+            if (200..<300).contains(http.statusCode) {
+                return .sent
+            }
+            if http.statusCode == 408 || http.statusCode == 499 || http.statusCode >= 500 || http.statusCode < 400 {
+                return .unavailable
+            }
             return .dropped
+        } catch {
+            // Transient transport failures keep the batch for the next throttle window; the store
+            // bounds retries so diagnostics can never crowd out foreground work.
+            AICaddieLog.net.debug("Client timing upload deferred: \(String(describing: error), privacy: .public)")
+            return .unavailable
         }
     }
 
