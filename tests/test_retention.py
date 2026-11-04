@@ -10,6 +10,12 @@ from unittest.mock import patch
 from ai_caddie.geometry import topo_render
 from ai_caddie.ops.retention import cleanup_private_volume
 
+CURRENT = topo_render.STYLE_VERSION
+# The version right before the current one: still accepted as a request parameter for older
+# clients (SUPPORTED_STYLE_VERSIONS), but every request is rendered into the current directory.
+PREVIOUS = f"topo-v{int(CURRENT.removeprefix('topo-v')) - 1}"
+OLDER = f"topo-v{int(CURRENT.removeprefix('topo-v')) - 2}"
+
 
 class PrivateVolumeRetentionTests(unittest.TestCase):
     def _make_snapshot(self, root: Path, stamp: str) -> None:
@@ -20,18 +26,18 @@ class PrivateVolumeRetentionTests(unittest.TestCase):
             '{"createdAt":"2026-10-01T00:00:00Z"}'
         )
 
-    def test_G2_cleanup_keeps_supported_topo_and_latest_three_snapshot_pairs(self) -> None:
+    def test_G2_cleanup_keeps_current_topo_and_latest_three_snapshot_pairs(self) -> None:
         """G2: boot maintenance removes expired caches while preserving usable private data."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             default_cache = root / "output" / "topo_render_cache"
-            for version in ("topo-v10", "topo-v11", "topo-v12"):
+            for version in (OLDER, PREVIOUS, CURRENT):
                 (default_cache / version).mkdir(parents=True)
                 (default_cache / version / f"gid1_{version}.png").write_bytes(b"x")
             (default_cache / "unknown").mkdir()
             (default_cache / "unknown" / "asset.bin").write_bytes(b"keep")
-            (default_cache / "topo-v10-loose.png").write_bytes(b"x")
-            (default_cache / "topo-v10x-unknown.bin").write_bytes(b"keep")
+            (default_cache / f"{OLDER}-loose.png").write_bytes(b"x")
+            (default_cache / f"{OLDER}x-unknown.bin").write_bytes(b"keep")
             override = root / "private-cache"
             (override / "topo-v9").mkdir(parents=True)
             (override / "topo-v9" / "old.png").write_bytes(b"x")
@@ -62,11 +68,11 @@ class PrivateVolumeRetentionTests(unittest.TestCase):
             with patch.dict(os.environ, {"AI_CADDIE_TOPO_CACHE_DIR": str(override)}, clear=False):
                 cleanup_private_volume(root=root)
 
-            self.assertTrue((default_cache / "topo-v11").exists())
-            self.assertTrue((default_cache / "topo-v12").exists())
-            self.assertFalse((default_cache / "topo-v10").exists())
-            self.assertFalse((default_cache / "topo-v10-loose.png").exists())
-            self.assertTrue((default_cache / "topo-v10x-unknown.bin").exists())
+            self.assertEqual((default_cache / CURRENT / f"gid1_{CURRENT}.png").read_bytes(), b"x")
+            self.assertFalse((default_cache / PREVIOUS).exists())
+            self.assertFalse((default_cache / OLDER).exists())
+            self.assertFalse((default_cache / f"{OLDER}-loose.png").exists())
+            self.assertTrue((default_cache / f"{OLDER}x-unknown.bin").exists())
             self.assertFalse((override / "topo-v9").exists())
             self.assertTrue((default_cache / "unknown" / "asset.bin").exists())
             self.assertTrue((override / "unrecognised.bin").exists())
@@ -212,26 +218,46 @@ class PrivateVolumeRetentionTests(unittest.TestCase):
             self.assertEqual(impostor.read_text(), "ordinary file")
             self.assertEqual(manifest.read_text(), "{}")
 
-    def test_G2_supported_topo_versions_preserve_empty_directories(self) -> None:
-        """G2: supported versions preserve empty roots and detail trees (A2/A3)."""
+    def test_G2_current_topo_version_preserves_empty_directories(self) -> None:
+        """G2: the current version preserves empty roots and detail trees (A2/A3)."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             cache = root / "output" / "topo_render_cache"
             directories = (
-                "topo-v12/green-detail", "topo-v11", "topo-v12/topo-v3/empty",
+                f"{CURRENT}/green-detail", f"{CURRENT}/topo-v3/empty",
             )
             for relative in directories:
                 (cache / relative).mkdir(parents=True)
-            supported_file = cache / "topo-v12" / "gid1_h01_topo-v12-a.png"
-            supported_file.write_bytes(b"keep")
+            current_file = cache / CURRENT / f"gid1_h01_{CURRENT}-a.png"
+            current_file.write_bytes(b"keep")
 
             cleanup_private_volume(root=root)
 
             for relative in directories:
                 with self.subTest(directory=relative):
                     self.assertTrue((cache / relative).is_dir(),
-                                    f"supported cache directory must remain: {relative}")
-            self.assertEqual(supported_file.read_bytes(), b"keep")
+                                    f"current cache directory must remain: {relative}")
+            self.assertEqual(current_file.read_bytes(), b"keep")
+
+    def test_G2_request_accepted_previous_topo_version_is_still_expired_on_disk(self) -> None:
+        """G2: a version the API still accepts as ?v= is never read from its own directory, so
+        its PNGs and green-detail tree are removed under the private override root (C374)."""
+        self.assertIn(PREVIOUS, topo_render.SUPPORTED_STYLE_VERSIONS)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            override = root / "private-cache"
+            previous = override / PREVIOUS
+            (previous / "green-detail").mkdir(parents=True)
+            (previous / f"gid1_h01_{PREVIOUS}-a.png").write_bytes(b"x")
+            (previous / "green-detail" / f"gid1_h01_{PREVIOUS}-a_b.png").write_bytes(b"x")
+            current_file = override / CURRENT / f"gid1_h01_{CURRENT}-a.png"
+            current_file.parent.mkdir(parents=True)
+            current_file.write_bytes(b"keep")
+            with patch.dict(os.environ, {"AI_CADDIE_TOPO_CACHE_DIR": str(override)}, clear=False):
+                self.assertEqual(topo_render.cache_dir(), override / CURRENT)
+                cleanup_private_volume(root=root)
+            self.assertFalse(previous.exists())
+            self.assertEqual(current_file.read_bytes(), b"keep")
 
     def test_G2_snapshot_ranking_requires_complete_standard_timestamp_pairs(self) -> None:
         """G2: only complete standard timestamp pairs rank; unknown times stay untouched."""
