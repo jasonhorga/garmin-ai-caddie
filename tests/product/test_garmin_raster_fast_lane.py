@@ -237,6 +237,90 @@ class GarminRasterFastLaneTests(unittest.TestCase):
                 self.assertEqual(client.get(BASE).status_code, 200)
             register.assert_called_once()
 
+    def test_J42_three_cold_same_hole_waiters_do_not_consume_other_hole_slot(self):
+        """J4.2 N1: waiters share the leader future outside the two-slot slow lane."""
+        same_hole_started = threading.Event()
+        other_hole_started = threading.Event()
+        release_same_hole = threading.Event()
+
+        def register(global_id, hole, version, fetched):
+            if hole == 1:
+                same_hole_started.set()
+                self.assertTrue(release_same_hole.wait(10), "test did not release same-hole registration")
+            else:
+                other_hole_started.set()
+            return dict(CACHED)
+
+        def version(_global_id, _hole):
+            return "777"
+
+        with (patch.object(api, "_cached_projection", return_value=None),
+              patch.object(api, "_projection_result", return_value=None),
+              patch.object(api, "_cached_asset_version", side_effect=version),
+              patch.object(api, "_asset_version", side_effect=version),
+              patch.object(api, "_register_one", side_effect=register),
+              patch.object(raster, "fetch_raster", return_value=self.jpg),
+              TestClient(self.app) as client, ThreadPoolExecutor(max_workers=6) as pool):
+            same_jobs = [pool.submit(client.get, BASE) for _ in range(3)]
+            self.assertTrue(same_hole_started.wait(3), "same-hole registration did not start")
+            other_job = pool.submit(client.get, BASE.replace("/holes/1/", "/holes/2/"))
+            try:
+                self.assertTrue(other_hole_started.wait(3), "another hole waited behind same-hole waiters")
+            finally:
+                release_same_hole.set()
+            for job in same_jobs + [other_job]:
+                self.assertEqual(job.result(timeout=5).status_code, 200)
+
+    def test_J42_cached_version_mismatch_returns_fast_without_slow_lane(self):
+        entered = threading.Event()
+        release = threading.Event()
+
+        def blocked_asset_version(_global_id, _hole):
+            entered.set()
+            self.assertTrue(release.wait(10), "test did not release slow version lookup")
+            return "777"
+
+        with (patch.object(api, "_asset_version", side_effect=blocked_asset_version),
+              TestClient(self.app) as client, ThreadPoolExecutor(max_workers=4) as pool):
+            jobs = [pool.submit(client.get, BASE + f".{suffix}?v=old") for suffix in ("webp", "jpg")]
+            try:
+                done, _ = wait(jobs, timeout=RESPONSE_BUDGET)
+                self.assertEqual(set(jobs), done, "cached version mismatch must not enter the slow lane")
+                self.assertTrue(all(job.result().status_code == 409 for job in jobs))
+                self.assertFalse(entered.is_set(), "fast mismatch unexpectedly called slow version lookup")
+            finally:
+                release.set()
+
+    def test_J42_expired_release_refreshes_once_in_background_after_fast_hit(self):
+        release_path = reference._courseview_dir(self.root) / f"{GID}_releases.pb"
+        injected_now = release_path.stat().st_mtime + reference.COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S + 1
+        refresh_started = threading.Event()
+        refresh_finished = threading.Event()
+        calls = []
+        lookup = reference.courseview_release_info
+
+        def release_info(global_id, **kwargs):
+            calls.append(bool(kwargs.get("allow_fetch", True)))
+            if kwargs.get("allow_fetch", True):
+                refresh_started.set()
+            try:
+                return lookup(global_id, root=self.root, **kwargs)
+            finally:
+                if kwargs.get("allow_fetch", True):
+                    refresh_finished.set()
+
+        with (patch.object(reference.time, "time", return_value=injected_now),
+              patch.object(raster, "courseview_release_info", side_effect=release_info),
+              TestClient(self.app) as client):
+            started = time.monotonic()
+            response = client.get(BASE)
+            elapsed = time.monotonic() - started
+            self.assertEqual(response.status_code, 200)
+            self.assertLess(elapsed, 1.0, "fast lane request waited for release refresh")
+            self.assertTrue(refresh_started.wait(3), "expired release did not schedule a refresh")
+            self.assertTrue(refresh_finished.wait(3), "background release refresh did not finish")
+        self.assertEqual(calls.count(True), 1, "one fast-lane hit must trigger one release refresh")
+
 
 if __name__ == "__main__":
     unittest.main()
