@@ -1186,6 +1186,7 @@ final class RoundStartTwoStageTests: XCTestCase {
             loops: [RoundLoopEntry(globalId: c85CourseId, half: "all")]
         )
         await fulfillment(of: [sent], timeout: eventWait)
+        XCTAssertTrue(model.isPreparingRound, "the start must be in flight before the immediate exit")
         model.cancelRoundStart()
         XCTAssertFalse(model.isPreparingRound)
         XCTAssertNil(model.pendingLiveHole)

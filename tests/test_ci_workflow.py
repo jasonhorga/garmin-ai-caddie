@@ -17,6 +17,26 @@ from ops.fastlane_readiness import preflight_gate
 
 
 class CIWorkflowTests(unittest.TestCase):
+    def test_workflows_use_no_yaml_merge_keys_github_rejects(self) -> None:
+        # GitHub Actions accepts anchors/aliases but not `<<:` merge keys; PyYAML merges them
+        # silently, so every other guard here stays green while GitHub refuses the whole file.
+        def merge_keys(node, path=()):
+            if isinstance(node, yaml.MappingNode):
+                for key, value in node.value:
+                    if key.tag == "tag:yaml.org,2002:merge":
+                        yield f"{'/'.join(path)} line {key.start_mark.line + 1}"
+                    yield from merge_keys(value, (*path, str(key.value)))
+            elif isinstance(node, yaml.SequenceNode):
+                for index, item in enumerate(node.value):
+                    yield from merge_keys(item, (*path, str(index)))
+
+        workflows = sorted(Path(__file__).resolve().parents[1].glob(".github/workflows/*.yml"))
+        self.assertTrue(workflows)
+        for workflow in workflows:
+            with self.subTest(workflow=workflow.name):
+                node = yaml.compose(workflow.read_text(encoding="utf-8"))
+                self.assertEqual([], list(merge_keys(node)))
+
     def test_C263_fastlane_gate_waits_for_any_runtime_warming_check(self) -> None:
         readiness = {
             "runtimeStatus": "ready",

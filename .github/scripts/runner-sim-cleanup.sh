@@ -59,6 +59,10 @@ for name, entries in by_name.items():
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 workspace = os.environ.get('RUNNER_WORKSPACE', '')
+# In a job RUNNER_WORKSPACE is _work/<repo>, but xcodebuild's DerivedData lives in
+# _work/_temp; this runner runs one job at a time, so its whole _work tree is ours.
+if workspace and Path(workspace).parent.name == '_work':
+    workspace = str(Path(workspace).parent)
 if not workspace:
     root = os.environ.get('RUNNER_ROOT', '')
     # Hooks normally run from the runner installation, before checkout. RUNNER_TEMP

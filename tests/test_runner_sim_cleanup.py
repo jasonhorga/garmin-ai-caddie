@@ -134,6 +134,17 @@ if sys.argv[1] == 'ps':
         self.assertEqual(owned.wait(timeout=5), -signal.SIGTERM)
         self.assertIsNone(foreign.poll())
 
+    def test_job_step_reaches_derived_data_under_runner_temp(self):
+        # Inside a job RUNNER_WORKSPACE is _work/<repo>; xcodebuild runs with
+        # -derivedDataPath $RUNNER_TEMP (_work/_temp), outside the repo checkout.
+        owned, foreign = self.sleeper(), self.sleeper()
+        self.ps.write_text(
+            f'{owned.pid} /tools/xcodebuild test -derivedDataPath {self.workspace}/_temp/NativeQuickDerivedData\n'
+            f'{foreign.pid} /tools/xcodebuild test -derivedDataPath /other/_work/_temp/DD')
+        self.run_cleanup(RUNNER_WORKSPACE=f'{self.workspace}/garmin-ai-caddie')
+        self.assertEqual(owned.wait(timeout=5), -signal.SIGTERM)
+        self.assertIsNone(foreign.poll())
+
     def test_no_prefix_does_not_invoke_any_tool(self):
         self.assertEqual(self.run_cleanup(CADDIE_SIM_PREFIX='', PATH=str(self.bin)), [])
 

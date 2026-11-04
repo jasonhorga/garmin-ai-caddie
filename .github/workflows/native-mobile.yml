@@ -1238,8 +1238,7 @@ jobs:
       - *validate_native_launch_environment_app_target
       - *validate_native_launch_environment
       - *resolve_and_boot_watch_test_simulator
-      - <<: *test_watch_app_target
-        timeout-minutes: 7
+      - *test_watch_app_target
       - name: J4.2 fixture DNS gate (Watch tests)
         if: ${{ always() && steps.test_watch_app.outcome != 'skipped' }}
         run: |
@@ -1305,8 +1304,7 @@ jobs:
       - *validate_native_launch_prerequisites
       - *validate_native_launch_environment_app_target
       - *validate_native_launch_environment
-      - <<: *test_ios_app_target
-        timeout-minutes: 10
+      - *test_ios_app_target
       - *verify_swiftjcs_consumer_boundaries
       - *collect_design_snapshots
       - *scan_design_snapshots_for_secret_bytes
