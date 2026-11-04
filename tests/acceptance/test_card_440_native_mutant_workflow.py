@@ -557,7 +557,7 @@ def xcodebuild(args):
         print("card440 fake xcodebuild: run `xcodebuild test` (contract)", file=sys.stderr)
         return 64
     if "test" not in args:
-        print("Xcode 16.4")
+        print("Xcode 27.2")
         return 0
     project = option(args, "-project")
     if not project or not (Path.cwd() / project).is_dir():
@@ -898,7 +898,10 @@ class _Replay:
         self.temp = root / "runner" / "temp"
         self.state = root / "state"
         self.bin = root / "bin"
-        for path in (self.workspace, self.temp, self.state, self.bin):
+        # The Mac image: `Select Xcode 27` finds this Xcode instead of the host's /Applications.
+        self.applications = root / "Applications"
+        for path in (self.workspace, self.temp, self.state, self.bin,
+                     self.applications / "Xcode.app" / "Contents" / "Developer"):
             path.mkdir(parents=True, exist_ok=True)
         (self.state / "config.json").write_text(json.dumps(config), encoding="utf-8")
         self._install_fakes()
@@ -1113,7 +1116,7 @@ class _Replay:
         shell = step.get("shell", defaults.get("shell"))
         if shell not in (None, "bash"):
             raise AssertionError(f"step {name!r}: the replay runs bash steps only (shell: {shell!r})")
-        script = str(step["run"])
+        script = str(step["run"]).replace("/Applications/", f"{self.applications}/")
         script = 'command() { if [ "$1" = "-v" ] && [ "$2" = "xcodegen" ] && ! test -f "$CARD440_FAKE_STATE/xcodegen-installed"; then return 1; fi; builtin command "$@"; }\n' + script
         if "${{" in script:
             raise AssertionError(f"step {name!r}: pass values to run: through env:, not ${{{{ }}}} (contract, replay rules)")
@@ -1475,8 +1478,8 @@ class NativeMutantWorkflowTests(NativeMutantReplayCase):
         self.assertEqual(len(jobs), 1, list(jobs))
         job = next(iter(jobs.values()))
         self.assertEqual(job.get("permissions", {"contents": "read"}), {"contents": "read"})
-        # C333 pins native-mobile jobs to the Mac; this independent mutant workflow
-        # keeps its own self-hosted route expression for trusted dispatches.
+        # C333 pins native-mobile jobs to the Mac; this independent mutant workflow keeps
+        # its own route expression (C371: offline goes to Linux and stops at Select Xcode 27).
         self.assertIn("self-hosted", str(job.get("runs-on")))
         self.assertIn("caddie-mba", str(job.get("runs-on")))
         self.assertNotIn("if", job)
@@ -1661,6 +1664,9 @@ class NativeMutantWorkflowTests(NativeMutantReplayCase):
                     for call in run.calls
                     if call["tool"] in ("brew", "xcodegen", "xcodebuild") or call["args"][:1] == ["simctl"]
                 ]
+                # `Select Xcode 27` reads the version before any checkout or patch (C371).
+                self.assertEqual(after_apply[:1], ["xcodebuild -version"], run.describe())
+                after_apply = after_apply[1:]
                 self.assertEqual(
                     after_apply,
                     [],

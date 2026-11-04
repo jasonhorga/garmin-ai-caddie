@@ -38,10 +38,22 @@ def workflow(name):
     return yaml.safe_load((ROOT / '.github/workflows' / name).read_text())
 
 
-class Xcode27NativeWorkflowTests(unittest.TestCase):
-    """C333: every native build/test path selects and verifies Xcode 27 on the Mac."""
+MAC = ['self-hosted', 'caddie-mba']
+ROUTE_ONLINE = {'vars.MAC_RUNNER': 'online', 'github.event_name': 'workflow_dispatch',
+                'github.repository': 'owner/repo'}
+ROUTE_OFFLINE = {**ROUTE_ONLINE, 'vars.MAC_RUNNER': 'offline'}
+FAKE_XCODEBUILD = r'''#!/bin/bash
+# Report the version of the Xcode that DEVELOPER_DIR selects, as xcodebuild does.
+[[ "$1" == -version ]] || exit 64
+cat "$DEVELOPER_DIR/version.txt"
+'''
 
-    WORKFLOWS = ('native-mobile.yml', 'ios-testflight.yml')
+
+class Xcode27NativeWorkflowTests(unittest.TestCase):
+    """C333/C371: every native build/test path selects and verifies Xcode 27 on the Mac."""
+
+    WORKFLOWS = ('native-mobile.yml', 'ios-testflight.yml', 'watch-runtime.yml',
+                 'watch-cold-start.yml', 'agenthub-native-mutant.yml')
 
     @classmethod
     def xcode_jobs(cls):
@@ -53,9 +65,63 @@ class Xcode27NativeWorkflowTests(unittest.TestCase):
                     yield name, job_name, job, steps
 
     def test_every_native_xcode_job_runs_on_the_xcode27_mac(self):
+        jobs = {(name, job_name) for name, job_name, _, _ in self.xcode_jobs()}
+        for required in [('watch-runtime.yml', 'watch-runtime'), ('watch-cold-start.yml', 'cold-start'),
+                         ('agenthub-native-mutant.yml', 'native-mutant')]:
+            self.assertIn(required, jobs)
         for name, job_name, job, _ in self.xcode_jobs():
             with self.subTest(workflow=name, job=job_name):
-                self.assertEqual(job.get('runs-on'), ['self-hosted', 'caddie-mba'])
+                self.assertEqual(evaluate(job.get('runs-on'), ROUTE_ONLINE), MAC)
+
+    def test_offline_mac_never_falls_back_to_a_hosted_xcode(self):
+        # C371: no GitHub-hosted image has Xcode 27, so an offline Mac either keeps
+        # the job queued for the Mac or routes it to Linux, where selection fails.
+        for name, job_name, job, _ in self.xcode_jobs():
+            with self.subTest(workflow=name, job=job_name):
+                self.assertIn(evaluate(job.get('runs-on'), ROUTE_OFFLINE), (MAC, 'ubuntu-latest'))
+
+    def run_selection(self, script, applications):
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        root = Path(holder.name)
+        (root / 'bin').mkdir()
+        (root / 'bin/xcodebuild').write_text(FAKE_XCODEBUILD)
+        (root / 'bin/xcodebuild').chmod(0o755)
+        apps = root / 'Applications'
+        apps.mkdir()
+        for app, version in applications.items():
+            developer = apps / app / 'Contents/Developer'
+            developer.mkdir(parents=True)
+            (developer / 'version.txt').write_text(version + '\nBuild version 0A0\n')
+        env_file = root / 'github-env'
+        env_file.touch()
+        env = {**os.environ, 'PATH': str(root / 'bin') + os.pathsep + os.environ['PATH'],
+               'GITHUB_ENV': str(env_file)}
+        env.pop('DEVELOPER_DIR', None)
+        result = subprocess.run(['bash', '-c', script.replace('/Applications/', f'{apps}/')],
+                                env=env, capture_output=True, text=True, timeout=60)
+        return result, _command_file(env_file), apps
+
+    def test_selection_exports_only_an_xcode27_developer_dir(self):
+        for name, job_name, job, steps in self.xcode_jobs():
+            script = next(str(s['run']) for s in steps if s.get('name') == 'Select Xcode 27')
+            hosted = evaluate(job.get('runs-on'), ROUTE_OFFLINE) != MAC
+            with self.subTest(workflow=name, job=job_name, case='versioned Xcode 27'):
+                result, exported, apps = self.run_selection(script, {'Xcode_27.2.app': 'Xcode 27.2'})
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(exported.get('DEVELOPER_DIR'), str(apps / 'Xcode_27.2.app/Contents/Developer'))
+            with self.subTest(workflow=name, job=job_name, case='Xcode 26 as default'):
+                result, exported, _ = self.run_selection(script, {'Xcode.app': 'Xcode 26.3',
+                                                                  'Xcode_27.2.app': 'Xcode 27.2'})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertNotIn('DEVELOPER_DIR', exported)
+            with self.subTest(workflow=name, job=job_name, case='no Xcode (offline route)'):
+                result, exported, _ = self.run_selection(script, {})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertNotIn('DEVELOPER_DIR', exported)
+                if hosted:
+                    # The offline Linux run must say why it stopped, as a job annotation.
+                    self.assertRegex(result.stdout, r'(?m)^::error .*Xcode 27.*caddie-mba')
 
     def test_every_native_xcode_job_selects_and_verifies_xcode27_before_tools(self):
         for name, job_name, job, steps in self.xcode_jobs():
@@ -397,12 +463,13 @@ while True:
                          [['simctl', 'erase', 'owned']])
 
     def test_runner_routing_obeys_online_trust_and_dispatch(self):
+        # C371: there is no hosted Xcode 27, so off-Mac routes go to Linux and stop there.
         cases = [('online', 'pull_request', 'owner/repo', ['self-hosted', 'caddie-mba']),
-                 ('offline', 'pull_request', 'owner/repo', 'macos-15'),
-                 ('online', 'pull_request', 'fork/repo', 'macos-15'),
+                 ('offline', 'pull_request', 'owner/repo', 'ubuntu-latest'),
+                 ('online', 'pull_request', 'fork/repo', 'ubuntu-latest'),
                  ('online', 'workflow_dispatch', '', ['self-hosted', 'caddie-mba']),
-                 ('offline', 'workflow_dispatch', '', 'macos-15')]
-        for name, jobs in MOVED.items():
+                 ('offline', 'workflow_dispatch', '', 'ubuntu-latest')]
+        for name, jobs in SIM_JOBS.items():
             for job in jobs:
                 for online, event, repo, expected in cases:
                     with self.subTest(workflow=name, job=job, online=online, event=event, repo=repo):
@@ -414,12 +481,12 @@ while True:
                         self.assertEqual(evaluate(workflow(name)['jobs'][job]['runs-on'], values), expected)
 
     def test_sdk_affected_jobs_stay_hosted_even_when_mac_is_online(self):
-        # C333 moved these jobs to the self-hosted Xcode 27 Mac after C332.
+        # C333 (native-mobile) and C371 (watch-runtime) moved these jobs back to the
+        # self-hosted Xcode 27 Mac after C332; the name is kept for fault targets.
         for name, job in [(n, j) for n, jobs in SDK_HOSTED.items() for j in jobs]:
-            for event, repo in [('workflow_dispatch', ''), ('pull_request', 'owner/repo'),
-                                ('pull_request', 'fork/repo')]:
+            for event, repo in [('workflow_dispatch', ''), ('pull_request', 'owner/repo')]:
                 with self.subTest(workflow=name, job=job, event=event, repo=repo):
-                    expected = ['self-hosted', 'caddie-mba'] if name == 'native-mobile.yml' else 'macos-15'
+                    expected = ['self-hosted', 'caddie-mba']
                     self.assertEqual(evaluate(workflow(name)['jobs'][job]['runs-on'], {
                         'vars.MAC_RUNNER': 'online', 'github.event_name': event,
                         'github.repository': 'owner/repo',
