@@ -355,6 +355,31 @@ final class RoundStartTwoStageTests: XCTestCase {
         await model.waitForOfflineCourseDownloadForTesting()
     }
 
+    /// J4.2: overlapping course lookups retain each course's own failure cause.
+    func testJ42ConcurrentTeeFailuresRemainScopedToTheirCourse() async {
+        let held = C85HeldRequests()
+        let firstSent = expectation(description: "first course tees held")
+        C33URLProtocol.setHandlers(onStart: { proto in
+            if proto.request.url?.path == "/api/v2/courses/31795/tees" {
+                held.hold(proto)
+                firstSent.fulfill()
+            } else {
+                proto.client?.urlProtocol(proto, didFailWithError: URLError(.timedOut))
+            }
+        }, onStop: { held.forget($0) })
+        let fixture = makeModel(host: "tee-failures.example.test", held: held)
+        let first = Task { await fixture.model.loadCourseTees(globalId: 31795) }
+        await fulfillment(of: [firstSent], timeout: eventWait)
+        let secondRows = await fixture.model.loadCourseTees(globalId: 31796)
+        XCTAssertTrue(secondRows.isEmpty)
+        held.releaseAll(400)
+        let firstRows = await first.value
+        XCTAssertTrue(firstRows.isEmpty)
+        XCTAssertEqual(fixture.model.courseTeesFailures[31795], .unavailable)
+        XCTAssertEqual(fixture.model.courseTeesFailures[31796], .timedOut,
+                       "a later failure from another course cannot replace this course's timeout")
+    }
+
     /// J4.2/W2: 25 seconds spent on an intent leaves exactly five of the single 30-second
     /// foreground budget. The fallback transport never answers; only its deadline can end Start.
     func testJ42IntentFailureAndHeldFallbackShareThirtySecondDeadline() async throws {

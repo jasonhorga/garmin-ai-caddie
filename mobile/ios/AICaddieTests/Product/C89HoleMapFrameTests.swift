@@ -478,25 +478,50 @@ final class C89HoleMapFrameTests: XCTestCase {
     /// ready row that arrives afterwards still upgrades the hole.
     func testJ45PreciseMapTimeoutRunsWhileFetchIsSuspended() async {
         let ready = try? ProductInputs.prep()
+        let fetchStarted = expectation(description: "fetch suspended")
+        let timerStarted = expectation(description: "independent 30-second timer armed")
+        let timeout = expectation(description: "timeout while fetch still held")
+        var fetchContinuation: CheckedContinuation<Void, Never>?
+        var timerContinuation: CheckedContinuation<Void, Never>?
         var timedOut = false
-        var fetchYields = 0
-        let result = await LiveHolePrepProbe.run(
-            fetch: {
-                for _ in 0..<20 {
-                    fetchYields += 1
-                    await Task.yield()
-                }
-                return ready
-            },
-            publishInterim: { _ in },
-            wait: { _ in },
-            timeoutSeconds: 30,
-            timeoutSleep: { _ in },
-            onTimeout: { timedOut = true }
-        )
-        XCTAssertTrue(timedOut, "J4.5 timeout fires independently of the in-flight fetch")
-        XCTAssertNotNil(result, "a late ready response still publishes the precise map")
-        XCTAssertGreaterThan(fetchYields, 0)
+        var published = false
+        let probe = Task { @MainActor in
+            let result = await LiveHolePrepProbe.run(
+                fetch: {
+                    await withCheckedContinuation { continuation in
+                        fetchContinuation = continuation
+                        fetchStarted.fulfill()
+                    }
+                    XCTAssertTrue(timedOut, "J4.5: timeout precedes the held fetch returning ready")
+                    return ready
+                },
+                publishInterim: { _ in },
+                wait: { _ in },
+                timeoutSeconds: 30,
+                timeoutSleep: { seconds in
+                    XCTAssertEqual(seconds, 30, "J4.5 wall-clock limit")
+                    await withCheckedContinuation { continuation in
+                        timerContinuation = continuation
+                        timerStarted.fulfill()
+                    }
+                },
+                onTimeout: { timedOut = true; timeout.fulfill() }
+            )
+            published = result != nil
+            XCTAssertTrue(timedOut)
+            XCTAssertNotNil(result, "a late ready response still publishes the precise map")
+        }
+        await fulfillment(of: [fetchStarted, timerStarted], timeout: 2)
+        XCTAssertFalse(timedOut)
+        XCTAssertFalse(published)
+        timerContinuation?.resume()
+        await fulfillment(of: [timeout], timeout: 2)
+        XCTAssertTrue(timedOut, "J4.5 timeout fires while the fetch continuation is still held")
+        XCTAssertFalse(published, "the held fetch has not returned ready yet")
+        fetchContinuation?.resume()
+        await probe.value
+        XCTAssertTrue(published)
+
     }
 }
 #endif

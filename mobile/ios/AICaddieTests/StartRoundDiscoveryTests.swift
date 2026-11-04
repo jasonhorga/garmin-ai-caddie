@@ -206,6 +206,17 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertNil(rows, "an empty /tees answer must not be applied as a successful refresh")
     }
 
+    /// J4.2: a cancelled or superseded lookup returns nil, which is not a timeout/failure.
+    @MainActor
+    func testDiscardedTeeLookupDoesNotReportFailure() async {
+        var failed = false
+        let rows = await StartRoundView.courseTeeRows(
+            globalId: 31832, carried: [:], setFailed: { failed = $0 }, request: { _ in nil }
+        )
+        XCTAssertNil(rows)
+        XCTAssertFalse(failed)
+    }
+
     /// J4.2/B1: a failed refresh keeps the player's Tee and same-parameter start beside retry.
     @MainActor
     func testEmptyTeeRefreshKeepsSelectionStartableAndOffersRetry() async {
@@ -641,6 +652,31 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertNil(state.inFlight, "59 s: no request")
         XCTAssertEqual(state.timerFired(now: now.addingTimeInterval(60)), .start("latest"))
         XCTAssertEqual(state.inFlight, "latest", "60 s: one request uses the newest fix")
+    }
+
+    /// J4.1/W4: a held automatic lookup plus ten moves produces only one latest-location follow-up.
+    func testJ41HeldLookupAndTenMovesProduceAtMostTwoRequests() {
+        var state = NearbyDiscoveryRefreshState()
+        let now = Date(timeIntervalSince1970: 1_000)
+        var requests: [String] = []
+        func record(_ action: NearbyDiscoveryRefreshState.Action) {
+            if case let .start(bucket) = action { requests.append(bucket) }
+        }
+        record(state.locationChanged("first", now: now))
+        for index in 1...10 {
+            record(state.locationChanged("move-\(index)", now: now.addingTimeInterval(Double(index))))
+            XCTAssertEqual(requests, ["first"], "at most one request while the first is held")
+        }
+        record(state.finished(now: now.addingTimeInterval(20)))
+        record(state.timerFired(now: now.addingTimeInterval(59)))
+        XCTAssertEqual(requests.count, 1, "59 seconds: no automatic follow-up")
+        record(state.timerFired(now: now.addingTimeInterval(60)))
+        XCTAssertEqual(requests, ["first", "move-10"])
+        record(state.finished(now: now.addingTimeInterval(61)))
+        record(state.timerFired(now: now.addingTimeInterval(90)))
+        XCTAssertEqual(requests.count, 2, "no stacked timers or extra follow-up")
+        record(state.locationChanged("later", now: now.addingTimeInterval(120)))
+        XCTAssertEqual(requests.last, "later", "idle movement after 60 seconds starts immediately")
     }
 
     /// J4.1/W4: ten moves during one held request preserve that request and coalesce to one follow-up.

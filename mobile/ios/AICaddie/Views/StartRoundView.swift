@@ -116,7 +116,8 @@ public struct StartRoundView: View {
     @State private var nearbyStatusText: String?
     @State private var nearbyDiscoveryFailed = false
     @State private var nearbyRetryToken = 0
-    @State private var nearbyLastAutomaticRefreshAt: Date?
+    @State private var nearbyRefresh = NearbyDiscoveryRefreshState()
+    @State private var nearbyRefreshGeneration = 0
     @State private var announcedIntentKeys = Set<String>()
     @State private var teeRequestToken: UUID?
     @State private var nearbyRequestToken: UUID?
@@ -396,7 +397,28 @@ public struct StartRoundView: View {
             locationProvider.stopUpdatingLocation()
             cancelRoundStartFromExit()
         }
-        .task(id: nearbyRetryToken) { await discoverNearbyCourses() }
+        .onChange(of: locationDiscoveryKey) { _, _ in
+            nearbyLocationChanged()
+        }
+        .onChange(of: selectedCourseWasManualSearch) { _, selected in
+            if selected { nearbyRefresh.selectManual() }
+        }
+        .task(id: nearbyRetryToken) {
+            if nearbyRetryToken == 0 { nearbyLocationChanged() }
+            else { applyNearbyRefreshAction(nearbyRefresh.retry(now: Date())) }
+        }
+        .task(id: nearbyRefreshGeneration) {
+            guard nearbyRefresh.inFlight != nil else { return }
+            await discoverNearbyCourses()
+        }
+        .task(id: nearbyRefresh.scheduledAt) {
+            guard let deadline = nearbyRefresh.scheduledAt else { return }
+            do {
+                try await Task.sleep(nanoseconds: UInt64(max(0, deadline.timeIntervalSinceNow) * 1_000_000_000))
+            } catch { return }
+            guard !Task.isCancelled else { return }
+            applyNearbyRefreshAction(nearbyRefresh.timerFired(now: Date()))
+        }
         // Start the lookup when setup is visible. Automatic selection on the course list must not
         // consume the loading/retry state before the player opens the Tee picker.
         .task(id: Self.teeLookupKey(page: page, globalIdText: courseGlobalIdText)) {
@@ -692,7 +714,7 @@ public struct StartRoundView: View {
             teeLoadFailure = nil
             return
         }
-        let hadCarriedTees = !(carriedCourseTees[globalId] ?? []).isEmpty
+        var requestFailed = false
         guard let tees = await Self.courseTeeRows(
             globalId: globalId,
             carried: carriedCourseTees,
@@ -700,18 +722,22 @@ public struct StartRoundView: View {
                 if teeRequestToken == requestToken { isLoadingTees = loading }
             },
             setFailed: { failed in
+                requestFailed = failed
                 if teeRequestToken == requestToken, !failed { teeLoadFailure = nil }
             },
             request: { await requestTees(globalId: $0, requestToken: requestToken) }
         ) else {
-            if !hadCarriedTees, teeRequestToken == requestToken {
-                teeLoadFailure = await onCourseTeesFailure(globalId) ?? .timedOut
-            }
+            guard requestFailed, !Task.isCancelled,
+                  teeRequestToken == requestToken, courseGlobalId == globalId else { return }
+            let failure = await onCourseTeesFailure(globalId) ?? .unavailable
+            guard !Task.isCancelled, teeRequestToken == requestToken,
+                  courseGlobalId == globalId else { return }
+            teeLoadFailure = failure
             return
         }
-        if !hadCarriedTees, teeRequestToken == requestToken {
-            teeLoadFailure = await onCourseTeesFailure(globalId)
-        }
+        guard !Task.isCancelled, teeRequestToken == requestToken,
+              courseGlobalId == globalId else { return }
+        teeLoadFailure = nil
         fetchedTees = tees
         let pickedTee = userPickedTee ? teeBox : nil
         let caller = (preselectedVenueOptions + courseLookupOptions).first { $0.globalId == callerCourseGlobalId }
@@ -2897,13 +2923,38 @@ public struct StartRoundView: View {
         ))
     }
 
+    private func applyNearbyRefreshAction(_ action: NearbyDiscoveryRefreshState.Action) {
+        if case .start = action { nearbyRefreshGeneration &+= 1 }
+    }
+
+    private func nearbyLocationChanged() {
+        guard !selectedCourseWasManualSearch else { return }
+        let bucket = locationProvider.latestFix == nil ? nil : locationDiscoveryKey
+        applyNearbyRefreshAction(nearbyRefresh.locationChanged(bucket, now: Date()))
+        if bucket == nil { updateNearbyLocationUnavailable() }
+    }
+
+    private func updateNearbyLocationUnavailable() {
+        reduceNearbyDiscoveryState(.locationUnavailable)
+        offlineCourseOptions = resolvedOfflineOptions(downloadedCourseOptions)
+        nearbyDiscoveryFailed = false
+        isLoadingNearby = locationProvider.authorizationStatus == .notDetermined
+            || locationProvider.authorizationStatus == .authorizedAlways
+            || locationProvider.authorizationStatus == .authorizedWhenInUse
+        nearbyStatusText = locationProvider.authorizationStatus == .denied
+            || locationProvider.authorizationStatus == .restricted
+            ? "定位权限未开启；可以直接按城市或球场名搜索。"
+            : nil
+    }
+
     @MainActor
-    private func discoverNearbyCourses(automaticFollowUp: Bool = false) async {
+    private func discoverNearbyCourses() async {
         let requestToken = UUID()
         nearbyRequestToken = requestToken
-        let retryTokenAtStart = nearbyRetryToken
-        if !automaticFollowUp, nearbyRetryToken == 0 {
-            nearbyLastAutomaticRefreshAt = Date()
+        defer {
+            if nearbyRequestToken == requestToken, !Task.isCancelled {
+                applyNearbyRefreshAction(nearbyRefresh.finished(now: Date()))
+            }
         }
         // Once the player has chosen a manual search result, nearby discovery is background noise.
         // Do not let a new GPS bucket or a late transport failure overwrite that explicit choice.
@@ -2912,16 +2963,7 @@ public struct StartRoundView: View {
             return
         }
         guard let fix = locationProvider.latestFix else {
-            reduceNearbyDiscoveryState(.locationUnavailable)
-            offlineCourseOptions = resolvedOfflineOptions(downloadedCourseOptions)
-            nearbyDiscoveryFailed = false
-            isLoadingNearby = locationProvider.authorizationStatus == .notDetermined
-                || locationProvider.authorizationStatus == .authorizedAlways
-                || locationProvider.authorizationStatus == .authorizedWhenInUse
-            nearbyStatusText = locationProvider.authorizationStatus == .denied
-                || locationProvider.authorizationStatus == .restricted
-                ? "定位权限未开启；可以直接按城市或球场名搜索。"
-                : nil
+            updateNearbyLocationUnavailable()
             return
         }
         let localNearby = Self.locallyAvailableNearbyCourses(
@@ -2978,21 +3020,6 @@ public struct StartRoundView: View {
         } else {
             nearbyStatusText = "当前位置 50 km 内没有找到球场；可以按名称搜索。"
         }
-        guard !Task.isCancelled,
-              !selectedCourseWasManualSearch,
-              locationDiscoveryKey != requestKey,
-              nearbyRetryToken == retryTokenAtStart else { return }
-        let delay = Self.nearbyAutomaticRefreshDelay(
-            lastRefreshAt: nearbyLastAutomaticRefreshAt,
-            now: Date()
-        )
-        if delay > 0 {
-            do { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
-            catch { return }
-        }
-        guard !Task.isCancelled, nearbyRetryToken == retryTokenAtStart else { return }
-        nearbyLastAutomaticRefreshAt = Date()
-        await discoverNearbyCourses(automaticFollowUp: true)
     }
 
     private func resolvedOfflineOptions(_ options: [MobileCourseOption]) -> [MobileCourseOption] {
@@ -3024,8 +3051,8 @@ public struct StartRoundView: View {
     }
 }
 
-/// J4.1 refresh decisions, with time supplied by the caller. Initial implementation preserves
-/// the previous finish-only trigger so the regression tests can demonstrate the missing events.
+/// J4.1: one in-flight lookup, one pending destination, and one automatic refresh per minute.
+/// Supplying `now` makes all trigger and throttle decisions independent of wall-clock sleeps.
 struct NearbyDiscoveryRefreshState {
     enum Action: Equatable { case none, start(String), schedule(Date) }
     private(set) var inFlight: String?
@@ -3035,12 +3062,24 @@ struct NearbyDiscoveryRefreshState {
     private(set) var manualSelection = false
 
     mutating func locationChanged(_ bucket: String?, now: Date) -> Action {
+        let previous = latest
         latest = bucket
-        return .none
+        guard !manualSelection, inFlight == nil else { return .none }
+        guard let bucket else { scheduledAt = nil; return .none }
+        guard bucket != previous else { return .none }
+        // Permission/GPS arrival must not wait behind an earlier automatic lookup.
+        if previous == nil {
+            scheduledAt = nil
+            inFlight = bucket
+            lastAutomaticStart = now
+            return .start(bucket)
+        }
+        if scheduledAt != nil { return .none }
+        return due(now: now)
     }
     mutating func retry(now: Date) -> Action {
         scheduledAt = nil
-        guard !manualSelection, inFlight == nil, let latest else { return .none }
+        guard !manualSelection, let latest else { return .none }
         inFlight = latest
         return .start(latest)
     }
@@ -3051,6 +3090,7 @@ struct NearbyDiscoveryRefreshState {
         return due(now: now)
     }
     mutating func timerFired(now: Date) -> Action {
+        guard scheduledAt != nil else { return .none }
         scheduledAt = nil
         return due(now: now)
     }

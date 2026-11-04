@@ -191,7 +191,7 @@ public struct AICaddieApp: App {
                             }
                         },
                         onLoadCourseTees: { globalId in await model.loadCourseTees(globalId: globalId) },
-                        onCourseTeesFailure: { _ in model.lastCourseTeesFailure },
+                        onCourseTeesFailure: { globalId in model.courseTeesFailures[globalId] },
                         onSearchCourses: { name, city, latitude, longitude in
                             try await model.searchCourses(
                                 name: name,
@@ -914,7 +914,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// never overlaps one: live Native 37729778000 showed the home's 在这个球场 prefetch holding the
     /// 开始一场 Tee request for 90 s, so Start never enabled.
     private var foregroundCourseRequestCount = 0
-    var lastCourseTeesFailure: CourseTeeLoadFailure?
+    var courseTeesFailures: [Int: CourseTeeLoadFailure] = [:]
     private var resultsCacheRefreshTask: Task<Void, Never>?
     private var lastResultsCacheRefreshAt: Date?
     /// Bumped whenever a running refresh is abandoned (a foreground request, a round start, a Garmin
@@ -7835,17 +7835,17 @@ public final class LiveRoundAppModel: ObservableObject {
     /// retain their bundled names. The picker treats [] as a failed refresh and offers retry,
     /// including recent courses whose teeBox only records the last-used selection.
     public func loadCourseTees(globalId: Int) async -> [CourseTee] {
-        lastCourseTeesFailure = nil
+        courseTeesFailures[globalId] = nil
         beginForegroundCourseRequest()
         defer { endForegroundCourseRequest() }
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
-            lastCourseTeesFailure = .unavailable
+            courseTeesFailures[globalId] = .unavailable
             return []
         }
         // Exercise /tees failure with catalogue and nearby still online, as on a slow course release.
         if ProcessInfo.processInfo.environment["UITEST_FORCE_COURSE_TEES_FAILURE"] == "1" {
-            lastCourseTeesFailure = .unavailable
+            courseTeesFailures[globalId] = .unavailable
             return []
         }
         // Deterministic regression seam for the exact cold-release race: while Tee authority is in
@@ -7857,13 +7857,13 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         #endif
         guard let syncClient else {
-            lastCourseTeesFailure = .unavailable
+            courseTeesFailures[globalId] = .unavailable
             return []
         }
         do {
             return try await syncClient.fetchCourseTees(globalId: globalId).tees
         } catch {
-            lastCourseTeesFailure = (error as? URLError)?.code == .timedOut ? .timedOut : .unavailable
+            courseTeesFailures[globalId] = (error as? URLError)?.code == .timedOut ? .timedOut : .unavailable
             invalidateAppleSessionIfNeeded(error)
             AICaddieLog.network.error("Course tees fetch failed (preserving current course state): \(String(describing: error), privacy: .public)")
             return []
