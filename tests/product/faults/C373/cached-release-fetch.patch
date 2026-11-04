@@ -1,0 +1,13 @@
+diff --git a/server_v2/garmin_raster.py b/server_v2/garmin_raster.py
+index 8232497f..fa286776 100644
+--- a/server_v2/garmin_raster.py
++++ b/server_v2/garmin_raster.py
+@@ -67,7 +67,7 @@ async def _dispatch_raster(cached: Callable, slow: Callable, *args):
+ 
+ def _cached_asset_version(global_id: int, hole: int) -> str | None:
+     try:
+-        return garmin_raster.raster_asset_version(global_id, hole, allow_fetch=False)
++        return garmin_raster.raster_asset_version(global_id, hole, allow_fetch=True)
+     except Exception:
+         return None
+ 

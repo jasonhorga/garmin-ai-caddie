@@ -7,15 +7,19 @@ an HTTP 200 unavailable response so the client keeps its existing map fallback.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Iterable
 from concurrent.futures import Future, ThreadPoolExecutor
+from functools import partial
 from io import BytesIO
 import logging
 import os
 import threading
 import time
 from typing import Any
+from weakref import WeakKeyDictionary
 
+import anyio.to_thread
 from fastapi import APIRouter, HTTPException, Path, Request, Response
 from PIL import Image
 
@@ -38,6 +42,70 @@ _DETERMINISTIC_REASONS = {
 logger = logging.getLogger(__name__)
 _INFLIGHT_LOCK = threading.Lock()
 _INFLIGHT: dict[tuple[int, int, str], Future] = {}
+# AnyIO limiters belong to the running loop (including each new TestClient loop).
+_HTTP_LIMITERS: WeakKeyDictionary = WeakKeyDictionary()
+_HTTP_LIMITERS_GUARD = threading.Lock()
+
+
+def _http_limiters() -> tuple[anyio.CapacityLimiter, anyio.CapacityLimiter]:
+    loop = asyncio.get_running_loop()
+    with _HTTP_LIMITERS_GUARD:
+        limiters = _HTTP_LIMITERS.get(loop)
+        if limiters is None:
+            limiters = (anyio.CapacityLimiter(8), anyio.CapacityLimiter(2))
+            _HTTP_LIMITERS[loop] = limiters
+        return limiters
+
+
+async def _dispatch_raster(cached: Callable, slow: Callable, *args):
+    fast_limiter, slow_limiter = _http_limiters()
+    result = await anyio.to_thread.run_sync(partial(cached, *args), limiter=fast_limiter)
+    if result is not None:
+        return result
+    return await anyio.to_thread.run_sync(partial(slow, *args), limiter=slow_limiter)
+
+
+def _cached_asset_version(global_id: int, hole: int) -> str | None:
+    try:
+        return garmin_raster.raster_asset_version(global_id, hole, allow_fetch=False)
+    except Exception:
+        return None
+
+
+def _cached_image(request: Request, global_id: int, hole: int, v: str | None, *, webp: bool) -> Response | None:
+    if v is None:
+        return None
+    asset = _cached_asset_version(global_id, hole)
+    if not asset:
+        return None
+    version = garmin_raster.raster_image_version(asset) if webp else asset
+    if v != version:
+        return None
+    etag = f'"{version}"'
+    headers = {"Cache-Control": _IMMUTABLE_CACHE_CONTROL, "ETag": etag}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    # Both caches are atomically replaced. Never enter a fetch/matte/cache lock here.
+    path = (garmin_raster._matte_path if webp else garmin_raster._raster_path)(global_id, hole, asset)
+    try:
+        data = path.read_bytes()
+        with Image.open(BytesIO(data)) as decoded:
+            decoded.verify()
+    except Exception:
+        return None
+    return Response(content=data, media_type="image/webp" if webp else "image/jpeg", headers=headers)
+
+
+def _cached_projection(global_id: int, hole: int) -> dict[str, Any] | None:
+    version = _cached_asset_version(global_id, hole)
+    if not version:
+        return None
+    # Projection cache writes use os.replace, so readers need no registration lock.
+    cached = _projection_result(global_id, hole, version)
+    if cached is not None:
+        mark("raster_revision")
+        mark("raster_projection_hit")
+    return cached
 
 
 def _register_lock(global_id: int, hole: int, version: str) -> threading.RLock:
@@ -118,7 +186,6 @@ def _register_one(global_id: int, hole: int, version: str, fetched: bytes | None
     return result
 
 
-@ROUTER.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster.jpg")
 def course_hole_garmin_raster_jpg(
     request: Request,
     global_id: int,
@@ -144,7 +211,6 @@ def course_hole_garmin_raster_jpg(
     return Response(content=image, media_type="image/jpeg", headers=headers)
 
 
-@ROUTER.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster.webp")
 def course_hole_garmin_raster_webp(
     request: Request,
     global_id: int,
@@ -280,7 +346,6 @@ def prefetch_holes(
     return futures
 
 
-@ROUTER.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster")
 def course_hole_garmin_raster(
     global_id: int,
     hole: int = Path(ge=1, le=36),
@@ -352,3 +417,28 @@ def _describe_raster(global_id: int, hole: int, version: str, *, fetched=_NOT_FE
         with _INFLIGHT_LOCK:
             if _INFLIGHT.get(key) is future:
                 _INFLIGHT.pop(key, None)
+
+
+@ROUTER.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster.jpg", name="course_hole_garmin_raster_jpg")
+async def course_hole_garmin_raster_jpg_http(
+    request: Request, global_id: int, hole: int = Path(ge=1, le=36), v: str | None = None,
+) -> Response:
+    return await _dispatch_raster(
+        partial(_cached_image, webp=False), course_hole_garmin_raster_jpg, request, global_id, hole, v,
+    )
+
+
+@ROUTER.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster.webp", name="course_hole_garmin_raster_webp")
+async def course_hole_garmin_raster_webp_http(
+    request: Request, global_id: int, hole: int = Path(ge=1, le=36), v: str | None = None,
+) -> Response:
+    return await _dispatch_raster(
+        partial(_cached_image, webp=True), course_hole_garmin_raster_webp, request, global_id, hole, v,
+    )
+
+
+@ROUTER.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster", name="course_hole_garmin_raster")
+async def course_hole_garmin_raster_http(
+    global_id: int, hole: int = Path(ge=1, le=36),
+) -> dict[str, Any]:
+    return await _dispatch_raster(_cached_projection, course_hole_garmin_raster, global_id, hole)
