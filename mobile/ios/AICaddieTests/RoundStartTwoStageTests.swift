@@ -355,6 +355,26 @@ final class RoundStartTwoStageTests: XCTestCase {
         await model.waitForOfflineCourseDownloadForTesting()
     }
 
+    /// J4.5: an offline projection keeps the physical hole's Garmin descriptor so a local start
+    /// can display the cached fallback while the remote package is unavailable.
+    func testJ45OfflineProjectionRetainsGarminDescriptor() throws {
+        let template = try package(
+            roundId: "c369-template",
+            mapOnly: false,
+            garminRasterVersion: "c369-r1"
+        )
+        let projected = try XCTUnwrap(LiveRoundPackage.projecting(
+            [RoundLoopEntry(globalId: c85CourseId, half: "front")],
+            templates: [c85CourseId: template],
+            roundId: "c369-offline"
+        ))
+        XCTAssertEqual(
+            projected.holes.first?.garminRaster?.imageUrl,
+            template.holes.first?.garminRaster?.imageUrl,
+            "J4.5 offline projection preserves the Garmin URL for the physical hole"
+        )
+    }
+
     /// J4.2: overlapping course lookups retain each course's own failure cause.
     func testJ42ConcurrentTeeFailuresRemainScopedToTheirCourse() async {
         let held = C85HeldRequests()
