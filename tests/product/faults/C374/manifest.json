@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C374-retention-keeps-accepted-old-version",
+      "patch": "tests/product/faults/C374/01-retention-keeps-accepted-old-version.patch",
+      "kind": "python",
+      "target": "tests.test_retention.PrivateVolumeRetentionTests.test_G2_request_accepted_previous_topo_version_is_still_expired_on_disk",
+      "promise": "G2: retention keeps only the current topo render version on disk"
+    }
+  ]
+}

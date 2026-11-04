@@ -1,12 +1,12 @@
 diff --git a/ai_caddie/ops/retention.py b/ai_caddie/ops/retention.py
-index d8fbddc6..25f2d66d 100644
+index 2a71cd69..56f7c66b 100644
 --- a/ai_caddie/ops/retention.py
 +++ b/ai_caddie/ops/retention.py
-@@ -65,8 +65,7 @@ def _clean_topo_cache(cache_root: Path, *, remove_empty: bool = False) -> None:
+@@ -68,8 +68,7 @@ def _clean_topo_cache(cache_root: Path, *, remove_empty: bool = False) -> None:
                  # Remove an expired version directory only after recognized files have gone.
                  # Its generated detail trees can be empty but have arbitrary names, so drain
                  # those empty directories before removing the version root.
--                if version is not None and version not in supported:
+-                if version is not None and version != current:
 -                    expired_versions.append(path)
 +                expired_versions.append(path)
          except OSError:
