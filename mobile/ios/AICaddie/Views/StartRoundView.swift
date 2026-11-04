@@ -465,7 +465,7 @@ public struct StartRoundView: View {
         }
         .background(Self.surface)
         .accessibilityIdentifier("start-round-page-course")
-        .accessibilityValue(isLoadingNearby || nearbyRefresh.inFlight != nil ? "nearby:loading" : "nearby:ready")
+        .uiTestStateValue(isLoadingNearby || nearbyRefresh.inFlight != nil ? "nearby:loading" : "nearby:ready")
     }
 
     private var setupPage: some View {
@@ -503,7 +503,7 @@ public struct StartRoundView: View {
             }
         }
         .accessibilityIdentifier("start-round-page-setup")
-        .accessibilityValue(isLoadingNearby || nearbyRefresh.inFlight != nil ? "nearby:loading" : "nearby:ready")
+        .uiTestStateValue(isLoadingNearby || nearbyRefresh.inFlight != nil ? "nearby:loading" : "nearby:ready")
     }
 
     @ViewBuilder private var downloadSection: some View {

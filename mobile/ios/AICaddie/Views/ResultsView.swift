@@ -481,7 +481,7 @@ public struct ResultsArchiveView: View {
         .background(HubStyle.grouped)
         .navigationTitle(title)
         .accessibilityIdentifier("history-archive-state")
-        .accessibilityValue(isLoading || archive == nil ? "data:loading" : "data:ready")
+        .uiTestStateValue(isLoading || archive == nil ? "data:loading" : "data:ready")
         .task(id: "\(year)|\(course)|\(hasShotsOnly)|\(period ?? "")|\(scoreBand ?? "")|\(search)") {
             do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
             await load()
