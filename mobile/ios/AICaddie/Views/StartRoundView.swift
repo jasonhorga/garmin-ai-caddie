@@ -401,7 +401,7 @@ public struct StartRoundView: View {
             nearbyLocationChanged()
         }
         .onChange(of: selectedCourseWasManualSearch) { _, selected in
-            if selected { nearbyRefresh.selectManual() }
+            if selected { nearbyRefresh.selectManual() } else { nearbyRefresh.clearManual() }
         }
         .task(id: nearbyRetryToken) {
             if nearbyRetryToken == 0 { nearbyLocationChanged() }
@@ -3095,6 +3095,8 @@ struct NearbyDiscoveryRefreshState {
         return due(now: now)
     }
     mutating func selectManual() { manualSelection = true; scheduledAt = nil }
+    /// Leaving a manual search result (picking a nearby row, resetting) restores retry and movement refreshes.
+    mutating func clearManual() { manualSelection = false }
     private mutating func due(now: Date) -> Action {
         guard !manualSelection, inFlight == nil, let latest else { return .none }
         if let lastAutomaticStart, now.timeIntervalSince(lastAutomaticStart) < 60 {

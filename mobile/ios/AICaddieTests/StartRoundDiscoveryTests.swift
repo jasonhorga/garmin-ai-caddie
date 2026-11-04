@@ -697,6 +697,20 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(state.timerFired(now: now.addingTimeInterval(90)), .none)
     }
 
+    /// J4.1: leaving a manual search result restores nearby retry and movement refreshes.
+    func testJ41ClearingManualSearchRestoresNearbyRefresh() {
+        var state = NearbyDiscoveryRefreshState()
+        let now = Date(timeIntervalSince1970: 1_000)
+        _ = state.locationChanged("first", now: now)
+        _ = state.finished(now: now)
+        state.selectManual()
+        XCTAssertEqual(state.retry(now: now.addingTimeInterval(5)), .none)
+        state.clearManual()
+        XCTAssertEqual(state.retry(now: now.addingTimeInterval(6)), .start("first"))
+        _ = state.finished(now: now.addingTimeInterval(7))
+        XCTAssertEqual(state.locationChanged("moved", now: now.addingTimeInterval(120)), .start("moved"))
+    }
+
     /// J4.2/C134: the slow-start explanation and the primary button share one busy state.
     func testRoundStartProgressAndButtonUseOneBusyState() {
         XCTAssertEqual(
