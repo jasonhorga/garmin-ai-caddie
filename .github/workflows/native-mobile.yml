@@ -1101,8 +1101,10 @@ jobs:
           # No transient-retry wrapper: the backend is local and synthetic, so a retry would only hide flakes.
           set +e
           set -o pipefail
+          # Own DerivedData: in the unit-watch shard this follows a Watch-only build whose arm64-only
+          # AICaddieDomain TBD breaks the iOS scheme's embedded Watch link ("missing x86_64").
           xcodebuild test \
-            -derivedDataPath "$NATIVE_DERIVED_DATA" \
+            -derivedDataPath "$NATIVE_DERIVED_DATA-product-ui" \
             -parallel-testing-enabled NO \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieUITests \
