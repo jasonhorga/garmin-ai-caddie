@@ -2267,7 +2267,9 @@ public final class LiveRoundAppModel: ObservableObject {
                     try activatePackage(persisted, status: "本地球场已就绪", rememberAsRecent: true)
                     signalFreshRoundEntry(revalidatePackage: true, preparationToken: preparationToken)
                     completeRoundStartRequest()
-                } else if isNewRound {
+                    return
+                }
+                if isNewRound {
                     // An incomplete template is useful only after an explicit player choice. A
                     // timeout must leave the Start card visible with a clear escape hatch.
                     canStartSimplifiedRound = true
@@ -7626,13 +7628,13 @@ public final class LiveRoundAppModel: ObservableObject {
                     requestKind: .userDownload
                 )
             }
+            guard !Task.isCancelled,
+                  prepCourseDownloadGeneration == generation else { throw CancellationError() }
             // The request's Tee owns the offline template key. Legacy/fixture responses may carry
             // the venue default Tee in `course`; normalize that identity before caching or using
             // the package for the independent whole-course row.
             let canonicalFetched = fetched.replacingCourseTeeBox(record.teeBox)
             let isIntentPrefetch = record.isIntentPrefetch
-            guard !Task.isCancelled,
-                  prepCourseDownloadGeneration == generation else { throw CancellationError() }
             if isIntentPrefetch {
                 prefetchFirstHoleTopo(in: canonicalFetched)
                 prefetchGarminRasters(canonicalFetched, activeHole: intentGarminStartHoles[id])
