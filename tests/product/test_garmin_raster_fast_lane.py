@@ -1,4 +1,5 @@
 """J4.2: cached Garmin images/projections return in <1 s during server heavy work."""
+import asyncio
 from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from io import BytesIO
@@ -11,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 import anyio.to_thread
+import anyio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -268,6 +270,49 @@ class GarminRasterFastLaneTests(unittest.TestCase):
                 release_same_hole.set()
             for job in same_jobs + [other_job]:
                 self.assertEqual(job.result(timeout=5).status_code, 200)
+
+    def test_J42_cancelled_leader_releases_inflight_for_waiter(self):
+        """A disconnect while queued for registration must not strand same-hole waiters."""
+        async def scenario():
+            fast_limiter = anyio.CapacityLimiter(8)
+            slow_limiter = anyio.CapacityLimiter(2)
+            borrowers = [object(), object()]
+            for borrower in borrowers:
+                await slow_limiter.acquire_on_behalf_of(borrower)
+            key = (GID, 1, "777")
+            with api._INFLIGHT_LOCK:
+                api._INFLIGHT.pop(key, None)
+            try:
+                with (patch.object(api, "_http_limiters", return_value=(fast_limiter, slow_limiter)),
+                      patch.object(api, "_cached_projection", return_value=None),
+                      patch.object(api, "_cached_asset_version", return_value="777"),
+                      patch.object(api, "course_hole_garmin_raster", return_value=dict(CACHED))):
+                    leader = asyncio.create_task(api._dispatch_projection(GID, 1))
+                    for _ in range(100):
+                        with api._INFLIGHT_LOCK:
+                            claimed = key in api._INFLIGHT
+                        if claimed:
+                            break
+                        await anyio.sleep(0)
+                    leader.cancel()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await leader
+                    with api._INFLIGHT_LOCK:
+                        self.assertNotIn(key, api._INFLIGHT)
+                    for borrower in borrowers:
+                        slow_limiter.release_on_behalf_of(borrower)
+                    result = await asyncio.wait_for(api._dispatch_projection(GID, 1), timeout=2)
+                    self.assertEqual(result["available"], True)
+            finally:
+                for borrower in borrowers:
+                    try:
+                        slow_limiter.release_on_behalf_of(borrower)
+                    except RuntimeError:
+                        pass
+                with api._INFLIGHT_LOCK:
+                    api._INFLIGHT.pop(key, None)
+
+        anyio.run(scenario)
 
     def test_J42_cached_version_mismatch_returns_fast_without_slow_lane(self):
         entered = threading.Event()
