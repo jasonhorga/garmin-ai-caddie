@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Services/SyncClient.swift b/mobile/ios/AICaddie/Services/SyncClient.swift
+index 7f454d6d..d95a9ecd 100644
+--- a/mobile/ios/AICaddie/Services/SyncClient.swift
++++ b/mobile/ios/AICaddie/Services/SyncClient.swift
+@@ -810,7 +810,7 @@ public final class SyncClient {
+             // Transient transport failures keep the batch for the next throttle window; the store
+             // bounds retries so diagnostics can never crowd out foreground work.
+             AICaddieLog.net.debug("Client timing upload deferred: \(String(describing: error), privacy: .public)")
+-            return .unavailable
++            return .dropped
+         }
+     }
+ 

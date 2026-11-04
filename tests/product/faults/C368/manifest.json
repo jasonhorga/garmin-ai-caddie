@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C368-01-remove-499-mapping",
+      "patch": "tests/product/faults/C368/01-remove-499-mapping.patch",
+      "kind": "python",
+      "target": "tests.product.test_j8_degrade.J8DisconnectTests.test_j8_5_partial_client_timing_body_is_timed_as_499",
+      "promise": "J8.5",
+      "kills": "Client disconnect must be timed as 499 rather than 400."
+    },
+    {
+      "id": "tests-product-faults-C368-02-drop-transient-upload",
+      "patch": "tests/product/faults/C368/02-drop-transient-upload.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/SyncClientTests/testProductSpec84TransientUploadRetriesSameBatch",
+      "promise": "J8.4",
+      "kills": "Transient timing upload failures keep the batch for a later window."
+    },
+    {
+      "id": "tests-product-faults-C368-03-remove-retry-cap",
+      "patch": "tests/product/faults/C368/03-remove-retry-cap.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/SyncClientTests/testProductSpec84TransientUploadRetriesAreCapped",
+      "promise": "J8.4",
+      "kills": "Each timing record is retried at most twice."
+    }
+  ]
+}
