@@ -102,16 +102,6 @@ async def _dispatch_raster(cached: Callable, slow: Callable, *args):
     return await anyio.to_thread.run_sync(partial(slow, *args), limiter=slow_limiter)
 
 
-def _claim_inflight(key: tuple[int, int, str]) -> tuple[Future, bool]:
-    with _INFLIGHT_LOCK:
-        future = _INFLIGHT.get(key)
-        if future is not None:
-            return future, False
-        future = Future()
-        _INFLIGHT[key] = future
-        return future, True
-
-
 async def _dispatch_projection(global_id: int, hole: int) -> dict[str, Any]:
     """Run projection waiters outside the bounded registration limiter."""
     fast_limiter, slow_limiter = _http_limiters()
@@ -188,6 +178,16 @@ def _cached_projection(global_id: int, hole: int) -> dict[str, Any] | None:
         if garmin_raster.raster_release_refresh_due(global_id, hole):
             _schedule_release_refresh(global_id)
     return cached
+
+
+def _claim_inflight(key: tuple[int, int, str]) -> tuple[Future, bool]:
+    with _INFLIGHT_LOCK:
+        future = _INFLIGHT.get(key)
+        if future is not None:
+            return future, False
+        future = Future()
+        _INFLIGHT[key] = future
+        return future, True
 
 
 def _register_lock(global_id: int, hole: int, version: str) -> threading.RLock:
@@ -448,10 +448,15 @@ def course_hole_garmin_raster(
             return cached
     if in_background():
         fetched = garmin_raster.fetch_raster(global_id, hole)
+        if _inflight_future is None:
+            with background_work(unit_type="raster-registration"):
+                return _describe_raster(global_id, hole, version, fetched=fetched)
         with background_work(unit_type="raster-registration"):
             return _describe_raster(
                 global_id, hole, version, fetched=fetched, inflight_future=_inflight_future,
             )
+    if _inflight_future is None:
+        return _describe_raster(global_id, hole, version)
     return _describe_raster(global_id, hole, version, inflight_future=_inflight_future)
 
 
