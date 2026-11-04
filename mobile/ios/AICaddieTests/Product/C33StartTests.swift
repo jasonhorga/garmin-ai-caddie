@@ -218,7 +218,10 @@ final class C33StartTests: XCTestCase {
             roundStartTimeoutInterval: 0.2
         )
         let deadlineGate = C33RetrySleepGate()
-        client.roundStartDeadlineSleep = { _ in try await deadlineGate.wait() }
+        client.roundStartDeadlineSleep = { nanoseconds in
+            XCTAssertEqual(nanoseconds, 200_000_000, "J4.2 configured foreground deadline reaches the injected sleeper")
+            try await deadlineGate.wait()
+        }
 
         let sent = expectation(description: "round package request held")
         let sentOnce = C33FirstMatch()
@@ -298,7 +301,10 @@ final class C33StartTests: XCTestCase {
             roundStartTimeoutInterval: 0.05
         )
         let deadlineGate = C33RetrySleepGate()
-        client.roundStartDeadlineSleep = { _ in try await deadlineGate.wait() }
+        client.roundStartDeadlineSleep = { nanoseconds in
+            XCTAssertEqual(nanoseconds, 50_000_000, "J4.2 configured foreground deadline reaches the injected sleeper")
+            try await deadlineGate.wait()
+        }
 
         let model = c33Model(OfflineStore(directoryURL: directory), client)
         // Only the held start request drives `stopped`. Requests that complete normally (this
@@ -366,7 +372,10 @@ final class C33StartTests: XCTestCase {
             roundStartTimeoutInterval: 1
         )
         let deadlineGate = C33RetrySleepGate()
-        client.roundStartDeadlineSleep = { _ in try await deadlineGate.wait() }
+        client.roundStartDeadlineSleep = { nanoseconds in
+            XCTAssertEqual(nanoseconds, 1_000_000_000, "J4.2 configured foreground deadline reaches the injected sleeper")
+            try await deadlineGate.wait()
+        }
 
         let model = LiveRoundAppModel(
             offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: client.baseURL,
@@ -497,7 +506,10 @@ final class C33StartTests: XCTestCase {
             roundStartTimeoutInterval: 0.05
         )
         let deadlineGate = C33RetrySleepGate()
-        client.roundStartDeadlineSleep = { _ in try await deadlineGate.wait() }
+        client.roundStartDeadlineSleep = { nanoseconds in
+            XCTAssertEqual(nanoseconds, 50_000_000, "J4.2 configured foreground deadline reaches the injected sleeper")
+            try await deadlineGate.wait()
+        }
 
         let model = c33Model(OfflineStore(directoryURL: directory), client)
         let sent = expectation(description: "prep package start reached server")

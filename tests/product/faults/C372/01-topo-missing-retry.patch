@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/TopoHoleBaseImage.swift b/mobile/ios/AICaddie/Views/TopoHoleBaseImage.swift
+index 8a0b220d..cef2c4cf 100644
+--- a/mobile/ios/AICaddie/Views/TopoHoleBaseImage.swift
++++ b/mobile/ios/AICaddie/Views/TopoHoleBaseImage.swift
+@@ -25,7 +25,7 @@ final class TopoHoleImageStore: ObservableObject {
+     private static var inFlight: [URL: Task<Data?, Never>] = [:]
+     private static var loadingTasks: [UUID: Task<Bool, Never>] = [:]
+     private static var retryAttemptByURL: [URL: Int] = [:]
+-    private static let retryDelaysNanoseconds: [UInt64] = [0, 5_000_000_000, 15_000_000_000]
++    private static let retryDelaysNanoseconds: [UInt64] = [0, 5_000_000_000]
+     #if DEBUG
+     /// Tests advance the retry chain explicitly; production keeps using Task.sleep below.
+     private static var resetGeneration = 0

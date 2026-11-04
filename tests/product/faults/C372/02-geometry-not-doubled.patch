@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Models/LiveRoundPackage.swift b/mobile/ios/AICaddie/Models/LiveRoundPackage.swift
+index c4852437..646b5202 100644
+--- a/mobile/ios/AICaddie/Models/LiveRoundPackage.swift
++++ b/mobile/ios/AICaddie/Models/LiveRoundPackage.swift
+@@ -1206,7 +1206,7 @@ public struct GarminRasterPackageDescriptor: Codable, Equatable {
+ public enum PackageGeometryRetryPolicy {
+     public static func backoffSeconds(attempt: Int) -> TimeInterval {
+         let bounded = max(0, min(attempt, 9))
+-        return min(300, pow(2, Double(bounded)))
++        return min(300, pow(1, Double(bounded)))
+     }
+ 
+     public static func delaySeconds(
