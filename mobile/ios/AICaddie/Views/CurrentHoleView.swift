@@ -1043,7 +1043,8 @@ public struct CurrentHoleView: View {
         self._lastTargetEditKind = State(initialValue: restoredTarget?.kind)
         self._resolvedLocalTopoURL = State(initialValue: initialSession.localTopoURL)
         self._garminRaster = State(
-            initialValue: initialSession.garminRaster ?? Self.packageGarminRaster(for: hole)
+            initialValue: initialSession.garminRaster
+                ?? Self.packageGarminRaster(for: hole, offlineStore: offlineStore, teeBox: package.course.teeBox)
         )
         self._caddieDecision = State(initialValue: nil)
         if let initialRoute = initialSession.caddieRoutes.first {
@@ -1169,6 +1170,33 @@ public struct CurrentHoleView: View {
             imageUrl: descriptor.imageUrl,
             mode: "package",
             reason: nil
+        )
+    }
+
+    /// Legacy round packages may omit the descriptor after projection. A matching durable course
+    /// template still owns the physical Garmin URL, so use it before asking `/garmin-raster`.
+    private static func packageGarminRaster(
+        for hole: Hole,
+        offlineStore: OfflineStore?,
+        teeBox: String
+    ) -> GarminRasterResponse? {
+        if let packageRaster = packageGarminRaster(for: hole) { return packageRaster }
+        guard let offlineStore,
+              let template = try? offlineStore.loadCourseTemplate(
+            globalId: hole.sourceGlobalId,
+            teeBox: teeBox
+        ),
+              let templateHole = template.holes.first(where: {
+                  $0.sourceGlobalId == hole.sourceGlobalId && $0.sourceLocalHole == hole.sourceLocalHole
+              }) else { return nil }
+        return packageGarminRaster(for: templateHole)
+    }
+
+    private var templateGarminRaster: GarminRasterResponse? {
+        Self.packageGarminRaster(
+            for: hole,
+            offlineStore: offlineStore,
+            teeBox: package.course.teeBox
         )
     }
 
@@ -1445,7 +1473,7 @@ public struct CurrentHoleView: View {
             hazardMappingRequest = nil
             preciseMapTimedOut = false
             garminRaster = sessionEntry().garminRaster
-                ?? Self.packageGarminRaster(for: hole)
+                ?? templateGarminRaster
             preciseTopoImageReady = false
             preciseTopoDecodeFailed = false
             garminRasterImageFailed = false

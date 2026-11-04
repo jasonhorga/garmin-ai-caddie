@@ -269,6 +269,17 @@ final class GarminRasterImageStore: ObservableObject {
         FileManager.default.fileExists(atPath: diskURL(for: url).path)
     }
 
+    #if DEBUG
+    static func cacheForTesting(_ data: Data, for url: URL) {
+        save(data, for: url)
+    }
+
+    static func removeDiskEntryForTesting(_ url: URL) {
+        try? FileManager.default.removeItem(at: diskURL(for: url))
+        evict(url)
+    }
+    #endif
+
     static func preload(_ image: UIImage, for url: URL) {
         imageCache.setObject(image, forKey: url as NSURL, cost: cost(of: image))
     }

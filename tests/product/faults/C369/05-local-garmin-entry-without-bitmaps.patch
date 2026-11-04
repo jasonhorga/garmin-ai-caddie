@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 30dc9858..f1ff1d9c 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -2261,7 +2261,6 @@ public final class LiveRoundAppModel: ObservableObject {
+                 let hasLocalGarmin = Self.isCompleteCachedRoundPackage(local)
+                     && local.holes.allSatisfy { $0.garminRaster != nil }
+                     && localRasters.count == physicalHoles.count
+-                    && localRasters.allSatisfy { GarminRasterImageStore.isOnDisk($0) }
+                 if isNewRound, hasLocalGarmin {
+                     let persisted = try offlineStore.saveRoundPackage(local)
+                     try activatePackage(persisted, status: "本地球场已就绪", rememberAsRecent: true)

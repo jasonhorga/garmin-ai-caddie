@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C369-01-renumbered-garmin",
+      "patch": "tests/product/faults/C369/01-renumbered-drops-garmin.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testJ45OfflineProjectionRetainsGarminDescriptor",
+      "promise": "J4.5",
+      "kills": "Offline projection must preserve the physical hole's Garmin descriptor."
+    },
+    {
+      "id": "tests-product-faults-C369-02-intent-garmin",
+      "patch": "tests/product/faults/C369/02-intent-no-garmin.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testCompletedCourseIntentIsReusedByStart",
+      "promise": "J4.5",
+      "kills": "Selecting a course and Tee must warm every Garmin raster before Start."
+    },
+    {
+      "id": "tests-product-faults-C369-03-template-garmin",
+      "patch": "tests/product/faults/C369/03-template-no-garmin.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testJ45SavedTemplateRastersDoNotWaitForAnotherCoursePackage",
+      "promise": "J4.5",
+      "kills": "A saved offline template must cache its Garmin rasters independently of prep."
+    },
+    {
+      "id": "tests-product-faults-C369-04-local-garmin-any-template",
+      "patch": "tests/product/faults/C369/04-local-garmin-entry-any-template.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testJ45MapOnlyTemplateWithCachedGarminStillStaysOnStart",
+      "promise": "J4.5",
+      "kills": "A timed-out start may enter from local Garmin only with a personal template, never a map-only one."
+    },
+    {
+      "id": "tests-product-faults-C369-05-local-garmin-without-bitmaps",
+      "patch": "tests/product/faults/C369/05-local-garmin-entry-without-bitmaps.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testJ45PersonalTemplateWithoutCachedGarminStillStaysOnStart",
+      "promise": "J4.5",
+      "kills": "A timed-out start must not enter from a template whose Garmin bitmaps are not on disk."
+    }
+  ]
+}

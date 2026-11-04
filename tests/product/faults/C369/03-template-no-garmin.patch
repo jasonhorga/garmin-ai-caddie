@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index e7810736..e4c0549f 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -2658,3 +2658,2 @@ public final class LiveRoundAppModel: ObservableObject {
+            prepCourseDownloads.first(where: { $0.id == prepDownloadID })?.isSpeculative == true { return }
+-        prefetchGarminRasters(snapshot)
+     }
