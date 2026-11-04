@@ -2100,9 +2100,10 @@ struct LiveMapPreparingSurface: View {
     }
 }
 
-/// README 地图降级契约: the one full-screen waiting page while no bitmap is drawable — hole · Par,
-/// the yards and a spinner, never an empty hole and never download wording. Live play and 备战 show
-/// the same page; a bitmap replaces it when ready.
+/// README 地图降级契约 / J4.5: the one full-screen waiting page while neither the precise map nor the
+/// Garmin base image is drawable — black base, hole · Par, the yards, "地图准备中" and a spinner; never
+/// a line drawing, never an empty hole and never download wording. Live play and 备战 show the same
+/// page; a bitmap replaces it when ready.
 struct HoleMapWaitingPage: View {
     let holeNumber: Int
     let par: Int?
@@ -2123,13 +2124,11 @@ struct HoleMapWaitingPage: View {
                     .monospacedDigit()
                     .foregroundStyle(LivePlayStyle.ink60)
                 if failed {
-                    Text("地图暂时不可用")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(LivePlayStyle.ink60)
                     if let onRetry {
                         Button("重试") { onRetry() }
                             .buttonStyle(.borderedProminent)
                             .tint(LivePlayStyle.accent)
+                            .padding(.top, 6)
                             .accessibilityIdentifier("live-map-retry")
                     }
                 } else {
@@ -2147,6 +2146,9 @@ struct HoleMapWaitingPage: View {
         .accessibilityLabel(failed ? "第 \(holeNumber) 洞地图暂时不可用" : "第 \(holeNumber) 洞地图准备中")
     }
 
+    static let preparingText = "地图准备中"
+    static let failedText = "地图暂时不可用"
+
     var title: String {
         var parts = ["第 \(holeNumber) 洞"]
         if let par { parts.append("Par \(par)") }
@@ -2154,8 +2156,9 @@ struct HoleMapWaitingPage: View {
     }
 
     var subtitle: String {
-        guard let yards, yards > 0 else { return "图到了自动出来" }
-        return "\(yards) 码 · 图到了自动出来"
+        let status = failed ? Self.failedText : Self.preparingText
+        guard let yards, yards > 0 else { return status }
+        return "\(yards) 码 · \(status)"
     }
 }
 
