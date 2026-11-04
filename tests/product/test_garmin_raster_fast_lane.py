@@ -95,9 +95,11 @@ class GarminRasterFastLaneTests(unittest.TestCase):
             yield
         finally:
             release.set()
-            for job in jobs:
-                job.result(timeout=5)
-            client.portal.call(set_tokens, previous)
+            try:
+                for job in jobs:
+                    job.result(timeout=5)
+            finally:
+                client.portal.call(set_tokens, previous)
 
     @contextmanager
     def held_lock(self, lock):
@@ -158,6 +160,46 @@ class GarminRasterFastLaneTests(unittest.TestCase):
         self.assertEqual(self.network.call_count, 0, "J4.2 cached HTTP must not refresh an expired release")
         stages = {name for timing in self.timings for name in timing.marks}
         self.assertIn("raster_projection_hit", stages)
+
+    def test_J42_cached_http_bypasses_full_slow_raster_lane(self):
+        release = threading.Event()
+        entered = [threading.Event(), threading.Event()]
+
+        def slow_version(_gid, hole):
+            entered[hole - 2].set()
+            if not release.wait(10):
+                raise RuntimeError("test did not release slow raster")
+            return None
+
+        with (patch.object(api, "_asset_version", side_effect=slow_version),
+              TestClient(self.app) as client, ThreadPoolExecutor(max_workers=6) as pool):
+            jobs = [pool.submit(client.get, BASE.replace("/holes/1/", f"/holes/{hole}/")) for hole in (2, 3)]
+            try:
+                self.assertTrue(all(event.wait(3) for event in entered))
+                self.assert_cached_http(client, pool)
+            finally:
+                release.set()
+                for job in jobs:
+                    self.assertFalse(job.result(timeout=5).json()["available"])
+
+    def test_J42_cache_misses_keep_download_and_unavailable_semantics(self):
+        raster._matte_path(GID, 1, "777").unlink()
+        raster._raster_path(GID, 1, "777").unlink()
+        with (patch.object(raster, "fetch_matted_raster", return_value=self.webp) as matte,
+              patch.object(raster, "fetch_raster", return_value=self.jpg) as jpg,
+              TestClient(self.app) as client):
+            self.assertEqual(client.get(BASE + ".webp?v=777-sky1").content, self.webp)
+            self.assertEqual(client.get(BASE + ".jpg?v=777").content, self.jpg)
+            matte.assert_called_once_with(GID, 1, "777")
+            jpg.assert_called_once_with(GID, 1)
+        # With no cached release the original slow path still decides 404/unavailable.
+        release_path = reference._courseview_dir(self.root) / f"{GID}_releases.pb"
+        release_path.unlink()
+        self.addCleanup(reference._RELEASE_UNCACHED_FAILURES.pop, (str(self.root.resolve()), GID), None)
+        with TestClient(self.app) as client:
+            self.assertEqual(client.get(BASE + ".webp?v=777-sky1").status_code, 404)
+            self.assertEqual(client.get(BASE + ".jpg?v=777").status_code, 404)
+            self.assertEqual(client.get(BASE).json()["reason"], "raster_url_missing")
 
     def test_J42_pinned_conditional_requests_keep_immutable_headers_without_image_file(self):
         raster._matte_path(GID, 1, "777").unlink()
