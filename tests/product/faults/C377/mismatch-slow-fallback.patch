@@ -1,0 +1,13 @@
+diff --git a/server_v2/garmin_raster.py b/server_v2/garmin_raster.py
+index 9b110a40..bd7b6a38 100644
+--- a/server_v2/garmin_raster.py
++++ b/server_v2/garmin_raster.py
+@@ -119,7 +119,7 @@ def _cached_image(request: Request, global_id: int, hole: int, v: str | None, *,
+     if v != version:
+         if v is None:
+             return None
+-        return JSONResponse(status_code=409, content={"detail": "garmin raster asset version changed"})
++        return None
+     etag = f'"{version}"'
+     headers = {"Cache-Control": _IMMUTABLE_CACHE_CONTROL, "ETag": etag}
+     if request.headers.get("if-none-match") == etag:
