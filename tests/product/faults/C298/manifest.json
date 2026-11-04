@@ -12,7 +12,7 @@
       "id": "tests-product-faults-C298-02-contains-device-name",
       "patch": "tests/product/faults/C298/02-contains-device-name.patch",
       "kind": "python",
-      "target": "tests.test_c298_native_quick_runner.NativeQuickRunnerTests.test_simulator_priority_exact_names_numeric_runtime_and_build_udid",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_quick_build_and_watch_use_real_runner_owned_selection",
       "promise": "C298 CI infrastructure contract"
     },
     {

@@ -290,6 +290,10 @@ class MacRunnerJobsTests(unittest.TestCase):
         # C372: executing the actual quick shell with the real selector must create owned
         # devices despite shared exact-model devices already being available.
         self.fake_tool('xcodebuild', 'exit 0')
+        for platform, suffix in (('iOS', 'iphone'), ('watchOS', 'watch')):
+            self.state['devices']['com.apple.CoreSimulator.SimRuntime.' + platform + '-27-2'].append(
+                dict(name='runner-one-' + suffix + '-Pro', udid='wrong-owned-' + suffix, isAvailable=True))
+        self.save()
         values = {'CADDIE_SIM_PREFIX': 'runner-one'}
         selected = []
         for name, platform, suffix in (

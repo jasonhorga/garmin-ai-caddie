@@ -1,9 +1,9 @@
 diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
-index cb98d7dc..b9744708 100644
+index a47471e5..48be3f02 100644
 --- a/.github/workflows/native-mobile.yml
 +++ b/.github/workflows/native-mobile.yml
-@@ -1127,3 +1127,3 @@ jobs:
+@@ -1284,3 +1284,3 @@ jobs:
      runs-on: [self-hosted, caddie-mba]
--    timeout-minutes: 55
+-    timeout-minutes: 60
 +    timeout-minutes: 45
      env:
