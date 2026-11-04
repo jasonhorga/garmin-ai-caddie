@@ -297,16 +297,20 @@ final class C33StartTests: XCTestCase {
         let stopped = expectation(description: "timed out request cancelled")
         let failed = expectation(description: "spinner ended with failure")
         let client = SyncClient(
-            baseURL: URL(string: "https://\(host)")!, session: session,
-            roundStartTimeoutInterval: 0.05
+            baseURL: URL(string: "https://\(host)")!, session: session
         )
         let deadlineGate = C33RetrySleepGate()
         client.roundStartDeadlineSleep = { nanoseconds in
-            XCTAssertEqual(nanoseconds, 50_000_000, "J4.2 configured foreground deadline reaches the injected sleeper")
+            XCTAssertEqual(nanoseconds, 30_000_000_000, "J4.2 the total foreground budget is thirty seconds")
             try await deadlineGate.wait()
         }
 
-        let model = c33Model(OfflineStore(directoryURL: directory), client)
+        let model = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: client.baseURL,
+            watchBridge: nil, garminSessionStore: nil, syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: [], networkPathObserver: nil,
+            roundStartNow: { Date(timeIntervalSince1970: 1_900_000_000) }
+        )
         // Only the held start request drives `stopped`. Requests that complete normally (this
         // model's other 404s, or strays from earlier tests) also call stopLoading.
         let heldLock = NSLock()
@@ -368,12 +372,11 @@ final class C33StartTests: XCTestCase {
         let session = C33URLProtocol.session()
         var now = Date(timeIntervalSince1970: 1_900_000_000)
         let client = SyncClient(
-            baseURL: URL(string: "https://\(host)")!, session: session,
-            roundStartTimeoutInterval: 1
+            baseURL: URL(string: "https://\(host)")!, session: session
         )
         let deadlineGate = C33RetrySleepGate()
         client.roundStartDeadlineSleep = { nanoseconds in
-            XCTAssertEqual(nanoseconds, 1_000_000_000, "J4.2 configured foreground deadline reaches the injected sleeper")
+            XCTAssertEqual(nanoseconds, 30_000_000_000, "J4.2 the total foreground budget is thirty seconds")
             try await deadlineGate.wait()
         }
 
@@ -502,16 +505,20 @@ final class C33StartTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let session = C33URLProtocol.session()
         let client = SyncClient(
-            baseURL: URL(string: "https://\(host)")!, session: session,
-            roundStartTimeoutInterval: 0.05
+            baseURL: URL(string: "https://\(host)")!, session: session
         )
         let deadlineGate = C33RetrySleepGate()
         client.roundStartDeadlineSleep = { nanoseconds in
-            XCTAssertEqual(nanoseconds, 50_000_000, "J4.2 configured foreground deadline reaches the injected sleeper")
+            XCTAssertEqual(nanoseconds, 30_000_000_000, "J4.2 the total foreground budget is thirty seconds")
             try await deadlineGate.wait()
         }
 
-        let model = c33Model(OfflineStore(directoryURL: directory), client)
+        let model = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: client.baseURL,
+            watchBridge: nil, garminSessionStore: nil, syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: [], networkPathObserver: nil,
+            roundStartNow: { Date(timeIntervalSince1970: 1_900_000_000) }
+        )
         let sent = expectation(description: "prep package start reached server")
         let sentOnce = C33FirstMatch()
         C33URLProtocol.setHandlers(onStart: { proto in

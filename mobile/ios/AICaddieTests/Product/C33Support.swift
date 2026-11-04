@@ -63,12 +63,10 @@ final class C33TopoPrefetchScope {
         guard !stopped else { return }
         // Observe the downloader's actual task completion. The injected retry sleep makes each
         // retry deterministic and immediate, so teardown never depends on wall-clock quiescence.
-        await TopoHoleImageStore.waitForPrefetchCompletionForTesting()
-        let snapshot = SharedTopoURLProtocol.records()
-        XCTAssertTrue(
-            snapshot.urls.allSatisfy({ TopoHoleImageStore.isMemoryCached($0) }),
-            "Shared topo prefetch completed with an uncached URL"
-        )
+        let urls = await TopoHoleImageStore.waitForPrefetchCompletionForTesting()
+        for url in urls {
+            XCTAssertTrue(TopoHoleImageStore.isMemoryCached(url), "Shared topo prefetch completed without caching \(url)")
+        }
         TopoHoleImageStore.resetForUITesting()
         stopped = true
     }

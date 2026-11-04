@@ -29,6 +29,7 @@ final class TopoHoleImageStore: ObservableObject {
     #if DEBUG
     /// Tests advance the retry chain explicitly; production keeps using Task.sleep below.
     private static var resetGeneration = 0
+    private static var requestedLoadingURLs = Set<URL>()
     static var retrySleepForTesting: ((UInt64) async throws -> Void)?
     static var imageDataForTesting: ((URL) async -> Data?)?
     #endif
@@ -89,7 +90,7 @@ final class TopoHoleImageStore: ObservableObject {
         inFlight.values.forEach { $0.cancel() }
         inFlight.removeAll()
         loadingTasks.values.forEach { $0.cancel() }
-        loadingTasks.removeAll()
+        requestedLoadingURLs.removeAll()
         retryAttemptByURL.removeAll()
         retrySleepForTesting = nil
         imageDataForTesting = nil
@@ -109,8 +110,15 @@ final class TopoHoleImageStore: ObservableObject {
 
     private static func startLoading(_ url: URL) -> Task<Bool, Never> {
         let id = UUID()
+        #if DEBUG
+        let generation = resetGeneration
+        requestedLoadingURLs.insert(url)
+        #endif
         let task = Task {
             defer { loadingTasks[id] = nil }
+            #if DEBUG
+            guard generation == resetGeneration else { return false }
+            #endif
             return await loadWithRetries(url)
         }
         loadingTasks[id] = task
@@ -120,10 +128,14 @@ final class TopoHoleImageStore: ObservableObject {
     #if DEBUG
     /// Observe all scheduled prefetch/ensureLoaded retry chains, including work added while the
     /// current batch completes. No quiet interval or elapsed-time success criterion is involved.
-    static func waitForPrefetchCompletionForTesting() async {
+    @discardableResult
+    static func waitForPrefetchCompletionForTesting() async -> Set<URL> {
         while !loadingTasks.isEmpty {
             for task in Array(loadingTasks.values) { _ = await task.value }
         }
+        // URLProtocol's process-wide records can include deliveries from an older cancelled
+        // generation. Only this generation's actual prefetch/ensureLoaded tasks own these URLs.
+        return requestedLoadingURLs
     }
     #endif
 
@@ -170,7 +182,9 @@ final class TopoHoleImageStore: ObservableObject {
                 retryAttemptByURL[url] = nil
                 return false
             }
-            if await image(for: url) != nil {
+            let loaded = await image(for: url) != nil
+            guard !Task.isCancelled else { return false }
+            if loaded {
                 retryAttemptByURL[url] = nil
                 return true
             }
