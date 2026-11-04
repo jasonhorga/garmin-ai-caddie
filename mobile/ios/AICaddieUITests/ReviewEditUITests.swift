@@ -76,7 +76,11 @@ final class ReviewEditUITests: XCTestCase {
             XCTFail("review-edit evidence must expose the complete archive")
             return
         }
-        XCTAssertTrue(UITapHelpers.waitForValue("data:ready", on: element("history-archive-state"), timeout: 6))
+        // Archive rows render only once its data is in: a month header ("N 场 · 均杆 …") or the empty state.
+        let archiveReady = app.staticTexts.matching(NSPredicate(
+            format: "label CONTAINS %@ OR label == %@", "场 · 均杆", "没有符合条件的球局"
+        )).firstMatch
+        XCTAssertTrue(archiveReady.waitForExistence(timeout: 6), "the archive must finish loading before its evidence")
         save("01-history-list"); dump("01-history-list")
         // The newest owner rows can be CI-polluted manual rounds with coincident Tee coordinates.
         // Open the read-only Garmin round verified against the live scorecard + shot-map contracts,
