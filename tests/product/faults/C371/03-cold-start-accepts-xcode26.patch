@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/watch-cold-start.yml b/.github/workflows/watch-cold-start.yml
+index 3f4020d0..ac83fd2a 100644
+--- a/.github/workflows/watch-cold-start.yml
++++ b/.github/workflows/watch-cold-start.yml
+@@ -72,7 +72,7 @@ jobs:
+           export DEVELOPER_DIR="$developer_dir"
+           version="$(xcodebuild -version)"
+           printf '%s\n' "$version"
+-          printf '%s\n' "$version" | grep -q '^Xcode 27\.' || {
++          printf '%s\n' "$version" | grep -q '^Xcode 2[67]\.' || {
+             echo "::error title=Xcode 27 unavailable::selected Xcode is not major version 27"
+             exit 1
+           }

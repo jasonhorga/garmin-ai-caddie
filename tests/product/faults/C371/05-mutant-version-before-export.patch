@@ -1,0 +1,12 @@
+diff --git a/.github/workflows/agenthub-native-mutant.yml b/.github/workflows/agenthub-native-mutant.yml
+index b9c644d3..edc90262 100644
+--- a/.github/workflows/agenthub-native-mutant.yml
++++ b/.github/workflows/agenthub-native-mutant.yml
+@@ -62,7 +62,6 @@ jobs:
+             exit 1
+           fi
+           developer_dir="$xcode_path/Contents/Developer"
+-          export DEVELOPER_DIR="$developer_dir"
+           version="$(xcodebuild -version)"
+           printf '%s\n' "$version"
+           printf '%s\n' "$version" | grep -q '^Xcode 27\.' || {
