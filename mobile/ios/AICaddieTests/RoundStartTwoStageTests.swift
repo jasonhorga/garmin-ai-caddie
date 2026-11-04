@@ -2,6 +2,7 @@
 import Combine
 import Foundation
 import XCTest
+import UIKit
 @testable import AICaddie
 
 /// The fixture's course (front nine of 31795). File-level so the URLProtocol handlers can read it.
@@ -333,8 +334,10 @@ final class RoundStartTwoStageTests: XCTestCase {
         let fixture = makeModel(host: host)
         let model = fixture.model
         let downloads = C85DownloadLog()
+        let bitmap = try garminTestBitmap()
         model.garminRasterDownloader = { url in
             downloads.urls.append(url)
+            GarminRasterImageStore.cacheForTesting(bitmap, for: url)
             return true
         }
         // The package's own URLs, version query included (C88 adds `?v=`); never rebuilt locally.
@@ -342,17 +345,197 @@ final class RoundStartTwoStageTests: XCTestCase {
             URL(string: "https://\(host)/api/v2/courses/\(c85CourseId)/holes/\(hole)/garmin-raster.jpg?v=c85-r1")!
         }
 
+        defer { (1...9).map(raster).forEach { GarminRasterImageStore.removeDiskEntryForTesting($0) } }
+        (1...9).map(raster).forEach { GarminRasterImageStore.removeDiskEntryForTesting($0) }
         await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: roundPackage.loopEntries)
         XCTAssertEqual(model.pendingLiveHole, 1)
         await model.waitForGarminRasterDownloadForTesting()
         XCTAssertEqual(downloads.urls, (1...9).map(raster), "every hole, in play order from the first tee")
 
-        // The player is on hole 6 when the course pass runs again: it starts there and wraps.
+        // J4.5: the player moves to hole 6; the next pass must skip all nine durable images.
         downloads.urls.removeAll()
         model.setActiveHole(6)
         await model.waitForGarminRasterDownloadForTesting()
-        XCTAssertEqual(downloads.urls, [6, 7, 8, 9, 1, 2, 3, 4, 5].map(raster))
+        XCTAssertEqual(downloads.urls, [], "J4.5 moving holes must not redownload cached Garmin bitmaps")
         await model.waitForOfflineCourseDownloadForTesting()
+    }
+
+    /// J4.5: a held package cannot stop a personal template whose Garmin bitmaps are already local.
+    /// The injected clock advances the production deadline by exactly 30 seconds without a sleep.
+    func testJ45HeldPackageEntersOnDiskGarminFromLocalTemplate() async throws {
+        let host = "garmin-local-\(UUID().uuidString).example.test"
+        let roundId = "garmin-local-round"
+        let template = try package(
+            roundId: "garmin-local-template", mapOnly: false,
+            garminRasterVersion: "local-v1", standalone: true, offlineState: "ready"
+        )
+        let expectedURLs = (1...9).map {
+            URL(string: "https://\(host)/api/v2/courses/\(c85CourseId)/holes/\($0)/garmin-raster.jpg?v=local-v1")!
+        }
+        let imageData = try garminTestBitmap()
+        for url in expectedURLs { GarminRasterImageStore.cacheForTesting(imageData, for: url) }
+        defer { expectedURLs.forEach { GarminRasterImageStore.removeDiskEntryForTesting($0) } }
+        let held = C85HeldRequests()
+        let requestGate = C90RequestGate()
+        let clock = C367StartClock()
+        let requests = C85RequestLog()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            requests.append(proto.request)
+            held.hold(proto) // Never answer the package, including after the deadline.
+            Task { await requestGate.release() }
+        }, onStop: { held.forget($0) })
+        let fixture = makeModel(host: host, held: held, roundStartNow: { clock.now })
+        fixture.client.roundStartDeadlineSleep = { nanoseconds in
+            await requestGate.wait()
+            clock.advance(by: Double(nanoseconds) / 1_000_000_000)
+        }
+        try fixture.store.saveCourseTemplate(template)
+        let downloads = C85DownloadLog()
+        fixture.model.garminRasterDownloader = { url in downloads.urls.append(url); return false }
+        await fixture.model.prepareCourseRound(
+            roundId: roundId, teeBox: "blue", loops: template.loopEntries
+        )
+        XCTAssertEqual(clock.elapsed, 30, accuracy: 1, "J4.5 the held package uses the 30-second fallback")
+        XCTAssertEqual(requests.all.filter { $0.url?.path.hasSuffix("/package") == true }.count, 1)
+        XCTAssertEqual(fixture.model.pendingLiveHole, 1, "J4.5 enter from the local Garmin template")
+        let entered = try XCTUnwrap(fixture.model.package)
+        XCTAssertEqual(entered.holes.first?.garminRaster?.imageUrl,
+                       "/api/v2/courses/31795/holes/1/garmin-raster.jpg?v=local-v1",
+                       "J4.5 projected entry keeps the template's exact Garmin URL")
+        XCTAssertEqual(LiveRoundAppModel.garminRasterURLsInPlayOrder(
+            entered, activeHole: 1, baseURL: fixture.client.baseURL
+        ), expectedURLs, "J4.5 entry enumerates every cached physical hole")
+        await fixture.model.waitForGarminRasterDownloadForTesting()
+        XCTAssertTrue(downloads.urls.isEmpty, "J4.5 already-on-disk rasters never invoke the downloader")
+        let imageStore = GarminRasterImageStore(sleep: { _ in throw CancellationError() })
+        await imageStore.load(expectedURLs[0])
+        XCTAssertNotNil(imageStore.image, "J4.5 bitmap is decoded from the disk cache")
+        let view = CurrentHoleView(package: entered, hole: try XCTUnwrap(entered.holes.first),
+                                   caddieBaseURL: fixture.client.baseURL, offlineStore: fixture.store)
+        XCTAssertEqual(view.liveMapDisplayStateForTesting(), .garminRaster,
+                       "J4.5 local template entry displays Garmin while the package never answers")
+        fixture.model.setActiveHole(2)
+        await fixture.model.waitForGarminRasterDownloadForTesting()
+        XCTAssertTrue(downloads.urls.isEmpty, "J4.5 a later entry pass skips the same disk images")
+    }
+
+    /// J4.5: the saved template's image task is independent of the prep queue's next held package.
+    func testJ45SavedTemplateRastersDoNotWaitForAnotherCoursePackage() async throws {
+        let host = "template-lane-\(UUID().uuidString).example.test"
+        let template = try package(roundId: "template-lane", mapOnly: false,
+                                   garminRasterVersion: "saved-v1", standalone: true, offlineState: "ready")
+        let data = try JSONEncoder().encode(template)
+        let held = C85HeldRequests()
+        let nextSent = expectation(description: "another course package never answers")
+        let once = C33FirstMatch()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            if proto.request.url?.path == "/api/v2/mobile/courses/31796/package" {
+                held.hold(proto)
+                if once.claim() { nextSent.fulfill() }
+            } else if proto.request.url?.path == "/api/v2/mobile/courses/31795/package" {
+                proto.reply(200, data)
+            } else { proto.reply(404) }
+        }, onStop: { held.forget($0) })
+        let fixture = makeModel(host: host, held: held)
+        let firstImage = expectation(description: "saved template begins its independent raster lane")
+        let gate = C90RequestGate()
+        let downloads = C85DownloadLog()
+        fixture.model.garminRasterDownloader = { url in
+            downloads.urls.append(url)
+            if downloads.urls.count == 1 { firstImage.fulfill(); await gate.wait() }
+            return true
+        }
+        fixture.model.downloadPrepCourse(.init(globalId: c85CourseId, name: "Saved", holes: 9, teeBox: "blue"))
+        await fulfillment(of: [firstImage], timeout: eventWait)
+        XCTAssertNotNil(try fixture.store.loadCourseTemplate(globalId: c85CourseId, teeBox: "blue"))
+        fixture.model.downloadPrepCourse(.init(globalId: 31796, name: "Held", holes: 9, teeBox: "blue"))
+        await fulfillment(of: [nextSent], timeout: eventWait)
+        await gate.release()
+        await fixture.model.waitForGarminRasterDownloadForTesting()
+        let expected = (1...9).map {
+            URL(string: "https://\(host)/api/v2/courses/31795/holes/\($0)/garmin-raster.jpg?v=saved-v1")!
+        }
+        XCTAssertEqual(downloads.urls, expected,
+                       "J4.5 all saved-template Garmin images finish while the next package stays held")
+    }
+
+    /// J4.5: Start may pause prep but cannot cancel a Garmin image or discard another queued template.
+    func testJ45GarminQueueSurvivesStartAndRetainsNextTemplate() async throws {
+        let host = "serial-lane-\(UUID().uuidString).example.test"
+        C33URLProtocol.setHandlers(onStart: { $0.reply(404) })
+        let fixture = makeModel(host: host)
+        let first = try package(roundId: "serial-blue", mapOnly: false,
+                                garminRasterVersion: "blue-v1", standalone: true, offlineState: "ready")
+        let next = try package(roundId: "serial-white", mapOnly: false,
+                               garminRasterVersion: "white-v1", standalone: true, offlineState: "ready")
+            .replacingCourseTeeBox("white")
+        try fixture.store.saveCourseTemplate(first)
+        try fixture.store.saveCourseTemplate(next)
+        let started = expectation(description: "first Garmin held")
+        let gate = C90RequestGate()
+        let downloads = C85DownloadLog()
+        var running = 0
+        var maximumRunning = 0
+        fixture.model.garminRasterDownloader = { url in
+            running += 1
+            maximumRunning = max(maximumRunning, running)
+            downloads.urls.append(url)
+            if downloads.urls.count == 1 { started.fulfill(); await gate.wait() }
+            running -= 1
+            return true
+        }
+        let course = MobileCourseOption(globalId: c85CourseId, name: "Serial", holes: 9, teeBox: "blue")
+        fixture.model.prefetchIntendedCourses([course], teeBox: "blue")
+        await fulfillment(of: [started], timeout: eventWait)
+        let token = fixture.model.beginRoundPreparationForTesting()
+        fixture.model.prefetchIntendedCourses([course], teeBox: "white")
+        XCTAssertTrue(fixture.model.isPreparingRound)
+        await gate.release()
+        await fixture.model.waitForGarminRasterDownloadForTesting()
+        let expected = ["blue-v1", "white-v1"].flatMap { version in
+            (1...9).map { URL(string: "https://\(host)/api/v2/courses/31795/holes/\($0)/garmin-raster.jpg?v=\(version)")! }
+        }
+        XCTAssertEqual(downloads.urls, expected, "J4.5 Start preserves both Garmin passes without dropping URLs")
+        XCTAssertEqual(maximumRunning, 1, "J4.5 only one Garmin downloader runs at a time")
+        fixture.model.finishRoundPreparationForTesting(token)
+    }
+
+    /// J4.5/C158: genuinely saved speculative templates do not spend traffic on Garmin rasters.
+    func testJ45SpeculativeTemplateDoesNotDownloadGarmin() async throws {
+        let host = "speculative-raster.example.test"
+        let template = try package(roundId: "speculative-raster", mapOnly: false,
+                                   garminRasterVersion: "spec-v1", standalone: true, offlineState: "ready")
+        let body = try JSONEncoder().encode(template)
+        let packageSent = expectation(description: "speculative package fetched")
+        let once = C33FirstMatch()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            if proto.request.url?.path.hasSuffix("/package") == true {
+                if once.claim() { packageSent.fulfill() }
+                proto.reply(200, body)
+            } else { proto.reply(404) }
+        })
+        let course = MobileCourseOption(globalId: c85CourseId, name: "Guess", holes: 9, teeBox: "blue")
+        let fixture = makeModel(host: host, prepDownloadRecords: [
+            PrepCourseDownloadRecord(course: course, teeBox: "blue", isSpeculative: true)
+        ])
+        let downloads = C85DownloadLog()
+        fixture.model.garminRasterDownloader = { url in downloads.urls.append(url); return true }
+        fixture.model.publishOfflineStorageUsageForTesting(.init(topoBytes: 0, templateBytes: 0))
+        fixture.model.setNetworkStateForTesting(.init(isSatisfied: true, isExpensive: false, isConstrained: false))
+        await fulfillment(of: [packageSent], timeout: eventWait)
+        await fixture.model.waitForPrepCourseDownloadForTesting()
+        await fixture.model.waitForGarminRasterDownloadForTesting()
+        XCTAssertNotNil(try fixture.store.loadCourseTemplate(globalId: c85CourseId, teeBox: "blue"),
+                        "J4.5 the speculative template was actually saved")
+        XCTAssertTrue(downloads.urls.isEmpty, "J4.5 speculative templates must not fetch Garmin images")
+    }
+
+    private func garminTestBitmap() throws -> Data {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { context in
+            UIColor.green.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        }
+        return try XCTUnwrap(image.pngData())
     }
 
     /// J4.5: an offline projection keeps the physical hole's Garmin descriptor so a local start
@@ -486,7 +669,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         let host = "c85-intent-complete.example.test"
         let roundId = "c85-intent-complete"
         let intentId = c85CourseId
-        let mapPackage = try package(roundId: roundId, mapOnly: true)
+        let mapPackage = try package(roundId: roundId, mapOnly: true, garminRasterVersion: "c85-r1", eighteenHoles: true)
         let mapData = try JSONEncoder().encode(mapPackage)
         let requests = C85RequestLog()
         let intentSent = expectation(description: "intent package sent")
@@ -504,11 +687,22 @@ final class RoundStartTwoStageTests: XCTestCase {
         })
         let fixture = makeModel(host: host)
         let model = fixture.model
-        let intent = MobileCourseOption(globalId: intentId, name: "Intent nine", holes: 9, teeBox: "blue")
+        let intent = MobileCourseOption(globalId: intentId, name: "Intent eighteen", holes: 18, teeBox: "blue")
+        let rasterURLs = C85DownloadLog()
+        model.garminRasterDownloader = { url in
+            rasterURLs.urls.append(url)
+            return true
+        }
 
-        model.prefetchIntendedCourses([intent], teeBox: "blue")
+        model.prefetchIntendedCourses([intent], teeBox: "blue", startHole: 10)
         await fulfillment(of: [intentSent], timeout: eventWait)
         await model.waitForPrepCourseDownloadForTesting()
+        await model.waitForGarminRasterDownloadForTesting()
+        let expectedRasters = [10, 11, 12, 13, 14, 15, 16, 17, 18, 1, 2, 3, 4, 5, 6, 7, 8, 9].map { hole in
+            URL(string: "https://\(host)/api/v2/courses/\(c85CourseId)/holes/\(hole)/garmin-raster.jpg?v=c85-r1")!
+        }
+        XCTAssertEqual(rasterURLs.urls, expectedRasters, "J4.5 intent prefetch warms every hole in play order")
+        XCTAssertNil(model.pendingLiveHole, "J4.5 all Garmin requests precede Start")
         await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: mapPackage.loopEntries)
 
         let mapRequests = requests.all.filter { c33Query($0, "map_only") == "true" }
@@ -1553,11 +1747,13 @@ final class RoundStartTwoStageTests: XCTestCase {
         held: C85HeldRequests? = nil,
         roundStartIntentWaitNanoseconds: UInt64 = LiveRoundAppModel.defaultRoundStartIntentWaitNanoseconds,
         roundStartTimeoutInterval: TimeInterval = 30,
-        roundStartNow: @escaping () -> Date = { Date() }
+        roundStartNow: @escaping () -> Date = { Date() },
+        prepDownloadRecords: [PrepCourseDownloadRecord] = []
     ) -> ModelFixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("c85-\(UUID().uuidString)", isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
+        if !prepDownloadRecords.isEmpty { try! store.savePrepCourseDownloads(prepDownloadRecords) }
         // No per-host connection cap: a held request must not serialize the next one.
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = testProtocolClasses(C33URLProtocol.self)
@@ -1590,7 +1786,8 @@ final class RoundStartTwoStageTests: XCTestCase {
         mapOnly: Bool,
         garminRasterVersion: String? = nil,
         standalone: Bool = false,
-        offlineState: String? = nil
+        offlineState: String? = nil,
+        eighteenHoles: Bool = false
     ) throws -> LiveRoundPackage {
         var root = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(contentsOf: LiveRoundPackageFixture.url)) as? [String: Any]
@@ -1631,11 +1828,35 @@ final class RoundStartTwoStageTests: XCTestCase {
             }
             root["holes"] = holes
         }
+        if eighteenHoles {
+            var holes = try XCTUnwrap(root["holes"] as? [[String: Any]])
+            let back = holes.map { source -> [String: Any] in
+                var row = source
+                let number = (source["number"] as! Int) + 9
+                row["number"] = number
+                row["sourceLocalHole"] = number
+                row["courseHoleNumber"] = number
+                if let version = garminRasterVersion {
+                    row["garminRaster"] = [
+                        "imageUrl": "/api/v2/courses/\(c85CourseId)/holes/\(number)/garmin-raster.jpg?v=\(version)",
+                        "metadataUrl": "/api/v2/courses/\(c85CourseId)/holes/\(number)/garmin-raster",
+                    ]
+                }
+                return row
+            }
+            holes += back
+            root["holes"] = holes
+            root["roundLoops"] = [
+                ["globalId": c85CourseId, "half": "front", "roundStartHole": 1, "sourceStartHole": 1, "holeCount": 9],
+                ["globalId": c85CourseId, "half": "back", "roundStartHole": 10, "sourceStartHole": 10, "holeCount": 9],
+            ]
+            root["loopKey"] = "\(c85CourseId):front+\(c85CourseId):back"
+        }
         let decoded = try JSONDecoder().decode(
             LiveRoundPackage.self,
             from: JSONSerialization.data(withJSONObject: root)
         ).validatedRoundIdentity()
-        XCTAssertEqual(decoded.holes.map(\.number), Array(1...9))
+        XCTAssertEqual(decoded.holes.map(\.number), Array(1...(eighteenHoles ? 18 : 9)))
         if !mapOnly {
             XCTAssertFalse(decoded.clubProfiles.isEmpty)
             XCTAssertEqual(Set(decoded.caddieContextSeeds.map(\.hole)), Set(1...9))

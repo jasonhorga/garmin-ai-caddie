@@ -58,7 +58,8 @@ final class ProductMapAndPackageTests: XCTestCase {
         garmin: Bool = false,
         pendingHole: Int? = nil,
         retryAfterEpoch: Double = 0,
-        includePrep: Bool = true
+        includePrep: Bool = true,
+        dataMode: String? = nil
     ) throws -> LiveRoundPackage {
         var root = try XCTUnwrap(
             JSONSerialization.jsonObject(
@@ -81,6 +82,13 @@ final class ProductMapAndPackageTests: XCTestCase {
             }
         }
         root["holes"] = holes
+        if let dataMode {
+            root["dataMode"] = dataMode
+            if var coverage = root["sourceCoverage"] as? [String: Any] {
+                coverage["dataMode"] = dataMode
+                root["sourceCoverage"] = coverage
+            }
+        }
         if !includePrep,
            var coursePrep = root["coursePrep"] as? [String: Any],
            var prepHoles = coursePrep["holes"] as? [[String: Any]] {
@@ -143,6 +151,38 @@ final class ProductMapAndPackageTests: XCTestCase {
         )
         XCTAssertEqual(view.liveMapDisplayStateForTesting(), .garminRaster,
                        "J4.5 cached Garmin must pass the production liveMapInputs display boundary")
+    }
+
+    /// J4.5: an older round package without a descriptor can use the matching physical hole from
+    /// the durable course template before making a `/garmin-raster` request.
+    func test_j4_5_live_page_recovers_garmin_descriptor_from_template() throws {
+        let package = try c136Package(garmin: false, pendingHole: 1, includePrep: false)
+        let template = try c136Package(garmin: true, pendingHole: 1, includePrep: false, dataMode: "local")
+        let baseURL = try XCTUnwrap(URL(string: "https://garmin-template.example.test"))
+        let imageURL = try XCTUnwrap(
+            GarminRasterResponse(available: true, imageUrl: template.holes[0].garminRaster!.imageUrl)
+                .resolvedImageURL(relativeTo: baseURL)
+        )
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { context in
+            UIColor.green.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        }
+        GarminRasterImageStore.preload(image, for: imageURL)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("c369-template-\(UUID().uuidString)", isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        try store.saveCourseTemplate(template)
+        XCTAssertNotNil(try store.loadCourseTemplate(globalId: package.course.globalId, teeBox: package.course.teeBox))
+        defer {
+            GarminRasterImageStore.evict(imageURL)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let view = CurrentHoleView(
+            package: package, hole: try XCTUnwrap(package.holes.first),
+            caddieBaseURL: baseURL, offlineStore: store
+        )
+        XCTAssertEqual(view.liveMapDisplayStateForTesting(), .garminRaster,
+                       "J4.5 template Garmin descriptor is usable without the package field")
     }
 
     /// J4.5: an already precise neighbour page keeps that authority when selected again. Exercise

@@ -128,6 +128,8 @@ final class GarminRasterImageStore: ObservableObject {
         return cache
     }()
     private static var inFlight: [URL: Task<DownloadResult, Never>] = [:]
+    /// The live page and course prefetch share one bitmap transport lane, including different URLs.
+    private static var lastDownload: Task<DownloadResult, Never>?
     /// Persists the retry cursor across SwiftUI view re-creation when a failed image switches to
     /// the numeric placeholder. Later attempts back off to 30 s, then at most 60 s until success
     /// or cancellation when the player leaves this hole.
@@ -269,6 +271,17 @@ final class GarminRasterImageStore: ObservableObject {
         FileManager.default.fileExists(atPath: diskURL(for: url).path)
     }
 
+    #if DEBUG
+    static func cacheForTesting(_ data: Data, for url: URL) {
+        save(data, for: url)
+    }
+
+    static func removeDiskEntryForTesting(_ url: URL) {
+        try? FileManager.default.removeItem(at: diskURL(for: url))
+        evict(url)
+    }
+    #endif
+
     static func preload(_ image: UIImage, for url: URL) {
         imageCache.setObject(image, forKey: url as NSURL, cost: cost(of: image))
     }
@@ -298,7 +311,9 @@ final class GarminRasterImageStore: ObservableObject {
         if let existing = inFlight[url] {
             task = existing
         } else {
+            let predecessor = lastDownload
             task = Task.detached(priority: .userInitiated) {
+                _ = await predecessor?.value
                 if url.isFileURL {
                     return DownloadResult(data: try? Data(contentsOf: url), versionConflict: false)
                 }
@@ -320,6 +335,7 @@ final class GarminRasterImageStore: ObservableObject {
                 return DownloadResult(data: data, versionConflict: false)
             }
             inFlight[url] = task
+            lastDownload = task
         }
         let result = await task.value
         guard let data = result.data,

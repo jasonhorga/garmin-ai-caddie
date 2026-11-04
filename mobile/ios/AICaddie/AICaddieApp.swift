@@ -1086,7 +1086,9 @@ public final class LiveRoundAppModel: ObservableObject {
         await LiveRoundAppModel.cacheGarminRaster(url)
     }
     private var garminRasterDownloadTask: Task<Void, Never>?
-    private var garminRasterDownloadRoundId: String?
+    private var intentGarminStartHoles: [String: Int] = [:]
+    private var pendingGarminRasterURLs: [URL] = []
+    private var enqueuedGarminRasterURLs = Set<URL>()
     #if DEBUG
     /// Set by `stopRoundBackgroundWorkForTesting`: the personal package and the raster pass never
     /// start again on this model.
@@ -1963,7 +1965,7 @@ public final class LiveRoundAppModel: ObservableObject {
         offlineCourseDownloadRoundId = nil
         interruptedOfflineCourseDownloadRoundId = nil
         cancelRoundEnrichment()
-        cancelGarminRasterDownload()
+        // Garmin fallback caching continues one image at a time during Start (J4.5).
         abandonResultsCacheRefresh(retryLater: true)
         clearFreshEntryRelease()
         // The start window owns the network until the first hole is visible. Pause every prep
@@ -2251,7 +2253,21 @@ public final class LiveRoundAppModel: ObservableObject {
                 preparedAt: preparedAt,
                 requireComplete: false
             ) {
-                if isNewRound {
+                let baseURL = apiBaseURL ?? syncClient?.baseURL
+                let localRasters = baseURL.map {
+                    Self.garminRasterURLsInPlayOrder(local, activeHole: nil, baseURL: $0)
+                } ?? []
+                let physicalHoles = Set(local.holes.map { "\($0.sourceGlobalId):\($0.sourceLocalHole)" })
+                let hasLocalGarmin = Self.isCompleteCachedRoundPackage(local)
+                    && local.holes.allSatisfy { $0.garminRaster != nil }
+                    && localRasters.count == physicalHoles.count
+                    && localRasters.allSatisfy { GarminRasterImageStore.isOnDisk($0) }
+                if isNewRound, hasLocalGarmin {
+                    let persisted = try offlineStore.saveRoundPackage(local)
+                    try activatePackage(persisted, status: "本地球场已就绪", rememberAsRecent: true)
+                    signalFreshRoundEntry(revalidatePackage: true, preparationToken: preparationToken)
+                    completeRoundStartRequest()
+                } else if isNewRound {
                     // An incomplete template is useful only after an explicit player choice. A
                     // timeout must leave the Start card visible with a clear escape hatch.
                     canStartSimplifiedRound = true
@@ -2592,46 +2608,55 @@ public final class LiveRoundAppModel: ObservableObject {
         return true
     }
 
-    /// Cache every hole's Garmin raster, in play order from the hole being played, with the URL the
-    /// package gives (the live map resolves the same one, so `?v=` versions are kept as they are).
-    /// The rasters are what a hole shows until its precise topo is ready; without them, paging ahead
-    /// right after the start showed a spinner (build 96). One request at a time, behind hole 1.
+    /// Garmin is course cache work: Start and the fresh-entry gate do not pause this serial lane.
     private func beginGarminRasterDownload() {
-        #if DEBUG
-        if roundBackgroundWorkStoppedForTesting { return }
-        #endif
         guard let snapshot = package,
-              let baseURL = apiBaseURL ?? syncClient?.baseURL,
               liveRoundState?.roundId == snapshot.roundId else { return }
-        if garminRasterDownloadRoundId == snapshot.roundId, garminRasterDownloadTask != nil { return }
-        let urls = Self.garminRasterURLsInPlayOrder(
-            snapshot,
-            activeHole: liveRoundState?.activeHole,
-            baseURL: baseURL
-        )
-        guard !urls.isEmpty else { return }
-        garminRasterDownloadTask?.cancel()
-        let roundId = snapshot.roundId
-        let download = garminRasterDownloader
-        garminRasterDownloadRoundId = roundId
-        recordUITestLatency("garmin-raster.pass.begin round=\(roundId) holes=\(urls.count)")
-        garminRasterDownloadTask = Task { @MainActor [weak self] in
-            var cached = 0
-            for url in urls {
-                guard !Task.isCancelled, self?.liveRoundState?.roundId == roundId else { break }
-                if await download(url) { cached += 1 }
+        prefetchGarminRasters(snapshot, activeHole: liveRoundState?.activeHole)
+    }
+
+    private func prefetchGarminRasters(_ snapshot: LiveRoundPackage, activeHole: Int? = nil) {
+        #if DEBUG
+        guard !roundBackgroundWorkStoppedForTesting else { return }
+        #endif
+        guard let baseURL = apiBaseURL ?? syncClient?.baseURL else { return }
+        for url in Self.garminRasterURLsInPlayOrder(snapshot, activeHole: activeHole, baseURL: baseURL) {
+            if !GarminRasterImageStore.isOnDisk(url), enqueuedGarminRasterURLs.insert(url).inserted {
+                pendingGarminRasterURLs.append(url)
             }
-            guard let self, self.garminRasterDownloadRoundId == roundId, !Task.isCancelled else { return }
-            self.recordUITestLatency("garmin-raster.pass.end round=\(roundId) cached=\(cached)/\(urls.count)")
+        }
+        startGarminRasterDownload()
+    }
+
+    /// Keep new courses queued while one bitmap is downloading. Never cancel a running image to
+    /// change order: the hole screen shares its in-flight image request with this lane.
+    private func startGarminRasterDownload() {
+        guard garminRasterDownloadTask == nil, !pendingGarminRasterURLs.isEmpty else { return }
+        garminRasterDownloadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled, !self.pendingGarminRasterURLs.isEmpty {
+                let url = self.pendingGarminRasterURLs.removeFirst()
+                if !GarminRasterImageStore.isOnDisk(url) {
+                    _ = await self.garminRasterDownloader(url)
+                }
+            }
             self.garminRasterDownloadTask = nil
-            self.garminRasterDownloadRoundId = nil
+            self.enqueuedGarminRasterURLs = Set(self.pendingGarminRasterURLs)
+            self.startGarminRasterDownload()
         }
     }
 
     private func cancelGarminRasterDownload() {
+        pendingGarminRasterURLs.removeAll()
+        enqueuedGarminRasterURLs.removeAll()
         garminRasterDownloadTask?.cancel()
-        garminRasterDownloadTask = nil
-        garminRasterDownloadRoundId = nil
+        // Keep the handle until it exits; a replacement pass must not overlap its final image.
+    }
+
+    private func prefetchTemplateGarminRasters(_ snapshot: LiveRoundPackage, prepDownloadID: String?) {
+        if let prepDownloadID,
+           prepCourseDownloads.first(where: { $0.id == prepDownloadID })?.isSpeculative == true { return }
+        prefetchGarminRasters(snapshot)
     }
 
     /// Round order rotated to start at `activeHole` (`OfflineCourseDownloadOrder`), one URL per
@@ -2989,7 +3014,7 @@ public final class LiveRoundAppModel: ObservableObject {
 
     /// Waits for the round's Garmin raster pass (C85).
     func waitForGarminRasterDownloadForTesting() async {
-        await garminRasterDownloadTask?.value
+        while let task = garminRasterDownloadTask { await task.value }
     }
 
     /// Test teardown (C85). Cancels the round's background work and waits until each task has ended:
@@ -3470,6 +3495,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
             }
         }
+        if snapshot.holes.map(\.garminRaster) != initialSnapshot.holes.map(\.garminRaster) {
+            prefetchTemplateGarminRasters(snapshot, prepDownloadID: prepDownloadID)
+        }
         var prepBySource: [String: CoursePrepHole] = [:]
         // Live progress counts only what a successful round-package write made durable.
         var durableLivePrep: CoursePrepPackage? = prepDownloadID == nil
@@ -3588,6 +3616,7 @@ public final class LiveRoundAppModel: ObservableObject {
             do {
                 if !deferTemplateReplacement {
                     try offlineStore.saveCourseTemplate(assembled)
+                    prefetchTemplateGarminRasters(assembled, prepDownloadID: prepDownloadID)
                     if isLiveRoundSnapshot(snapshot, prepDownloadID: prepDownloadID) {
                         let persisted = try offlineStore.saveRoundPackage(assembled)
                         package = persisted
@@ -4055,6 +4084,7 @@ public final class LiveRoundAppModel: ObservableObject {
             let durableEnriched = preservingForegroundPrecisePrep(in: enriched)
             if !deferTemplateReplacement {
                 try offlineStore.saveCourseTemplate(durableEnriched)
+                prefetchTemplateGarminRasters(durableEnriched, prepDownloadID: prepDownloadID)
             }
             if isLiveRoundSnapshot(snapshot, prepDownloadID: prepDownloadID) {
                 let persisted = try offlineStore.saveRoundPackage(durableEnriched)
@@ -4260,6 +4290,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     durableEnriched,
                     replacingExisting: deferTemplateReplacement
                 )
+                prefetchTemplateGarminRasters(durableEnriched, prepDownloadID: prepDownloadID)
                 replacementCompleted = replacementIsComplete
             }
             if isLiveRoundSnapshot(snapshot, prepDownloadID: prepDownloadID) {
@@ -6801,7 +6832,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     record.isRoundPrefetch = false
                 }
             }
-            if readyPrepTemplate(for: existing) != nil {
+            if let installed = readyPrepTemplate(for: existing) {
+                prefetchGarminRasters(installed)
                 updatePrepCourseDownload(id: id) { record in
                     record.phase = .ready
                     record.preparedHoles = record.totalHoles
@@ -6839,6 +6871,7 @@ public final class LiveRoundAppModel: ObservableObject {
             }
             refreshDownloadedCourseOptions()
         } else if let installed = readyPrepTemplate(for: candidate) {
+            prefetchGarminRasters(installed)
             var ready = candidate
             ready.phase = .ready
             ready.totalHoles = max(1, installed.holes.count)
@@ -6863,10 +6896,19 @@ public final class LiveRoundAppModel: ObservableObject {
     /// is the tee Start will use, because templates are keyed by tee (topo bitmaps are not, so a
     /// later tee change still reuses them). A newer intent drops unfinished rows of an older one;
     /// ready rows stay as downloaded courses. Automatic jobs still wait behind a fresh round entry.
-    public func prefetchIntendedCourses(_ courses: [MobileCourseOption], teeBox: String) {
+    public func prefetchIntendedCourses(
+        _ courses: [MobileCourseOption], teeBox: String, startHole: Int? = nil
+    ) {
         intendedGlobalIds = Set(courses.map(\.globalId))
         let tee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
         guard syncClient != nil, !tee.isEmpty else { return }
+        for course in courses {
+            let key = PrepCourseDownloadRecord.intentKey(globalId: course.globalId, teeBox: tee)
+            intentGarminStartHoles[key] = startHole
+            if let template = try? offlineStore.loadCourseTemplate(globalId: course.globalId, teeBox: tee) {
+                prefetchGarminRasters(template, activeHole: startHole)
+            }
+        }
         // The live round's own loops already have the all-hole pipeline.
         let liveGlobalIds = liveRoundState == nil
             ? Set<Int>()
@@ -7521,6 +7563,7 @@ public final class LiveRoundAppModel: ObservableObject {
         // the same template. Refetching would first overwrite that complete template with the
         // lightweight package; mark it ready instead.
         if record.yieldsToForeground, let installed = readyPrepTemplate(for: record) {
+            if !record.isSpeculative { prefetchGarminRasters(installed) }
             updatePrepCourseDownload(id: id, generation: generation) { state in
                 state.phase = .ready
                 state.totalHoles = max(1, installed.holes.count)
@@ -7588,13 +7631,16 @@ public final class LiveRoundAppModel: ObservableObject {
             // the package for the independent whole-course row.
             let canonicalFetched = fetched.replacingCourseTeeBox(record.teeBox)
             let isIntentPrefetch = record.isIntentPrefetch
+            guard !Task.isCancelled,
+                  prepCourseDownloadGeneration == generation else { throw CancellationError() }
             if isIntentPrefetch {
                 prefetchFirstHoleTopo(in: canonicalFetched)
+                prefetchGarminRasters(canonicalFetched, activeHole: intentGarminStartHoles[id])
             }
             guard !Task.isCancelled,
                   prepCourseDownloadGeneration == generation else { throw CancellationError() }
             if isIntentPrefetch {
-                // Intent responses warm the first-hole map only. They never become an offline
+                // Intent responses warm first-hole topo and every Garmin bitmap. They never become an offline
                 // template and never mutate the independent whole-course download row.
                 prepCourseDownloads.removeAll { $0.id == id }
                 completedIntentPrefetchIDs.insert(id)
@@ -7611,6 +7657,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 .isEmpty == false
             if !replacingExisting {
                 try offlineStore.saveCourseTemplate(canonicalFetched)
+                prefetchTemplateGarminRasters(canonicalFetched, prepDownloadID: id)
             }
             updatePrepCourseDownload(id: id, generation: generation) { state in
                 state.totalHoles = max(1, canonicalFetched.holes.count)
