@@ -49,6 +49,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Select Xcode 27
+        id: select_xcode
         shell: bash
         run: |
           set -euo pipefail
@@ -179,13 +180,13 @@ jobs:
           grep -q '"error"' cold-start/result.json && exit 1 || true
 
       - name: Scan evidence for secret bytes
-        if: always()
+        if: always() && steps.select_xcode.outcome == 'success'
         env:
           ARTIFACT_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_PLAYER_TOKEN cold-start
 
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && steps.select_xcode.outcome == 'success'
         with:
           name: watch-cold-start
           path: cold-start/

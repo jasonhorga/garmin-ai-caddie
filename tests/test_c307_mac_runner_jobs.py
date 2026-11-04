@@ -80,6 +80,18 @@ class Xcode27NativeWorkflowTests(unittest.TestCase):
             with self.subTest(workflow=name, job=job_name):
                 self.assertIn(evaluate(job.get('runs-on'), ROUTE_OFFLINE), (MAC, 'ubuntu-latest'))
 
+    def test_offline_linux_run_stops_at_xcode_selection(self):
+        # C371: the Linux route has nothing to collect or scan, so the selection error stands alone.
+        for name, job_name, job, steps in self.xcode_jobs():
+            if evaluate(job.get('runs-on'), ROUTE_OFFLINE) == MAC:
+                continue
+            select = next(s for s in steps if s.get('name') == 'Select Xcode 27')
+            values = {'runner.environment': 'github-hosted', 'inputs.include_ui': True,
+                      f"steps.{select.get('id')}.outcome": 'failure'}
+            for step in steps[steps.index(select) + 1:]:
+                with self.subTest(workflow=name, job=job_name, step=step.get('name') or step.get('uses')):
+                    self.assertFalse(evaluate(step.get('if', 'success()'), values, failed=True, condition=True))
+
     def run_selection(self, script, applications):
         holder = tempfile.TemporaryDirectory()
         self.addCleanup(holder.cleanup)
@@ -104,7 +116,8 @@ class Xcode27NativeWorkflowTests(unittest.TestCase):
 
     def test_selection_exports_only_an_xcode27_developer_dir(self):
         for name, job_name, job, steps in self.xcode_jobs():
-            script = next(str(s['run']) for s in steps if s.get('name') == 'Select Xcode 27')
+            script = next((str(s['run']) for s in steps if s.get('name') == 'Select Xcode 27'), None)
+            self.assertIsNotNone(script, f'{name} {job_name} must select Xcode 27')
             hosted = evaluate(job.get('runs-on'), ROUTE_OFFLINE) != MAC
             with self.subTest(workflow=name, job=job_name, case='versioned Xcode 27'):
                 result, exported, apps = self.run_selection(script, {'Xcode_27.2.app': 'Xcode 27.2'})
