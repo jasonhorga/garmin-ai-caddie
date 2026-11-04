@@ -4,6 +4,10 @@ import XCTest
 /// accessibility tap.  A disappearing source or an appearing destination acknowledges the first
 /// tap; only an unacknowledged source is tapped a second time.
 enum UITapHelpers {
+    /// Poll an accessibility value while SwiftUI replaces the element during a refresh.
+    static func waitForValue(_ expected: String, on element: XCUIElement, timeout: TimeInterval) -> Bool {
+        waitForCondition({ element.exists && (element.value as? String) == expected }, timeout: timeout)
+    }
     /// Wait within a budget for stable geometry, dismissal of covering sheets, and a real hit
     /// point, then tap the visible centre. On timeout return false; callers must reveal/scroll an
     /// off-screen source first. There is no coordinate fallback through a still-present sheet.
@@ -206,7 +210,7 @@ enum UITapHelpers {
         }, timeout: stabilityBudget)
     }
 
-    private static func waitForCondition(_ condition: @escaping () -> Bool, timeout: TimeInterval) -> Bool {
+    static func waitForCondition(_ condition: @escaping () -> Bool, timeout: TimeInterval) -> Bool {
         if condition() { return true }
         let remaining = max(0, timeout)
         guard remaining > 0 else { return false }

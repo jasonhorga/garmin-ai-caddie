@@ -137,7 +137,7 @@ final class TeeSelectionUITests: XCTestCase {
             XCTFail("the real home must expose and open 开始一场")
             return
         }
-        settle(9)
+        XCTAssertTrue(app.buttons["start-round-venue-31793"].waitForExistence(timeout: 9))
         save("02-start-round"); dump("02-start-round")
 
         let courseRow = app.buttons["start-round-venue-31793"]
@@ -177,10 +177,9 @@ final class TeeSelectionUITests: XCTestCase {
         ).firstMatch
         XCTAssertTrue(whiteTee.waitForExistence(timeout: 5), "the real Beijing Palace Tee authority must expose its white Tee")
         XCTAssertTrue(bringIntoView(whiteTee, maxSwipes: 20), "the white Tee must scroll into the usable viewport")
-        settle(2)
         save("03-tee-row"); dump("03-tee-row")
         XCTAssertTrue(whiteTee.label.hasPrefix("白 T"), "a tee dot is labelled with its colour and yards")
-        // Re-confirm right before the tap: the list may have moved during the settle, and a tee
+        // Re-confirm right before the tap: the list may have moved during capture, and a tee
         // under the pinned Start band would start a round instead (live Native 37534118109).
         XCTAssertTrue(bringIntoView(whiteTee, maxSwipes: 4), "the white Tee must still be clear of the Start band")
         whiteTee.tap()
@@ -344,7 +343,7 @@ final class TeeSelectionUITests: XCTestCase {
         }
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
         save("denied-01-start-round"); dump("denied-01-start-round")
-        settle(4)
+        XCTAssertTrue(UITapHelpers.waitForValue("nearby:ready", on: app.descendants(matching: .any).matching(NSPredicate(format: "identifier IN %@", ["start-round-page-course", "start-round-page-setup"])).firstMatch, timeout: 4))
         XCTAssertFalse(
             nearbyDistanceRows().firstMatch.exists,
             "denied GPS must not list any course as nearby"
@@ -632,7 +631,7 @@ final class TeeSelectionUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
         // No status prose any more: an empty result simply lists no nearby row (a transport
         // failure adds only the retry icon).
-        settle(20)
+        XCTAssertTrue(UITapHelpers.waitForValue("nearby:ready", on: app.descendants(matching: .any).matching(NSPredicate(format: "identifier IN %@", ["start-round-page-course", "start-round-page-setup"])).firstMatch, timeout: 20))
         XCTAssertFalse(
             nearbyDistanceRows().firstMatch.exists,
             "an ocean coordinate must not list any nearby course"
@@ -737,8 +736,8 @@ final class TeeSelectionUITests: XCTestCase {
         )
         app.terminate()
 
-        // Phase 1b (owner feedback, #392): a slow nearby answer. The delay outlasts launchFresh's
-        // settle, so the home's own nearby is still pending and the hero offers the plain new-round
+        // Phase 1b (owner feedback, #392): a slow nearby answer. Home data can be ready while
+        // nearby is still pending, so the hero offers the plain new-round
         // entry: 开始一场 opens with nothing selected. The player picks the downloaded course under
         // "正在找附近球场…", and that pick (course, loop, tee) survives nearby's arrival.
         app.launchEnvironment["UITEST_NEARBY_DELAY_MS"] = "45000"
@@ -786,7 +785,7 @@ final class TeeSelectionUITests: XCTestCase {
         save("nearby-pending-02-picked-while-waiting"); dump("nearby-pending-02-picked-while-waiting")
         // Stay on setup past the 45-second nearby delay. No row re-selection may restore a
         // default Tee and hide a late nearby response overwriting the player's actual choice.
-        settle(46)
+        XCTAssertTrue(UITapHelpers.waitForValue("nearby:ready", on: app.descendants(matching: .any).matching(NSPredicate(format: "identifier IN %@", ["start-round-page-course", "start-round-page-setup"])).firstMatch, timeout: 46))
         XCTAssertTrue(app.descendants(matching: .any)["start-round-page-setup"].exists)
         XCTAssertTrue(waitForCourseSelection(courseTile(31793), globalId: 31793, name: "北京丽宫"))
         XCTAssertEqual(pendingStart.label, pickedAction, "nearby's arrival must keep the picked loop and tee without re-selection")
@@ -924,21 +923,17 @@ final class TeeSelectionUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "app did not foreground")
         // Home renders cached/fixture instantly, then the funnel fetch swaps in real data.
-        settle(20)
+        let offline = app.launchEnvironment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1"
+        XCTAssertTrue(UITapHelpers.waitForValue(offline ? "data:cached" : "data:live",
+            on: app.descendants(matching: .any)["home-data-state"], timeout: 20),
+            "home must finish its data refresh before navigation")
     }
-
-    private func settle(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
 
     /// Reading `.value` of an element that is momentarily absent (SwiftUI rebuilding a row after a
     /// state change) fails the test on the spot with "Failed to get matching snapshot". Poll
     /// `exists` first so a brief redraw is waited out; a value that never arrives still fails.
     private func waitForValue(_ expected: String, on element: XCUIElement, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        repeat {
-            if element.exists, (element.value as? String) == expected { return true }
-            Thread.sleep(forTimeInterval: 0.2)
-        } while Date() < deadline
-        return element.exists && (element.value as? String) == expected
+        UITapHelpers.waitForValue(expected, on: element, timeout: timeout)
     }
 
     private func waitUntilEnabled(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
@@ -1026,7 +1021,7 @@ final class TeeSelectionUITests: XCTestCase {
             } else {
                 app.swipeUp()
             }
-            settle(0.6)
+            _ = UITapHelpers.waitForCondition({ element.exists && UITapHelpers.isSafelyHittable(element, in: self.app) }, timeout: 0.6)
         }
         return element.exists && UITapHelpers.isSafelyHittable(element, in: app) && fullyVisible(element)
     }

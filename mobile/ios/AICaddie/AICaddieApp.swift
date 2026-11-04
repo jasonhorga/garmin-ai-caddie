@@ -8358,6 +8358,10 @@ public final class LiveRoundAppModel: ObservableObject {
         preferredCourse: Course? = nil,
         loops preferredLoops: [RoundLoopEntry] = []
     ) async -> LiveRoundPackage? {
+        // Observe provenance, not localized sync prose (which is also used by cache fallback).
+        var homeDataSource = "data:cached"
+        HomeDataObservation.source.send("data:loading")
+        defer { HomeDataObservation.source.send(homeDataSource) }
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
             return try? offlineStore.loadHomePackage()
@@ -8395,6 +8399,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 ensureGeometry: false,
                 includeEventCursor: false
             ) {
+                homeDataSource = "data:live"
                 return fetched
             }
         }

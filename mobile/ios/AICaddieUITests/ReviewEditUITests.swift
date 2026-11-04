@@ -47,6 +47,9 @@ final class ReviewEditUITests: XCTestCase {
         app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.0454995"
         app.launchEnvironment["UITEST_GPS_LON"] = cfg("UITEST_GPS_LON") ?? "116.5461531"
         app.launchEnvironment["UITEST_MODE"] = "1"
+        // A previous UI class may have left a synthetic active round whose package is resumed
+        // without fetching home. Review evidence always starts at a freshly fetched home.
+        app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
     }
 
     func testCaptureReviewEditFlow() throws {
@@ -60,7 +63,6 @@ final class ReviewEditUITests: XCTestCase {
             XCTFail("edit-00-home may be captured only after the real home replaces the launch screen")
             return
         }
-        settle(2)
         save("00-home"); dump("00-home")
 
         guard UITapHelpers.isSafelyHittable(historyTile, in: app) else {
@@ -74,7 +76,7 @@ final class ReviewEditUITests: XCTestCase {
             XCTFail("review-edit evidence must expose the complete archive")
             return
         }
-        settle(6)
+        XCTAssertTrue(UITapHelpers.waitForValue("data:ready", on: element("history-archive-state"), timeout: 6))
         save("01-history-list"); dump("01-history-list")
         // The newest owner rows can be CI-polluted manual rounds with coincident Tee coordinates.
         // Open the read-only Garmin round verified against the live scorecard + shot-map contracts,
@@ -118,9 +120,7 @@ final class ReviewEditUITests: XCTestCase {
             XCTFail("review-edit evidence must enter the shot-map pager before capture")
             return
         }
-        // As in RealFlowUITests, leave a quiet main-thread window for the real response to decode
-        // and commit before XCUITest begins repeated accessibility hierarchy snapshots.
-        settle(12)
+        // Wait for the rendered topo rather than assuming the response has committed after a delay.
         let topoReady = app.descendants(matching: .any)
             .matching(identifier: "topo-hole-base-ready").firstMatch
         guard topoReady.waitForExistence(timeout: 75) else {
@@ -131,7 +131,7 @@ final class ReviewEditUITests: XCTestCase {
             element("round-shot-score-box").waitForExistence(timeout: 5),
             "the full-screen hole must show its glass score box"
         )
-        settle(2); save("03-shot-map"); dump("03-shot-map")
+        save("03-shot-map"); dump("03-shot-map")
 
         let editButton = app.buttons["round-edit-begin"]
         guard waitUntilHittable(editButton, timeout: 12) else {
@@ -187,7 +187,7 @@ final class ReviewEditUITests: XCTestCase {
                 && element("round-edit-penalty-value").exists,
             "with nothing selected the edit bar must offer 推杆 and 罚杆 −/+"
         )
-        settle(2); save("04-edit-handles"); dump("04-edit-handles")
+        save("04-edit-handles"); dump("04-edit-handles")
 
         // ---- 连续草稿: tap verified empty topo once to append a numbered point; no sheet/no write ----
         // The resolver computes the point farthest from every real landing in this exact map, so this
@@ -215,7 +215,7 @@ final class ReviewEditUITests: XCTestCase {
             clubPills.firstMatch.waitForExistence(timeout: 5),
             "the selected added shot must offer club pills (the distance guess first)"
         )
-        settle(2); save("05-add-draft"); dump("05-add-draft")
+        save("05-add-draft"); dump("05-add-draft")
 
         // ---- 改这一杆: tap a recorded landing handle to select it; the bottom bar edits it ----
         editMap.coordinate(withNormalizedOffset: CGVector(
@@ -258,7 +258,7 @@ final class ReviewEditUITests: XCTestCase {
             app.buttons["round-edit-lie-unknown"].exists,
             "the bottom bar must expose the 击球时球位 grid"
         )
-        settle(2); save("06-selected-shot"); dump("06-selected-shot")
+        save("06-selected-shot"); dump("06-selected-shot")
 
         // ---- Drag the selected real numbered handle. Finger-up still stays in the local draft. ----
         // Reuse the verified landing coordinate selected above. Move inward so an edge landing still
@@ -286,7 +286,7 @@ final class ReviewEditUITests: XCTestCase {
             "dragging a handle must move it, never add a shot"
         )
         XCTAssertTrue(selectedShot.exists, "the dragged shot must stay selected")
-        settle(2); save("07-drag-move"); dump("07-drag-move")
+        save("07-drag-move"); dump("07-drag-move")
 
         // ---- Reorder with the bottom bar's ‹ › arrows: one place later, then back. ----
         let orderLater = app.buttons["round-edit-order-later"]
@@ -330,7 +330,7 @@ final class ReviewEditUITests: XCTestCase {
             "delete must renumber the same local draft"
         )
         XCTAssertTrue(waitUntilGone(selectedShot, timeout: 5), "deleting the selected shot must clear the selection")
-        settle(2); save("09-delete-draft"); dump("09-delete-draft")
+        save("09-delete-draft"); dump("09-delete-draft")
 
         // ---- 推杆 −/+ with nothing selected: change once and restore (a local draft only). ----
         let puttsValue = element("round-edit-putts-value")
@@ -392,7 +392,7 @@ final class ReviewEditUITests: XCTestCase {
             "10 requires the real read-only topo after leaving edit mode"
         )
         XCTAssertFalse(readOnlyTopoLoading.exists, "10 must not contain 球场地图加载中…")
-        settle(2); save("10-edit-done"); dump("10-edit-done")
+        save("10-edit-done"); dump("10-edit-done")
     }
 
     // MARK: - element helpers
@@ -441,7 +441,14 @@ final class ReviewEditUITests: XCTestCase {
         if app.state == .runningForeground { app.terminate() }
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "app did not foreground")
-        settle(20)
+        if app.launchEnvironment["UITEST_REVIEW_ROUND_REF"] != nil {
+            XCTAssertTrue(element("round-review-content-ready").waitForExistence(timeout: 20))
+            return
+        }
+        let offline = app.launchEnvironment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1"
+        XCTAssertTrue(UITapHelpers.waitForValue(offline ? "data:cached" : "data:live",
+            on: app.descendants(matching: .any)["home-data-state"], timeout: 20),
+            "home must finish its data refresh before navigation")
     }
 
     private func settle(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
@@ -513,7 +520,6 @@ final class ReviewEditUITests: XCTestCase {
             if tapContaining(fragments) { return true }
             guard attempt < maxSwipes else { break }
             app.swipeUp()
-            settle(1)
         }
         return false
     }
@@ -523,7 +529,7 @@ final class ReviewEditUITests: XCTestCase {
         for _ in 0..<maxSwipes {
             if element.exists, UITapHelpers.isSafelyHittable(element, in: app) { return true }
             app.swipeUp()
-            settle(0.6)
+            _ = UITapHelpers.waitForCondition({ element.exists && UITapHelpers.isSafelyHittable(element, in: self.app) }, timeout: 0.6)
         }
         return element.exists && UITapHelpers.isSafelyHittable(element, in: app)
     }
