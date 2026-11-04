@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddie/Models/LiveRoundPackage.swift b/mobile/ios/AICaddie/Models/LiveRoundPackage.swift
+index c4852437..4124c365 100644
+--- a/mobile/ios/AICaddie/Models/LiveRoundPackage.swift
++++ b/mobile/ios/AICaddie/Models/LiveRoundPackage.swift
+@@ -975,3 +975,2 @@ private extension Hole {
+             retryAfterEpoch: retryAfterEpoch,
+-            garminRaster: garminRaster,
+             topoAvailable: topoAvailable,

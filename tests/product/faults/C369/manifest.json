@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C369-01-renumbered-garmin",
+      "patch": "tests/product/faults/C369/01-renumbered-drops-garmin.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testJ45OfflineProjectionRetainsGarminDescriptor",
+      "promise": "J4.5",
+      "kills": "Offline projection must preserve the physical hole's Garmin descriptor."
+    },
+    {
+      "id": "tests-product-faults-C369-02-intent-garmin",
+      "patch": "tests/product/faults/C369/02-intent-no-garmin.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testCompletedCourseIntentIsReusedByStart",
+      "promise": "J4.5",
+      "kills": "Selecting a course and Tee must warm every Garmin raster before Start."
+    },
+    {
+      "id": "tests-product-faults-C369-03-template-garmin",
+      "patch": "tests/product/faults/C369/03-template-no-garmin.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testJ45SavedTemplateRastersDoNotWaitForAnotherCoursePackage",
+      "promise": "J4.5",
+      "kills": "A saved offline template must cache its Garmin rasters independently of prep."
+    }
+  ]
+}
