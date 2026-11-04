@@ -102,35 +102,6 @@ async def _dispatch_raster(cached: Callable, slow: Callable, *args):
     return await anyio.to_thread.run_sync(partial(slow, *args), limiter=slow_limiter)
 
 
-async def _dispatch_projection(global_id: int, hole: int) -> dict[str, Any]:
-    """Run projection waiters outside the bounded registration limiter."""
-    fast_limiter, slow_limiter = _http_limiters()
-    cached = await anyio.to_thread.run_sync(_cached_projection, global_id, hole, limiter=fast_limiter)
-    if cached is not None:
-        return cached
-    version = await anyio.to_thread.run_sync(
-        _cached_asset_version, global_id, hole, limiter=fast_limiter,
-    )
-    if not version:
-        return await anyio.to_thread.run_sync(
-            partial(course_hole_garmin_raster, global_id, hole), limiter=slow_limiter,
-        )
-    future, leader = _claim_inflight((int(global_id), int(hole), str(version)))
-    if not leader:
-        mark("raster_inflight_wait")
-        return await asyncio.shield(asyncio.wrap_future(future))
-    return await anyio.to_thread.run_sync(
-        partial(
-            course_hole_garmin_raster,
-            global_id,
-            hole,
-            _version=version,
-            _inflight_future=future,
-        ),
-        limiter=slow_limiter,
-    )
-
-
 def _cached_asset_version(global_id: int, hole: int) -> str | None:
     try:
         return garmin_raster.raster_asset_version(global_id, hole, allow_fetch=False)
@@ -188,6 +159,35 @@ def _claim_inflight(key: tuple[int, int, str]) -> tuple[Future, bool]:
         future = Future()
         _INFLIGHT[key] = future
         return future, True
+
+
+async def _dispatch_projection(global_id: int, hole: int) -> dict[str, Any]:
+    """Run projection waiters outside the bounded registration limiter."""
+    fast_limiter, slow_limiter = _http_limiters()
+    cached = await anyio.to_thread.run_sync(_cached_projection, global_id, hole, limiter=fast_limiter)
+    if cached is not None:
+        return cached
+    version = await anyio.to_thread.run_sync(
+        _cached_asset_version, global_id, hole, limiter=fast_limiter,
+    )
+    if not version:
+        return await anyio.to_thread.run_sync(
+            partial(course_hole_garmin_raster, global_id, hole), limiter=slow_limiter,
+        )
+    future, leader = _claim_inflight((int(global_id), int(hole), str(version)))
+    if not leader:
+        mark("raster_inflight_wait")
+        return await asyncio.shield(asyncio.wrap_future(future))
+    return await anyio.to_thread.run_sync(
+        partial(
+            course_hole_garmin_raster,
+            global_id,
+            hole,
+            _version=version,
+            _inflight_future=future,
+        ),
+        limiter=slow_limiter,
+    )
 
 
 def _register_lock(global_id: int, hole: int, version: str) -> threading.RLock:
@@ -439,25 +439,25 @@ def course_hole_garmin_raster(
     mark("raster_revision")
     if not version:
         return _unavailable("raster_url_missing", image_url=None)
-    if _inflight_future is None:
-        lock = _register_lock(global_id, hole, version)
-        with lock:
-            cached = _projection_result(global_id, hole, version)
-        if cached is not None:
-            mark("raster_projection_hit")
-            return cached
+    if _inflight_future is not None:
+        if in_background():
+            fetched = garmin_raster.fetch_raster(global_id, hole)
+            with background_work(unit_type="raster-registration"):
+                return _describe_raster(
+                    global_id, hole, version, fetched=fetched, inflight_future=_inflight_future,
+                )
+        return _describe_raster(global_id, hole, version, inflight_future=_inflight_future)
+    lock = _register_lock(global_id, hole, version)
+    with lock:
+        cached = _projection_result(global_id, hole, version)
+    if cached is not None:
+        mark("raster_projection_hit")
+        return cached
     if in_background():
         fetched = garmin_raster.fetch_raster(global_id, hole)
-        if _inflight_future is None:
-            with background_work(unit_type="raster-registration"):
-                return _describe_raster(global_id, hole, version, fetched=fetched)
         with background_work(unit_type="raster-registration"):
-            return _describe_raster(
-                global_id, hole, version, fetched=fetched, inflight_future=_inflight_future,
-            )
-    if _inflight_future is None:
-        return _describe_raster(global_id, hole, version)
-    return _describe_raster(global_id, hole, version, inflight_future=_inflight_future)
+            return _describe_raster(global_id, hole, version, fetched=fetched)
+    return _describe_raster(global_id, hole, version)
 
 
 _NOT_FETCHED = object()
