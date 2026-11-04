@@ -3023,3 +3023,48 @@ public struct StartRoundView: View {
         )
     }
 }
+
+/// J4.1 refresh decisions, with time supplied by the caller. Initial implementation preserves
+/// the previous finish-only trigger so the regression tests can demonstrate the missing events.
+struct NearbyDiscoveryRefreshState {
+    enum Action: Equatable { case none, start(String), schedule(Date) }
+    private(set) var inFlight: String?
+    private(set) var latest: String?
+    private(set) var lastAutomaticStart: Date?
+    private(set) var scheduledAt: Date?
+    private(set) var manualSelection = false
+
+    mutating func locationChanged(_ bucket: String?, now: Date) -> Action {
+        latest = bucket
+        return .none
+    }
+    mutating func retry(now: Date) -> Action {
+        scheduledAt = nil
+        guard !manualSelection, inFlight == nil, let latest else { return .none }
+        inFlight = latest
+        return .start(latest)
+    }
+    mutating func finished(now: Date) -> Action {
+        let completed = inFlight
+        inFlight = nil
+        guard latest != completed else { return .none }
+        return due(now: now)
+    }
+    mutating func timerFired(now: Date) -> Action {
+        scheduledAt = nil
+        return due(now: now)
+    }
+    mutating func selectManual() { manualSelection = true; scheduledAt = nil }
+    private mutating func due(now: Date) -> Action {
+        guard !manualSelection, inFlight == nil, let latest else { return .none }
+        if let lastAutomaticStart, now.timeIntervalSince(lastAutomaticStart) < 60 {
+            let deadline = lastAutomaticStart.addingTimeInterval(60)
+            scheduledAt = deadline
+            return .schedule(deadline)
+        }
+        inFlight = latest
+        lastAutomaticStart = now
+        scheduledAt = nil
+        return .start(latest)
+    }
+}

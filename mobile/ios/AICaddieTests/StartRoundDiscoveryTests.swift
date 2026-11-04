@@ -620,6 +620,47 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
+    /// J4.1: arriving at the first GPS fix starts immediately, even after waiting on permission.
+    func testJ41FirstLocationImmediatelyStartsNearbyDiscovery() {
+        var state = NearbyDiscoveryRefreshState()
+        let now = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(state.locationChanged(nil, now: now), .none)
+        XCTAssertEqual(state.locationChanged("first", now: now), .start("first"))
+        XCTAssertEqual(state.inFlight, "first")
+    }
+
+    /// J4.1: movement after completion still refreshes, once at 60 s and never at 59 s.
+    func testJ41MovementAfterCompletionSchedulesOneRefreshAtSixtySeconds() {
+        var state = NearbyDiscoveryRefreshState()
+        let now = Date(timeIntervalSince1970: 1_000)
+        _ = state.locationChanged("first", now: now)
+        _ = state.finished(now: now)
+        XCTAssertEqual(state.locationChanged("second", now: now.addingTimeInterval(10)), .schedule(now.addingTimeInterval(60)))
+        XCTAssertEqual(state.locationChanged("latest", now: now.addingTimeInterval(59)), .none)
+        XCTAssertEqual(state.timerFired(now: now.addingTimeInterval(59)), .schedule(now.addingTimeInterval(60)))
+        XCTAssertNil(state.inFlight, "59 s: no request")
+        XCTAssertEqual(state.timerFired(now: now.addingTimeInterval(60)), .start("latest"))
+        XCTAssertEqual(state.inFlight, "latest", "60 s: one request uses the newest fix")
+    }
+
+    /// J4.1/W4: ten moves during one held request preserve that request and coalesce to one follow-up.
+    func testJ41TenInFlightMovesCoalesceAndManualRetryCancelsSchedule() {
+        var state = NearbyDiscoveryRefreshState()
+        let now = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(state.locationChanged("first", now: now), .start("first"))
+        for index in 1...10 {
+            XCTAssertEqual(state.locationChanged("move-\(index)", now: now.addingTimeInterval(Double(index))), .none)
+            XCTAssertEqual(state.inFlight, "first", "movement cannot cancel/restart the held request")
+        }
+        XCTAssertEqual(state.finished(now: now.addingTimeInterval(20)), .schedule(now.addingTimeInterval(60)))
+        XCTAssertEqual(state.retry(now: now.addingTimeInterval(21)), .start("move-10"))
+        XCTAssertNil(state.scheduledAt, "manual retry cancels the pending timer")
+        state.selectManual()
+        _ = state.finished(now: now.addingTimeInterval(22))
+        XCTAssertEqual(state.locationChanged("after-search", now: now.addingTimeInterval(90)), .none)
+        XCTAssertEqual(state.timerFired(now: now.addingTimeInterval(90)), .none)
+    }
+
     /// J4.2/C134: the slow-start explanation and the primary button share one busy state.
     func testRoundStartProgressAndButtonUseOneBusyState() {
         XCTAssertEqual(

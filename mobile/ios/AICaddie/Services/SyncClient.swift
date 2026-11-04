@@ -535,6 +535,7 @@ public final class SyncClient {
     /// Set by `invalidateForTesting`, under `roundStartSessionLock`.
     private var invalidatedForTesting = false
     #endif
+    var roundStartDeadlineSleep: (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }
     private let roundStartTimeoutInterval: TimeInterval
     private let packageWorkLock = NSLock()
     private var packageWork: [UUID: (task: Task<Data, Error>, kind: PackageRequestKind)] = [:]
@@ -872,7 +873,7 @@ public final class SyncClient {
             }
             group.addTask {
                 let timeout = timeoutInterval ?? self.roundStartTimeoutInterval
-                try await Task.sleep(nanoseconds: UInt64(max(0.001, timeout) * 1_000_000_000))
+                try await self.roundStartDeadlineSleep(UInt64(max(0.001, timeout) * 1_000_000_000))
                 throw URLError(.timedOut)
             }
             defer { group.cancelAll() }
