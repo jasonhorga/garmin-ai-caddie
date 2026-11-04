@@ -86,11 +86,14 @@ final class PrepMapDegradationTests: XCTestCase {
     func testWaitingPageNamesTheHoleParAndYardsWithoutDownloadWording() {
         let page = HoleMapWaitingPage(holeNumber: 14, par: 4, yards: 405)
         XCTAssertEqual(page.title, "第 14 洞 · Par 4")
-        XCTAssertEqual(page.subtitle, "405 码 · 图到了自动出来")
+        XCTAssertEqual(page.subtitle, "405 码 · 地图准备中")
         let unknown = HoleMapWaitingPage(holeNumber: 3, par: nil, yards: nil)
         XCTAssertEqual(unknown.title, "第 3 洞")
-        XCTAssertEqual(unknown.subtitle, "图到了自动出来")
-        for text in [page.title, page.subtitle, unknown.subtitle] {
+        XCTAssertEqual(unknown.subtitle, "地图准备中")
+        // A failed load says so instead of still claiming the map is on its way.
+        let failed = HoleMapWaitingPage(holeNumber: 14, par: 4, yards: 405, failed: true)
+        XCTAssertEqual(failed.subtitle, "405 码 · 地图暂时不可用")
+        for text in [page.title, page.subtitle, unknown.subtitle, failed.subtitle] {
             XCTAssertFalse(text.contains("下载"))
         }
     }
