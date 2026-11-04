@@ -52,10 +52,41 @@ concurrency:
 jobs:
   watch-runtime:
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.runtime_scope != 'web-only'
-    # Keep on GitHub until C332 fixes watchOS 27 SDK vertical paging (full
-    # AICaddieWatch scheme incl. WatchHolePagesUITests); then move back to Mac.
-    runs-on: macos-15
+    # Xcode 27 exists only on the self-hosted Mac; offline runs stop at Select Xcode 27.
+    runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'ubuntu-latest' }}
+    # recovery-only took 12 min on the Mac (C371); cap a hung run before it holds the Mac for 6 h.
+    timeout-minutes: 60
     steps:
+      - name: Select Xcode 27
+        id: select_xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcode_path=""
+          if [[ -d /Applications/Xcode.app ]]; then
+            xcode_path="/Applications/Xcode.app"
+          else
+            for candidate in /Applications/Xcode_27*.app; do
+              if [[ -d "$candidate" ]]; then
+                xcode_path="$candidate"
+                break
+              fi
+            done
+          fi
+          if [[ -z "$xcode_path" ]]; then
+            # vars.MAC_RUNNER routes here (ubuntu-latest) while the Mac is offline.
+            echo "::error title=Xcode 27 unavailable::Xcode 27 installation not found. Only the self-hosted caddie-mba Mac has Xcode 27 (GitHub-hosted images stop at Xcode 26); this job stops instead of testing with another Xcode. Re-run once the Mac runner is online."
+            exit 1
+          fi
+          developer_dir="$xcode_path/Contents/Developer"
+          export DEVELOPER_DIR="$developer_dir"
+          version="$(xcodebuild -version)"
+          printf '%s\n' "$version"
+          printf '%s\n' "$version" | grep -q '^Xcode 27\.' || {
+            echo "::error title=Xcode 27 unavailable::selected Xcode is not major version 27"
+            exit 1
+          }
+          printf 'DEVELOPER_DIR=%s\n' "$developer_dir" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
 
       - name: Install XcodeGen
@@ -94,7 +125,7 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/WatchDerivedData-watch-runtime"
 
       - name: Collect Watch design snapshots
-        if: always()
+        if: always() && steps.select_xcode.outcome == 'success'
         run: |
           mkdir -p watch-design-snapshots
           find "$HOME/Library/Developer/CoreSimulator/Devices/$WATCH_UDID/data" \
@@ -104,7 +135,7 @@ jobs:
 
       - name: Scan Watch design snapshots for secret bytes
         id: scan_watch_design_snapshots
-        if: always()
+        if: always() && steps.select_xcode.outcome == 'success'
         env:
           ARTIFACT_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_PLAYER_TOKEN watch-design-snapshots
@@ -764,7 +795,7 @@ jobs:
           launch_and_capture menu watch-menu-autoshot.png
 
       - name: Collect Watch runtime diagnostics
-        if: always()
+        if: always() && steps.select_xcode.outcome == 'success'
         env:
           REAL_COURSE_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
         run: |
@@ -801,7 +832,7 @@ jobs:
 
       - name: Scan Watch runtime evidence for secret bytes
         id: scan_watch_runtime_evidence
-        if: always()
+        if: always() && steps.select_xcode.outcome == 'success'
         env:
           ARTIFACT_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_PLAYER_TOKEN watch-runtime-artifacts

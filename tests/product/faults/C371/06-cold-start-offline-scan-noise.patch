@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/watch-cold-start.yml b/.github/workflows/watch-cold-start.yml
+index e1613e4d..e4196bc3 100644
+--- a/.github/workflows/watch-cold-start.yml
++++ b/.github/workflows/watch-cold-start.yml
+@@ -180,7 +180,7 @@ jobs:
+           grep -q '"error"' cold-start/result.json && exit 1 || true
+ 
+       - name: Scan evidence for secret bytes
+-        if: always() && steps.select_xcode.outcome == 'success'
++        if: always()
+         env:
+           ARTIFACT_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
+         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_PLAYER_TOKEN cold-start

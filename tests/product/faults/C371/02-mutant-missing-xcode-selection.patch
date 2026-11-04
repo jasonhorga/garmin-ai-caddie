@@ -1,0 +1,40 @@
+diff --git a/.github/workflows/agenthub-native-mutant.yml b/.github/workflows/agenthub-native-mutant.yml
+index b9c644d3..3b49a0e6 100644
+--- a/.github/workflows/agenthub-native-mutant.yml
++++ b/.github/workflows/agenthub-native-mutant.yml
+@@ -41,35 +41,6 @@ jobs:
+       run:
+         shell: bash
+     steps:
+-      - name: Select Xcode 27
+-        shell: bash
+-        run: |
+-          set -euo pipefail
+-          xcode_path=""
+-          if [[ -d /Applications/Xcode.app ]]; then
+-            xcode_path="/Applications/Xcode.app"
+-          else
+-            for candidate in /Applications/Xcode_27*.app; do
+-              if [[ -d "$candidate" ]]; then
+-                xcode_path="$candidate"
+-                break
+-              fi
+-            done
+-          fi
+-          if [[ -z "$xcode_path" ]]; then
+-            # vars.MAC_RUNNER routes here (ubuntu-latest) while the Mac is offline.
+-            echo "::error title=Xcode 27 unavailable::Xcode 27 installation not found. Only the self-hosted caddie-mba Mac has Xcode 27 (GitHub-hosted images stop at Xcode 26); this job stops instead of testing with another Xcode. Re-run once the Mac runner is online."
+-            exit 1
+-          fi
+-          developer_dir="$xcode_path/Contents/Developer"
+-          export DEVELOPER_DIR="$developer_dir"
+-          version="$(xcodebuild -version)"
+-          printf '%s\n' "$version"
+-          printf '%s\n' "$version" | grep -q '^Xcode 27\.' || {
+-            echo "::error title=Xcode 27 unavailable::selected Xcode is not major version 27"
+-            exit 1
+-          }
+-          printf 'DEVELOPER_DIR=%s\n' "$developer_dir" >> "$GITHUB_ENV"
+       # The writer must exist even when the tested head predates this workflow.
+       - name: Check out workflow tools
+         uses: actions/checkout@v4
