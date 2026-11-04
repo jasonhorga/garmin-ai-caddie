@@ -1146,6 +1146,9 @@ final class TeeSelectionUITests: XCTestCase {
         if greenClose.exists, UITapHelpers.isSafelyHittable(greenClose, in: app) { greenClose.tap() }
         let mapClose = app.buttons["关闭详细地图"]
         if mapClose.exists, UITapHelpers.isSafelyHittable(mapClose, in: app) { mapClose.tap() }
+        // A first-stroke prep has no active round/end action. Its visible Tee control proves
+        // that state; do not spend five seconds looking for an action that cannot exist.
+        guard !app.buttons["live-prep-tee-menu"].exists else { return }
         // 结束本场 on the live map opens the finish page; its 放弃本场 asks once.
         let endRound = app.buttons["live-end-round"]
         guard endRound.waitForExistence(timeout: 5), UITapHelpers.isSafelyHittable(endRound, in: app) else { return }
