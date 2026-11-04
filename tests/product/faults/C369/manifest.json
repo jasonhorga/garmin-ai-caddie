@@ -24,6 +24,22 @@
       "target": "AICaddieTests/RoundStartTwoStageTests/testJ45SavedTemplateRastersDoNotWaitForAnotherCoursePackage",
       "promise": "J4.5",
       "kills": "A saved offline template must cache its Garmin rasters independently of prep."
+    },
+    {
+      "id": "tests-product-faults-C369-04-local-garmin-any-template",
+      "patch": "tests/product/faults/C369/04-local-garmin-entry-any-template.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testJ45MapOnlyTemplateWithCachedGarminStillStaysOnStart",
+      "promise": "J4.5",
+      "kills": "A timed-out start may enter from local Garmin only with a personal template, never a map-only one."
+    },
+    {
+      "id": "tests-product-faults-C369-05-local-garmin-without-bitmaps",
+      "patch": "tests/product/faults/C369/05-local-garmin-entry-without-bitmaps.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testJ45PersonalTemplateWithoutCachedGarminStillStaysOnStart",
+      "promise": "J4.5",
+      "kills": "A timed-out start must not enter from a template whose Garmin bitmaps are not on disk."
     }
   ]
 }

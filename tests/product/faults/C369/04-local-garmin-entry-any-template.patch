@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 30dc9858..cd5efd15 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -2258,7 +2258,7 @@ public final class LiveRoundAppModel: ObservableObject {
+                     Self.garminRasterURLsInPlayOrder(local, activeHole: nil, baseURL: $0)
+                 } ?? []
+                 let physicalHoles = Set(local.holes.map { "\($0.sourceGlobalId):\($0.sourceLocalHole)" })
+-                let hasLocalGarmin = Self.isCompleteCachedRoundPackage(local)
++                let hasLocalGarmin = true
+                     && local.holes.allSatisfy { $0.garminRaster != nil }
+                     && localRasters.count == physicalHoles.count
+                     && localRasters.allSatisfy { GarminRasterImageStore.isOnDisk($0) }

@@ -419,6 +419,49 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertTrue(downloads.urls.isEmpty, "J4.5 a later entry pass skips the same disk images")
     }
 
+    /// J4.5 / J4.2 (C365): entering on a timed-out package from local Garmin needs a personal
+    /// template. A map-only template stays on Start even when every Garmin bitmap is on disk.
+    func testJ45MapOnlyTemplateWithCachedGarminStillStaysOnStart() async throws {
+        try await assertTimedOutStartStaysOnStart(mapOnly: true, cacheBitmaps: true)
+    }
+
+    /// J4.5 / J4.2 (C365): a personal template whose Garmin bitmaps are not on disk would open a
+    /// waiting page, so the timed-out package still leaves the explicit simplified choice.
+    func testJ45PersonalTemplateWithoutCachedGarminStillStaysOnStart() async throws {
+        try await assertTimedOutStartStaysOnStart(mapOnly: false, cacheBitmaps: false)
+    }
+
+    private func assertTimedOutStartStaysOnStart(mapOnly: Bool, cacheBitmaps: Bool) async throws {
+        let host = "garmin-guard-\(UUID().uuidString).example.test"
+        let version = "guard-\(mapOnly)-\(cacheBitmaps)"
+        let template = try package(
+            roundId: "garmin-guard-template", mapOnly: mapOnly,
+            garminRasterVersion: version, standalone: true, offlineState: "ready"
+        )
+        let urls = (1...9).map {
+            URL(string: "https://\(host)/api/v2/courses/\(c85CourseId)/holes/\($0)/garmin-raster.jpg?v=\(version)")!
+        }
+        if cacheBitmaps {
+            let imageData = try garminTestBitmap()
+            for url in urls { GarminRasterImageStore.cacheForTesting(imageData, for: url) }
+        }
+        defer { urls.forEach { GarminRasterImageStore.removeDiskEntryForTesting($0) } }
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            // The short injected foreground timeout ends this request unanswered.
+        })
+        let fixture = makeModel(host: host, roundStartTimeoutInterval: 0.05)
+        try fixture.store.saveCourseTemplate(template)
+        fixture.model.garminRasterDownloader = { _ in false }
+        await fixture.model.prepareCourseRound(
+            roundId: "garmin-guard-round", teeBox: "blue", loops: template.loopEntries
+        )
+        XCTAssertNil(fixture.model.pendingLiveHole,
+                     "J4.2/J4.5 mapOnly=\(mapOnly) cached=\(cacheBitmaps) must not silently open hole 1")
+        XCTAssertTrue(fixture.model.canStartSimplifiedRound,
+                      "J4.2 the timed-out start keeps the explicit simplified choice")
+    }
+
     /// J4.5: the saved template's image task is independent of the prep queue's next held package.
     func testJ45SavedTemplateRastersDoNotWaitForAnotherCoursePackage() async throws {
         let host = "template-lane-\(UUID().uuidString).example.test"
