@@ -35,6 +35,13 @@
       "kind": "python",
       "target": "tests.test_c307_mac_runner_jobs.Xcode27NativeWorkflowTests.test_selection_exports_only_an_xcode27_developer_dir",
       "promise": "C371 selection verifies the Xcode it exports"
+    },
+    {
+      "id": "tests-product-faults-C371-06-cold-start-offline-scan-noise",
+      "patch": "tests/product/faults/C371/06-cold-start-offline-scan-noise.patch",
+      "kind": "python",
+      "target": "tests.test_c307_mac_runner_jobs.Xcode27NativeWorkflowTests.test_offline_linux_run_stops_at_xcode_selection",
+      "promise": "C371 offline cold-start run stops at Xcode selection"
     }
   ]
 }
