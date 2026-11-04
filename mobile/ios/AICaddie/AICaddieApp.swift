@@ -934,6 +934,9 @@ public final class LiveRoundAppModel: ObservableObject {
     public nonisolated static let defaultPrepStatusProbeRetryDelayNanoseconds: UInt64 = 15_000_000_000
     var prepStatusProbeRetryDelayNanoseconds: UInt64
     var prepDownloadNow: () -> Date = Date.init
+    // Injectable interface; the readiness loop still uses the original clock until the fix.
+    var prepTopoNowNanoseconds: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }
+    var prepTopoSleep: (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }
     private var prefetchedTopoURLs = Set<String>()
     private var completedIntentPrefetchIDs = Set<String>()
     /// Map-only intent packages are a memory-only warm cache. They are never persisted as a

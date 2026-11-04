@@ -836,7 +836,13 @@ final class LiveRoundAppModelTests: XCTestCase {
         try await assertPrepTopoJournal(replacement: false, failed: true)
     }
 
-    private func assertPrepTopoJournal(replacement: Bool, failed: Bool) async throws {
+    /// J4.2: the 300-second topo pass budget stops polling at its exact boundary. A separate
+    /// monotonic clock advances to the boundary between the first status observation and retry.
+    func testProductSpec42PrepTopoBudgetStopsAtBoundaryWithoutAnotherPoll() async throws {
+        try await assertPrepTopoJournal(replacement: false, failed: true, budgetExpired: true)
+    }
+
+    private func assertPrepTopoJournal(replacement: Bool, failed: Bool, budgetExpired: Bool = false) async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
@@ -903,8 +909,9 @@ final class LiveRoundAppModelTests: XCTestCase {
                     installStatusRequestCount += 1
                     return installStatusRequestCount
                 }
-                let topoState = failed ? "failed" : (statusNumber == 1 ? "queued" : "ready")
-                let phase = failed ? "failed" : (statusNumber == 1 ? "running" : "ready")
+                let terminalFailure = failed && (!budgetExpired || statusNumber >= 3)
+                let topoState = terminalFailure ? "failed" : ((budgetExpired || statusNumber == 1) ? "queued" : "ready")
+                let phase = terminalFailure ? "failed" : ((budgetExpired || statusNumber == 1) ? "running" : "ready")
                 requestLock.withLock {
                     statusObservations.append("#\(statusNumber) phase=\(phase) topo=\(topoState) error=null")
                 }
@@ -973,6 +980,13 @@ final class LiveRoundAppModelTests: XCTestCase {
             offlineGeometryRetryDelaysNanoseconds: [],
             prepStatusProbeRetryDelayNanoseconds: 0
         )
+
+        var clockReads = 0
+        model.prepTopoNowNanoseconds = {
+            clockReads += 1
+            return budgetExpired && clockReads > 1 ? 300_000_000_000 : 0
+        }
+        model.prepTopoSleep = { _ in XCTFail("journal fixture must not wait on a real product timer") }
 
         model.downloadPrepCourse(course)
         await model.waitForPrepCourseDownloadForTesting()
