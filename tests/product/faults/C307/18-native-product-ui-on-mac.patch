@@ -1,9 +1,9 @@
 diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
-index e714bed0..ccd32381 100644
+index a47471e5..66b05fd2 100644
 --- a/.github/workflows/native-mobile.yml
 +++ b/.github/workflows/native-mobile.yml
-@@ -1200,3 +1200,3 @@ jobs:
-     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit' }}
+@@ -1060,3 +1060,3 @@ jobs:
+     if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fixture_mode && github.event.inputs.capture_scope != 'edit' }}
 -    runs-on: [self-hosted, caddie-mba]
 +    runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'macos-15' }}
      # "Test iOS app target" (build + unit tests) took 12 min on run 40187234659. This scheme also

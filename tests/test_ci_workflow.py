@@ -17,6 +17,26 @@ from ops.fastlane_readiness import preflight_gate
 
 
 class CIWorkflowTests(unittest.TestCase):
+    def test_workflows_use_no_yaml_merge_keys_github_rejects(self) -> None:
+        # GitHub Actions accepts anchors/aliases but not `<<:` merge keys; PyYAML merges them
+        # silently, so every other guard here stays green while GitHub refuses the whole file.
+        def merge_keys(node, path=()):
+            if isinstance(node, yaml.MappingNode):
+                for key, value in node.value:
+                    if key.tag == "tag:yaml.org,2002:merge":
+                        yield f"{'/'.join(path)} line {key.start_mark.line + 1}"
+                    yield from merge_keys(value, (*path, str(key.value)))
+            elif isinstance(node, yaml.SequenceNode):
+                for index, item in enumerate(node.value):
+                    yield from merge_keys(item, (*path, str(index)))
+
+        workflows = sorted(Path(__file__).resolve().parents[1].glob(".github/workflows/*.yml"))
+        self.assertTrue(workflows)
+        for workflow in workflows:
+            with self.subTest(workflow=workflow.name):
+                node = yaml.compose(workflow.read_text(encoding="utf-8"))
+                self.assertEqual([], list(merge_keys(node)))
+
     def test_C263_fastlane_gate_waits_for_any_runtime_warming_check(self) -> None:
         readiness = {
             "runtimeStatus": "ready",
@@ -314,8 +334,8 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
     def test_native_capture_timeout_budgets_follow_shard(self) -> None:
         """J3/J4: preserve capture budgets with independently assigned runner ports."""
         jobs = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())["jobs"]
-        for name, job_budget, step_budget in (("native-real-flow", 55, 45),
-                                            ("native-screenshots", 55, 45), ("native-live", 150, 90)):
+        for name, job_budget, step_budget in (("native-real-flow", 60, 45),
+                                            ("native-screenshots", 45, 35), ("native-live", 150, 90)):
             job = jobs[name]
             self.assertEqual(job_budget, job["timeout-minutes"])
             capture = next(s for s in job["steps"] if s.get("id") == "real_ios_capture")
@@ -404,8 +424,22 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
                     self.assertEqual({"RealFlowUITests/testCaptureRealAppFlow"}, flow)
                 else:
                     self.assertEqual({"ReviewEditUITests/testCaptureReviewEditFlow"}, rest)
-        for name in ("native-unit-watch", "native-product-ui", "native-real-flow", "native-screenshots"):
-            self.assertNotIn("needs", jobs[name], "fixture runners must start independently")
+        for name in ("native-unit-watch", "native-real-flow", "native-screenshots"):
+            self.assertNotIn("needs", jobs[name])
+        for scope in ("full", "review", "edit"):
+            runnable = {name for name, job in jobs.items() if job.get("runs-on") == ["self-hosted", "caddie-mba"]
+                        and self._native_condition(job.get("if", "true"), {
+                            "github.event_name": "workflow_dispatch", "inputs.fixture_mode": True,
+                            "github.event.pull_request.head.repo.full_name": "owner/repo",
+                            "github.repository": "owner/repo",
+                            "github.event.inputs.capture_scope": scope})}
+            self.assertEqual({"native-screenshots"} if scope == "edit" else
+                             {"native-unit-watch", "native-real-flow", "native-screenshots"}, runnable)
+        fixture_steps = [step for name in ("native-unit-watch", "native-real-flow", "native-screenshots")
+                         for step in jobs[name]["steps"]]
+        for step_name in ("Test iOS app target", "Test Watch app target", "Test Product UI tests",
+                          "Upload design snapshots", "Upload Watch design snapshots", "Upload watch real screenshots"):
+            self.assertEqual(1, sum(step.get("name") == step_name for step in fixture_steps), step_name)
         self.assertEqual("ubuntu-latest", jobs["native-mobile"]["runs-on"])
         self.assertEqual(set(jobs) - {"native-mobile", "native-quick"}, set(jobs["native-mobile"]["needs"]))
         for name in ("native-unit-watch", "native-real-flow"):
@@ -426,7 +460,6 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
             for scope in ("full", "review", "edit"):
                 expected = {"native-screenshots"} if fixture else {"native-live"}
                 if fixture and scope != "edit":
-                    expected.add("native-product-ui")
                     if fixture:
                         expected.update(("native-unit-watch", "native-real-flow"))
                 jobs = {name: {"result": "success" if name in expected else "skipped"}
@@ -1138,16 +1171,9 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
     def test_native_fixture_dns_gates_fail_closed_when_logs_are_missing(self) -> None:
         """J4.2: a completed native test cannot pass its DNS gate without its log."""
         workflow = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8"))
-        # C252 split native-mobile: the iOS/Watch unit tests (and their gate) run in native-unit-watch
-        # for dispatch fixtures and in native-live for live runs; both must carry the same gate.
-        gates = {
-            job: {step.get("name"): step for step in workflow["jobs"][job]["steps"]}[
-                "J4.2 fixture DNS gate (native tests)"
-            ]["run"]
-            for job in ("native-unit-watch", "native-live")
-        }
-        self.assertEqual(gates["native-unit-watch"], gates["native-live"])
-        native_gate = gates["native-unit-watch"]
+        # The live serial path keeps its combined gate. Fixture lanes check their own logs.
+        native_gate = next(step["run"] for step in workflow["jobs"]["native-live"]["steps"]
+                           if step.get("name") == "J4.2 fixture DNS gate (native tests)")
         product_steps = {
             step.get("name"): step
             for step in workflow["jobs"]["native-product-ui"]["steps"]
@@ -1174,6 +1200,15 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
                     capture_output=True,
                     check=False,
                 )
+
+        for job_name, gate_name, log_name in (
+            ("native-real-flow", "J4.2 fixture DNS gate (iOS tests)", "ios-app-xcodebuild.log"),
+            ("native-unit-watch", "J4.2 fixture DNS gate (Watch tests)", "watch-xcodebuild.log"),
+        ):
+            gate = next(step["run"] for step in workflow["jobs"][job_name]["steps"]
+                        if step.get("name") == gate_name)
+            self.assertNotEqual(0, run_step(gate, {}).returncode)
+            self.assertEqual(0, run_step(gate, {"native-mobile-results/" + log_name: ""}).returncode)
 
         native_missing_ios = run_step(
             native_gate,

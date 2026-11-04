@@ -934,6 +934,8 @@ public final class LiveRoundAppModel: ObservableObject {
     public nonisolated static let defaultPrepStatusProbeRetryDelayNanoseconds: UInt64 = 15_000_000_000
     var prepStatusProbeRetryDelayNanoseconds: UInt64
     var prepDownloadNow: () -> Date = Date.init
+    var prepTopoNowNanoseconds: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }
+    var prepTopoSleep: (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }
     private var prefetchedTopoURLs = Set<String>()
     private var completedIntentPrefetchIDs = Set<String>()
     /// Map-only intent packages are a memory-only warm cache. They are never persisted as a
@@ -1069,6 +1071,7 @@ public final class LiveRoundAppModel: ObservableObject {
     private let offlineGeometryRetryDelaysNanoseconds: [UInt64]
     public nonisolated static let defaultRoundStartIntentWaitNanoseconds: UInt64 = 30_000_000_000
     public nonisolated static let roundStartForegroundTimeoutInterval: TimeInterval = 30
+    var roundStartIntentSleep: (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }
     private let roundStartIntentWaitNanoseconds: UInt64
     /// C85 开局两段: the wait before each attempt of the background personal package after a
     /// map-only start. The attempts end with the list; the next foreground starts them again.
@@ -2422,7 +2425,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     }
                     let timeout = Task {
                         do {
-                            try await Task.sleep(nanoseconds: waitNanoseconds)
+                            try await self.roundStartIntentSleep(waitNanoseconds)
                             race.finish(.failure(IntentPrefetchWaitTimeout()))
                         } catch {
                             // The wait was completed by the producer or cancellation.
@@ -3055,6 +3058,14 @@ public final class LiveRoundAppModel: ObservableObject {
     /// this task: they observe `prepCourseDownloads`, so navigation cannot become its owner.
     func waitForPrepCourseDownloadForTesting() async {
         await prepCourseDownloadTask?.value
+    }
+
+    func waitForPrepOpenForTesting() async {
+        await activeRoundStartTask?.value
+    }
+
+    func waitForPrepPriorityForTesting() async {
+        await prepPriorityTask?.value
     }
 
     /// Test-only cleanup for a validation test that deliberately queues a replacement download.
@@ -4138,7 +4149,7 @@ public final class LiveRoundAppModel: ObservableObject {
             guard prepDownloadID != nil else { return true }
             let maxAttempts = 20
             let maxWaitNanoseconds: UInt64 = 300_000_000_000
-            let startedAt = DispatchTime.now().uptimeNanoseconds
+            let startedAt = prepTopoNowNanoseconds()
             for attempt in 0...maxAttempts {
                 guard !Task.isCancelled else { return false }
                 await refreshServerInstallStatus(useTransportRetries: false)
@@ -4157,13 +4168,13 @@ public final class LiveRoundAppModel: ObservableObject {
                     return true
                 }
                 guard attempt < maxAttempts else { return false }
-                let elapsed = DispatchTime.now().uptimeNanoseconds - startedAt
+                let elapsed = prepTopoNowNanoseconds() - startedAt
                 guard elapsed < maxWaitNanoseconds else { return false }
                 let remaining = maxWaitNanoseconds - elapsed
                 let delay = min(prepStatusProbeRetryDelayNanoseconds, remaining)
                 do {
                     if delay > 0 {
-                        try await Task.sleep(nanoseconds: delay)
+                        try await prepTopoSleep(delay)
                     } else {
                         await Task.yield()
                     }
@@ -4263,7 +4274,7 @@ public final class LiveRoundAppModel: ObservableObject {
             }
             guard stillMissing, attempt < topoRetryDelays.count else { break }
             do {
-                try await Task.sleep(nanoseconds: topoRetryDelays[attempt])
+                try await prepTopoSleep(topoRetryDelays[attempt])
             } catch {
                 return false
             }
@@ -8347,6 +8358,10 @@ public final class LiveRoundAppModel: ObservableObject {
         preferredCourse: Course? = nil,
         loops preferredLoops: [RoundLoopEntry] = []
     ) async -> LiveRoundPackage? {
+        // Observe provenance, not localized sync prose (which is also used by cache fallback).
+        var homeDataSource = "data:cached"
+        HomeDataObservation.source.send("data:loading")
+        defer { HomeDataObservation.source.send(homeDataSource) }
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
             return try? offlineStore.loadHomePackage()
@@ -8384,6 +8399,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 ensureGeometry: false,
                 includeEventCursor: false
             ) {
+                homeDataSource = "data:live"
                 return fetched
             }
         }

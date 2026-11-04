@@ -1,22 +1,9 @@
-diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
-index fb1399f2..e41de451 100644
---- a/.github/workflows/native-mobile.yml
-+++ b/.github/workflows/native-mobile.yml
-@@ -95,7 +95,7 @@ jobs:
-               | select(.key | contains("SimRuntime.iOS-"))
-               | .key as $runtime
-               | .value[]
--              | select(.isAvailable == true and .name == $preferred.value)
-+              | select(.isAvailable == true and (.name | contains($preferred.value)))
-               | {udid: .udid, priority: $preferred.key,
-                  version: ($runtime | split("-")[1:] | map(tonumber))}]
-             | sort_by([-.priority, .version]) | last | .udid // empty')
-@@ -148,7 +148,7 @@ jobs:
-               | select(.key | contains("SimRuntime.watchOS-"))
-               | .key as $runtime
-               | .value[]
--              | select(.isAvailable == true and .name == $preferred.value)
-+              | select(.isAvailable == true and (.name | contains($preferred.value)))
-               | {udid: .udid, priority: $preferred.key,
-                  version: ($runtime | split("-")[1:] | map(tonumber))}]
-             | sort_by([-.priority, .version]) | last | .udid // empty')
+diff --git a/.github/scripts/select-sim.sh b/.github/scripts/select-sim.sh
+index 1581bf01..600bc7a9 100755
+--- a/.github/scripts/select-sim.sh
++++ b/.github/scripts/select-sim.sh
+@@ -58,3 +58,3 @@ for runtime, entries in devices.items():
+     for device in entries:
+-        wanted = device.get('name') == name if prefix else device.get('name') in (
++        wanted = name in device.get('name', '') if prefix else device.get('name') in (
+             models if profile else models[:1])

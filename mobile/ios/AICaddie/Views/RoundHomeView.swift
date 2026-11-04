@@ -1,6 +1,31 @@
 import CoreLocation
+import Combine
 import Foundation
 import SwiftUI
+
+/// Accessibility-only observation of the actual home fetch outcome. Replays the latest
+/// outcome even when the response arrives before the home view subscribes.
+@MainActor
+enum HomeDataObservation {
+    static let source = CurrentValueSubject<String, Never>("data:loading")
+}
+
+extension View {
+    /// Page-level load state for UI tests to wait on instead of sleeping. Only attached in
+    /// DEBUG UI-test launches, so VoiceOver never hears it and child values are untouched.
+    @ViewBuilder
+    func uiTestStateValue(_ value: String) -> some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_MODE"] == "1" {
+            accessibilityValue(value)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+}
 
 /// J5.10: the page's own restored inputs plus the facts used by its round chip/card/summary.
 /// Other holes' club/GPS/target updates are deliberately absent; their score edits are not.
@@ -732,6 +757,7 @@ public struct RoundHomeView: View {
     public let onUndoRoundStart: () -> Void
 
     @State private var showSettings = false
+    @State private var homeDataState = "data:loading"
     @State private var path: [HubRoute] = []
     /// The live route is one destination containing a paging surface. Keeping the selection here
     /// avoids rebuilding a CurrentHoleView (and its location/task state) for every swipe.
@@ -1014,6 +1040,9 @@ public struct RoundHomeView: View {
                 .padding(.bottom, 22)
             }
             .background(HubBentoStyle.ground)
+            .accessibilityIdentifier("home-data-state")
+            .uiTestStateValue(homeDataState)
+            .onReceive(HomeDataObservation.source) { homeDataState = $0 }
             // A nameless, time-of-day greeting stands in for the app-name title (no personal name).
             .navigationTitle(greeting)
             .navigationBarTitleDisplayMode(.large)

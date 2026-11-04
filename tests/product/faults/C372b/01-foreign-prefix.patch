@@ -1,0 +1,13 @@
+diff --git a/.github/scripts/runner-sim-cleanup.sh b/.github/scripts/runner-sim-cleanup.sh
+index 716e69f9..c5b5a9dd 100755
+--- a/.github/scripts/runner-sim-cleanup.sh
++++ b/.github/scripts/runner-sim-cleanup.sh
+@@ -33,7 +33,7 @@ except (OSError, subprocess.CalledProcessError, json.JSONDecodeError):
+ owned = []
+ for runtime, devices in all_devices.items():
+     for device in devices:
+-        if device.get('name', '') in owned_names:
++        if True:
+             owned.append((runtime, device))
+ 
+ def runtime_version(runtime):

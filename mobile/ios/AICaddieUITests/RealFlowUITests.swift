@@ -285,9 +285,14 @@ final class RealFlowUITests: XCTestCase {
         app.buttons["home-new-round"].tap()
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 10))
         settle(1); save("c30-prep-back-picker"); dump("c30-prep-back-picker")
-        // Let the asynchronous priority response settle; it must update facts only and never push
-        // the hole destination back above the picker.
-        settle(5)
+        // Preserve the original negative-observation window: a late priority response must
+        // never replace the picker. Nearby completion is a different asynchronous operation.
+        let reopenedHole = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"), object: app.navigationBars["开始一场"]
+        )
+        reopenedHole.isInverted = true
+        XCTAssertEqual(XCTWaiter.wait(for: [reopenedHole], timeout: 5), .completed,
+                       "priority refresh must keep the picker visible throughout the original window")
         XCTAssertTrue(app.navigationBars["开始一场"].exists, "priority refresh must not reopen the hole screen")
         save("c30-prep-back-picker-after-priority"); dump("c30-prep-back-picker-after-priority")
     }
@@ -322,7 +327,6 @@ final class RealFlowUITests: XCTestCase {
             resultsTile.waitForExistence(timeout: 60),
             "01-home may be captured only after the real home replaces the launch screen"
         )
-        settle(2)
         save("01-home"); dump("01-home")
         XCTAssertFalse(
             app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Unknown course")).firstMatch.exists,
@@ -331,10 +335,10 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(UITapHelpers.isSafelyHittable(resultsTile, in: app), "the loaded home results tile must be tappable")
         resultsTile.tap()
         XCTAssertTrue(resultsRoot.waitForExistence(timeout: 15))
-        settle(3); save("02-results"); dump("02-results")
+        save("02-results"); dump("02-results")
         XCTAssertTrue(scrollAndTapContaining(["时间与频率"]))
         XCTAssertTrue(app.navigationBars["时间与频率"].waitForExistence(timeout: 10))
-        settle(4); save("02b-trends"); dump("02b-trends")
+        save("02b-trends"); dump("02b-trends")
         // Performance is now a first-screen feature destination above the trend/library rows.
         // Relaunch from a known top position instead of inheriting the old trend-row scroll offset
         // and swiping in the wrong direction after Back.
@@ -348,7 +352,7 @@ final class RealFlowUITests: XCTestCase {
         )
         XCTAssertTrue(scrollAndTapContaining(["表现分析"]))
         XCTAssertTrue(app.navigationBars["表现分析"].waitForExistence(timeout: 10))
-        settle(5); save("02c-analysis"); dump("02c-analysis")
+        save("02c-analysis"); dump("02c-analysis")
 
         // ---- Section 2: 成绩 → 全部球局 → round review → shot-map → review-edit ----
         launchFresh()
@@ -365,7 +369,7 @@ final class RealFlowUITests: XCTestCase {
             && scrollAndTapContaining(["场 ›", "全部球局 ›"])
         XCTAssertTrue(enteredHistory, "the real home must expose 成绩 and its complete archive")
         if enteredHistory {
-            settle(6); save("03-history-list"); dump("03-history-list")
+            save("03-history-list"); dump("03-history-list")
             // The low-value per-hole “规律” section was deliberately removed from history review.
             // Continue with the real round instead of requiring a chip from that retired UI.
             let reviewRoute = openEvidenceRound(
@@ -381,10 +385,6 @@ final class RealFlowUITests: XCTestCase {
                 "review evidence must open the dynamically verified spatially separated Garmin round"
             )
             if let reviewRoute {
-                // The history response can finish while the navigation transition is still committing.
-                // Leave one quiet window before XCUITest starts taking repeated accessibility snapshots;
-                // otherwise those snapshots can starve the already-loaded SwiftUI scorecard update.
-                settle(8)
                 // Match the approved edit render with a real Garmin hole whose recorded positions
                 // are spatially separated and retain their actual clubs.
                 let reviewNavigation = app.navigationBars["单场复盘"]
@@ -420,7 +420,7 @@ final class RealFlowUITests: XCTestCase {
                 let loadedRound = holeRow.waitForExistence(timeout: 60)
                 XCTAssertTrue(loadedRound, "the real round must load its verified evidence hole")
                 if loadedRound {
-                    settle(2); save("04-round-review"); dump("04-round-review")
+                    save("04-round-review"); dump("04-round-review")
                 }
                 let reachableHole = loadedRound && scrollTo(holeRow, maxSwipes: 4)
                 XCTAssertTrue(reachableHole, "the verified evidence hole must be tappable")
@@ -431,13 +431,6 @@ final class RealFlowUITests: XCTestCase {
                     let closeButton = app.buttons["round-shot-map-close"]
                     let enteredShotMap = closeButton.waitForExistence(timeout: 12)
                     XCTAssertTrue(enteredShotMap, "shot-map evidence must enter the pager before capture")
-                    if enteredShotMap {
-                        // Give the real network/decode/render task one quiet window before asking
-                        // XCUITest for another accessibility snapshot. Repeated `waitForExistence`
-                        // snapshots can monopolize the main thread and prevent SwiftUI from
-                        // committing the already-decoded map state on the simulator.
-                        settle(12)
-                    }
                     let topoReady = app.descendants(matching: .any)
                         .matching(identifier: "topo-hole-base-ready").firstMatch
                     let editButton = app.buttons["round-edit-begin"]
@@ -530,7 +523,7 @@ final class RealFlowUITests: XCTestCase {
                             waitForValue("全洞", on: zoomState, timeout: 10),
                             "a second double-tap must restore the fitted full hole"
                         )
-                        settle(2); save("04b-shot-map"); dump("04b-shot-map")
+                        save("04b-shot-map"); dump("04b-shot-map")
                     }
                     XCTAssertTrue(
                         UITapHelpers.isSafelyHittable(editButton, in: app),
@@ -549,7 +542,7 @@ final class RealFlowUITests: XCTestCase {
                         XCTAssertTrue(loadedEditMap, "edit evidence requires the real topo, the in-place edit map and the bottom edit bar")
                         if loadedEditMap {
                             XCTAssertFalse(closeButton.exists, "editing must hide the close button; Cancel and Save are the only exits")
-                            settle(2); save("04c-edit-mode"); dump("04c-edit-mode")
+                            save("04c-edit-mode"); dump("04c-edit-mode")
                             // The dedicated ReviewEditUITests journey exercises continuous add,
                             // move, delete and reorder. This broad journey only verifies that the
                             // old tap-to-write modal is gone and Cancel exits with zero mutation.
@@ -565,7 +558,7 @@ final class RealFlowUITests: XCTestCase {
                                 app.buttons["round-edit-begin"].waitForExistence(timeout: 12),
                                 "Cancel must restore the read-only shot map"
                             )
-                            settle(2); save("04d-edit-cancelled"); dump("04d-edit-cancelled")
+                            save("04d-edit-cancelled"); dump("04d-edit-cancelled")
                         }
                     }
                 }
@@ -590,7 +583,7 @@ final class RealFlowUITests: XCTestCase {
                 let loadedRound = content.waitForExistence(timeout: 60)
                 XCTAssertTrue(loadedRound, "last-round evidence must finish loading honest review content before capture")
                 if loadedRound {
-                    settle(2); save("05-last-round-review"); dump("05-last-round-review")
+                    save("05-last-round-review"); dump("05-last-round-review")
                 }
             }
         }
@@ -722,7 +715,7 @@ final class RealFlowUITests: XCTestCase {
             app.descendants(matching: .any)["live-hole-map-precise"].firstMatch.waitForExistence(timeout: 90),
             "the retained prep course must show its precise hole map"
         )
-        settle(2); save("07-prep-hole-screen"); dump("07-prep-hole-screen")
+        save("07-prep-hole-screen"); dump("07-prep-hole-screen")
 
         // ---- Section 4b (full only): nearby + name search → uninstalled course → lightweight/precise map ----
         if let newCourseEvidence {
@@ -736,7 +729,7 @@ final class RealFlowUITests: XCTestCase {
         // ---- Section 5: start the selected real course — GET package only, no score/backend write ----
         launchFresh()
         XCTAssertTrue(openStartRound(), "home must expose the real start-round path")
-        settle(9)
+        XCTAssertTrue(app.descendants(matching: .any)["start-round-page-course"].waitForExistence(timeout: 9))
         // Provider-wide nearby discovery can legitimately change the form's default course. The
         // approved 18-hole evidence is Beijing Ligong, so select its stable globalId explicitly
         // (its row in the one course list, then its "18 洞" tile) instead of mistaking a visible,
@@ -1319,7 +1312,6 @@ final class RealFlowUITests: XCTestCase {
             // A long XCUITest journey can occasionally synthesize the first tap while SwiftUI is
             // committing the start screen's live nearby update. Retry the still-visible user action
             // once, but keep the same sheet assertion so a real presentation failure remains fatal.
-            settle(1)
             _ = UITapHelpers.tapWhenHittable(
                 openSearch,
                 app: app,
@@ -1601,8 +1593,15 @@ final class RealFlowUITests: XCTestCase {
         if app.state == .runningForeground { app.terminate() }
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "app did not foreground")
+        if app.launchEnvironment["UITEST_REVIEW_ROUND_REF"] != nil {
+            XCTAssertTrue(app.descendants(matching: .any)["round-review-content-ready"].waitForExistence(timeout: 20))
+            return
+        }
         // Home renders cached/fixture instantly, then the funnel fetch (Phase 2) swaps in real data.
-        settle(20)
+        let offline = app.launchEnvironment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1"
+        XCTAssertTrue(UITapHelpers.waitForValue(offline ? "data:cached" : "data:live",
+            on: app.descendants(matching: .any)["home-data-state"], timeout: 20),
+            "home must finish its data refresh before navigation")
     }
 
     private func settle(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
@@ -1612,8 +1611,7 @@ final class RealFlowUITests: XCTestCase {
         let button = app.navigationBars.buttons[label].firstMatch
         guard button.waitForExistence(timeout: 6), UITapHelpers.isSafelyHittable(button, in: app) else { return false }
         button.tap()
-        settle(2)
-        return true
+        return UITapHelpers.waitForCondition({ !button.exists }, timeout: 2)
     }
 
     /// Bring the whole element into the visible safe viewport. `exists` and even `isHittable` are
@@ -1628,7 +1626,7 @@ final class RealFlowUITests: XCTestCase {
             } else {
                 app.swipeUp()
             }
-            settle(0.6)
+            UITapHelpers.waitForFrameToSettle(element)
         }
         return element.exists && UITapHelpers.isSafelyHittable(element, in: app) && fullyVisible(element)
     }
@@ -1993,7 +1991,6 @@ final class RealFlowUITests: XCTestCase {
         let row = app.buttons["start-round-venue-\(globalId)"]
         if scrollTo(row, maxSwipes: 24) {
             row.tap()
-            settle(1)
             XCTAssertTrue(
                 app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8),
                 "tapping a venue opens the loop and tee setup page"
@@ -2001,7 +1998,7 @@ final class RealFlowUITests: XCTestCase {
         }
         if scrollTo(tile, maxSwipes: 8), tile.identifier != "start-round-selected-course-\(globalId)" {
             tile.tap()
-            settle(1)
+            XCTAssertTrue(UITapHelpers.waitForCondition({ tile.exists && tile.identifier == "start-round-selected-course-\(globalId)" }, timeout: 1))
         }
         if !(tile.exists && tile.identifier == "start-round-selected-course-\(globalId)") {
             // Evidence for the caller's selection assertion: what the list showed instead.
@@ -2052,7 +2049,6 @@ final class RealFlowUITests: XCTestCase {
             }
             guard attempt < maxSwipes else { break }
             app.swipeUp()
-            settle(1)
         }
         return false
     }

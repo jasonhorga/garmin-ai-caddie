@@ -1,0 +1,9 @@
+diff --git a/mobile/ios/AICaddie/Models/LiveRoundPackage.swift b/mobile/ios/AICaddie/Models/LiveRoundPackage.swift
+index c4852437..646b5202 100644
+--- a/mobile/ios/AICaddie/Models/LiveRoundPackage.swift
++++ b/mobile/ios/AICaddie/Models/LiveRoundPackage.swift
+@@ -1208,3 +1208,3 @@ public enum PackageGeometryRetryPolicy {
+         let bounded = max(0, min(attempt, 9))
+-        return min(300, pow(2, Double(bounded)))
++        return min(300, pow(1, Double(bounded)))
+     }

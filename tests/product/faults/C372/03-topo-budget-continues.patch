@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 26ba64ec..ba199bd7 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4169,7 +4169,7 @@ public final class LiveRoundAppModel: ObservableObject {
+                 }
+                 guard attempt < maxAttempts else { return false }
+                 let elapsed = prepTopoNowNanoseconds() - startedAt
+-                guard elapsed < maxWaitNanoseconds else { return false }
++                guard elapsed <= maxWaitNanoseconds else { return false }
+                 let remaining = maxWaitNanoseconds - elapsed
+                 let delay = min(prepStatusProbeRetryDelayNanoseconds, remaining)
+                 do {

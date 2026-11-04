@@ -1150,17 +1150,15 @@ final class RoundStartTwoStageTests: XCTestCase {
             held.hold(proto)
             sent.fulfill()
         }, onStop: { held.forget($0) })
-        let fixture = makeModel(host: host, held: held, roundStartTimeoutInterval: 2)
+        let fixture = makeModel(
+            host: host, held: held, roundStartTimeoutInterval: 2,
+            roundStartNow: { Date(timeIntervalSince1970: 1_900_000_000) }
+        )
         let model = fixture.model
         model.startCourseRound(
             roundId: "c365-double-tap", teeBox: "blue",
             loops: [RoundLoopEntry(globalId: c85CourseId, half: "all")]
         )
-        let deadline = ProcessInfo.processInfo.systemUptime + 1
-        while !model.isPreparingRound {
-            guard ProcessInfo.processInfo.systemUptime < deadline else { throw NSError(domain: "C365", code: 1) }
-            await Task.yield()
-        }
         await fulfillment(of: [sent], timeout: eventWait)
         model.cancelRoundStartIfReady()
         XCTAssertTrue(model.isPreparingRound, "the transition guard must ignore an immediate second tap")
@@ -1178,18 +1176,17 @@ final class RoundStartTwoStageTests: XCTestCase {
             held.hold(proto)
             sent.fulfill()
         }, onStop: { held.forget($0) })
-        let fixture = makeModel(host: host, held: held, roundStartTimeoutInterval: 2)
+        let fixture = makeModel(
+            host: host, held: held, roundStartTimeoutInterval: 2,
+            roundStartNow: { Date(timeIntervalSince1970: 1_900_000_000) }
+        )
         let model = fixture.model
         model.startCourseRound(
             roundId: "c365-immediate-exit", teeBox: "blue",
             loops: [RoundLoopEntry(globalId: c85CourseId, half: "all")]
         )
-        let deadline = ProcessInfo.processInfo.systemUptime + 1
-        while !model.isPreparingRound {
-            guard ProcessInfo.processInfo.systemUptime < deadline else { throw NSError(domain: "C365", code: 2) }
-            await Task.yield()
-        }
         await fulfillment(of: [sent], timeout: eventWait)
+        XCTAssertTrue(model.isPreparingRound, "the start must be in flight before the immediate exit")
         model.cancelRoundStart()
         XCTAssertFalse(model.isPreparingRound)
         XCTAssertNil(model.pendingLiveHole)
@@ -1526,12 +1523,7 @@ final class RoundStartTwoStageTests: XCTestCase {
             responses.append(request, status: response.status, usedDefault: usedDefault)
             return response
         }
-        do {
-            try await waitForOfflineCourseDownloadWithin(fixture.model)
-        } catch {
-            XCTFail("whole-course download exceeded its 3-second wait: \(error); \(diagnostics())")
-            throw error
-        }
+        await fixture.model.waitForOfflineCourseDownloadForTesting()
         XCTAssertNil(fixture.model.offlineCourseDownloadRoundIdForTesting)
         XCTAssertGreaterThan(topoResponses.value, 0, "injected topo must reach this test’s handler")
         guard let template = try fixture.store.loadCourseTemplate(globalId: c85CourseId, teeBox: "blue") else {
@@ -1749,20 +1741,6 @@ final class RoundStartTwoStageTests: XCTestCase {
         """.utf8)
     }
 
-    private func waitForOfflineCourseDownloadWithin(
-        _ model: LiveRoundAppModel,
-        timeout: TimeInterval = 3
-    ) async throws {
-        enum Timeout: Error { case exceeded }
-        // A task-group race still joins its losing child: awaiting an unstructured model task's
-        // value ignores that child's cancellation. Poll the completion marker with a real deadline.
-        let deadline = ProcessInfo.processInfo.systemUptime + timeout
-        while model.offlineCourseDownloadRoundIdForTesting != nil {
-            guard ProcessInfo.processInfo.systemUptime < deadline else { throw Timeout.exceeded }
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
-    }
-
     private struct ModelFixture {
         let model: LiveRoundAppModel
         let store: OfflineStore
@@ -1807,13 +1785,25 @@ final class RoundStartTwoStageTests: XCTestCase {
             retrySleep: { _ in },
             roundStartTimeoutInterval: roundStartTimeoutInterval
         )
+        let timerGate = C33RetrySleepGate()
+        client.roundStartDeadlineSleep = { _ in
+            if roundStartTimeoutInterval < 1 { return }
+            try await timerGate.wait()
+        }
         let model = LiveRoundAppModel(
             offlineStore: store, apiBaseURL: client.baseURL, watchBridge: nil,
             garminSessionStore: nil, syncClient: client,
             offlineGeometryRetryDelaysNanoseconds: [],
             roundStartIntentWaitNanoseconds: roundStartIntentWaitNanoseconds,
-            networkPathObserver: nil, roundStartNow: roundStartNow
+            networkPathObserver: nil,
+            roundStartProgressSleep: { _ in try await timerGate.wait() },
+            roundStartNow: roundStartNow
         )
+        model.roundStartIntentSleep = { _ in
+            if roundStartIntentWaitNanoseconds < LiveRoundAppModel.defaultRoundStartIntentWaitNanoseconds { return }
+            try await timerGate.wait()
+        }
+        model.prepTopoSleep = { _ in }
         let fixture = ModelFixture(
             model: model, store: store, client: client, session: session, directory: directory, held: held
         )

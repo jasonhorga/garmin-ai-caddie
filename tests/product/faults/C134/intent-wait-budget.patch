@@ -1,8 +1,8 @@
 diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
-index d8009cad..d6e14059 100644
+index 26ba64ec..bcf3adfc 100644
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -2390,34 +2390,7 @@ public final class LiveRoundAppModel: ObservableObject {
+@@ -2411,34 +2411,7 @@ public final class LiveRoundAppModel: ObservableObject {
                  roundStartIntentWaitNanoseconds,
                  UInt64(max(0.001, remaining) * 1_000_000_000)
              )
@@ -20,7 +20,7 @@ index d8009cad..d6e14059 100644
 -                    }
 -                    let timeout = Task {
 -                        do {
--                            try await Task.sleep(nanoseconds: waitNanoseconds)
+-                            try await self.roundStartIntentSleep(waitNanoseconds)
 -                            race.finish(.failure(IntentPrefetchWaitTimeout()))
 -                        } catch {
 -                            // The wait was completed by the producer or cancellation.

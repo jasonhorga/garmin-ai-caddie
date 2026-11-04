@@ -4,6 +4,10 @@ import XCTest
 /// accessibility tap.  A disappearing source or an appearing destination acknowledges the first
 /// tap; only an unacknowledged source is tapped a second time.
 enum UITapHelpers {
+    /// Poll an accessibility value while SwiftUI replaces the element during a refresh.
+    static func waitForValue(_ expected: String, on element: XCUIElement, timeout: TimeInterval) -> Bool {
+        waitForCondition({ element.exists && (element.value as? String) == expected }, timeout: timeout)
+    }
     /// Wait within a budget for stable geometry, dismissal of covering sheets, and a real hit
     /// point, then tap the visible centre. On timeout return false; callers must reveal/scroll an
     /// off-screen source first. There is no coordinate fallback through a still-present sheet.
@@ -206,7 +210,23 @@ enum UITapHelpers {
         }, timeout: stabilityBudget)
     }
 
-    private static func waitForCondition(_ condition: @escaping () -> Bool, timeout: TimeInterval) -> Bool {
+    /// After a swipe, wait until the element's frame stops changing (scroll momentum is over)
+    /// instead of a fixed sleep. "Hittable" turns true while the list still coasts, so checking
+    /// full visibility then swipes again and overshoots (fixture 41829292565, 20 swipes).
+    /// The budget only bounds the wait; callers still check the element's real visibility.
+    static func waitForFrameToSettle(_ element: XCUIElement, timeout: TimeInterval = 3) {
+        var previous: CGRect?
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            guard element.exists else { return }
+            let frame = element.frame
+            if frame == previous { return }
+            previous = frame
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+    }
+
+    static func waitForCondition(_ condition: @escaping () -> Bool, timeout: TimeInterval) -> Bool {
         if condition() { return true }
         let remaining = max(0, timeout)
         guard remaining > 0 else { return false }

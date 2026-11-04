@@ -1,11 +1,9 @@
-diff --git a/.github/workflows/native-mobile.yml b/.github/workflows/native-mobile.yml
-index fb1399f2..97218b31 100644
---- a/.github/workflows/native-mobile.yml
-+++ b/.github/workflows/native-mobile.yml
-@@ -199,5 +199,5 @@ jobs:
-           for udid in "${NATIVE_QUICK_IOS_UDID:-}" "${NATIVE_QUICK_WATCH_UDID:-}"; do
-             if [ -n "$udid" ]; then
--              xcrun simctl shutdown "$udid" || true
-+              xcrun simctl shutdown all || true
-             fi
-           done
+diff --git a/.github/scripts/shutdown-owned-sims.sh b/.github/scripts/shutdown-owned-sims.sh
+index 3d261356..66e86c3d 100755
+--- a/.github/scripts/shutdown-owned-sims.sh
++++ b/.github/scripts/shutdown-owned-sims.sh
+@@ -18,3 +18,3 @@ owned = {d['udid'] for entries in inventory.values() for d in entries
+ for udid in sorted(recorded & owned):
+-    subprocess.run(['xcrun', 'simctl', 'shutdown', udid], check=False)
++    subprocess.run(['xcrun', 'simctl', 'shutdown', 'all'], check=False)
+ PY

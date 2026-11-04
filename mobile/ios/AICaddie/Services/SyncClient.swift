@@ -1770,7 +1770,7 @@ public final class SyncClient {
                 if Task.isCancelled || error is CancellationError { throw CancellationError() }
                 lastError = error
                 if attempt < attempts {
-                    try await Task.sleep(nanoseconds: UInt64(attempt) * 250_000_000)
+                    try await retrySleep(UInt64(attempt) * 250_000_000)
                 }
             }
         }

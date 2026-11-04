@@ -442,7 +442,7 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
         )
         steps = {
             step["name"]: step
-            for step in workflow["jobs"]["native-unit-watch"]["steps"]
+            for step in workflow["jobs"]["native-real-flow"]["steps"]
             if "name" in step
         }
         self.assertEqual(

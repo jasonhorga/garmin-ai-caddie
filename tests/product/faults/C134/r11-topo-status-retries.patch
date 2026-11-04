@@ -1,7 +1,9 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 26ba64ec..62bfc248 100644
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -3768,7 +3768,9 @@
-             let startedAt = DispatchTime.now().uptimeNanoseconds
+@@ -4152,7 +4152,9 @@ public final class LiveRoundAppModel: ObservableObject {
+             let startedAt = prepTopoNowNanoseconds()
              for attempt in 0...maxAttempts {
                  guard !Task.isCancelled else { return false }
 -                await refreshServerInstallStatus(useTransportRetries: false)

@@ -115,6 +115,15 @@ final class C33PackageTests: XCTestCase {
         let session = C33URLProtocol.session()
         let client = SyncClient(baseURL: URL(string: "https://c33-package-retry.example.test")!, session: session)
         let model = c33Model(OfflineStore(directoryURL: directory), client)
+        let gate = C33RetrySleepGate()
+        let firstSleep = expectation(description: "first geometry backoff scheduled")
+        var observedSleeps: [TimeInterval] = []
+        let sleepLock = NSLock()
+        model.pendingGeometrySleepForTesting = { delay in
+            sleepLock.lock(); observedSleeps.append(delay); let count = observedSleeps.count; sleepLock.unlock()
+            if count == 1 { firstSleep.fulfill() }
+            try await gate.wait()
+        }
         var pendingJSON = try packageJSON()
         pendingJSON["roundId"] = "c33-package-retry"
         try replaceFirstHole(&pendingJSON, with: [
@@ -160,17 +169,17 @@ final class C33PackageTests: XCTestCase {
                 loops: [.init(globalId: 32850, half: "all")]
             )
         }
-        // The product sleeps its real first backoff (not injectable), so the wait is stall-tolerant and
-        // the promptness the old 2 s wait implied is held on the policy instead: a past deadline
-        // retries in under 2 s.
-        let nowEpoch = Date().timeIntervalSince1970
-        XCTAssertLessThan(
-            PackageGeometryRetryPolicy.delaySeconds(nowEpoch: nowEpoch, retryAfterEpoch: nowEpoch - 1, attempt: 0), 2
-        )
+        await fulfillment(of: [firstSleep], timeout: 10)
+        XCTAssertEqual(sleepLock.withLock { observedSleeps }, [1], "J4.2 first geometry backoff is 2^0 = 1 second")
+        await gate.release()
+        // Past server deadline: the independent policy specification requests the first 1 s
+        // backoff. The injected sleeper observes that value and releases the retry immediately.
         await fulfillment(of: [retryRequest], timeout: 10)
         await start.value
         lock.lock(); let observed = packageRefreshes; lock.unlock()
         XCTAssertEqual(observed, 1)
+        sleepLock.lock(); let delays = observedSleeps; sleepLock.unlock()
+        XCTAssertEqual(delays, [1])
     }
 
     func testPendingGeometryFailureReschedulesWithBackoff() async throws {
@@ -178,6 +187,16 @@ final class C33PackageTests: XCTestCase {
         let session = C33URLProtocol.session()
         let client = SyncClient(baseURL: URL(string: "https://c33-geometry-backoff.example.test")!, session: session)
         let model = c33Model(OfflineStore(directoryURL: directory), client)
+        let gate = C33RetrySleepGate()
+        let firstSleep = expectation(description: "first geometry backoff scheduled")
+        let secondSleep = expectation(description: "second geometry backoff scheduled")
+        var observedSleeps: [TimeInterval] = []
+        let sleepLock = NSLock()
+        model.pendingGeometrySleepForTesting = { delay in
+            sleepLock.lock(); observedSleeps.append(delay); let count = observedSleeps.count; sleepLock.unlock()
+            if count == 1 { firstSleep.fulfill() } else if count == 2 { secondSleep.fulfill() }
+            try await gate.wait()
+        }
         var pendingJSON = try packageJSON()
         pendingJSON["roundId"] = "c33-geometry-backoff"
         try replaceFirstHole(&pendingJSON, with: ["geometryState": "pending", "retryAfterEpoch": Date().timeIntervalSince1970 - 1])
@@ -211,15 +230,19 @@ final class C33PackageTests: XCTestCase {
                 roundId: "c33-geometry-backoff", teeBox: "blue", loops: [.init(globalId: 32850, half: "all")]
             )
         }
-        // Two real backoffs (not injectable) precede the second attempt, so the wait is stall-tolerant;
-        // the bound the old 6 s wait implied is held on the policy: both backoffs total under 6 s.
-        XCTAssertLessThan(
-            PackageGeometryRetryPolicy.backoffSeconds(attempt: 0) + PackageGeometryRetryPolicy.backoffSeconds(attempt: 1), 6
-        )
-        await fulfillment(of: [secondAttempt], timeout: 20)
+        await fulfillment(of: [firstSleep], timeout: 10)
+        XCTAssertEqual(sleepLock.withLock { observedSleeps }, [1], "J4.2 first geometry backoff is 2^0 = 1 second")
+        await gate.release()
+        await fulfillment(of: [secondSleep], timeout: 10)
+        XCTAssertEqual(sleepLock.withLock { observedSleeps }, [1, 2], "J4.2 next geometry backoff doubles to 2 seconds")
+        await gate.release()
+        // The injected sleeper records policy delays and releases each retry immediately.
+        await fulfillment(of: [secondAttempt], timeout: 10)
         await start.value
         lock.lock(); let observed = attempts; lock.unlock()
         XCTAssertEqual(observed, 2)
+        sleepLock.lock(); let delays = observedSleeps; sleepLock.unlock()
+        XCTAssertEqual(delays, [1, 2], "C33 geometry policy is 1 s then doubled 2 s; values are specified independently")
     }
 
     func testDegradedSingleflightPackageNeverReplacesCachedCompletePackage() throws {

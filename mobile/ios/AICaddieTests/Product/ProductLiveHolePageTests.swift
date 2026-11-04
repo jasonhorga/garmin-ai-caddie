@@ -539,8 +539,11 @@ final class ProductLiveHolePageTests: XCTestCase {
     private func waitForHostedState(
         _ host: UIViewController, until condition: () -> Bool
     ) async throws -> Bool {
-        let deadline = Date().addingTimeInterval(10)
-        while !condition(), Date() < deadline {
+        // Bounded by forced layout passes, not wall time: under Mac load 400-900 (C372) the same
+        // SwiftUI work needed more than a 10 s deadline. The short sleep only lets the main run
+        // loop turn between passes; 1000 passes is ~10 s on an idle machine.
+        for _ in 0..<1000 {
+            if condition() { break }
             host.view.setNeedsLayout()
             host.view.layoutIfNeeded()
             await Task.yield()

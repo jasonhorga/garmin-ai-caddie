@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C372-01-topo-missing-retry",
+      "patch": "tests/product/faults/C372/01-topo-missing-retry.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33StartTests/testProductSpec45TopoRetriesInOrderAndDrainsTheActualPrefetch",
+      "promise": "J4.5",
+      "kills": "Dropping the final topo retry leaves only two attempts and no cached PNG."
+    },
+    {
+      "id": "tests-product-faults-C372-02-geometry-not-doubled",
+      "patch": "tests/product/faults/C372/02-geometry-not-doubled.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33PackageTests/testPendingGeometryFailureReschedulesWithBackoff",
+      "promise": "J4.2",
+      "kills": "The second pending geometry retry must request two seconds, independently asserted before release."
+    },
+    {
+      "id": "tests-product-faults-C372-03-topo-budget-continues",
+      "patch": "tests/product/faults/C372/03-topo-budget-continues.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testProductSpec42PrepTopoBudgetStopsAtBoundaryWithoutAnotherPoll",
+      "promise": "J4.2",
+      "kills": "Continuing at the exhausted 300-second topo budget issues a fourth journal probe instead of three."
+    }
+  ]
+}

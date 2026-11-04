@@ -23,8 +23,16 @@ final class TopoHoleImageStore: ObservableObject {
     /// detached from a SwiftUI view task: changing holes or dismissing a surface may cancel the
     /// waiter, but must not cancel the one download shared by the next view that needs the bitmap.
     private static var inFlight: [URL: Task<Data?, Never>] = [:]
+    private static var loadingTasks: [UUID: Task<Bool, Never>] = [:]
     private static var retryAttemptByURL: [URL: Int] = [:]
     private static let retryDelaysNanoseconds: [UInt64] = [0, 5_000_000_000, 15_000_000_000]
+    #if DEBUG
+    /// Tests advance the retry chain explicitly; production keeps using Task.sleep below.
+    private static var resetGeneration = 0
+    private static var requestedLoadingURLs = Set<URL>()
+    static var retrySleepForTesting: ((UInt64) async throws -> Void)?
+    static var imageDataForTesting: ((URL) async -> Data?)?
+    #endif
 
     @Published private(set) var image: UIImage?
     @Published private(set) var isLoading = false
@@ -77,10 +85,15 @@ final class TopoHoleImageStore: ObservableObject {
     /// UI-test reset: the fixture server can change a hole's revision between launches, so no
     /// decoded or URLCache response may survive as an image for the next fixture state.
     static func resetForUITesting() {
+        resetGeneration &+= 1
         imageCache.removeAllObjects()
         inFlight.values.forEach { $0.cancel() }
         inFlight.removeAll()
+        loadingTasks.values.forEach { $0.cancel() }
+        requestedLoadingURLs.removeAll()
         retryAttemptByURL.removeAll()
+        retrySleepForTesting = nil
+        imageDataForTesting = nil
         URLCache.shared.removeAllCachedResponses()
         let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("AICaddieTopoImages-v1", isDirectory: true)
@@ -92,11 +105,51 @@ final class TopoHoleImageStore: ObservableObject {
     /// maps, so page changes normally hit decoded memory instead of showing another network wait.
     static func prefetch(_ url: URL?) {
         guard let url, imageCache.object(forKey: url as NSURL) == nil else { return }
-        Task { _ = await ensureLoaded(url) }
+        _ = startLoading(url)
     }
+
+    private static func startLoading(_ url: URL) -> Task<Bool, Never> {
+        let id = UUID()
+        #if DEBUG
+        let generation = resetGeneration
+        requestedLoadingURLs.insert(url)
+        #endif
+        let task = Task {
+            defer { loadingTasks[id] = nil }
+            #if DEBUG
+            guard generation == resetGeneration else { return false }
+            #endif
+            return await loadWithRetries(url)
+        }
+        loadingTasks[id] = task
+        return task
+    }
+
+    #if DEBUG
+    /// Observe all scheduled prefetch/ensureLoaded retry chains, including work added while the
+    /// current batch completes. No quiet interval or elapsed-time success criterion is involved.
+    @discardableResult
+    static func waitForPrefetchCompletionForTesting() async -> Set<URL> {
+        while !loadingTasks.isEmpty {
+            for task in Array(loadingTasks.values) { _ = await task.value }
+        }
+        // URLProtocol's process-wide records can include deliveries from an older cancelled
+        // generation. Only this generation's actual prefetch/ensureLoaded tasks own these URLs.
+        return requestedLoadingURLs
+    }
+    #endif
 
     static func ensureLoaded(_ url: URL?) async -> Bool {
         guard let url else { return false }
+        let task = startLoading(url)
+        return await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    private static func loadWithRetries(_ url: URL) async -> Bool {
         // A local file is already the exact revision-bound asset. Retrying a corrupt or
         // half-written PNG only strands the hole on neutral ground for roughly 20 seconds.
         if url.isFileURL {
@@ -111,7 +164,15 @@ final class TopoHoleImageStore: ObservableObject {
             let delay = retryDelaysNanoseconds[attempt]
             if delay > 0 {
                 do {
+                    #if DEBUG
+                    if let sleep = retrySleepForTesting {
+                        try await sleep(delay)
+                    } else {
+                        try await Task.sleep(nanoseconds: delay)
+                    }
+                    #else
                     try await Task.sleep(nanoseconds: delay)
+                    #endif
                 } catch {
                     retryAttemptByURL[url] = nil
                     return false
@@ -125,6 +186,10 @@ final class TopoHoleImageStore: ObservableObject {
                 retryAttemptByURL[url] = nil
                 return true
             }
+            if Task.isCancelled {
+                retryAttemptByURL[url] = nil
+                return false
+            }
             if attempt == retryDelaysNanoseconds.count - 1 {
                 retryAttemptByURL[url] = nil
                 return false
@@ -135,6 +200,16 @@ final class TopoHoleImageStore: ObservableObject {
     }
 
     private static func image(for url: URL) async -> UIImage? {
+        #if DEBUG
+        let generation = resetGeneration
+        if let imageDataForTesting {
+            guard let data = await imageDataForTesting(url),
+                  generation == resetGeneration, !Task.isCancelled,
+                  let image = UIImage(data: data) else { return nil }
+            preload(image, for: url)
+            return image
+        }
+        #endif
         let key = url as NSURL
         if let cached = imageCache.object(forKey: key) { return cached }
 
@@ -171,7 +246,11 @@ final class TopoHoleImageStore: ObservableObject {
             inFlight[url] = task
         }
 
-        guard let data = await task.value,
+        let downloaded = await task.value
+        #if DEBUG
+        guard generation == resetGeneration else { return nil }
+        #endif
+        guard let data = downloaded,
               let resolved = UIImage(data: data) else {
             inFlight[url] = nil
             return nil

@@ -55,37 +55,17 @@ final class C33TopoPrefetchScope {
     init() {
         ensureC156TopoBundleStub()
         TopoHoleImageStore.resetForUITesting()
+        TopoHoleImageStore.retrySleepForTesting = { _ in }
         SharedTopoURLProtocol.resetRecords()
     }
 
     func stop() async {
         guard !stopped else { return }
-        // reset only cancels the detached download, not prefetch's outer ensureLoaded task. Let
-        // every served image reach the cache first, while still intercepting any late first load.
-        // Require a quiet polling round too, including when no prefetch had started at teardown.
-        let deadline = Date().addingTimeInterval(10)
-        var lastCount = SharedTopoURLProtocol.records().count
-        var lastChange = Date()
-        var drained = false
-        while Date() < deadline {
-            // Poll cadence, not a success delay: completion requires both cache and quiescence.
-            do { try await Task.sleep(nanoseconds: 10_000_000) } catch { break }
-            let snapshot = SharedTopoURLProtocol.records()
-            if snapshot.count != lastCount {
-                lastCount = snapshot.count
-                lastChange = Date()
-            }
-            if snapshot.urls.allSatisfy({ TopoHoleImageStore.isMemoryCached($0) }),
-               Date().timeIntervalSince(lastChange) >= 0.1 {
-                drained = true
-                break
-            }
-        }
-        guard drained else {
-            // Leave the bundle stub installed. A delayed outer task can still finish safely after
-            // this bounded drain rather than being turned into a real DNS retry.
-            XCTFail("Shared topo prefetch did not reach cached, quiescent completion before teardown")
-            return
+        // Observe the downloader's actual task completion. The injected retry sleep makes each
+        // retry deterministic and immediate, so teardown never depends on wall-clock quiescence.
+        let urls = await TopoHoleImageStore.waitForPrefetchCompletionForTesting()
+        for url in urls {
+            XCTAssertTrue(TopoHoleImageStore.isMemoryCached(url), "Shared topo prefetch completed without caching \(url)")
         }
         TopoHoleImageStore.resetForUITesting()
         stopped = true
@@ -130,6 +110,40 @@ actor C33StartSleepGate {
         } else {
             permits += 1
         }
+    }
+}
+
+/// A cancellation-aware virtual sleeper. Tests release a permit after observing the real event;
+/// cancelled product timer tasks cannot leave a checked continuation behind in the next test.
+actor C33RetrySleepGate {
+    private var waiters: [(UUID, CheckedContinuation<Void, Error>)] = []
+    private var permits = 0
+
+    func wait() async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else if permits > 0 {
+                    permits -= 1
+                    continuation.resume()
+                } else {
+                    waiters.append((id, continuation))
+                }
+            }
+        } onCancel: {
+            Task { await self.cancel(id) }
+        }
+    }
+
+    private func cancel(_ id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.0 == id }) else { return }
+        waiters.remove(at: index).1.resume(throwing: CancellationError())
+    }
+
+    func release() {
+        if waiters.isEmpty { permits += 1 } else { waiters.removeFirst().1.resume() }
     }
 }
 

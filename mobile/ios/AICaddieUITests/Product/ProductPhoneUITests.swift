@@ -21,6 +21,12 @@ final class ProductPhoneUITests: XCTestCase {
 
     private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
 
+    private func waitForCondition(timeout: TimeInterval, _ condition: @escaping () -> Bool) -> Bool {
+        if condition() { return true }
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
     private func launch(
         reset: Bool = true,
         latitude: String? = nil,
@@ -549,7 +555,7 @@ final class ProductPhoneUITests: XCTestCase {
         let map = element("live-open-map-from-hero")
         print("PROBE pinch green-before-zoom=\(greenAfterLaunch.frame) map=\(map.frame)")
         map.pinch(withScale: 1.5, velocity: 1.5)
-        Thread.sleep(forTimeInterval: 1.5)
+        XCTAssertTrue(waitForCondition(timeout: 5) { greenAfterLaunch.frame.size != initialGreenFrame.size })
         let zoomedGreenFrame = greenAfterLaunch.frame
         print("PROBE pinch green-after-zoom=\(zoomedGreenFrame) exists=\(greenAfterLaunch.exists)")
         XCTAssertNotEqual(initialGreenFrame.size, zoomedGreenFrame.size, "J5.4 a map pinch zooms the map")
@@ -557,13 +563,13 @@ final class ProductPhoneUITests: XCTestCase {
         let reposition = map.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.6))
         let beforeReposition = greenAfterLaunch.frame
         reposition.press(forDuration: 0.05, thenDragTo: reposition.withOffset(CGVector(dx: 80, dy: 300)), withVelocity: .slow, thenHoldForDuration: 0)
-        Thread.sleep(forTimeInterval: 1)
+        XCTAssertTrue(waitForCondition(timeout: 5) { greenAfterLaunch.frame.origin != beforeReposition.origin })
         let visibleGreenFrame = greenAfterLaunch.frame
         print("PROBE pan reposition before=\(beforeReposition) after=\(visibleGreenFrame) moved=\(beforeReposition.origin != visibleGreenFrame.origin)")
         XCTAssertTrue(greenAfterLaunch.isHittable, "J5.4 the zoomed green remains an accessible hit target")
         let beforeGreenPinch = greenAfterLaunch.frame
         greenAfterLaunch.pinch(withScale: 0.8, velocity: -1.5)
-        Thread.sleep(forTimeInterval: 1)
+        XCTAssertTrue(waitForCondition(timeout: 5) { greenAfterLaunch.frame.size != beforeGreenPinch.size })
         let afterGreenPinch = greenAfterLaunch.frame
         print("PROBE pinch-from-green before=\(beforeGreenPinch) after=\(afterGreenPinch) changed=\(beforeGreenPinch.size != afterGreenPinch.size)")
         XCTAssertGreaterThan(
@@ -575,7 +581,7 @@ final class ProductPhoneUITests: XCTestCase {
         print("PROBE pan start point=\(panStart.screenPoint) frame=\(visibleGreenFrame)")
         let beforeGreenPan = greenAfterLaunch.frame
         panStart.press(forDuration: 0.05, thenDragTo: panStart.withOffset(CGVector(dx: 0, dy: -60)), withVelocity: .slow, thenHoldForDuration: 0)
-        Thread.sleep(forTimeInterval: 1)
+        XCTAssertTrue(waitForCondition(timeout: 5) { greenAfterLaunch.frame.origin != beforeGreenPan.origin })
         let openedAfterPan = element("live-green-edge-front").waitForExistence(timeout: 2)
         let afterGreenPan = greenAfterLaunch.frame
         print("PROBE pan from-green before=\(beforeGreenPan) after=\(afterGreenPan) moved=\(beforeGreenPan.origin != afterGreenPan.origin) opened-green=\(openedAfterPan)")
@@ -654,7 +660,12 @@ final class ProductPhoneUITests: XCTestCase {
             if map.exists { insideWindow(map, name) }
             if name == "partial" {
                 let precise = element("live-hole-map-precise")
-                Thread.sleep(forTimeInterval: 2)
+                let unexpectedUpgrade = XCTNSPredicateExpectation(
+                    predicate: NSPredicate(format: "exists == true"), object: precise
+                )
+                unexpectedUpgrade.isInverted = true
+                XCTAssertEqual(XCTWaiter.wait(for: [unexpectedUpgrade], timeout: 2), .completed,
+                               "partial coverage must stay factual throughout the original observation window")
                 XCTAssertTrue(map.exists, "partial waiting surface disappeared; requestedPaths:\n\(server.requestedPaths().joined(separator: "\n"))")
                 XCTAssertFalse(precise.exists, "partial fixture unexpectedly promoted to precise; requestedPaths:\n\(server.requestedPaths().joined(separator: "\n"))")
             }
@@ -740,9 +751,12 @@ final class ProductPhoneUITests: XCTestCase {
         tap("live-record-shot")
         let prompt = app.staticTexts["这一杆用了什么球杆？"]
         XCTAssertTrue(prompt.waitForExistence(timeout: 8), "shortcut start must preserve the first-stroke club sheet")
-        // The route upgrade can replace the hole view after the sheet first appears. Let that
-        // transition settle before asserting that the sheet remains presented.
-        Thread.sleep(forTimeInterval: 2.5)
+        let dismissedPrompt = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"), object: prompt
+        )
+        dismissedPrompt.isInverted = true
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissedPrompt], timeout: 2.5), .completed,
+                       "the club sheet must stay presented throughout the route transition")
         XCTAssertTrue(prompt.exists, "the club sheet must survive the settled shortcut route")
         let skip = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "跳过球杆")).firstMatch
         XCTAssertTrue(skip.waitForExistence(timeout: 8))

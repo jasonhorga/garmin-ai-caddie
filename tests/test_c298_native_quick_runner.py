@@ -80,6 +80,15 @@ class NativeQuickRunnerTests(unittest.TestCase):
                     'CALLS': str(self.root / 'calls'), 'DEVICES': str(self.root / 'devices.json'),
                     'GITHUB_ENV': str(self.root / 'env'), 'RUNNER_TEMP': str(self.root)}
         (self.root / 'env').touch()
+        scripts = self.root / '.github/scripts'
+        scripts.mkdir(parents=True)
+        selector = scripts / 'select-sim.sh'
+        selector.write_text('#!/bin/sh\n[ "${SELECT_EXIT:-0}" = 0 ] || exit "$SELECT_EXIT"\n'
+                            'if [ "$1" = ios ]; then echo owned-iphone; else echo owned-watch; fi\n')
+        import shutil
+        shutil.copyfile(WORKFLOW.parent.parent / 'scripts/shutdown-owned-sims.sh', scripts / 'shutdown-owned-sims.sh')
+        self.env['CADDIE_SIM_PREFIX'] = 'runner-owned'
+
 
     def install(self, name, body):
         path = self.bin / name
@@ -116,43 +125,33 @@ class NativeQuickRunnerTests(unittest.TestCase):
                 self.assertIs(same_repo, evaluate(self.job['if'], values, condition=True))
 
     def test_simulator_priority_exact_names_numeric_runtime_and_build_udid(self):
-        # The Xcode 27 Mac inventory has the iPhone 17 and Series 12 names on multiple runtimes;
-        # the preferred model wins by numeric runtime rather than inventory order.
-        for devices, ios, watch in ((MAC_DEVICES, MAC_IOS_UDID, MAC_WATCH_UDID),
-                                     ({**DEVICES, **MAC_DEVICES}, MAC_IOS_UDID, MAC_WATCH_UDID)):
-            with self.subTest(ios=ios, watch=watch, runtimes=len(devices)):
-                (self.root / 'devices.json').write_text(json.dumps({'devices': devices}))
-                (self.root / 'calls').unlink(missing_ok=True)
-                for name in ('Build iOS tests while prebooting simulator',
-                             'Test iOS app target without rebuilding',
-                             'Test Watch unit target when affected'):
-                    result = self.run_step(name)
-                    self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-                builds = self.calls('xcodebuild')
-                self.assertEqual(3, len(builds))
-                self.assertEqual(['platform=iOS Simulator,id=' + ios,
-                                  'platform=iOS Simulator,id=' + ios,
-                                  'platform=watchOS Simulator,id=' + watch],
-                                 [args[args.index('-destination') + 1] for args in builds])
-                self.assertCountEqual([['simctl', 'boot', ios], ['simctl', 'boot', watch]],
-                                      [args for args in self.calls('xcrun') if args[:2] == ['simctl', 'boot']])
-                self.assertEqual(ios, self.env.get('NATIVE_QUICK_IOS_UDID'))
-                self.assertEqual(watch, self.env.get('NATIVE_QUICK_WATCH_UDID'))
+        # Selection's inventory/ownership rules are executed by test_c307_mac_runner_jobs.
+        # Here the delegated script returns distinct owned UDIDs; build and test must use them.
+        ios, watch = 'owned-iphone', 'owned-watch'
+        for name in ('Build iOS tests while prebooting simulator',
+                     'Test iOS app target without rebuilding', 'Test Watch unit target when affected'):
+            result = self.run_step(name)
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        builds = self.calls('xcodebuild')
+        self.assertEqual(['platform=iOS Simulator,id=' + ios,
+                          'platform=iOS Simulator,id=' + ios,
+                          'platform=watchOS Simulator,id=' + watch],
+                         [args[args.index('-destination') + 1] for args in builds])
+        self.assertCountEqual([['simctl', 'boot', ios], ['simctl', 'boot', watch]],
+                              [args for args in self.calls('xcrun') if args[:2] == ['simctl', 'boot']])
+        self.assertEqual(ios, self.env.get('NATIVE_QUICK_IOS_UDID'))
+        self.assertEqual(watch, self.env.get('NATIVE_QUICK_WATCH_UDID'))
 
     def test_missing_exact_models_fail_before_build_or_boot(self):
-        similar = {runtime: [d for d in entries if d['name'] not in
-                   ('iPhone 17', 'Apple Watch Series 12 (46mm)')]
-                   for runtime, entries in MAC_DEVICES.items()}
-        (self.root / 'devices.json').write_text(json.dumps({'devices': similar}))
-        (self.root / 'native-quick-results').mkdir()
+        # A selection failure must prevent both preboot and compilation.
         for name in ('Build iOS tests while prebooting simulator', 'Test Watch unit target when affected'):
-            result = self.run_step(name)
+            result = self.run_step(name, SELECT_EXIT='1')
             self.assertNotEqual(0, result.returncode)
         self.assertEqual([], self.calls('xcodebuild'))
         self.assertFalse([args for args in self.calls('xcrun') if args[:2] == ['simctl', 'boot']])
 
     def cleanup_step(self):
-        steps = [s for s in self.job['steps'] if 'simctl shutdown' in s.get('run', '')]
+        steps = [s for s in self.job['steps'] if 'shutdown-owned-sims.sh' in s.get('run', '')]
         self.assertEqual(1, len(steps), 'quick needs its own simulator cleanup')
         return steps[0]
 
@@ -169,14 +168,19 @@ class NativeQuickRunnerTests(unittest.TestCase):
         result = self.run_step('Build iOS tests while prebooting simulator', BUILD_EXIT='65')
         self.assertNotEqual(0, result.returncode)
         step = self.cleanup_step()
-        # Failure before Watch boot, or a run which also started Watch; unset values are harmless.
-        for ios, watch in ((self.env.get('NATIVE_QUICK_IOS_UDID', ''), ''),
-                           (IOS_UDID, WATCH_UDID), ('', WATCH_UDID), ('', '')):
+        owned = {'devices': {'iOS-27-2': [
+            dict(name='runner-owned-iphone', udid='owned-iphone'),
+            dict(name='runner-owned-watch', udid='owned-watch'),
+            dict(name='foreign-iphone', udid='foreign'),
+        ]}}
+        (self.root / 'devices.json').write_text(json.dumps(owned))
+        for recorded in ('owned-iphone', 'owned-iphone owned-watch foreign', '', 'foreign'):
             (self.root / 'calls').unlink(missing_ok=True)
-            result = self.run_step(step['name'], NATIVE_QUICK_IOS_UDID=ios, NATIVE_QUICK_WATCH_UDID=watch)
+            result = self.run_step(step['name'], CADDIE_SIM_UDIDS=recorded)
             self.assertEqual(0, result.returncode, result.stderr)
-            self.assertCountEqual([['simctl', 'shutdown', udid] for udid in (ios, watch) if udid],
-                                  self.calls('xcrun'))
+            self.assertCountEqual([['simctl', 'shutdown', udid]
+                                  for udid in recorded.split() if udid.startswith('owned-')],
+                                 [args for args in self.calls('xcrun') if args[:2] == ['simctl', 'shutdown']])
 
     def test_installed_xcodegen_skips_brew(self):
         self.install('xcodegen', 'exit 0')
