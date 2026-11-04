@@ -56,6 +56,22 @@
       "target": "AICaddieTests/RoundStartTwoStageTests/testJ42IntentFailureAndHeldFallbackShareThirtySecondDeadline",
       "promise": "J4.2",
       "kills": "An intent error at 25 seconds leaves only five seconds for the held fallback."
+    },
+    {
+      "id": "tests-product-faults-C367-08-manual-keeps-inflight",
+      "patch": "tests/product/faults/C367/08-manual-keeps-inflight.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testJ41ManualSearchDuringHeldLookupDoesNotBlockLaterRefresh",
+      "promise": "J4.1",
+      "kills": "A manual result chosen during a held lookup leaves inFlight set, so later movement never refreshes."
+    },
+    {
+      "id": "tests-product-faults-C367-09-prep-fallback-resets-budget",
+      "patch": "tests/product/faults/C367/09-prep-fallback-resets-budget.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testJ42PrepStartIntentFailureAndHeldFallbackShareThirtySecondDeadline",
+      "promise": "J4.2",
+      "kills": "The default Start fallback gets a fresh 30 seconds after an intent error at 25 seconds."
     }
   ]
 }

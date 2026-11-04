@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 8f2eb07e..d758d8a8 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -5133,7 +5133,7 @@ public final class LiveRoundAppModel: ObservableObject {
+                     preparationToken: preparationToken,
+                     priorityHole: hole ?? 1,
+                     mapOnly: true,
+-                    foregroundTimeoutInterval: max(0.001, foregroundDeadline.timeIntervalSince(self.roundStartNow()))
++                    foregroundTimeoutInterval: Self.roundStartForegroundTimeoutInterval
+                 )
+                 self.recordRoundStartStep("startPrepCourse.map-request-return found=\(opened != nil)", token: preparationToken)
+ #if DEBUG
