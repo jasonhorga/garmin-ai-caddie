@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 10ad87f4..b84709a3 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -13,7 +13,7 @@ public enum CourseTeeLoadFailure: Equatable {
+     public var presentationMessage: String {
+         switch self {
+         case .timedOut:
+-            return "服务器较慢，发球台没拿到；可先用球场默认 T 开始"
++            return "服务器较慢，发球台没拿到"
+         case .unavailable:
+             return "网络不可用，发球台没拿到；可先用球场默认 T 开始"
+         }

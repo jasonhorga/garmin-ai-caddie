@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C367-01-tee-failure-copy",
+      "patch": "tests/product/faults/C367/01-tee-failure-copy.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testJ42TeeFailureMessagesAreVisibleAndTruthful",
+      "promise": "J4.2",
+      "kills": "The failure banner must retain the timeout cause and default-T fallback guidance."
+    },
+    {
+      "id": "tests-product-faults-C367-02-start-budget",
+      "patch": "tests/product/faults/C367/02-start-budget.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testProductSpec42RoundStartExplainsFailureTypeAndSlowProgress",
+      "promise": "J4.2",
+      "kills": "The progress copy must calculate remaining time from the 30-second foreground budget."
+    },
+    {
+      "id": "tests-product-faults-C367-03-map-timeout",
+      "patch": "tests/product/faults/C367/03-map-timeout.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C89HoleMapFrameTests/testJ45PreciseMapTimeoutRunsWhileFetchIsSuspended",
+      "promise": "J4.5",
+      "kills": "The timeout marker must fire while the first prep fetch is suspended."
+    },
+    {
+      "id": "tests-product-faults-C367-04-nearby-cancels",
+      "patch": "tests/product/faults/C367/04-nearby-cancels.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyDiscoveryAppliesOnlyTheCurrentUncancelledGeneration",
+      "promise": "J4.1",
+      "kills": "A moving GPS bucket must not invalidate the one in-flight discovery generation."
+    }
+  ]
+}
