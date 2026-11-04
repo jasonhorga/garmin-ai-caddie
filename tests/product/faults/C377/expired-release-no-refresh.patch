@@ -2,7 +2,7 @@ diff --git a/server_v2/garmin_raster.py b/server_v2/garmin_raster.py
 index 9b110a40..d685f05e 100644
 --- a/server_v2/garmin_raster.py
 +++ b/server_v2/garmin_raster.py
-@@ -146,7 +146,7 @@ def _cached_projection(global_id: int, hole: int) -> dict[str, Any] | None:
+@@ -146,6 +146,6 @@ def _cached_projection(global_id: int, hole: int) -> dict[str, Any] | None:
      if cached is not None:
          mark("raster_revision")
          mark("raster_projection_hit")
@@ -10,4 +10,3 @@ index 9b110a40..d685f05e 100644
 +        if False:
              _schedule_release_refresh(global_id)
      return cached
- 
