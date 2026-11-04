@@ -707,7 +707,7 @@ final class ProductMapAndPackageTests: XCTestCase {
         XCTAssertEqual(state, .waiting, "J4.5 no bitmap uses the neutral waiting surface")
         XCTAssertEqual(
             HoleMapWaitingPage(holeNumber: 2, par: 4, yards: 241).subtitle,
-            "241 码 · 图到了自动出来"
+            "241 码 · 地图准备中"
         )
         await gate.release()
         _ = await task.value

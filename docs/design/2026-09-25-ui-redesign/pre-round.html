@@ -360,7 +360,7 @@ footer{font-size:13px;color:var(--muted)}
     } else if(PS.hole!==1){ // nothing drawable yet: the one full-screen gate, never an empty hole
       el(s,"rect",{x:0,y:0,width:W,height:H,fill:"#0B0F0C"});
       el(s,"text",{x:195,y:390,"text-anchor":"middle","font-size":30,"font-weight":800,fill:"#F4F6F2"},"第 "+PS.hole+" 洞 · Par "+PARS[PS.hole-1]);
-      el(s,"text",{x:195,y:424,"text-anchor":"middle","font-size":15,"font-weight":600,fill:"rgba(244,246,242,.6)"},y+" 码 · 图到了自动出来");
+      el(s,"text",{x:195,y:424,"text-anchor":"middle","font-size":15,"font-weight":600,fill:"rgba(244,246,242,.6)"},y+" 码 · 地图准备中");
       var sp0=el(s,"g",{});el(sp0,"circle",{cx:195,cy:470,r:11,fill:"none",stroke:"rgba(244,246,242,.18)","stroke-width":3});el(sp0,"path",{d:"M195 459 a11 11 0 0 1 11 11",fill:"none",stroke:"#F4F6F2","stroke-width":3,"stroke-linecap":"round"});
     }
     document.getElementById("p-h").textContent=PS.hole;document.getElementById("p-sub").textContent="Par "+PARS[PS.hole-1]+" · "+y+" 码";
