@@ -1,0 +1,13 @@
+diff --git a/.github/scripts/runner-sim-cleanup.sh b/.github/scripts/runner-sim-cleanup.sh
+index 1338ed38..196ad29a 100755
+--- a/.github/scripts/runner-sim-cleanup.sh
++++ b/.github/scripts/runner-sim-cleanup.sh
+@@ -87,7 +87,7 @@ if workspace:
+             executable = Path(shlex.split(command)[0]).name
+         except (ValueError, IndexError):
+             continue
+-        if not path_in_command.search(command) or executable not in ('xcodebuild', 'xctest', 'XCTRunner', 'simctl'):
++        if executable not in ('xcodebuild', 'xctest', 'XCTRunner', 'simctl'):
+             continue
+         if pid == os.getpid():
+             continue

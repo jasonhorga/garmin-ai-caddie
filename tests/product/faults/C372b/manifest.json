@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C372b-01-foreign-prefix",
+      "patch": "tests/product/faults/C372b/01-foreign-prefix.patch",
+      "kind": "python",
+      "target": "tests.test_runner_sim_cleanup.RunnerSimulatorCleanupTests.test_only_owned_booted_duplicates_and_unavailable_are_touched",
+      "promise": "C372 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C372b-02-newest-over-recorded",
+      "patch": "tests/product/faults/C372b/02-newest-over-recorded.patch",
+      "kind": "python",
+      "target": "tests.test_runner_sim_cleanup.RunnerSimulatorCleanupTests.test_recorded_available_udid_survives_even_on_an_older_runtime",
+      "promise": "C372 CI infrastructure contract"
+    },
+    {
+      "id": "tests-product-faults-C372b-03-ignore-workspace",
+      "patch": "tests/product/faults/C372b/03-ignore-workspace.patch",
+      "kind": "python",
+      "target": "tests.test_runner_sim_cleanup.RunnerSimulatorCleanupTests.test_only_tool_processes_with_this_workspace_path_are_terminated",
+      "promise": "C372 CI infrastructure contract"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+diff --git a/.github/scripts/runner-sim-cleanup.sh b/.github/scripts/runner-sim-cleanup.sh
+index 1338ed38..b9ff26a2 100755
+--- a/.github/scripts/runner-sim-cleanup.sh
++++ b/.github/scripts/runner-sim-cleanup.sh
+@@ -51,8 +51,7 @@ for runtime, device in owned:
+         continue
+     by_name.setdefault(device.get('name', ''), []).append((runtime, device))
+ for name, entries in by_name.items():
+-    keep = max(entries, key=lambda item: (item[1]['udid'] in recorded,
+-                                           runtime_version(item[0]), item[1]['udid']))
++    keep = max(entries, key=lambda item: (runtime_version(item[0]), item[1]['udid']))
+     for runtime, device in entries:
+         if device['udid'] != keep[1]['udid']:
+             subprocess.run(['xcrun', 'simctl', 'delete', device['udid']], check=False,
