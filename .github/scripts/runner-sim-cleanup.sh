@@ -16,8 +16,12 @@ from pathlib import Path
 raw_prefix = os.environ['CADDIE_SIM_PREFIX']
 if not re.fullmatch(r'[A-Za-z0-9_.-]+', raw_prefix):
     raise SystemExit('invalid CADDIE_SIM_PREFIX')
-prefix = raw_prefix + '-'
 recorded = set(os.environ.get('CADDIE_SIM_UDIDS', '').split())
+# Exactly the names select-sim.sh creates for this runner. A bare `<prefix>-` match would
+# also claim another runner whose name extends this one (caddie-mba vs caddie-mba-2):
+# fixture 41829292565 lost caddie-mba-2's booted iPhone mid-test to caddie-mba's cleanup.
+owned_names = {raw_prefix + '-' + suffix for suffix in (
+    'iphone', 'watch', 'watch-visual', 'watch-compact', 'watch-ultra')}
 
 def run(*args):
     return subprocess.check_output(args, text=True, stderr=subprocess.DEVNULL)
@@ -29,7 +33,7 @@ except (OSError, subprocess.CalledProcessError, json.JSONDecodeError):
 owned = []
 for runtime, devices in all_devices.items():
     for device in devices:
-        if str(device.get('name', '')).startswith(prefix):
+        if device.get('name', '') in owned_names:
             owned.append((runtime, device))
 
 def runtime_version(runtime):

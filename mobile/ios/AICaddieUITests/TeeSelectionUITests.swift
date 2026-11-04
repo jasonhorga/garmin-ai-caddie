@@ -1021,7 +1021,7 @@ final class TeeSelectionUITests: XCTestCase {
             } else {
                 app.swipeUp()
             }
-            _ = UITapHelpers.waitForCondition({ element.exists && UITapHelpers.isSafelyHittable(element, in: self.app) }, timeout: 0.6)
+            UITapHelpers.waitForFrameToSettle(element)
         }
         return element.exists && UITapHelpers.isSafelyHittable(element, in: app) && fullyVisible(element)
     }

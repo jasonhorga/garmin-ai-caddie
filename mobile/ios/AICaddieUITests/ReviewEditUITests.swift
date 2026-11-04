@@ -533,7 +533,7 @@ final class ReviewEditUITests: XCTestCase {
         for _ in 0..<maxSwipes {
             if element.exists, UITapHelpers.isSafelyHittable(element, in: app) { return true }
             app.swipeUp()
-            _ = UITapHelpers.waitForCondition({ element.exists && UITapHelpers.isSafelyHittable(element, in: self.app) }, timeout: 0.6)
+            UITapHelpers.waitForFrameToSettle(element)
         }
         return element.exists && UITapHelpers.isSafelyHittable(element, in: app)
     }

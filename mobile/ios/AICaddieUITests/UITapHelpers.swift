@@ -210,6 +210,22 @@ enum UITapHelpers {
         }, timeout: stabilityBudget)
     }
 
+    /// After a swipe, wait until the element's frame stops changing (scroll momentum is over)
+    /// instead of a fixed sleep. "Hittable" turns true while the list still coasts, so checking
+    /// full visibility then swipes again and overshoots (fixture 41829292565, 20 swipes).
+    /// The budget only bounds the wait; callers still check the element's real visibility.
+    static func waitForFrameToSettle(_ element: XCUIElement, timeout: TimeInterval = 3) {
+        var previous: CGRect?
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            guard element.exists else { return }
+            let frame = element.frame
+            if frame == previous { return }
+            previous = frame
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+    }
+
     static func waitForCondition(_ condition: @escaping () -> Bool, timeout: TimeInterval) -> Bool {
         if condition() { return true }
         let remaining = max(0, timeout)

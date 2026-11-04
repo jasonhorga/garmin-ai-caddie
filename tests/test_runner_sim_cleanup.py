@@ -86,6 +86,16 @@ if sys.argv[1] == 'ps':
         self.assertEqual(self.mutations(self.run_cleanup()),
                          [['shutdown', 'owned'], ['delete', 'unavailable']])
 
+    def test_runner_whose_name_extends_this_prefix_keeps_its_booted_devices(self):
+        # Runners caddie-mba / caddie-mba-2 share one Mac: caddie-mba's cleanup must not
+        # shut down caddie-mba-2-iphone while that runner's UI test is driving it.
+        self.inventory({'iOS-27-2': [
+            self.device('runner-one-2-iphone', 'sibling-phone', state='Booted'),
+            self.device('runner-one-3-watch-visual', 'sibling-watch', state='Booted'),
+            self.device('runner-one-watch-visual', 'owned-visual', state='Booted'),
+        ]})
+        self.assertEqual(self.mutations(self.run_cleanup()), [['shutdown', 'owned-visual']])
+
     def test_newest_numeric_runtime_survives_without_a_recorded_udid(self):
         self.inventory({'iOS-9-3': [self.device('runner-one-iphone', 'old')],
                         'iOS-27-2': [self.device('runner-one-iphone', 'new')],
