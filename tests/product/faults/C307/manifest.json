@@ -82,21 +82,21 @@
       "id": "tests-product-faults-C307-16-native-unit-watch-on-mac",
       "patch": "tests/product/faults/C307/16-native-unit-watch-on-mac.patch",
       "kind": "python",
-      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_sdk_affected_jobs_stay_hosted_even_when_mac_is_online",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_runner_routing_obeys_online_trust_and_dispatch",
       "promise": "C307 r4 CI infrastructure contract"
     },
     {
       "id": "tests-product-faults-C307-17-native-screenshots-on-mac",
       "patch": "tests/product/faults/C307/17-native-screenshots-on-mac.patch",
       "kind": "python",
-      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_sdk_affected_jobs_stay_hosted_even_when_mac_is_online",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_runner_routing_obeys_online_trust_and_dispatch",
       "promise": "C307 r4 CI infrastructure contract"
     },
     {
       "id": "tests-product-faults-C307-18-native-product-ui-on-mac",
       "patch": "tests/product/faults/C307/18-native-product-ui-on-mac.patch",
       "kind": "python",
-      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_sdk_affected_jobs_stay_hosted_even_when_mac_is_online",
+      "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_runner_routing_obeys_online_trust_and_dispatch",
       "promise": "C307 r4 CI infrastructure contract"
     },
     {
