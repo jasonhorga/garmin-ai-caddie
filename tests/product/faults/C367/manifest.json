@@ -32,6 +32,30 @@
       "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyDiscoveryAppliesOnlyTheCurrentUncancelledGeneration",
       "promise": "J4.1",
       "kills": "A moving GPS bucket must not invalidate the one in-flight discovery generation."
+    },
+    {
+      "id": "tests-product-faults-C367-05-first-fix-trigger",
+      "patch": "tests/product/faults/C367/05-first-fix-trigger.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testJ41FirstLocationImmediatelyStartsNearbyDiscovery",
+      "promise": "J4.1",
+      "kills": "The first GPS fix must issue one immediate lookup."
+    },
+    {
+      "id": "tests-product-faults-C367-06-idle-movement-trigger",
+      "patch": "tests/product/faults/C367/06-idle-movement-trigger.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testJ41MovementAfterCompletionSchedulesOneRefreshAtSixtySeconds",
+      "promise": "J4.1",
+      "kills": "Idle movement must schedule a lookup at 60 seconds using the latest fix."
+    },
+    {
+      "id": "tests-product-faults-C367-07-fallback-resets-budget",
+      "patch": "tests/product/faults/C367/07-fallback-resets-budget.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testJ42IntentFailureAndHeldFallbackShareThirtySecondDeadline",
+      "promise": "J4.2",
+      "kills": "An intent error at 25 seconds leaves only five seconds for the held fallback."
     }
   ]
 }

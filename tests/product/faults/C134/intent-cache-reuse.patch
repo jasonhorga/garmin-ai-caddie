@@ -1,12 +1,14 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index d8009cad..d3f78ede 100644
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -1887,9 +1887,6 @@
-         preparationToken: UUID
+@@ -2375,9 +2375,6 @@ public final class LiveRoundAppModel: ObservableObject {
      ) async -> (package: LiveRoundPackage?, timedOut: Bool) {
+         let deadline = deadline ?? roundStartNow().addingTimeInterval(Self.roundStartForegroundTimeoutInterval)
          let key = PrepCourseDownloadRecord.intentKey(globalId: globalId, teeBox: teeBox)
 -        if let cached = intentPrefetchPackages[key] {
 -            return (cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt), false)
 -        }
          guard let task = intentPrefetchTasks[key] else { return (nil, false) }
          do {
-             let waitNanoseconds = roundStartIntentWaitNanoseconds
+             let remaining = deadline.timeIntervalSince(roundStartNow())

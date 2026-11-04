@@ -1,7 +1,9 @@
+diff --git a/mobile/ios/AICaddie/Services/SyncClient.swift b/mobile/ios/AICaddie/Services/SyncClient.swift
+index 6ae28f97..c4ea729f 100644
 --- a/mobile/ios/AICaddie/Services/SyncClient.swift
 +++ b/mobile/ios/AICaddie/Services/SyncClient.swift
-@@ -558,7 +558,7 @@
-     private func coursePackageData(_ request: URLRequest, foregroundStart: Bool, requestKind: PackageRequestKind = .background, maximumAttempts: Int = SyncClient.courseAssetMaximumAttempts) async throws -> Data {
+@@ -843,7 +843,7 @@ public final class SyncClient {
+     private func coursePackageData(_ request: URLRequest, foregroundStart: Bool, foregroundTimeoutInterval: TimeInterval? = nil, requestKind: PackageRequestKind = .background, maximumAttempts: Int = SyncClient.courseAssetMaximumAttempts) async throws -> Data {
          let id = UUID()
          let producer = try packageWorkLock.withLock { () throws -> Task<Data, Error> in
 -            guard requestKind != .background || roundStartOwner == nil else { throw CancellationError() }

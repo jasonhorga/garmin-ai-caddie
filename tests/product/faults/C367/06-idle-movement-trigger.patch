@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 10448b28..36cdfffd 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -3075,7 +3075,7 @@ struct NearbyDiscoveryRefreshState {
+             return .start(bucket)
+         }
+         if scheduledAt != nil { return .none }
+-        return due(now: now)
++        return .none
+     }
+     mutating func retry(now: Date) -> Action {
+         scheduledAt = nil

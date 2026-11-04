@@ -1,11 +1,13 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index d8009cad..486bff83 100644
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -1920,7 +1920,7 @@
+@@ -2378,7 +2378,7 @@ public final class LiveRoundAppModel: ObservableObject {
          if let cached = intentPrefetchPackages[key] {
              return (cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt), false)
          }
 -        guard let task = intentPrefetchTasks[key] else { return (nil, false) }
 +        guard intentPrefetchTasks[key] == nil, let task = intentPrefetchTasks[key] else { return (nil, false) }
          do {
-             let waitNanoseconds = roundStartIntentWaitNanoseconds
-             let race = IntentPrefetchWaitRace<LiveRoundPackage>()
+             let remaining = deadline.timeIntervalSince(roundStartNow())
+             guard remaining > 0 else {
