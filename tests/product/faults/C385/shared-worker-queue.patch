@@ -1,0 +1,13 @@
+diff --git a/server_v2/club_bag_api.py b/server_v2/club_bag_api.py
+index 26e844dc..530e7540 100644
+--- a/server_v2/club_bag_api.py
++++ b/server_v2/club_bag_api.py
+@@ -52,7 +52,7 @@ async def run_bag_read(stage: str, function: Callable[..., _T], *args, **kwargs)
+             if timing is not None:
+                 timing.duration(stage, started)
+ 
+-    return await anyio.to_thread.run_sync(work, limiter=_read_limiter())
++    return await anyio.to_thread.run_sync(work)
+ 
+ 
+ async def bag_current_player_id(request: Request) -> str:

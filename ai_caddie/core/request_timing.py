@@ -304,14 +304,15 @@ def append_client_timing(record: dict[str, Any]) -> None:
     _enqueue_timing(record, client=True)
 
 
-def read_timing_rows(root: Path | str | None = None) -> list[dict[str, Any]]:
-    """Read server timing rows, skipping malformed or unexpectedly shaped lines."""
+def read_timing_rows(root: Path | str | None = None, *, client: bool = False) -> list[dict[str, Any]]:
+    """Read one kind of timing rows, skipping malformed or unexpectedly shaped lines."""
     base = Path(root) if root is not None else timing_root()
     if base is None:
         return []
     rows: list[dict[str, Any]] = []
     try:
-        files = sorted((base / "timing").glob("????-??-??.jsonl"), reverse=True)
+        pattern = "client-????-??-??.jsonl" if client else "????-??-??.jsonl"
+        files = sorted((base / "timing").glob(pattern), reverse=True)
     except OSError:
         return []
     for path in files:
@@ -340,17 +341,23 @@ class RequestTiming:
     started: float = field(default_factory=time.perf_counter)
     marks: dict[str, float] = field(default_factory=dict)
     _last: float | None = None
+    clock: Callable[[], float] = field(default_factory=lambda: time.perf_counter, repr=False)
+
+    def duration(self, name: str, started: float) -> None:
+        """Record an explicit span, independent of the inclusive response/total marks."""
+        clean = re.sub(r"[^A-Za-z0-9_.-]", "_", name)[:64] or "stage"
+        self.marks[clean] = self.marks.get(clean, 0.0) + max(0.0, (self.clock() - started) * 1000.0)
 
     def mark(self, name: str) -> None:
         clean = re.sub(r"[^A-Za-z0-9_.-]", "_", str(name or "stage"))[:64] or "stage"
-        now = time.perf_counter()
+        now = self.clock()
         previous = self._last if self._last is not None else self.started
         self.marks[clean] = self.marks.get(clean, 0.0) + max(0.0, (now - previous) * 1000.0)
         self._last = now
 
     @property
     def total_ms(self) -> float:
-        return max(0.0, (time.perf_counter() - self.started) * 1000.0)
+        return max(0.0, (self.clock() - self.started) * 1000.0)
 
     def server_timing(self) -> str:
         # A disconnected request can finish while its worker records a final stage. Snapshot

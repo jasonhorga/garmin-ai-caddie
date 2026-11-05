@@ -3,13 +3,62 @@
 ``build_effective_club_bag_response`` projects the EFFECTIVE bag (manual selection wins, else the
 synced Garmin bag, else empty) into the served shape; ``save_manual_club_bag_response`` validates +
 persists a manual bag (or clears it when empty) and returns the resulting effective bag. The route
-layer (server_v2/main.py) owns auth + cache invalidation; this module is pure projection so it can be
-unit-tested without FastAPI.
+layer (server_v2/main.py) owns authorization policy + cache invalidation. The async read helpers
+below admit GET authorization and projection work independently of the default worker pool;
+the builders remain directly unit-testable.
 """
 from __future__ import annotations
 
+from typing import Callable, TypeVar
+
+import anyio
+from anyio.lowlevel import RunVar
+from fastapi import Request
+
 from ai_caddie.caddie import club_bag, club_catalog
+from ai_caddie.core import request_timing
 from .models import ClubBagManualRequest, EffectiveClubBagResponse
+from .players_api import current_player_id
+
+
+_T = TypeVar("_T")
+_READ_LIMITER: RunVar[anyio.CapacityLimiter] = RunVar("club_bag_read_limiter")
+
+
+def _read_limiter() -> anyio.CapacityLimiter:
+    # Per running loop, like AnyIO's default limiter, but never shared with course/startup work.
+    limiter = _READ_LIMITER.get(None)
+    if limiter is None:
+        limiter = anyio.CapacityLimiter(4)
+        _READ_LIMITER.set(limiter)
+    return limiter
+
+
+async def run_bag_read(stage: str, function: Callable[..., _T], *args, **kwargs) -> _T:
+    """Offload only bag GET auth/reads; waiting and execution are separate timed spans.
+
+    Cancellation keeps AnyIO's shielded worker semantics: no abandoned read can free a
+    limiter token while it is still running. This lane never does sync, stats or course prep.
+    """
+    timing = request_timing.current()
+    queued = timing.clock() if timing is not None else 0.0
+
+    def work() -> _T:
+        if timing is not None:
+            timing.duration(f"{stage}_worker_queue", queued)
+            started = timing.clock()
+        try:
+            return function(*args, **kwargs)
+        finally:
+            if timing is not None:
+                timing.duration(stage, started)
+
+    return await anyio.to_thread.run_sync(work, limiter=_read_limiter())
+
+
+async def bag_current_player_id(request: Request) -> str:
+    # Call the original resolver on every request; no credential/result cache or policy change.
+    return await run_bag_read("auth_player", current_player_id, request)
 
 
 def build_effective_club_bag_response(player_id: str) -> dict:

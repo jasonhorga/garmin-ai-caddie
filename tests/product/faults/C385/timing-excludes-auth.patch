@@ -1,0 +1,20 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 664eeca4..21c3b03e 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -400,6 +400,7 @@ async def _lifespan(_app: FastAPI):
+ app = FastAPI(title="AI Caddie v2", version="0.1.0", lifespan=_lifespan)
+ 
+ 
++@app.middleware("http")
+ async def request_timing_middleware(request: Request, call_next):
+     """Expose safe request correlation and stage timing for startup diagnostics."""
+     timing = RequestTiming(request_id_for(request.headers.get("X-AI-Caddie-Request-ID")))
+@@ -4576,7 +4577,6 @@ def retry_player_garmin_sync_job(
+ 
+ # Timing wraps authorization and early body-size rejections. Package admission stays outermost
+ # so its lease still covers the final transport send, outside timing's body-stream proxy.
+-app.middleware("http")(request_timing_middleware)
+ 
+ # Register last, outside GZip and BaseHTTPMiddleware's body-stream proxies. Admission must last
+ # through the final send to the server, not just the final send to an intermediate response queue.
