@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C385-shared-worker-queue",
+      "patch": "tests/product/faults/C385/shared-worker-queue.patch",
+      "kind": "python",
+      "target": "tests.test_club_bag_latency.ClubBagLatencyTests.test_saved_bags_finish_before_unrelated_worker_is_released",
+      "promise": "Saved bag reads do not wait behind unrelated startup work; auth, worker queue and projection are distinguishable."
+    },
+    {
+      "id": "tests-product-faults-C385-timing-excludes-auth",
+      "patch": "tests/product/faults/C385/timing-excludes-auth.patch",
+      "kind": "python",
+      "target": "tests.test_club_bag_latency.ClubBagLatencyTests.test_bag_headers_and_records_include_authentication_and_projection",
+      "promise": "Saved bag reads do not wait behind unrelated startup work; auth, worker queue and projection are distinguishable."
+    }
+  ]
+}

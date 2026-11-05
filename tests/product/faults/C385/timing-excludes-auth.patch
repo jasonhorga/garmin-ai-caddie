@@ -1,0 +1,17 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 7ad24d40..ab6ddf61 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -400,6 +400,7 @@ async def _lifespan(_app: FastAPI):
+ app = FastAPI(title="AI Caddie v2", version="0.1.0", lifespan=_lifespan)
+ 
+ 
++@app.middleware("http")
+ async def request_timing_middleware(request: Request, call_next):
+     """Expose safe request correlation and stage timing for startup diagnostics."""
+     timing = RequestTiming(request_id_for(request.headers.get("X-AI-Caddie-Request-ID")))
+@@ -4579,4 +4580,3 @@ def retry_player_garmin_sync_job(
+ from .package_admission import PackageAdmissionMiddleware
+ app.add_middleware(PackageAdmissionMiddleware)
+ # Register last: timing includes the authorization gate and every early rejection.
+-app.middleware("http")(request_timing_middleware)
