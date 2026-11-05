@@ -101,11 +101,11 @@ class PrepCancellationTests(unittest.IsolatedAsyncioTestCase):
         def build():
             checkpoint()
 
-        async def run_sync(func):
+        async def run_sync(func, **kwargs):
             return func()
 
         with (patch("server_v2.prep_work.threading.Event", return_value=cancelled),
-              patch("server_v2.prep_work.asyncio.to_thread", side_effect=run_sync)):
+              patch("server_v2.prep_work.anyio.to_thread.run_sync", side_effect=run_sync)):
             response = await asyncio.wait_for(run_prep(ConnectedRequest(), build), 1)
 
         self.assertEqual(response.status_code, 499)
