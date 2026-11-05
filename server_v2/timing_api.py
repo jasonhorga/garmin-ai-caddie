@@ -140,15 +140,24 @@ def query_server_records(
         clients: dict[tuple[str, str], list[dict[str, Any]]] = {}
         for client in request_timing.read_timing_rows(client=True):
             key = (client.get("request_id"), client.get("path"))
-            clients.setdefault(key, []).append(client)
+            if all(isinstance(part, str) for part in key):
+                clients.setdefault(key, []).append(client)
         server_counts: dict[tuple[str, str], int] = {}
         for row in rows:
             key = (row.get("request_id"), row.get("path"))
-            server_counts[key] = server_counts.get(key, 0) + 1
+            if all(isinstance(part, str) for part in key):
+                server_counts[key] = server_counts.get(key, 0) + 1
         for index, row in enumerate(result):
-            matches = clients.get((row.get("request_id"), row.get("path")), [])
+            key = (row.get("request_id"), row.get("path"))
+            if not all(isinstance(part, str) for part in key):
+                result[index] = {**row, "client_timing": {"outcome": "missing"}}
+                continue
+            matches = clients.get(key, [])
             # Reused IDs are ambiguous; never guess by start time or subtract mismatched requests.
-            comparison = _client_comparison(row, matches) if server_counts[(row.get("request_id"), row.get("path"))] == 1 else {"outcome": "ambiguous"}
+            comparison = (
+                _client_comparison(row, matches)
+                if server_counts[key] == 1 else {"outcome": "ambiguous"}
+            )
             result[index] = {**row, "client_timing": comparison}
     return result
 
