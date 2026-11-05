@@ -90,6 +90,26 @@ class PrepCancellationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status_code, 499)
 
+    async def test_worker_first_cancellation_returns_499_before_watcher_finishes(self):
+        cancelled = threading.Event()
+        cancelled.set()
+
+        class ConnectedRequest:
+            async def receive(self):
+                await asyncio.Future()
+
+        def build():
+            checkpoint()
+
+        async def run_sync(func):
+            return func()
+
+        with (patch("server_v2.prep_work.threading.Event", return_value=cancelled),
+              patch("server_v2.prep_work.asyncio.to_thread", side_effect=run_sync)):
+            response = await asyncio.wait_for(run_prep(ConnectedRequest(), build), 1)
+
+        self.assertEqual(response.status_code, 499)
+
     async def test_completed_prep_does_not_wait_for_receive_proxy_cancellation(self):
         request = NonCancellableReceive()
 

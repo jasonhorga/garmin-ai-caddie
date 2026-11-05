@@ -76,7 +76,7 @@ async def run_prep(
             except PrepCancelled:
                 # A cooperative cancellation may finish in the same wait set as its watcher.
                 # Preserve the normal client-disconnect response instead of exposing it as 500.
-                if watcher in done and cancelled.is_set():
+                if cancelled.is_set():
                     return Response(status_code=499)
                 raise
         await watcher  # Propagate receive failures; only an actual disconnect means 499.
