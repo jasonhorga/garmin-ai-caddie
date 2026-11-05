@@ -49,6 +49,7 @@ _HTTP_LIMITERS_GUARD = threading.Lock()
 _RELEASE_REFRESH_POOL: ThreadPoolExecutor | None = None
 _RELEASE_REFRESH_GUARD = threading.Lock()
 _RELEASE_REFRESH_INFLIGHT: set[int] = set()
+_UNVERSIONED_INFLIGHT_VERSION = "<unversioned>"
 
 
 def _http_limiters() -> tuple[anyio.CapacityLimiter, anyio.CapacityLimiter]:
@@ -122,6 +123,8 @@ def _cached_image(request: Request, global_id: int, hole: int, v: str | None, *,
         return JSONResponse(status_code=409, content={"detail": "garmin raster asset version changed"})
     etag = f'"{version}"'
     headers = {"Cache-Control": _IMMUTABLE_CACHE_CONTROL, "ETag": etag}
+    if garmin_raster.raster_release_refresh_due(global_id, hole):
+        _schedule_release_refresh(global_id)
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
     # Both caches are atomically replaced. Never enter a fetch/matte/cache lock here.
@@ -132,8 +135,6 @@ def _cached_image(request: Request, global_id: int, hole: int, v: str | None, *,
             decoded.verify()
     except Exception:
         return None
-    if garmin_raster.raster_release_refresh_due(global_id, hole):
-        _schedule_release_refresh(global_id)
     return Response(content=data, media_type="image/webp" if webp else "image/jpeg", headers=headers)
 
 
@@ -161,6 +162,11 @@ def _claim_inflight(key: tuple[int, int, str]) -> tuple[Future, bool]:
         return future, True
 
 
+async def _await_inflight(future: Future) -> dict[str, Any]:
+    """Await a registration leader without borrowing a slow-lane token."""
+    return await asyncio.shield(asyncio.wrap_future(future))
+
+
 def _cancel_inflight(key: tuple[int, int, str], future: Future) -> None:
     """Release a leader claim when its request is cancelled before registration starts."""
     with _INFLIGHT_LOCK:
@@ -175,25 +181,41 @@ async def _dispatch_projection(global_id: int, hole: int) -> dict[str, Any]:
     cached = await anyio.to_thread.run_sync(_cached_projection, global_id, hole, limiter=fast_limiter)
     if cached is not None:
         return cached
-    version = await anyio.to_thread.run_sync(
-        _cached_asset_version, global_id, hole, limiter=fast_limiter,
-    )
-    if not version:
-        return await anyio.to_thread.run_sync(
-            partial(course_hole_garmin_raster, global_id, hole), limiter=slow_limiter,
-        )
-    key = (int(global_id), int(hole), str(version))
-    future, leader = _claim_inflight(key)
+    admission_key = (int(global_id), int(hole), _UNVERSIONED_INFLIGHT_VERSION)
+    admission_future, leader = _claim_inflight(admission_key)
     if not leader:
         mark("raster_inflight_wait")
         try:
-            return await asyncio.shield(asyncio.wrap_future(future))
+            return await _await_inflight(admission_future)
         except asyncio.CancelledError:
-            # A cancelled leader releases its claim so an existing waiter can take over.
-            if future.cancelled():
+            if admission_future.cancelled():
                 return await _dispatch_projection(global_id, hole)
             raise
     try:
+        version = await anyio.to_thread.run_sync(
+            _cached_asset_version, global_id, hole, limiter=fast_limiter,
+        )
+        if version:
+            key = (int(global_id), int(hole), str(version))
+            with _INFLIGHT_LOCK:
+                exact_future = _INFLIGHT.get(key)
+                if exact_future is None:
+                    _INFLIGHT[key] = admission_future
+            if exact_future is not None and exact_future is not admission_future:
+                try:
+                    result = await _await_inflight(exact_future)
+                except asyncio.CancelledError:
+                    if exact_future.cancelled():
+                        with _INFLIGHT_LOCK:
+                            if _INFLIGHT.get(admission_key) is admission_future:
+                                _INFLIGHT.pop(admission_key, None)
+                        return await _dispatch_projection(global_id, hole)
+                    raise
+                if not admission_future.cancelled():
+                    admission_future.set_result(result)
+                return result
+        else:
+            key = admission_key
         # A disconnected request must be able to abandon a queued slow-lane leader. Otherwise
         # its claim can strand followers on a Future while the limiter is held by other work.
         return await anyio.to_thread.run_sync(
@@ -202,14 +224,20 @@ async def _dispatch_projection(global_id: int, hole: int) -> dict[str, Any]:
                 global_id,
                 hole,
                 _version=version,
-                _inflight_future=future,
+                _inflight_future=admission_future,
             ),
             abandon_on_cancel=True,
             limiter=slow_limiter,
         )
     except BaseException:
-        _cancel_inflight(key, future)
+        _cancel_inflight(admission_key, admission_future)
         raise
+    finally:
+        with _INFLIGHT_LOCK:
+            if _INFLIGHT.get(admission_key) is admission_future:
+                _INFLIGHT.pop(admission_key, None)
+            if "key" in locals() and _INFLIGHT.get(key) is admission_future:
+                _INFLIGHT.pop(key, None)
 
 
 def _register_lock(global_id: int, hole: int, version: str) -> threading.RLock:
@@ -524,6 +552,15 @@ def _describe_raster(
             logger.warning("garmin raster fetch failed: %s", type(exc).__name__)
             fetched = None
         mark("raster_fetch")
+        resolved_version = _cached_asset_version(global_id, hole)
+        if resolved_version and resolved_version != version:
+            rebound_key = (int(global_id), int(hole), str(resolved_version))
+            with _INFLIGHT_LOCK:
+                if _INFLIGHT.get(rebound_key) is None:
+                    _INFLIGHT[rebound_key] = future
+            return _describe_raster(
+                global_id, hole, resolved_version, fetched=fetched, inflight_future=future,
+            )
         with lock:
             result = _register_one(global_id, hole, version, fetched)
             mark("raster_register")

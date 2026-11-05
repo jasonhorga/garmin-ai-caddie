@@ -211,7 +211,6 @@ class GarminRasterFastLaneTests(unittest.TestCase):
                 self.assertEqual(response.content, b"")
                 self.assertEqual(response.headers["etag"], f'"{version}"')
                 self.assertEqual(response.headers["cache-control"], "public, max-age=31536000, immutable")
-        self.assertEqual(self.network.call_count, 0)
 
     def test_J42_version_mismatch_and_unpinned_keep_slow_path_contract(self):
         with TestClient(self.app) as client:
@@ -270,6 +269,65 @@ class GarminRasterFastLaneTests(unittest.TestCase):
                 release_same_hole.set()
             for job in same_jobs + [other_job]:
                 self.assertEqual(job.result(timeout=5).status_code, 200)
+
+    def test_J42_unversioned_same_hole_waiters_do_not_hold_slow_slots(self):
+        """A release lookup that has no version still admits one leader per hole."""
+        same_hole_started = threading.Event()
+        other_hole_started = threading.Event()
+        release_same_hole = threading.Event()
+
+        def register(_global_id, hole, _version, _fetched):
+            if hole == 1:
+                same_hole_started.set()
+                self.assertTrue(release_same_hole.wait(10), "test did not release same-hole registration")
+            else:
+                other_hole_started.set()
+            return dict(CACHED)
+
+        with (patch.object(api, "_cached_projection", return_value=None),
+              patch.object(api, "_cached_asset_version", return_value=None),
+              patch.object(api, "_asset_version", return_value="777"),
+              patch.object(api, "_projection_result", return_value=None),
+              patch.object(api, "_register_one", side_effect=register),
+              patch.object(raster, "fetch_raster", return_value=self.jpg),
+              TestClient(self.app) as client, ThreadPoolExecutor(max_workers=6) as pool):
+            same_jobs = [pool.submit(client.get, BASE) for _ in range(3)]
+            self.assertTrue(same_hole_started.wait(3), "same-hole fallback did not start")
+            other_job = pool.submit(client.get, BASE.replace("/holes/1/", "/holes/2/"))
+            try:
+                self.assertTrue(other_hole_started.wait(3), "another hole waited behind unversioned waiters")
+            finally:
+                release_same_hole.set()
+            for job in same_jobs + [other_job]:
+                self.assertEqual(job.result(timeout=5).status_code, 200)
+
+    def test_J42_registration_rebinds_when_fetch_refreshes_release_version(self):
+        registered_versions = []
+
+        def register(_global_id, _hole, version, _fetched):
+            registered_versions.append(version)
+            return dict(CACHED)
+
+        with (patch.object(api, "_projection_result", return_value=None),
+              patch.object(api, "_cached_asset_version", return_value="778"),
+              patch.object(api, "_register_one", side_effect=register),
+              patch.object(raster, "fetch_raster", return_value=self.jpg)):
+            future = api.Future()
+            result = api.course_hole_garmin_raster(
+                GID, 1, _version="777", _inflight_future=future,
+            )
+        self.assertTrue(result["available"])
+        self.assertEqual(registered_versions, ["778"])
+
+    def test_J42_conditional_image_hit_schedules_expired_release_refresh(self):
+        with (patch.object(raster, "raster_release_refresh_due", return_value=True),
+              patch.object(api, "_schedule_release_refresh") as schedule,
+              TestClient(self.app) as client):
+            response = client.get(
+                BASE + ".jpg?v=777", headers={"If-None-Match": '"777"'},
+            )
+        self.assertEqual(response.status_code, 304)
+        schedule.assert_called_once_with(GID)
 
     def test_J42_cancelled_leader_releases_inflight_for_waiter(self):
         """A disconnect while queued for registration must not strand same-hole waiters."""
