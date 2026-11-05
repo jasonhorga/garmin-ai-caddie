@@ -60,6 +60,28 @@ def _canonical_hash(value: object) -> str:
 
 
 class Phase0MobileEventStoreTests(unittest.TestCase):
+    def test_append_pays_ancestor_durability_cost_once_per_transaction(self) -> None:
+        """J5.9/J4.2: each ACK is durable without replaying ancestor barriers per sidecar."""
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [_event("seed")], request_key="seed")
+        real_fsync = os.fsync
+        ancestors = []
+
+        def record(fd):
+            target = Path(os.readlink(f"/proc/self/fd/{fd}")).resolve()
+            if target == self.root.parent.resolve():
+                ancestors.append(target)
+            real_fsync(fd)
+
+        with mock.patch.object(mobile_event_store.os, "fsync", side_effect=record):
+            for i in range(2):
+                result = store.append_batch(ROUND_A, [_event(f"next-{i}")], request_key=f"next-{i}")
+                self.assertEqual(result[0].status, "accepted")
+        self.assertEqual(len(ancestors), 2, "one complete ancestor barrier chain per append")
+        reopened = FileEventStore(self.root)
+        self.assertEqual([r["event"]["eventId"] for r in reopened.read_rows(ROUND_A)],
+                         ["seed", "next-0", "next-1"])
+
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
