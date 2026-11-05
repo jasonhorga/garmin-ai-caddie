@@ -2872,4 +2872,3 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 }
-

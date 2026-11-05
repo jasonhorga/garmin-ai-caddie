@@ -8209,7 +8209,11 @@ public final class LiveRoundAppModel: ObservableObject {
         if Self.defersPlayerEnrichment(package) {
             let cached = try? offlineStore.loadRecentCourseSelection()
             knownHistory = ([recentCourseOption, cached].compactMap { $0 } + courseOptions)
-                .first { $0.globalId == package.course.globalId }
+                .filter { $0.globalId == package.course.globalId }
+                .max {
+                    if $0.roundCount != $1.roundCount { return $0.roundCount < $1.roundCount }
+                    return ($0.latestRoundDate ?? "") < ($1.latestRoundDate ?? "")
+                }
         } else {
             knownHistory = nil
         }

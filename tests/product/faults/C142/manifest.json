@@ -35,6 +35,13 @@
       "kind": "native-unit",
       "target": "AICaddieTests/RoundStartTwoStageTests/testPersonalRequestWaitsForInitialHoleLoadAndRecentHistoryWaitsForMerge",
       "promise": "4.2"
+    },
+    {
+      "id": "C142-recent-placeholder-masks-history",
+      "patch": "tests/product/faults/C142/recent-placeholder-masks-history.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testRecentCourseUsesRefreshedHistoryAfterAnEarlierMapOnlyStart",
+      "promise": "4.2"
     }
   ]
 }
