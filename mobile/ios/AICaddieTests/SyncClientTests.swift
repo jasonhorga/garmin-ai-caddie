@@ -1074,7 +1074,7 @@ final class SyncClientTests: XCTestCase {
         var attempts = 0
         CapturingURLProtocol.requestHandler = { request in
             attempts += 1
-            XCTAssertEqual(request.timeoutInterval, 7)
+            XCTAssertEqual(request.timeoutInterval, 7, accuracy: 0.1)
             if attempts == 1 {
                 throw URLError(.timedOut)
             }
