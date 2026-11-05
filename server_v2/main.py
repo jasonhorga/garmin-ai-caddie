@@ -4574,9 +4574,11 @@ def retry_player_garmin_sync_job(
     return _sync_job_response(_load_sync_job_for_player(job_id, player_id))
 
 
+# Timing wraps authorization and early body-size rejections. Package admission stays outermost
+# so its lease still covers the final transport send, outside timing's body-stream proxy.
+app.middleware("http")(request_timing_middleware)
+
 # Register last, outside GZip and BaseHTTPMiddleware's body-stream proxies. Admission must last
 # through the final send to the server, not just the final send to an intermediate response queue.
 from .package_admission import PackageAdmissionMiddleware
 app.add_middleware(PackageAdmissionMiddleware)
-# Register last: timing includes the authorization gate and every early rejection.
-app.middleware("http")(request_timing_middleware)
