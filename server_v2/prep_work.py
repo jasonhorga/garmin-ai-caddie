@@ -49,6 +49,12 @@ async def run_prep(
         while True:
             message = await request.receive()
             if message["type"] == "http.disconnect":
+<<<<<<< HEAD
+=======
+                # A disconnect can be delivered in the same loop turn as a completed build.
+                # Preserve the completed response; cancellation is only meaningful while work is
+                # still running.
+>>>>>>> b9e24e75 (fix(prep): prefer completed work over disconnect race)
                 if worker.done():
                     return
                 cancelled.set()
@@ -65,6 +71,11 @@ async def run_prep(
     watcher = asyncio.create_task(watch_disconnect())
     try:
         done, _ = await asyncio.wait({worker, watcher}, return_when=asyncio.FIRST_COMPLETED)
+<<<<<<< HEAD
+=======
+        # If both complete in the same event-loop turn, the built response wins.  A transport
+        # disconnect must not turn a successfully finished prep into a spurious 499.
+>>>>>>> b9e24e75 (fix(prep): prefer completed work over disconnect race)
         if worker in done:
             return await worker
         await watcher  # Propagate receive failures; only an actual disconnect means 499.

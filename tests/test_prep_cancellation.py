@@ -42,6 +42,7 @@ class NonCancellableReceive:
 
 class PrepCancellationTests(unittest.IsolatedAsyncioTestCase):
     async def test_disconnect_after_worker_done_is_not_reported_as_cancellation(self):
+<<<<<<< HEAD
         built = threading.Event()
 
         class CompletedThenDisconnected:
@@ -56,6 +57,30 @@ class PrepCancellationTests(unittest.IsolatedAsyncioTestCase):
                 return Response(status_code=200)
 
             response = await asyncio.wait_for(run_prep(CompletedThenDisconnected(), build), 1)
+=======
+        """A transport disconnect racing a completed build must keep the successful response."""
+        worker_task: dict[str, asyncio.Task] = {}
+        original_create_task = asyncio.create_task
+
+        def capture_worker(coro):
+            task = original_create_task(coro)
+            if "task" not in worker_task:
+                worker_task["task"] = task
+            return task
+
+        class CompletedThenDisconnected:
+            async def receive(self):
+                while "task" not in worker_task:
+                    await asyncio.sleep(0)
+                await worker_task["task"]
+                return {"type": "http.disconnect"}
+
+        with patch("server_v2.prep_work.mark") as mark:
+            with patch.object(asyncio, "create_task", side_effect=capture_worker):
+                response = await asyncio.wait_for(
+                    run_prep(CompletedThenDisconnected(), lambda: Response(status_code=200)), 1
+                )
+>>>>>>> b9e24e75 (fix(prep): prefer completed work over disconnect race)
 
         self.assertEqual(response.status_code, 200)
         mark.assert_not_called()
