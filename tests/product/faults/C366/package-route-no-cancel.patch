@@ -1,9 +1,9 @@
 diff --git a/server_v2/prep_work.py b/server_v2/prep_work.py
-index e73e126a..ec028e8c 100644
+index f96ede4c..ec3bbd2a 100644
 --- a/server_v2/prep_work.py
 +++ b/server_v2/prep_work.py
-@@ -51,7 +51,8 @@ async def run_prep(
-             if message["type"] == "http.disconnect":
+@@ -54,7 +54,8 @@ async def run_prep(
+                 # still running.
                  if worker.done():
                      return
 -                cancelled.set()
@@ -12,7 +12,7 @@ index e73e126a..ec028e8c 100644
                  if on_cancel is not None:
                      try:
                          on_cancel()
-@@ -79,7 +80,8 @@ async def run_prep(
+@@ -91,7 +92,8 @@ async def run_prep(
          raise
      finally:
          # Cancelling a thread's await cannot stop CPU work. Signal the actual builder too.

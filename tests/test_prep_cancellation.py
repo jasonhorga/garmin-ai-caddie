@@ -42,23 +42,74 @@ class NonCancellableReceive:
 
 class PrepCancellationTests(unittest.IsolatedAsyncioTestCase):
     async def test_disconnect_after_worker_done_is_not_reported_as_cancellation(self):
-        built = threading.Event()
+        """A transport disconnect racing a completed build must keep the successful response."""
+        worker_task: dict[str, asyncio.Task] = {}
+        original_create_task = asyncio.create_task
+
+        def capture_worker(coro):
+            task = original_create_task(coro)
+            if "task" not in worker_task:
+                worker_task["task"] = task
+            return task
 
         class CompletedThenDisconnected:
             async def receive(self):
-                await asyncio.to_thread(built.wait)
-                await asyncio.sleep(0)
+                while "task" not in worker_task:
+                    await asyncio.sleep(0)
+                await worker_task["task"]
                 return {"type": "http.disconnect"}
 
         with patch("server_v2.prep_work.mark") as mark:
-            def build():
-                built.set()
-                return Response(status_code=200)
-
-            response = await asyncio.wait_for(run_prep(CompletedThenDisconnected(), build), 1)
-
+            with patch.object(asyncio, "create_task", side_effect=capture_worker):
+                response = await asyncio.wait_for(
+                    run_prep(CompletedThenDisconnected(), lambda: Response(status_code=200)), 1
+                )
         self.assertEqual(response.status_code, 200)
         mark.assert_not_called()
+
+    async def test_disconnect_racing_worker_cancellation_returns_499(self):
+        started = threading.Event()
+
+        def build():
+            started.set()
+            while True:
+                checkpoint()
+
+        class DisconnectAfterStart:
+            async def receive(self):
+                if not await asyncio.to_thread(started.wait, 1):
+                    raise AssertionError("prep worker did not start")
+                return {"type": "http.disconnect"}
+
+        async def wait_for_both(tasks, *, return_when):
+            self.assertEqual(return_when, asyncio.FIRST_COMPLETED)
+            await asyncio.gather(*tasks, return_exceptions=True)
+            return set(tasks), set()
+
+        with patch("server_v2.prep_work.asyncio.wait", side_effect=wait_for_both):
+            response = await asyncio.wait_for(run_prep(DisconnectAfterStart(), build), 1)
+
+        self.assertEqual(response.status_code, 499)
+
+    async def test_worker_first_cancellation_returns_499_before_watcher_finishes(self):
+        cancelled = threading.Event()
+        cancelled.set()
+
+        class ConnectedRequest:
+            async def receive(self):
+                await asyncio.Future()
+
+        def build():
+            checkpoint()
+
+        async def run_sync(func, **kwargs):
+            return func()
+
+        with (patch("server_v2.prep_work.threading.Event", return_value=cancelled),
+              patch("server_v2.prep_work.anyio.to_thread.run_sync", side_effect=run_sync)):
+            response = await asyncio.wait_for(run_prep(ConnectedRequest(), build), 1)
+
+        self.assertEqual(response.status_code, 499)
 
     async def test_completed_prep_does_not_wait_for_receive_proxy_cancellation(self):
         request = NonCancellableReceive()
