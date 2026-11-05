@@ -166,11 +166,11 @@ class ClubBagLatencyTests(unittest.TestCase):
                 async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://localhost") as client:
                     response = await client.get(path, headers=headers)
             self.assertEqual(response.status_code, 200 if authorized else 401)
-            self.assertEqual(response.headers["X-AI-Caddie-Request-ID"], "fixture-stages")
+            self.assertEqual(response.headers.get("X-AI-Caddie-Request-ID"), "fixture-stages")
             self.assertEqual(len(records), 1)
             row = records[0]
             self.assertEqual(row["request_id"], "fixture-stages")
-            self.assertEqual(row["stages"]["auth_gate"], 7)
+            self.assertEqual(row["stages"].get("auth_gate"), 7)
             if authorized:
                 self.assertEqual(row["stages"]["auth_player"], 11)
                 self.assertEqual(row["stages"]["bag_read_projection"], 13)
