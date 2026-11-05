@@ -1025,6 +1025,45 @@ final class SyncClientTests: XCTestCase {
         XCTAssertNotNil(matches.first?.courseOption)
     }
 
+    /// J4.1: drive the real picker and transport together; virtual time models wire timeouts.
+    @MainActor
+    func testNearbyDiscoveryBoundsElapsedTimeAndWireRequests() async throws {
+        for instantFailures in [false, true] {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
+            let clock = LockedTimingClock(100)
+            var radii: [Int] = []
+            var timeouts: [TimeInterval] = []
+            CapturingURLProtocol.requestHandler = { request in
+                let query = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)
+                radii.append(Int(query?.queryItems?.first { $0.name == "radius_km" }?.value ?? "") ?? 0)
+                timeouts.append(request.timeoutInterval)
+                if !instantFailures { clock.advance(by: request.timeoutInterval) }
+                throw URLError(.timedOut)
+            }
+            defer { CapturingURLProtocol.requestHandler = nil }
+            let client = SyncClient(
+                baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+                session: URLSession(configuration: configuration),
+                retrySleep: { clock.advance(by: TimeInterval($0) / 1_000_000_000) },
+                monotonicNow: { clock.now() }
+            )
+            let outcome = await StartRoundView.performNearbyDiscovery(
+                latitude: 0, longitude: 0,
+                request: { try await client.nearbyCourses(latitude: $0, longitude: $1, radiusKm: $2) },
+                resolve: { $0.courseOption }
+            )
+            XCTAssertTrue(outcome.providerOptions.isEmpty)
+            XCTAssertNotNil(outcome.lastError)
+            XCTAssertEqual(radii, instantFailures ? [5, 50, 50] : [5, 50])
+            XCTAssertLessThanOrEqual(radii.count, 3)
+            XCTAssertGreaterThanOrEqual(timeouts[0], 13, "allow the backend's 12-second pagination to finish")
+            XCTAssertLessThanOrEqual(clock.now() - 100, 20.001)
+            if !instantFailures { XCTAssertEqual(clock.now() - 100, 20, accuracy: 0.001) }
+            print("nearby wire radii=\(radii) timeouts=\(timeouts) elapsed=\(clock.now() - 100)s (injected clock)")
+        }
+    }
+
     func testNearbyCoursesRetriesFirstTimeoutWithinForegroundBudget() async throws {
         XCTAssertLessThan(
             SyncClient.courseDiscoveryForegroundBudgetInterval,
