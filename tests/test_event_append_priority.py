@@ -10,6 +10,12 @@ from server_v2.package_admission import PackageAdmissionMiddleware
 
 class EventAppendPriorityTests(unittest.IsolatedAsyncioTestCase):
     async def test_event_receipt_precedes_new_background_cpu_work(self):
+        await self._assert_foreground_response("POST", "/api/v2/mobile/rounds/fixture/events")
+
+    async def test_history_replay_precedes_new_background_cpu_work(self):
+        await self._assert_foreground_response("GET", "/api/v2/mobile/rounds/fixture/events/replay")
+
+    async def _assert_foreground_response(self, method, path):
         gate = priority_work.ForegroundGate()
         decided, completed = threading.Event(), threading.Event()
         real_wait = gate._condition.wait
@@ -44,7 +50,7 @@ class EventAppendPriorityTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(priority_work, "FOREGROUND_GATE", gate), patch.object(gate._condition, "wait", wait):
             try:
                 await PackageAdmissionMiddleware(app)(
-                    {"type": "http", "method": "POST", "path": "/api/v2/mobile/rounds/fixture/events"}, receive, send)
+                    {"type": "http", "method": method, "path": path}, receive, send)
             finally:
                 if worker is not None:
                     await asyncio.wait_for(worker, 5)

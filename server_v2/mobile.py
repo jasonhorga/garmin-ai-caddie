@@ -821,7 +821,11 @@ def append_mobile_events_response(
             # append_event_batch already committed and fsynced. Never lie to the client that its
             # accepted event failed merely because the derived history view needs a later retry.
             logger.exception("late-event history refresh failed")
-    return LiveRoundEventBatchResponse(**result)
+        finally:
+            mark("event_history_refresh")
+    response = LiveRoundEventBatchResponse(**result)
+    mark("event_response_model")
+    return response
 
 
 def finish_mobile_round_response(

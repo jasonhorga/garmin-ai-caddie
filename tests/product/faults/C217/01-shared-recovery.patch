@@ -1,13 +1,15 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
 --- a/ai_caddie/caddie/mobile_event_store.py
 +++ b/ai_caddie/caddie/mobile_event_store.py
-@@ -575,26 +575,14 @@
-     def _locked(self, path: Path, *, shared: bool = False) -> Iterator[None]:
-         self._ensure_root_durable()
+@@ -580,30 +580,17 @@
          with path.open("a+", encoding="utf-8") as handle:
+             if timed:
+                 mark("event_lock_setup")
 -            lock_mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
-+            # An interrupted migration must be repaired before a shared reader can observe it.
 +            lock_mode = fcntl.LOCK_EX if (not shared or self.migration_intent.exists()) else fcntl.LOCK_SH
              fcntl.flock(handle, lock_mode)
+             if timed:
+                 mark("event_lock_wait")
 -            # An intent can appear while this reader waits behind a migration.
 -            # Drop SH before taking EX so concurrent readers cannot deadlock
 -            # while upgrading. Recheck the intent again after acquiring EX.
@@ -21,6 +23,8 @@
              handle.flush()
              os.fsync(handle.fileno())
              self._fsync_directory()
+             if timed:
+                 mark("event_lock_durable")
 -            if path == self.event_lock and lock_mode == fcntl.LOCK_EX:
 -                if self.migration_intent.exists():
 -                    self._recover_event_log_unlocked()
@@ -28,6 +32,6 @@
 -                    self._clear_migration_temps()
 +            if path == self.event_lock and self.migration_intent.exists():
 +                self._recover_event_log_unlocked()
-             yield
- 
-     @staticmethod
+             # Root ancestors were made durable before opening the lock. Reuse that
+             # proof only within this thread's locked operation; every new lock entry
+             # (including ACK's nested event lock) re-establishes the whole chain.

@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+from contextlib import nullcontext
 import json
 import math
 import os
+import re
 from pathlib import Path
 import statistics
 import sys
@@ -25,8 +27,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--samples", type=int, default=50)
-    parser.add_argument("--cpu-pressure", action="store_true", help="overlap one CPU-bound Python thread")
+    parser.add_argument("--cpu-pressure", action="store_true", help="overlap a Python background unit using the production CPU gate")
+    parser.add_argument("--trace-fsync", action="store_true", help="trace fsync separately; tracing adds scheduling overhead")
     args = parser.parse_args()
+    if not 1 <= args.samples <= 200:
+        parser.error("--samples must be between 1 and 200")
     if os.environ.get("AI_CADDIE_DATA_MODE") != "fixture":
         parser.error("AI_CADDIE_DATA_MODE=fixture is required")
     os.environ["AI_CADDIE_BOOT_BACKGROUND_WORK"] = "0"
@@ -42,8 +47,11 @@ def main() -> None:
     stop = threading.Event()
 
     def pressure():
-        while not stop.is_set():
-            sum(i * i for i in range(10000))
+        from ai_caddie.core.priority_work import background_work, yield_to_foreground
+        with background_work(unit_type="fixture-append-probe"):
+            while not stop.is_set():
+                yield_to_foreground()
+                sum(i * i for i in range(10000))
 
     def fsync(fd):
         target = Path(os.readlink(f"/proc/self/fd/{fd}"))
@@ -86,7 +94,7 @@ def main() -> None:
                     event = {"schema": "ai-caddie-live-round-event-v1", "eventId": f"append-{i}",
                              "roundId": "probe-round", "clientId": "ios", "hole": 1,
                              "timestamp": "2026-05-25T00:00:00Z", "kind": "score", "payload": {"strokes": 4}}
-                    with patch.object(os, "fsync", fsync):
+                    with (patch.object(os, "fsync", fsync) if args.trace_fsync else nullcontext()):
                         started = time.perf_counter()
                         response = client.post("/api/v2/mobile/rounds/probe-round/events",
                                                headers={"Idempotency-Key": f"append-{i}"},
@@ -94,7 +102,14 @@ def main() -> None:
                         elapsed = (time.perf_counter() - started) * 1000
                     if response.status_code != 200:
                         raise RuntimeError(f"append failed: {response.status_code} {response.text}")
-                    samples.append({"ms": elapsed, "timing": response.headers["server-timing"]})
+                    timing = response.headers["server-timing"]
+                    samples.append({"ms": elapsed, "server_ms": float(re.search(r"total;dur=([\d.]+)", timing)[1]),
+                                    "timing": timing})
+                started = time.perf_counter()
+                replay = client.get("/api/v2/mobile/rounds/probe-round/events/replay?after_sequence=0&limit=500")
+                replay_ms = (time.perf_counter() - started) * 1000
+                assert replay.status_code == 200, replay.text
+                assert replay.json()["eventCount"] == 80 + args.samples
             finally:
                 stop.set()
                 if worker is not None:
@@ -105,10 +120,14 @@ def main() -> None:
         stored = FileEventStore(log.parent).read_rows("probe-round")
         assert [r["event"]["eventId"] for r in stored][-args.samples:] == [f"append-{i}" for i in range(args.samples)]
         durations = sorted(s["ms"] for s in samples)
+        server_durations = sorted(s["server_ms"] for s in samples)
         print(json.dumps({"bytes": len(original), "initialRows": 614, "samples": samples,
                           "p50_ms": statistics.median(durations),
                           "p95_ms": durations[max(0, math.ceil(len(durations) * .95) - 1)],
                           "max_ms": max(durations), "fsyncs": dict(fsyncs),
+                          "server_p50_ms": statistics.median(server_durations),
+                          "server_p95_ms": server_durations[max(0, math.ceil(len(server_durations) * .95) - 1)],
+                          "server_max_ms": max(server_durations), "history_read_ms": replay_ms,
                           "prefixUnchanged": True, "appendedRows": args.samples}, indent=2))
 
 

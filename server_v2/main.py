@@ -3943,7 +3943,14 @@ def _upgrade_course_geometry(requested: dict[int, list[int]]) -> None:
                 _GEOMETRY_UPGRADE_RUNNING.discard(global_id)
 
 
-@app.post("/api/v2/mobile/rounds/{round_id}/events", response_model=LiveRoundEventBatchResponse)
+async def _event_dispatch_timing() -> None:
+    # Runs on the ASGI task during dependency resolution, before dispatching
+    # the sync endpoint to AnyIO. Separate request setup from worker/GIL wait.
+    request_timing.mark("event_dispatch")
+
+
+@app.post("/api/v2/mobile/rounds/{round_id}/events", response_model=LiveRoundEventBatchResponse,
+          dependencies=[Depends(_event_dispatch_timing)])
 def mobile_round_events(
     round_id: str,
     request: LiveRoundEventBatchRequest,
@@ -3956,11 +3963,14 @@ def mobile_round_events(
         round_id, request, idempotency_key=idempotency_key, player_id=acting_player_id
     )
     event_timestamp, event_device, event_timestamp_valid = _request_event_timestamp(request)
-    _record_round_activity(acting_player_id, round_id, global_ids=_event_round_course_ids(acting_player_id, round_id),
+    course_ids = _event_round_course_ids(acting_player_id, round_id)
+    request_timing.mark("event_activity_binding")
+    _record_round_activity(acting_player_id, round_id, global_ids=course_ids,
                            new_events=bool(getattr(request, "events", [])),
                            event_timestamp=event_timestamp,
                            event_device=event_device,
                            event_timestamp_valid=event_timestamp_valid)
+    request_timing.mark("event_activity")
     return result
 
 
