@@ -20,8 +20,9 @@ before the authorization middleware. The following explicit spans are in
 | `bag_read_projection` | Saved bag load, projection and response model construction |
 | `<span>_worker_queue` | Submission until the corresponding worker starts, including limiter wait and worker scheduling |
 
-`response` and `total` are inclusive server intervals, not additional execution
-stages to sum with the spans. Response encoding and middleware overhead remain
+`response` and `total` are inclusive server intervals through response readiness,
+before body transport, not additional execution stages to sum with the spans.
+Response encoding and middleware overhead remain
 outside the explicit spans. A denied request has only the stages it reached;
 no response header can be delivered after transport cancellation. A server task
 cancellation is recorded as status 499 with a `cancelled` stage. Client-side

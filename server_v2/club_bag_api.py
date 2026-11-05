@@ -3,8 +3,9 @@
 ``build_effective_club_bag_response`` projects the EFFECTIVE bag (manual selection wins, else the
 synced Garmin bag, else empty) into the served shape; ``save_manual_club_bag_response`` validates +
 persists a manual bag (or clears it when empty) and returns the resulting effective bag. The route
-layer (server_v2/main.py) owns auth + cache invalidation; this module is pure projection so it can be
-unit-tested without FastAPI.
+layer (server_v2/main.py) owns authorization policy + cache invalidation. The async read helpers
+below admit GET authorization and projection work independently of the default worker pool;
+the builders remain directly unit-testable.
 """
 from __future__ import annotations
 
