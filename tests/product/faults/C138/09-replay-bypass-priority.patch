@@ -1,0 +1,12 @@
+diff --git a/server_v2/package_admission.py b/server_v2/package_admission.py
+--- a/server_v2/package_admission.py
++++ b/server_v2/package_admission.py
+@@ -19,7 +19,7 @@
+         foreground = bool(_PACKAGE.fullmatch(path)) or (
+             scope.get("method") == "POST" and bool(_EVENT_APPEND.fullmatch(path))
+         ) or (
+-            scope.get("method") == "GET" and bool(_EVENT_REPLAY.fullmatch(path))
++            scope.get("method") == "PUT" and bool(_EVENT_REPLAY.fullmatch(path))
+         )
+         if scope["type"] != "http" or not foreground:
+             return await self.app(scope, receive, send)

@@ -18,6 +18,7 @@ import re
 import stat
 import tempfile
 import threading
+from threading import local as thread_local
 import time
 from typing import Any, BinaryIO, Callable, Iterator
 
@@ -572,13 +573,18 @@ class FileEventStore:
         self.round_index = self.root / ROUND_INDEX_FILENAME
         self._additional_sanitizer = sanitizer
         self._migration_temp_paths = self._event_owned_migration_temp_paths
+        self._durability_scope = thread_local()
 
     @contextmanager
-    def _locked(self, path: Path, *, shared: bool = False) -> Iterator[None]:
+    def _locked(self, path: Path, *, shared: bool = False, timed: bool = False) -> Iterator[None]:
         self._ensure_root_durable()
         with path.open("a+", encoding="utf-8") as handle:
+            if timed:
+                mark("event_lock_setup")
             lock_mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
             fcntl.flock(handle, lock_mode)
+            if timed:
+                mark("event_lock_wait")
             # An intent can appear while this reader waits behind a migration.
             # Drop SH before taking EX so concurrent readers cannot deadlock
             # while upgrading. Recheck the intent again after acquiring EX.
@@ -592,12 +598,22 @@ class FileEventStore:
             handle.flush()
             os.fsync(handle.fileno())
             self._fsync_directory()
+            if timed:
+                mark("event_lock_durable")
             if path == self.event_lock and lock_mode == fcntl.LOCK_EX:
                 if self.migration_intent.exists():
                     self._recover_event_log_unlocked()
                 else:
                     self._clear_migration_temps()
-            yield
+            # Root ancestors were made durable before opening the lock. Reuse that
+            # proof only within this thread's locked operation; every new lock entry
+            # (including ACK's nested event lock) re-establishes the whole chain.
+            previous = getattr(self._durability_scope, "active", False)
+            self._durability_scope.active = True
+            try:
+                yield
+            finally:
+                self._durability_scope.active = previous
 
     @staticmethod
     def _explicit_position(row: dict[str, Any]) -> int | None:
@@ -745,6 +761,33 @@ class FileEventStore:
             offset += length
         self._write_round_index_unlocked(index, committed_length, committed_prefix_sha256)
 
+    def _indexed_round_lines_unlocked(
+        self, entries: list[list[int]], *, handle: BinaryIO | None,
+    ) -> Iterator[tuple[bytes, list[int]]]:
+        """Read adjacent rows together without fetching gaps belonging to other rounds.
+
+        Each seek/read can yield the GIL to background Python work. A contiguous
+        round must not pay that scheduling cost once per historical event. Keep
+        batches bounded even when a round has many rows; a single legacy oversized
+        row is still read whole, as on the original indexed path.
+        """
+        cursor = 0
+        while cursor < len(entries):
+            first = cursor
+            start, length, *_ = entries[first]
+            end = start + length
+            cursor += 1
+            while cursor < len(entries):
+                next_start, next_length, *_ = entries[cursor]
+                if next_start != end or next_start + next_length - start > 256 * 1024:
+                    break
+                end = next_start + next_length
+                cursor += 1
+            raw = self._read_log_range(start, end, handle=handle)
+            for entry in entries[first:cursor]:
+                offset, size, *_ = entry
+                yield raw[offset - start:offset - start + size], entry
+
     def _indexed_round_log_unlocked(
         self, round_id: str, *, handle: BinaryIO | None, rebuild: bool = False,
         index_sink: list[_RoundEventIndex] | None = None,
@@ -785,9 +828,11 @@ class FileEventStore:
                 # An unavailable auxiliary sidecar cannot prevent an otherwise durable ACK.
                 logger.warning("mobile_event_round_index repair failed partition=%s", _log_partition(self.root), exc_info=True)
         rows = []
-        for start, length, position, line in index.offsets.get(round_id, ()):
+        for raw_line, (start, length, position, line) in self._indexed_round_lines_unlocked(
+            index.offsets.get(round_id, []), handle=handle,
+        ):
             try:
-                parsed = json.loads(self._read_log_range(start, start + length, handle=handle).decode("utf-8"))
+                parsed = json.loads(raw_line.decode("utf-8"))
             except (UnicodeDecodeError, ValueError):
                 parsed = None
             if not isinstance(parsed, dict) or str(parsed.get("roundId") or "") != round_id:
@@ -2346,8 +2391,7 @@ class FileEventStore:
         """
         round_key = str(round_id)
         idempotency_key = str(request_key)
-        with self._locked(self.event_lock):
-            mark("event_lock_wait")
+        with self._locked(self.event_lock, timed=True):
             event_log_context = (
                 self.log.open("r+b") if self.log.exists() else nullcontext(None)
             )
@@ -2458,6 +2502,7 @@ class FileEventStore:
                         "requestHash": request_hash,
                     }
                     self._write_reservations(reservations)
+                mark("event_reservation")
 
                 append_index = index_sink[0] if index_sink else None
                 if event_log_handle is None:
@@ -2497,7 +2542,8 @@ class FileEventStore:
         ]
         tail = b"".join(encoded_rows)
         self._validate_storage_rows(tail, expected_event_count=len(rows))
-        self._ensure_root_durable()
+        if not getattr(self._durability_scope, "active", False):
+            self._ensure_root_durable()
         base_marker = self._load_commit_marker()
         if base_marker is None or self._load_pending_commit() is not None:
             raise ValueError("event_commit_store_corrupt")
@@ -2525,6 +2571,7 @@ class FileEventStore:
                     legacy_baseline_byte_length=base_marker.legacy_baseline_byte_length,
                 )
             )
+            mark("event_pending")
             event_log_handle.seek(0, os.SEEK_END)
             if event_log_handle.tell() != base_marker.committed_byte_length:
                 raise ValueError("event_commit_store_corrupt")
@@ -2533,6 +2580,7 @@ class FileEventStore:
             os.fsync(event_log_handle.fileno())
             written_signature = self._log_signature(event_log_handle)
         self._fsync_directory()
+        mark("event_write")
         self._advance_committed_length(
             base_marker=base_marker,
             target_marker=target_marker,
@@ -2545,7 +2593,7 @@ class FileEventStore:
         # intentionally caught by the next forced rebuild/restart rather than making every append
         # re-read the full committed prefix.
         self._remember_prefix(target_marker, written_signature, target_digest, allow_racy=True)
-        mark("event_write")
+        mark("event_commit")
         try:
             self._record_round_index_after_append(
                 rows,
@@ -2695,7 +2743,11 @@ class FileEventStore:
         return index.high_water
 
     def _atomic_write_json(self, path: Path, payload: dict[str, Any]) -> None:
-        self._ensure_root_durable()
+        if not getattr(self._durability_scope, "active", False):
+            self._ensure_root_durable()
+        # Preserve the existing on-disk format. Encoding once avoids thousands of
+        # Python-level write calls while holding the event/materialization locks.
+        serialized = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
         descriptor, temporary_name = tempfile.mkstemp(
             dir=self.root,
             prefix=f".{path.name}.",
@@ -2705,8 +2757,7 @@ class FileEventStore:
         try:
             os.fchmod(descriptor, 0o600)
             with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
-                handle.write("\n")
+                handle.write(serialized)
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary_path, path)

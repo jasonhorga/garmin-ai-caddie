@@ -1,8 +1,12 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
 --- a/ai_caddie/caddie/mobile_event_store.py
 +++ b/ai_caddie/caddie/mobile_event_store.py
-@@ -697,4 +697,4 @@
+@@ -828,7 +828,7 @@
+                 logger.warning("mobile_event_round_index repair failed partition=%s", _log_partition(self.root), exc_info=True)
          rows = []
--        for start, length, position, line in index.offsets.get(round_id, ()):
-+        for start, length, position, line in sum(index.offsets.values(), []):
+         for raw_line, (start, length, position, line) in self._indexed_round_lines_unlocked(
+-            index.offsets.get(round_id, []), handle=handle,
++            sum(index.offsets.values(), []), handle=handle,
+         ):
              try:
-                 parsed = json.loads(self._read_log_range(start, start + length, handle=handle).decode("utf-8"))
+                 parsed = json.loads(raw_line.decode("utf-8"))

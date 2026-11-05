@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/caddie/mobile_event_store.py b/ai_caddie/caddie/mobile_event_store.py
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -2541,7 +2541,7 @@
+         ]
+         tail = b"".join(encoded_rows)
+         self._validate_storage_rows(tail, expected_event_count=len(rows))
+-        if not getattr(self._durability_scope, "active", False):
++        if True:
+             self._ensure_root_durable()
+         base_marker = self._load_commit_marker()
+         if base_marker is None or self._load_pending_commit() is not None:

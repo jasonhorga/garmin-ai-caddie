@@ -60,6 +60,47 @@ def _canonical_hash(value: object) -> str:
 
 
 class Phase0MobileEventStoreTests(unittest.TestCase):
+    def test_contiguous_round_history_uses_bounded_bulk_reads(self) -> None:
+        """J5.9/J4.2: append reads one contiguous run without reading other rounds."""
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [_event(f"seed-{i}") for i in range(80)], request_key="seed")
+        store.append_batch(ROUND_B, [_event("unrelated", round_id=ROUND_B)], request_key="other")
+        original_read = store._read_log_range
+        ranges = []
+
+        def read(start, end, **kwargs):
+            ranges.append((start, end))
+            return original_read(start, end, **kwargs)
+
+        with mock.patch.object(store, "_read_log_range", side_effect=read):
+            result = store.append_batch(ROUND_A, [_event("next")], request_key="next")
+        self.assertEqual(result[0].status, "accepted")
+        self.assertLessEqual(len(ranges), 2, "one round run plus a possible boundary check")
+        self.assertEqual(len(store.read_rows(ROUND_A)), 81)
+        self.assertEqual([r["event"]["eventId"] for r in store.read_rows(ROUND_B)], ["unrelated"])
+
+    def test_append_pays_ancestor_durability_cost_once_per_transaction(self) -> None:
+        """J5.9/J4.2: each ACK is durable without replaying ancestor barriers per sidecar."""
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [_event("seed")], request_key="seed")
+        real_fsync = os.fsync
+        ancestors = []
+
+        def record(fd):
+            target = Path(os.readlink(f"/proc/self/fd/{fd}")).resolve()
+            if target == self.root.parent.resolve():
+                ancestors.append(target)
+            real_fsync(fd)
+
+        with mock.patch.object(mobile_event_store.os, "fsync", side_effect=record):
+            for i in range(2):
+                result = store.append_batch(ROUND_A, [_event(f"next-{i}")], request_key=f"next-{i}")
+                self.assertEqual(result[0].status, "accepted")
+        self.assertEqual(len(ancestors), 2, "one complete ancestor barrier chain per append")
+        reopened = FileEventStore(self.root)
+        self.assertEqual([r["event"]["eventId"] for r in reopened.read_rows(ROUND_A)],
+                         ["seed", "next-0", "next-1"])
+
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)

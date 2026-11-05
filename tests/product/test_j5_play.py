@@ -989,8 +989,11 @@ FileEventStore(sys.argv[1]).append_batch(sys.argv[2], [json.loads(sys.argv[3])],
             self.assertEqual((row["method"], row["path"], row["status"]),
                              ("POST", "/api/v2/mobile/rounds/{round_id}/events", 200))
             self.assertTrue(all("timing-round" not in json.dumps(item) for item in rows))
-            for stage in ("event_materialization_lock_wait", "event_lock_wait", "event_validate",
-                          "event_parse", "event_write", "event_index"):
+            for stage in ("event_dispatch", "event_request", "event_materialization_lock_wait",
+                          "event_lock_setup", "event_lock_wait", "event_lock_durable", "event_validate",
+                          "event_parse", "event_reservation", "event_pending", "event_write", "event_commit",
+                          "event_index", "event_history_refresh", "event_response_model",
+                          "event_activity_binding", "event_activity"):
                 self.assertIn(stage, response.headers["server-timing"])
                 self.assertIn(stage, row["stages"])
             self.assertNotIn("private-event-body", json.dumps(rows))
