@@ -77,7 +77,8 @@ class PrepCancellationTests(unittest.IsolatedAsyncioTestCase):
 
         class DisconnectAfterStart:
             async def receive(self):
-                await asyncio.to_thread(started.wait)
+                if not await asyncio.to_thread(started.wait, 1):
+                    raise AssertionError("prep worker did not start")
                 return {"type": "http.disconnect"}
 
         async def wait_for_both(tasks, *, return_when):
