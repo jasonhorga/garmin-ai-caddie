@@ -238,37 +238,48 @@ class GarminRasterFastLaneTests(unittest.TestCase):
 
     def test_J42_three_cold_same_hole_waiters_do_not_consume_other_hole_slot(self):
         """J4.2 N1: waiters share the leader future outside the two-slot slow lane."""
-        same_hole_started = threading.Event()
-        other_hole_started = threading.Event()
-        release_same_hole = threading.Event()
+        async def scenario():
+            fast_limiter = anyio.CapacityLimiter(8)
+            slow_limiter = anyio.CapacityLimiter(2)
+            same_hole_started = threading.Event()
+            other_hole_started = threading.Event()
+            release_same_hole = threading.Event()
 
-        def register(global_id, hole, version, fetched):
-            if hole == 1:
-                same_hole_started.set()
-                self.assertTrue(release_same_hole.wait(10), "test did not release same-hole registration")
-            else:
-                other_hole_started.set()
-            return dict(CACHED)
+            def register(global_id, hole, **_kwargs):
+                if hole == 1:
+                    same_hole_started.set()
+                    release_same_hole.wait(10)
+                else:
+                    other_hole_started.set()
+                result = dict(CACHED)
+                future = _kwargs["_inflight_future"]
+                if not future.cancelled():
+                    future.set_result(result)
+                return result
 
-        def version(_global_id, _hole):
-            return "777"
-
-        with (patch.object(api, "_cached_projection", return_value=None),
-              patch.object(api, "_projection_result", return_value=None),
-              patch.object(api, "_cached_asset_version", side_effect=version),
-              patch.object(api, "_asset_version", side_effect=version),
-              patch.object(api, "_register_one", side_effect=register),
-              patch.object(raster, "fetch_raster", return_value=self.jpg),
-              TestClient(self.app) as client, ThreadPoolExecutor(max_workers=6) as pool):
-            same_jobs = [pool.submit(client.get, BASE) for _ in range(3)]
-            self.assertTrue(same_hole_started.wait(3), "same-hole registration did not start")
-            other_job = pool.submit(client.get, BASE.replace("/holes/1/", "/holes/2/"))
+            tasks = []
             try:
-                self.assertTrue(other_hole_started.wait(3), "another hole waited behind same-hole waiters")
+                with (patch.object(api, "_http_limiters", return_value=(fast_limiter, slow_limiter)),
+                      patch.object(api, "_cached_projection", return_value=None),
+                      patch.object(api, "_cached_asset_version", return_value="777"),
+                      patch.object(api, "course_hole_garmin_raster", side_effect=register)):
+                    tasks = [asyncio.create_task(api._dispatch_projection(GID, 1)) for _ in range(3)]
+                    self.assertTrue(
+                        await anyio.to_thread.run_sync(same_hole_started.wait, 3),
+                        "same-hole registration did not start",
+                    )
+                    tasks.append(asyncio.create_task(api._dispatch_projection(GID, 2)))
+                    self.assertTrue(
+                        await anyio.to_thread.run_sync(other_hole_started.wait, 3),
+                        "another hole waited behind same-hole waiters",
+                    )
             finally:
                 release_same_hole.set()
-            for job in same_jobs + [other_job]:
-                self.assertEqual(job.result(timeout=5).status_code, 200)
+                if tasks:
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    self.assertTrue(all(isinstance(result, dict) for result in results))
+
+        anyio.run(scenario)
 
     def test_J42_unversioned_same_hole_waiters_do_not_hold_slow_slots(self):
         """A release lookup that has no version still admits one leader per hole."""
