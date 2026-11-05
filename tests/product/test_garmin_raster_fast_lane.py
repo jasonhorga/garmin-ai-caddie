@@ -263,11 +263,12 @@ class GarminRasterFastLaneTests(unittest.TestCase):
                       patch.object(api, "_cached_projection", return_value=None),
                       patch.object(api, "_cached_asset_version", return_value="777"),
                       patch.object(api, "course_hole_garmin_raster", side_effect=register)):
-                    tasks = [asyncio.create_task(api._dispatch_projection(GID, 1)) for _ in range(3)]
+                    tasks = [asyncio.create_task(api._dispatch_projection(GID, 1))]
                     self.assertTrue(
                         await anyio.to_thread.run_sync(same_hole_started.wait, 3),
                         "same-hole registration did not start",
                     )
+                    tasks.extend(asyncio.create_task(api._dispatch_projection(GID, 1)) for _ in range(2))
                     tasks.append(asyncio.create_task(api._dispatch_projection(GID, 2)))
                     self.assertTrue(
                         await anyio.to_thread.run_sync(other_hole_started.wait, 3),
