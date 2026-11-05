@@ -9,12 +9,14 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 import json
+import math
 import os
 from pathlib import Path
 import statistics
 import sys
 from tempfile import TemporaryDirectory
 import time
+import threading
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -23,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--samples", type=int, default=50)
+    parser.add_argument("--cpu-pressure", action="store_true", help="overlap one CPU-bound Python thread")
     args = parser.parse_args()
     if os.environ.get("AI_CADDIE_DATA_MODE") != "fixture":
         parser.error("AI_CADDIE_DATA_MODE=fixture is required")
@@ -36,6 +39,11 @@ def main() -> None:
     samples = []
     fsyncs = defaultdict(lambda: [0, 0.0])
     original_fsync = os.fsync
+    stop = threading.Event()
+
+    def pressure():
+        while not stop.is_set():
+            sum(i * i for i in range(10000))
 
     def fsync(fd):
         target = Path(os.readlink(f"/proc/self/fd/{fd}"))
@@ -67,7 +75,13 @@ def main() -> None:
         store.high_water()
         store.ensure_round_event_index()
         with patch.object(mobile, "MOBILE_ROOT", root), patch.object(request_timing, "TIMING_ROOT", root):
-            with TestClient(server_main.app) as client:
+            # Deliberately omit app lifespan: this diagnostic must never run service
+            # startup/session cleanup, even when executed in a deployed image.
+            client = TestClient(server_main.app)
+            worker = threading.Thread(target=pressure, name="c138-fixture-cpu") if args.cpu_pressure else None
+            if worker is not None:
+                worker.start()
+            try:
                 for i in range(args.samples):
                     event = {"schema": "ai-caddie-live-round-event-v1", "eventId": f"append-{i}",
                              "roundId": "probe-round", "clientId": "ios", "hole": 1,
@@ -81,6 +95,11 @@ def main() -> None:
                     if response.status_code != 200:
                         raise RuntimeError(f"append failed: {response.status_code} {response.text}")
                     samples.append({"ms": elapsed, "timing": response.headers["server-timing"]})
+            finally:
+                stop.set()
+                if worker is not None:
+                    worker.join(timeout=10)
+                client.close()
             request_timing.flush_timing_writes()
         assert log.read_bytes().startswith(original), "history prefix changed"
         stored = FileEventStore(log.parent).read_rows("probe-round")
@@ -88,7 +107,7 @@ def main() -> None:
         durations = sorted(s["ms"] for s in samples)
         print(json.dumps({"bytes": len(original), "initialRows": 614, "samples": samples,
                           "p50_ms": statistics.median(durations),
-                          "p95_ms": durations[max(0, __import__("math").ceil(len(durations) * .95) - 1)],
+                          "p95_ms": durations[max(0, math.ceil(len(durations) * .95) - 1)],
                           "max_ms": max(durations), "fsyncs": dict(fsyncs),
                           "prefixUnchanged": True, "appendedRows": args.samples}, indent=2))
 
