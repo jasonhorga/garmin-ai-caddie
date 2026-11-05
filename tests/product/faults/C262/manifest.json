@@ -5,14 +5,14 @@
       "id": "C262-delay-first-publication",
       "patch": "tests/product/faults/C262/delay-first-publication.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyFirstVenuePublishesAndSelectsWhileExpansionIsSuspended",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyFirstVenuePublishesAndSelectsWithoutExpansion",
       "promise": "4.1"
     },
     {
       "id": "C262-replace-selection-on-expansion",
       "patch": "tests/product/faults/C262/replace-selection-on-expansion.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyFirstVenuePublishesAndSelectsWhileExpansionIsSuspended",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbySingleExpandedVenueDoesNotAutomaticallySelect",
       "promise": "4.2"
     }
   ]

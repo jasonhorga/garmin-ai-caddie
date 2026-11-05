@@ -507,10 +507,10 @@ public final class SyncClient {
     static let courseAssetMaximumAttempts = 2
     static let courseDiscoveryRequestTimeoutInterval: TimeInterval = 15
     static let courseDiscoveryForegroundBudgetInterval: TimeInterval = 25
-    /// The 5 km first pass is a fast UI hint; an 8 s shared budget leaves room for one retry while
-    /// keeping the picker responsive. The 50 km expansion retains the broader catalogue budget.
-    static let nearbyInitialRequestTimeoutInterval: TimeInterval = 5
-    static let nearbyInitialForegroundBudgetInterval: TimeInterval = 8
+    /// One local attempt allows the backend's 12 s pagination to complete. Only an empty/failed
+    /// local answer expands; its two transient attempts share the remaining 7 s (20 s in total).
+    static let nearbyInitialRequestTimeoutInterval: TimeInterval = 13
+    static let nearbyExpandedForegroundBudgetInterval: TimeInterval = 7
     static let courseDiscoveryMaximumAttempts = 2
     static let roundShareTimeoutInterval: TimeInterval = 5
     static let transientCourseReleaseHTTPStatuses: Set<Int> = [408, 425, 429, 500, 502, 503, 504]
@@ -1275,20 +1275,19 @@ public final class SyncClient {
         ]
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
-        // The backend bounds its Garmin pagination to 12 s and can return an explicitly marked
-        // partial/cache result. One transient failure may retry, but both attempts share one
-        // foreground budget so Start Round always reaches its recoverable state promptly.
+        // Start Round uses 5 km then 50 km, with at most 1 + 2 wire requests. Name search keeps
+        // its independent budget. A wider retry shares its stage budget, including backoff.
         let isInitialRadius = radiusKm <= 5
         request.timeoutInterval = isInitialRadius
             ? Self.nearbyInitialRequestTimeoutInterval
-            : Self.courseDiscoveryRequestTimeoutInterval
+            : Self.nearbyExpandedForegroundBudgetInterval
         applyAuth(to: &request)
         let data = try await fetchRetriableGetData(
             request,
-            maximumAttempts: Self.courseDiscoveryMaximumAttempts,
+            maximumAttempts: isInitialRadius ? 1 : Self.courseDiscoveryMaximumAttempts,
             totalTimeoutInterval: isInitialRadius
-                ? Self.nearbyInitialForegroundBudgetInterval
-                : Self.courseDiscoveryForegroundBudgetInterval
+                ? Self.nearbyInitialRequestTimeoutInterval
+                : Self.nearbyExpandedForegroundBudgetInterval
         )
         return try decoder.decode(MobileNearbyCoursesResponse.self, from: data).matches
     }

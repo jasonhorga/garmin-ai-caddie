@@ -1065,10 +1065,6 @@ final class SyncClientTests: XCTestCase {
     }
 
     func testNearbyCoursesRetriesFirstTimeoutWithinForegroundBudget() async throws {
-        XCTAssertLessThan(
-            SyncClient.courseDiscoveryForegroundBudgetInterval,
-            SyncClient.courseDiscoveryRequestTimeoutInterval * 2
-        )
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
@@ -1078,7 +1074,7 @@ final class SyncClientTests: XCTestCase {
         var attempts = 0
         CapturingURLProtocol.requestHandler = { request in
             attempts += 1
-            XCTAssertEqual(request.timeoutInterval, SyncClient.courseDiscoveryRequestTimeoutInterval)
+            XCTAssertEqual(request.timeoutInterval, 7)
             if attempts == 1 {
                 throw URLError(.timedOut)
             }
@@ -1111,7 +1107,7 @@ final class SyncClientTests: XCTestCase {
         var attemptTimeouts: [TimeInterval] = []
         CapturingURLProtocol.requestHandler = { request in
             attemptTimeouts.append(request.timeoutInterval)
-            now += request.timeoutInterval
+            now += attemptTimeouts.count == 1 ? 3 : request.timeoutInterval
             throw URLError(.timedOut)
         }
         defer { CapturingURLProtocol.requestHandler = nil }
@@ -1134,11 +1130,11 @@ final class SyncClientTests: XCTestCase {
         XCTAssertEqual(attemptTimeouts.count, 2)
         XCTAssertEqual(
             attemptTimeouts[0],
-            SyncClient.courseDiscoveryRequestTimeoutInterval,
+            7,
             accuracy: 0.001
         )
-        XCTAssertEqual(attemptTimeouts[1], 9.5, accuracy: 0.001)
-        XCTAssertEqual(now, 125, accuracy: 0.001)
+        XCTAssertEqual(attemptTimeouts[1], 3.5, accuracy: 0.001)
+        XCTAssertEqual(now, 107, accuracy: 0.001)
     }
 
     func testNearbyCoursesStopsWhenTheRetryDelayIsCancelled() async throws {

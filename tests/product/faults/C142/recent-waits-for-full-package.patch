@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index a98c26ab..6793168f 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -8203,6 +8203,7 @@ public final class LiveRoundAppModel: ObservableObject {
+     /// row used by StartRoundView. This records facts already accepted by the package contract; it
+     /// never invents a localized name or turns the row into a nearby/GPS result.
+     private func rememberRecentCourseSelection(from package: LiveRoundPackage) {
++        guard !Self.defersPlayerEnrichment(package) else { return }
+         // Activation already proves which course was started. A map-only package deliberately
+         // omits personal history: retain facts for this ID, never borrow the previous venue's.
+         let knownHistory: MobileCourseOption?

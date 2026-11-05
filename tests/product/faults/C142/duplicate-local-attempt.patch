@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Services/SyncClient.swift b/mobile/ios/AICaddie/Services/SyncClient.swift
+index 08d0883e..1a714ab1 100644
+--- a/mobile/ios/AICaddie/Services/SyncClient.swift
++++ b/mobile/ios/AICaddie/Services/SyncClient.swift
+@@ -1284,7 +1284,7 @@ public final class SyncClient {
+         applyAuth(to: &request)
+         let data = try await fetchRetriableGetData(
+             request,
+-            maximumAttempts: isInitialRadius ? 1 : Self.courseDiscoveryMaximumAttempts,
++            maximumAttempts: Self.courseDiscoveryMaximumAttempts,
+             totalTimeoutInterval: isInitialRadius
+                 ? Self.nearbyInitialRequestTimeoutInterval
+                 : Self.nearbyExpandedForegroundBudgetInterval

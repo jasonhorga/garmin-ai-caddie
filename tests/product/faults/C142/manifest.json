@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C142-local-timeout-too-short",
+      "patch": "tests/product/faults/C142/local-timeout-too-short.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/SyncClientTests/testNearbyDiscoveryBoundsElapsedTimeAndWireRequests",
+      "promise": "4.1"
+    },
+    {
+      "id": "C142-duplicate-local-attempt",
+      "patch": "tests/product/faults/C142/duplicate-local-attempt.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/SyncClientTests/testNearbyDiscoveryBoundsElapsedTimeAndWireRequests",
+      "promise": "4.1"
+    },
+    {
+      "id": "C142-sparse-local-expansion",
+      "patch": "tests/product/faults/C142/sparse-local-expansion.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyFirstVenuePublishesAndSelectsWithoutExpansion",
+      "promise": "4.1"
+    },
+    {
+      "id": "C142-recent-waits-for-full-package",
+      "patch": "tests/product/faults/C142/recent-waits-for-full-package.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testRecentCourseChangesOnMapActivationWithoutBorrowingAnotherCoursesHistory",
+      "promise": "4.2"
+    },
+    {
+      "id": "C142-erase-known-history",
+      "patch": "tests/product/faults/C142/erase-known-history.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testPersonalRequestWaitsForInitialHoleLoadAndRecentHistoryWaitsForMerge",
+      "promise": "4.2"
+    }
+  ]
+}

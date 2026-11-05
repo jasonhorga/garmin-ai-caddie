@@ -1,13 +1,13 @@
 diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
-index fead3e4f..14db7dc5 100644
+index fc532e89..497d3aee 100644
 --- a/mobile/ios/AICaddie/Views/StartRoundView.swift
 +++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
-@@ -2517,6 +2517,8 @@ public struct StartRoundView: View {
+@@ -2768,6 +2768,8 @@ public struct StartRoundView: View {
                      if !providerOptions.isEmpty { publish(snapshot()) }
                      if index == 0 {
                          selectAutomatically(nearbyVenueCount(providerOptions) == 1 ? providerOptions.first : nil)
 +                    } else if let expanded = resolved.first {
 +                        selectAutomatically(expanded)
                      }
-                     if nearbyVenueCount(providerOptions) >= nearbyMinimumVenueCount || index == radii.count - 1 {
+                     if !providerOptions.isEmpty || index == radii.count - 1 {
                          return snapshot()
