@@ -9,7 +9,7 @@ from collections.abc import Callable
 from starlette.requests import Request
 from starlette.responses import Response
 
-from ai_caddie.courses.prep_work import cancellation, checkpoint, cold_admission
+from ai_caddie.courses.prep_work import PrepCancelled, cancellation, checkpoint, cold_admission
 from ai_caddie.core.priority_work import background_work
 from .timing import mark
 
@@ -49,12 +49,9 @@ async def run_prep(
         while True:
             message = await request.receive()
             if message["type"] == "http.disconnect":
-<<<<<<< HEAD
-=======
                 # A disconnect can be delivered in the same loop turn as a completed build.
                 # Preserve the completed response; cancellation is only meaningful while work is
                 # still running.
->>>>>>> b9e24e75 (fix(prep): prefer completed work over disconnect race)
                 if worker.done():
                     return
                 cancelled.set()
@@ -71,13 +68,17 @@ async def run_prep(
     watcher = asyncio.create_task(watch_disconnect())
     try:
         done, _ = await asyncio.wait({worker, watcher}, return_when=asyncio.FIRST_COMPLETED)
-<<<<<<< HEAD
-=======
         # If both complete in the same event-loop turn, the built response wins.  A transport
         # disconnect must not turn a successfully finished prep into a spurious 499.
->>>>>>> b9e24e75 (fix(prep): prefer completed work over disconnect race)
         if worker in done:
-            return await worker
+            try:
+                return await worker
+            except PrepCancelled:
+                # A cooperative cancellation may finish in the same wait set as its watcher.
+                # Preserve the normal client-disconnect response instead of exposing it as 500.
+                if watcher in done and cancelled.is_set():
+                    return Response(status_code=499)
+                raise
         await watcher  # Propagate receive failures; only an actual disconnect means 499.
         return Response(status_code=499)
     except asyncio.CancelledError:
