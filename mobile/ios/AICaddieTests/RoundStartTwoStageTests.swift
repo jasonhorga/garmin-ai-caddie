@@ -110,6 +110,64 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertNil(requests.last.flatMap { c33Query($0, "map_only") }, "the ordinary package is unchanged")
     }
 
+    /// J4.1/J4.2: the activated course is recent while personal enrichment is still held.
+    func testRecentCourseChangesOnMapActivationWithoutBorrowingAnotherCoursesHistory() async throws {
+        let host = "recent-map.example.test"
+        let map = try package(roundId: "recent-map", mapOnly: true)
+        let mapData = try JSONEncoder().encode(map)
+        let held = C85HeldRequests()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            if c33Query(proto.request, "map_only") == "true" { proto.reply(200, mapData) }
+            else { held.hold(proto) }
+        }, onStop: { held.forget($0) })
+        let fixture = makeModel(host: host, held: held)
+        try fixture.store.saveRecentCourseSelection(MobileCourseOption(
+            globalId: 90001, name: "Previous Course", roundCount: 12,
+            latestRoundId: "previous-round", holes: 18, teeBox: "red"
+        ))
+        await fixture.model.prepareCourseRound(roundId: map.roundId, teeBox: "blue", loops: map.loopEntries)
+        XCTAssertEqual(fixture.model.package?.course.globalId, c85CourseId)
+        XCTAssertEqual(fixture.model.recentCourseOption?.globalId, c85CourseId)
+        XCTAssertEqual(fixture.model.recentCourseOption?.name, map.course.name)
+        XCTAssertEqual(fixture.model.recentCourseOption?.teeBox, "blue")
+        XCTAssertEqual(fixture.model.recentCourseOption?.roundCount, 0)
+        XCTAssertNil(fixture.model.recentCourseOption?.latestRoundId)
+        XCTAssertEqual(try fixture.store.loadRecentCourseSelection(), fixture.model.recentCourseOption)
+    }
+
+    /// J4.1/J4.2: a saved map-only placeholder cannot hide history learned after that start.
+    func testRecentCourseUsesRefreshedHistoryAfterAnEarlierMapOnlyStart() async throws {
+        let host = "recent-refreshed-history.example.test"
+        let first = try package(roundId: "recent-placeholder", mapOnly: true)
+        let next = try package(roundId: "recent-known-history", mapOnly: true)
+        let firstData = try JSONEncoder().encode(first)
+        let nextData = try JSONEncoder().encode(next)
+        let held = C85HeldRequests()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            if c33Query(proto.request, "map_only") == "true" {
+                proto.reply(200, c33Query(proto.request, "round_id") == first.roundId ? firstData : nextData)
+            } else { held.hold(proto) }
+        }, onStop: { held.forget($0) })
+        let fixture = makeModel(host: host, held: held)
+        let model = fixture.model
+        await model.prepareCourseRound(roundId: first.roundId, teeBox: "blue", loops: first.loopEntries)
+        XCTAssertEqual(model.recentCourseOption?.roundCount, 0)
+        let known = MobileCourseOption(
+            globalId: c85CourseId, courseKey: "known-course", name: "Fixture Links", roundCount: 3,
+            latestRoundId: "round-a", latestRoundDate: "2026-05-20T08:00:00", holes: 9, teeBox: "blue"
+        )
+        await model.refreshCourseOptions(fetch: { [known] })
+        XCTAssertEqual(model.courseOptions.first?.roundCount, 3)
+        await model.prepareCourseRound(roundId: next.roundId, teeBox: "blue", loops: next.loopEntries)
+        XCTAssertEqual(model.recentCourseOption?.roundCount, 3)
+        XCTAssertEqual(model.recentCourseOption?.latestRoundId, "round-a")
+        XCTAssertEqual(model.recentCourseOption?.latestRoundDate, "2026-05-20T08:00:00")
+        XCTAssertEqual(model.recentCourseOption?.courseKey, "known-course")
+        XCTAssertEqual(try fixture.store.loadRecentCourseSelection(), model.recentCourseOption)
+    }
+
     func testPersonalRequestWaitsForInitialHoleLoadAndRecentHistoryWaitsForMerge() async throws {
         let host = "c91-gate.example.test"
         let roundId = "c91-gate"
@@ -146,6 +204,9 @@ final class RoundStartTwoStageTests: XCTestCase {
         let generation = try XCTUnwrap(model.freshEntryReleaseGenerationForTesting)
         model.releaseFreshEntryForTesting(generation: generation)
         await fulfillment(of: [sentBeforeReady], timeout: 0.2)
+        XCTAssertEqual(model.recentCourseOption?.globalId, c85CourseId)
+        XCTAssertEqual(model.recentCourseOption?.roundCount, 3)
+        XCTAssertEqual(model.recentCourseOption?.latestRoundId, "round-a")
         XCTAssertEqual(try fixture.store.loadRecentCourseSelection()?.roundCount, 3)
         XCTAssertEqual(try fixture.store.loadRecentCourseSelection()?.latestRoundId, "round-a")
         ready.set(1)

@@ -1,0 +1,17 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 647cdd60..a98c26ab 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -8209,11 +8209,7 @@ public final class LiveRoundAppModel: ObservableObject {
+         if Self.defersPlayerEnrichment(package) {
+             let cached = try? offlineStore.loadRecentCourseSelection()
+             knownHistory = ([recentCourseOption, cached].compactMap { $0 } + courseOptions)
+-                .filter { $0.globalId == package.course.globalId }
+-                .max {
+-                    if $0.roundCount != $1.roundCount { return $0.roundCount < $1.roundCount }
+-                    return ($0.latestRoundDate ?? "") < ($1.latestRoundDate ?? "")
+-                }
++                .first { $0.globalId == package.course.globalId }
+         } else {
+             knownHistory = nil
+         }

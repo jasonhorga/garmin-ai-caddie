@@ -1897,7 +1897,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
-    /// J4.2/C134: a first timeout expands through the 20 km pass before the wider fallback.
+    /// J4.1: a first timeout uses the single wider fallback.
     func testNearbyFirstTimeoutUsesTheExpandedPassBeforeFailure() async {
         var radii: [Int] = []
         let match = MobileCourseSearchMatch(globalId: 7001, name: "扩大范围球场", holes: 18, city: nil, province: nil, ratio: 1)
@@ -1912,7 +1912,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 MobileCourseOption(globalId: match.globalId, name: match.name, holes: match.holes ?? 18)
             }
         )
-        XCTAssertEqual(radii, [5, 20, 50])
+        XCTAssertEqual(radii, [5, 50])
         XCTAssertEqual(outcome.providerOptions.map(\.globalId), [7001])
         XCTAssertFalse(StartRoundView.nearbyDiscoveryShouldFail(
             publishedProviderResult: outcome.publishedProviderResult,
@@ -1921,21 +1921,21 @@ final class StartRoundDiscoveryTests: XCTestCase {
         ))
     }
 
-    /// J4.2/C134: fewer than five venues expands through 20 km and then 50 km before retry.
+    /// J4.1: an empty local answer and failed wider query reach a recoverable state.
     func testNearbyEmptyFirstPassAndFailedExpansionEnterRetryState() async {
         var radii: [Int] = []
         let outcome = await StartRoundView.performNearbyDiscovery(
             latitude: 31, longitude: 121,
             request: { _, _, radius in
                 radii.append(radius)
-                if radius == 5 || radius == 20 { return [] }
+                if radius == 5 { return [] }
                 throw URLError(.timedOut)
             },
             resolve: { match in
                 MobileCourseOption(globalId: match.globalId, name: match.name, holes: match.holes ?? 18)
             }
         )
-        XCTAssertEqual(radii, [5, 20, 50])
+        XCTAssertEqual(radii, [5, 50])
         XCTAssertTrue(StartRoundView.nearbyDiscoveryShouldFail(
             publishedProviderResult: outcome.publishedProviderResult,
             lastError: outcome.lastError,
@@ -1943,79 +1943,34 @@ final class StartRoundDiscoveryTests: XCTestCase {
         ))
     }
 
-    /// J4.1/J4.2: a usable 5 km venue and its map-only intent must not wait for expansion.
-    /// The card's 5/20/50 km ladder expands below five venues, with at most three requests.
+    /// J4.1: one nearby venue is enough; publish, select, and finish without expanding.
     @MainActor
-    func testNearbyFirstVenuePublishesAndSelectsWhileExpansionIsSuspended() async {
-        let gate = NearbyExpansionGate()
+    func testNearbyFirstVenuePublishesAndSelectsWithoutExpansion() async {
         let first = MobileCourseSearchMatch(globalId: 7101, name: "虹桥", holes: 9,
             city: nil, province: nil, ratio: 1, segmentLabel: "A")
-        let expanded = (0..<4).map { index in
-            MobileCourseSearchMatch(globalId: 7200 + index, name: "大都会 \(index)", holes: 18,
-                city: nil, province: nil, ratio: 1)
-        }
-        let sibling = MobileCourseSearchMatch(globalId: 7102, name: "虹桥", holes: 9,
-            city: nil, province: nil, ratio: 1, segmentLabel: "B")
         var radii: [Int] = []
         var published: [MobileCourseOption] = []
-        var loading = false
-        var selected: MobileCourseOption?
         var selectedIDs: [Int?] = []
-        var tee = ""
-        func intentKey() -> String {
-            StartRoundView.courseIntentKey(globalId: selected?.globalId, teeBox: tee, isPreparing: false)
-        }
-        func pendingText() -> String? {
-            StartRoundView.nearbyPendingText(isLoading: loading, failed: false,
-                manualSearchSelected: false, hasFix: true)
-        }
-        let discovery = Task { @MainActor in
-            await StartRoundView.performNearbyDiscovery(
-                latitude: 31, longitude: 121,
-                setLoading: { loading = $0 },
-                publish: { published = $0.providerOptions },
-                selectAutomatically: { option in
-                    selected = option
-                    selectedIDs.append(option?.globalId)
-                    tee = option.map { StartRoundView.selectionState(for: $0, lastUsedTee: nil).teeBox } ?? ""
-                },
-                request: { _, _, radius in
-                    radii.append(radius)
-                    if radius == 5 { return [first] }
-                    if radius == 20 { await gate.suspend() }
-                    // The wider answer omits the original loop, adds a sibling at that venue,
-                    // and repeats another venue: keep both loops with one visible row per venue.
-                    return expanded + [sibling, expanded[0]]
-                },
-                resolve: { match in
-                    MobileCourseOption(globalId: match.globalId, name: match.name, holes: match.holes ?? 18,
-                        teeBox: "blue", segmentLabel: match.segmentLabel,
-                        latitude: match.globalId == 7101 ? 31.01 : 31.001,
-                        longitude: 121)
-                }
-            )
-        }
-        await gate.waitUntilSuspended()
-        XCTAssertEqual(radii, [5, 20])
-        XCTAssertEqual(published.map(\.globalId), [7101], "5 km rows must publish before 20 km returns")
-        XCTAssertEqual(selected?.globalId, 7101, "S70 selects the single first-pass venue")
-        XCTAssertEqual(intentKey(), "7101:blue", "the map-only prefetch task already has its course/Tee intent")
-        XCTAssertEqual(pendingText(), "正在找附近球场…", "expansion stays pending alongside usable rows")
-
-        gate.resume()
-        let outcome = await discovery.value
-        XCTAssertEqual(radii, [5, 20], "five physical venues stop expansion before 50 km")
-        XCTAssertEqual(Set(published.map(\.globalId)), Set([7101, 7102, 7200, 7201, 7202, 7203]))
-        XCTAssertEqual(published.count, 6)
-        let rows = StartRoundPresentation.mergedCourseRows(nearby: published)
-        XCTAssertEqual(rows.count, 5, "one visible row per physical venue")
-        XCTAssertEqual(rows.first { $0.venue == "虹桥" }?.segments.map(\.globalId), [7101, 7102])
-        XCTAssertEqual(Set(outcome.providerOptions.map(\.globalId)), Set([7101, 7102, 7200, 7201, 7202, 7203]))
-        XCTAssertEqual(selected?.globalId, 7101, "expanded results keep the first-pass selection")
-        XCTAssertEqual(selectedIDs, [7101], "only the 5 km pass may change automatic selection")
-        XCTAssertEqual(intentKey(), "7101:blue", "expansion must not replace the predownload intent")
-        XCTAssertFalse(loading)
-        XCTAssertNil(pendingText(), "pending ends after the last expansion settles")
+        var states: [Bool] = []
+        let outcome = await StartRoundView.performNearbyDiscovery(
+            latitude: 31, longitude: 121,
+            setLoading: { states.append($0) },
+            publish: { published = $0.providerOptions },
+            selectAutomatically: {
+                XCTAssertEqual(published.map(\.globalId), [7101], "rows publish before selection starts prefetch")
+                selectedIDs.append($0?.globalId)
+            },
+            request: { _, _, radius in
+                radii.append(radius)
+                return [first]
+            },
+            resolve: { MobileCourseOption(globalId: $0.globalId, name: $0.name, holes: 9) }
+        )
+        XCTAssertEqual(radii, [5])
+        XCTAssertEqual(published.map(\.globalId), [7101])
+        XCTAssertEqual(selectedIDs, [7101])
+        XCTAssertEqual(states, [true, false])
+        XCTAssertEqual(outcome.providerOptions.map(\.globalId), [7101])
     }
 
     /// J4.1/J4.2: a later single venue is visible, but is not S70 first-pass evidence.
@@ -2035,17 +1990,13 @@ final class StartRoundDiscoveryTests: XCTestCase {
                         if firstPassFails { throw URLError(.timedOut) }
                         return []
                     }
-                    if radius == 50 {
-                        XCTAssertEqual(published.map(\.globalId), [7101], "first nonempty radius publishes before the next request")
-                        return []
-                    }
                     return [MobileCourseSearchMatch(globalId: 7101, name: "虹桥", holes: 18,
                         city: nil, province: nil, ratio: 1)]
                 },
                 resolve: { MobileCourseOption(globalId: $0.globalId, name: $0.name, holes: 18) }
             )
-            XCTAssertEqual(radii, [5, 20, 50])
-            XCTAssertTrue(selectedIDs.compactMap { $0 }.isEmpty, "20/50 km must never auto-select")
+            XCTAssertEqual(radii, [5, 50])
+            XCTAssertTrue(selectedIDs.compactMap { $0 }.isEmpty, "50 km must never auto-select")
             XCTAssertEqual(published.map(\.globalId), [7101], "an empty expansion cannot clear usable rows")
             XCTAssertEqual(outcome.providerOptions.map(\.globalId), [7101])
         }
@@ -2231,8 +2182,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(authority.map(\.globalId), [7820, 7821])
     }
 
-    /// J4.1: a sparse 5 km answer expands to 20 km and retains the first physical venue.
-    func testNearbySparseFirstPassExpandsToTwentyKilometres() async {
+    /// J4.1: two local venues also finish without expansion.
+    func testNearbyTwoLocalVenuesDoNotExpand() async {
         var radii: [Int] = []
         let first = MobileCourseSearchMatch(globalId: 7101, name: "虹桥", holes: 18, city: nil, province: nil, ratio: 1)
         let expanded = (0..<5).map { index in
@@ -2242,14 +2193,14 @@ final class StartRoundDiscoveryTests: XCTestCase {
             latitude: 31, longitude: 121,
             request: { _, _, radius in
                 radii.append(radius)
-                return radius == 5 ? [first] : expanded
+                return radius == 5 ? [first, expanded[0]] : expanded
             },
             resolve: { match in
                 MobileCourseOption(globalId: match.globalId, name: match.name, holes: match.holes ?? 18)
             }
         )
-        XCTAssertEqual(radii, [5, 20])
-        XCTAssertEqual(outcome.providerOptions.count, 6, "the first venue is retained alongside five new venues")
+        XCTAssertEqual(radii, [5])
+        XCTAssertEqual(outcome.providerOptions.count, 2)
     }
 
     func testNearbyResultsAreCappedAtTenPhysicalVenues() {
@@ -2263,7 +2214,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
     /// J4.1/J4.2: all radius requests settle before pending clears, even when expansions fail.
     @MainActor
     func testNearbyPendingEndsAfterEveryExpansionSuccessOrFailure() async {
-        for failedRadii in [Set<Int>(), Set([20]), Set([50]), Set([5, 20, 50])] {
+        for failedRadii in [Set<Int>(), Set([5]), Set([50]), Set([5, 50])] {
             var radii: [Int] = []
             var states: [Bool] = []
             var loading = false
@@ -2279,10 +2230,10 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 },
                 resolve: { MobileCourseOption(globalId: $0.globalId, name: $0.name, holes: 18) }
             )
-            XCTAssertEqual(radii, [5, 20, 50])
+            XCTAssertEqual(radii, failedRadii.contains(5) ? [5, 50] : [5])
             XCTAssertEqual(states, [true, false], "pending ends exactly once after success or terminal failure")
             XCTAssertFalse(loading)
-            XCTAssertEqual(outcome.providerOptions.count, failedRadii.count == 3 ? 0 : 1)
+            XCTAssertEqual(outcome.providerOptions.count, failedRadii.count == 2 ? 0 : 1)
         }
     }
 
@@ -2919,32 +2870,5 @@ final class StartRoundDiscoveryTests: XCTestCase {
             rows.map { StartRoundView.holeCaption(for: $0, downloaded: [], catalogue: loops, recent: loops[0]) },
             ["27 洞"]
         )
-    }
-}
-
-/// A deterministic transport barrier: the test observes 20 km suspended before releasing it.
-@MainActor
-private final class NearbyExpansionGate {
-    private var response: CheckedContinuation<Void, Never>?
-    private var observer: CheckedContinuation<Void, Never>?
-    private var suspended = false
-
-    func suspend() async {
-        await withCheckedContinuation { continuation in
-            response = continuation
-            suspended = true
-            observer?.resume()
-            observer = nil
-        }
-    }
-
-    func waitUntilSuspended() async {
-        if suspended { return }
-        await withCheckedContinuation { observer = $0 }
-    }
-
-    func resume() {
-        response?.resume()
-        response = nil
     }
 }

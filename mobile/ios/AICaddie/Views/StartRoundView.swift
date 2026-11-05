@@ -2604,7 +2604,7 @@ public struct StartRoundView: View {
         )
     }
 
-    /// Nearby discovery starts with a 5 km query, then expands when too few venues are visible.
+    /// Nearby discovery starts with a 5 km query, then expands only when no usable venue is visible.
     /// Restarting it for every 3–11 m Core Location update
     /// only cancels useful in-flight requests while the player walks or arrives by cart.  A roughly
     /// 1 km bucket still refreshes after meaningful travel without letting normal GPS jitter keep
@@ -2613,20 +2613,17 @@ public struct StartRoundView: View {
         "\(Int(floor(latitude * 100))):\(Int(floor(longitude * 100)))"
     }
 
-    /// Nearby discovery starts with a small, fast query. An empty or transiently failed first
-    /// pass expands through 20 km and then the catalogue radius; the bounded flow keeps a first
-    /// timeout from painting the terminal failure state while avoiding duplicate view-layer retries.
+    /// Any usable local venue completes discovery. Only an empty/failed answer expands directly
+    /// to 50 km; SyncClient bounds the two stages together to 20 s and at most three wire requests.
     static let nearbyInitialRadiusKm = 5
-    static let nearbyExpandedRadiusKm = 20
     static let nearbyFinalRadiusKm = 50
-    static let nearbyMinimumVenueCount = 5
     static let nearbyMaximumVenueCount = 10
     /// SyncClient owns transport retries. The view makes one request per configured radius and
     /// expands from the fast local pass to the wider catalogue pass when needed.
     static let nearbyAutomaticRetryCount = 0
 
     static var nearbyDiscoveryRadii: [Int] {
-        [nearbyInitialRadiusKm, nearbyExpandedRadiusKm, nearbyFinalRadiusKm]
+        [nearbyInitialRadiusKm, nearbyFinalRadiusKm]
     }
 
     static func nearbyVenueCount(_ options: [MobileCourseOption]) -> Int {
@@ -2772,7 +2769,7 @@ public struct StartRoundView: View {
                     if index == 0 {
                         selectAutomatically(nearbyVenueCount(providerOptions) == 1 ? providerOptions.first : nil)
                     }
-                    if nearbyVenueCount(providerOptions) >= nearbyMinimumVenueCount || index == radii.count - 1 {
+                    if !providerOptions.isEmpty || index == radii.count - 1 {
                         return snapshot()
                     }
                     break

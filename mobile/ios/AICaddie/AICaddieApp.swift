@@ -8203,19 +8203,30 @@ public final class LiveRoundAppModel: ObservableObject {
     /// row used by StartRoundView. This records facts already accepted by the package contract; it
     /// never invents a localized name or turns the row into a nearby/GPS result.
     private func rememberRecentCourseSelection(from package: LiveRoundPackage) {
-        // The map-only history is deliberately empty. Record the recent row only after the
-        // personal merge, so a failed enrichment also leaves the last known history intact.
-        guard !Self.defersPlayerEnrichment(package) else { return }
+        // Activation already proves which course was started. A map-only package deliberately
+        // omits personal history: retain facts for this ID, never borrow the previous venue's.
+        let knownHistory: MobileCourseOption?
+        if Self.defersPlayerEnrichment(package) {
+            let cached = try? offlineStore.loadRecentCourseSelection()
+            knownHistory = ([recentCourseOption, cached].compactMap { $0 } + courseOptions)
+                .filter { $0.globalId == package.course.globalId }
+                .max {
+                    if $0.roundCount != $1.roundCount { return $0.roundCount < $1.roundCount }
+                    return ($0.latestRoundDate ?? "") < ($1.latestRoundDate ?? "")
+                }
+        } else {
+            knownHistory = nil
+        }
         let anchor = package.holes.first {
             $0.teeLatitude != nil && $0.teeLongitude != nil
         }
         let option = MobileCourseOption(
             globalId: package.course.globalId,
-            courseKey: package.recentHistory.course.courseKey,
+            courseKey: knownHistory?.courseKey ?? package.recentHistory.course.courseKey,
             name: package.course.name,
-            roundCount: package.recentHistory.course.roundCount,
-            latestRoundId: package.recentHistory.rounds.first?.roundId,
-            latestRoundDate: package.recentHistory.rounds.first?.date,
+            roundCount: knownHistory?.roundCount ?? package.recentHistory.course.roundCount,
+            latestRoundId: knownHistory?.latestRoundId ?? package.recentHistory.rounds.first?.roundId,
+            latestRoundDate: knownHistory?.latestRoundDate ?? package.recentHistory.rounds.first?.date,
             holes: package.holes.count,
             teeBox: package.course.teeBox,
             geometryCoverage: package.geometryCoverage.state.rawValue,

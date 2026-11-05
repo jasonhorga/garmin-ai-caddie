@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Services/SyncClient.swift b/mobile/ios/AICaddie/Services/SyncClient.swift
+index 08d0883e..61feee1c 100644
+--- a/mobile/ios/AICaddie/Services/SyncClient.swift
++++ b/mobile/ios/AICaddie/Services/SyncClient.swift
+@@ -509,7 +509,7 @@ public final class SyncClient {
+     static let courseDiscoveryForegroundBudgetInterval: TimeInterval = 25
+     /// One local attempt allows the backend's 12 s pagination to complete. Only an empty/failed
+     /// local answer expands; its two transient attempts share the remaining 7 s (20 s in total).
+-    static let nearbyInitialRequestTimeoutInterval: TimeInterval = 13
++    static let nearbyInitialRequestTimeoutInterval: TimeInterval = 5
+     static let nearbyExpandedForegroundBudgetInterval: TimeInterval = 7
+     static let courseDiscoveryMaximumAttempts = 2
+     static let roundShareTimeoutInterval: TimeInterval = 5

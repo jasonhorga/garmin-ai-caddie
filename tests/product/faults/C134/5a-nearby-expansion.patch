@@ -1,12 +1,12 @@
 diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
-index e5eef8a8..213197f8 100644
+index fc532e89..92161369 100644
 --- a/mobile/ios/AICaddie/Views/StartRoundView.swift
 +++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
-@@ -2314,7 +2314,7 @@ public struct StartRoundView: View {
+@@ -2623,7 +2623,7 @@ public struct StartRoundView: View {
      static let nearbyAutomaticRetryCount = 0
  
      static var nearbyDiscoveryRadii: [Int] {
--        [nearbyInitialRadiusKm, nearbyExpandedRadiusKm, nearbyFinalRadiusKm]
+-        [nearbyInitialRadiusKm, nearbyFinalRadiusKm]
 +        [nearbyInitialRadiusKm]
      }
  
