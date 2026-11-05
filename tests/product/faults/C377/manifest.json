@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "C377-inflight-waiter-slow-token",
+      "patch": "tests/product/faults/C377/inflight-waiter-slow-token.patch",
+      "kind": "python",
+      "target": "tests.product.test_garmin_raster_fast_lane.GarminRasterFastLaneTests.test_J42_three_cold_same_hole_waiters_do_not_consume_other_hole_slot",
+      "promise": "J4.2",
+      "kills": "Three cold requests for one hole must leave a slow-lane slot for another hole."
+    },
+    {
+      "id": "C377-mismatch-slow-fallback",
+      "patch": "tests/product/faults/C377/mismatch-slow-fallback.patch",
+      "kind": "python",
+      "target": "tests.product.test_garmin_raster_fast_lane.GarminRasterFastLaneTests.test_J42_cached_version_mismatch_returns_fast_without_slow_lane",
+      "promise": "J4.2",
+      "kills": "A cached release must answer a version mismatch without entering the slow lane."
+    },
+    {
+      "id": "C377-expired-release-no-refresh",
+      "patch": "tests/product/faults/C377/expired-release-no-refresh.patch",
+      "kind": "python",
+      "target": "tests.product.test_garmin_raster_fast_lane.GarminRasterFastLaneTests.test_J42_expired_release_refreshes_once_in_background_after_fast_hit",
+      "promise": "J4.2",
+      "kills": "A fast-lane hit after release expiry must schedule one background refresh."
+    }
+  ]
+}

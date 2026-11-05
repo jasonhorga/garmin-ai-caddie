@@ -21,6 +21,7 @@ from weakref import WeakKeyDictionary
 
 import anyio.to_thread
 from fastapi import APIRouter, HTTPException, Path, Request, Response
+from fastapi.responses import JSONResponse
 from PIL import Image
 
 from ai_caddie.geometry import garmin_raster
@@ -45,6 +46,10 @@ _INFLIGHT: dict[tuple[int, int, str], Future] = {}
 # AnyIO limiters belong to the running loop (including each new TestClient loop).
 _HTTP_LIMITERS: WeakKeyDictionary = WeakKeyDictionary()
 _HTTP_LIMITERS_GUARD = threading.Lock()
+_RELEASE_REFRESH_POOL: ThreadPoolExecutor | None = None
+_RELEASE_REFRESH_GUARD = threading.Lock()
+_RELEASE_REFRESH_INFLIGHT: set[int] = set()
+_UNVERSIONED_INFLIGHT_VERSION = "<unversioned>"
 
 
 def _http_limiters() -> tuple[anyio.CapacityLimiter, anyio.CapacityLimiter]:
@@ -55,6 +60,39 @@ def _http_limiters() -> tuple[anyio.CapacityLimiter, anyio.CapacityLimiter]:
             limiters = (anyio.CapacityLimiter(8), anyio.CapacityLimiter(2))
             _HTTP_LIMITERS[loop] = limiters
         return limiters
+
+
+def _release_refresh_pool() -> ThreadPoolExecutor:
+    global _RELEASE_REFRESH_POOL
+    with _RELEASE_REFRESH_GUARD:
+        if _RELEASE_REFRESH_POOL is None:
+            _RELEASE_REFRESH_POOL = ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="garmin-release-refresh"
+            )
+        return _RELEASE_REFRESH_POOL
+
+
+def _refresh_release(global_id: int) -> None:
+    try:
+        garmin_raster.courseview_release_info(int(global_id), allow_fetch=True)
+    except Exception as exc:  # noqa: BLE001 - the cached release remains usable
+        logger.debug("garmin raster release refresh failed: %s", type(exc).__name__)
+    finally:
+        with _RELEASE_REFRESH_GUARD:
+            _RELEASE_REFRESH_INFLIGHT.discard(int(global_id))
+
+
+def _schedule_release_refresh(global_id: int) -> None:
+    gid = int(global_id)
+    with _RELEASE_REFRESH_GUARD:
+        if gid in _RELEASE_REFRESH_INFLIGHT:
+            return
+        _RELEASE_REFRESH_INFLIGHT.add(gid)
+    try:
+        _release_refresh_pool().submit(_refresh_release, gid)
+    except RuntimeError:
+        with _RELEASE_REFRESH_GUARD:
+            _RELEASE_REFRESH_INFLIGHT.discard(gid)
 
 
 async def _dispatch_raster(cached: Callable, slow: Callable, *args):
@@ -80,9 +118,13 @@ def _cached_image(request: Request, global_id: int, hole: int, v: str | None, *,
         return None
     version = garmin_raster.raster_image_version(asset) if webp else asset
     if v != version:
-        return None
+        if v is None:
+            return None
+        return JSONResponse(status_code=409, content={"detail": "garmin raster asset version changed"})
     etag = f'"{version}"'
     headers = {"Cache-Control": _IMMUTABLE_CACHE_CONTROL, "ETag": etag}
+    if garmin_raster.raster_release_refresh_due(global_id, hole):
+        _schedule_release_refresh(global_id)
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
     # Both caches are atomically replaced. Never enter a fetch/matte/cache lock here.
@@ -105,7 +147,97 @@ def _cached_projection(global_id: int, hole: int) -> dict[str, Any] | None:
     if cached is not None:
         mark("raster_revision")
         mark("raster_projection_hit")
+        if garmin_raster.raster_release_refresh_due(global_id, hole):
+            _schedule_release_refresh(global_id)
     return cached
+
+
+def _claim_inflight(key: tuple[int, int, str]) -> tuple[Future, bool]:
+    with _INFLIGHT_LOCK:
+        future = _INFLIGHT.get(key)
+        if future is not None:
+            return future, False
+        future = Future()
+        _INFLIGHT[key] = future
+        return future, True
+
+
+async def _await_inflight(future: Future) -> dict[str, Any]:
+    """Await a registration leader without borrowing a slow-lane token."""
+    return await asyncio.shield(asyncio.wrap_future(future))
+
+
+def _cancel_inflight(key: tuple[int, int, str], future: Future) -> None:
+    """Release a leader claim when its request is cancelled before registration starts."""
+    with _INFLIGHT_LOCK:
+        if _INFLIGHT.get(key) is future:
+            _INFLIGHT.pop(key, None)
+        future.cancel()
+
+
+async def _dispatch_projection(global_id: int, hole: int) -> dict[str, Any]:
+    """Run projection waiters outside the bounded registration limiter."""
+    fast_limiter, slow_limiter = _http_limiters()
+    cached = await anyio.to_thread.run_sync(_cached_projection, global_id, hole, limiter=fast_limiter)
+    if cached is not None:
+        return cached
+    admission_key = (int(global_id), int(hole), _UNVERSIONED_INFLIGHT_VERSION)
+    admission_future, leader = _claim_inflight(admission_key)
+    if not leader:
+        mark("raster_inflight_wait")
+        try:
+            return await _await_inflight(admission_future)
+        except asyncio.CancelledError:
+            if admission_future.cancelled():
+                return await _dispatch_projection(global_id, hole)
+            raise
+    try:
+        version = await anyio.to_thread.run_sync(
+            _cached_asset_version, global_id, hole, limiter=fast_limiter,
+        )
+        if version:
+            key = (int(global_id), int(hole), str(version))
+            with _INFLIGHT_LOCK:
+                exact_future = _INFLIGHT.get(key)
+                if exact_future is None:
+                    _INFLIGHT[key] = admission_future
+            if exact_future is not None and exact_future is not admission_future:
+                try:
+                    result = await _await_inflight(exact_future)
+                except asyncio.CancelledError:
+                    if exact_future.cancelled():
+                        with _INFLIGHT_LOCK:
+                            if _INFLIGHT.get(admission_key) is admission_future:
+                                _INFLIGHT.pop(admission_key, None)
+                        return await _dispatch_projection(global_id, hole)
+                    raise
+                if not admission_future.cancelled():
+                    admission_future.set_result(result)
+                return result
+        else:
+            key = admission_key
+        # A disconnected request must be able to abandon a queued slow-lane leader. Otherwise
+        # its claim can strand followers on a Future while the limiter is held by other work.
+        return await anyio.to_thread.run_sync(
+            partial(
+                course_hole_garmin_raster,
+                global_id,
+                hole,
+                _version=version,
+                _inflight_future=admission_future,
+            ),
+            abandon_on_cancel=True,
+            limiter=slow_limiter,
+        )
+    except BaseException:
+        _cancel_inflight(admission_key, admission_future)
+        raise
+    finally:
+        with _INFLIGHT_LOCK:
+            if _INFLIGHT.get(admission_key) is admission_future:
+                _INFLIGHT.pop(admission_key, None)
+            if "key" in locals() and _INFLIGHT.get(key) is admission_future:
+                _INFLIGHT.pop(key, None)
 
 
 def _register_lock(global_id: int, hole: int, version: str) -> threading.RLock:
@@ -349,11 +481,24 @@ def prefetch_holes(
 def course_hole_garmin_raster(
     global_id: int,
     hole: int = Path(ge=1, le=36),
+    *,
+    _version: str | None = None,
+    _inflight_future: Future | None = None,
 ) -> dict[str, Any]:
-    version = _asset_version(global_id, hole)
+    version = _version if _version is not None else _asset_version(global_id, hole)
     mark("raster_revision")
     if not version:
         return _unavailable("raster_url_missing", image_url=None)
+    if _inflight_future is not None:
+        if _inflight_future.cancelled():
+            return _unavailable("raster_request_cancelled", image_url=None, version=version)
+        if in_background():
+            fetched = garmin_raster.fetch_raster(global_id, hole)
+            with background_work(unit_type="raster-registration"):
+                return _describe_raster(
+                    global_id, hole, version, fetched=fetched, inflight_future=_inflight_future,
+                )
+        return _describe_raster(global_id, hole, version, inflight_future=_inflight_future)
     lock = _register_lock(global_id, hole, version)
     with lock:
         cached = _projection_result(global_id, hole, version)
@@ -370,18 +515,21 @@ def course_hole_garmin_raster(
 _NOT_FETCHED = object()
 
 
-def _describe_raster(global_id: int, hole: int, version: str, *, fetched=_NOT_FETCHED):
+def _describe_raster(
+    global_id: int,
+    hole: int,
+    version: str,
+    *,
+    fetched=_NOT_FETCHED,
+    inflight_future: Future | None = None,
+):
     # Background callers have fetched before admission, and enter before publishing a leader.
     lock = _register_lock(global_id, hole, version)
     key = (int(global_id), int(hole), str(version))
-    with _INFLIGHT_LOCK:
-        future = _INFLIGHT.get(key)
-        if future is None:
-            future = Future()
-            _INFLIGHT[key] = future
-            leader = True
-        else:
-            leader = False
+    if inflight_future is None:
+        future, leader = _claim_inflight(key)
+    else:
+        future, leader = inflight_future, True
     if not leader:
         mark("raster_inflight_wait")
         return future.result()
@@ -392,7 +540,8 @@ def _describe_raster(global_id: int, hole: int, version: str, *, fetched=_NOT_FE
             cached = _projection_result(global_id, hole, version)
         if cached is not None:
             mark("raster_projection_hit")
-            future.set_result(cached)
+            if not future.cancelled():
+                future.set_result(cached)
             return cached
         # Share only requests that overlap in time. Completed unavailable results are deliberately
         # not retained; a later request must retry the provider/authority check.
@@ -403,15 +552,26 @@ def _describe_raster(global_id: int, hole: int, version: str, *, fetched=_NOT_FE
             logger.warning("garmin raster fetch failed: %s", type(exc).__name__)
             fetched = None
         mark("raster_fetch")
+        resolved_version = _cached_asset_version(global_id, hole)
+        if resolved_version and resolved_version != version:
+            rebound_key = (int(global_id), int(hole), str(resolved_version))
+            with _INFLIGHT_LOCK:
+                if _INFLIGHT.get(rebound_key) is None:
+                    _INFLIGHT[rebound_key] = future
+            return _describe_raster(
+                global_id, hole, resolved_version, fetched=fetched, inflight_future=future,
+            )
         with lock:
             result = _register_one(global_id, hole, version, fetched)
             mark("raster_register")
             if _registration_settled(result):
                 garmin_raster.save_projection_cache(global_id, hole, version, result)
-        future.set_result(result)
+        if not future.cancelled():
+            future.set_result(result)
         return result
     except BaseException as exc:
-        future.set_exception(exc)
+        if not future.cancelled():
+            future.set_exception(exc)
         raise
     finally:
         with _INFLIGHT_LOCK:
@@ -441,4 +601,4 @@ async def course_hole_garmin_raster_webp_http(
 async def course_hole_garmin_raster_http(
     global_id: int, hole: int = Path(ge=1, le=36),
 ) -> dict[str, Any]:
-    return await _dispatch_raster(_cached_projection, course_hole_garmin_raster, global_id, hole)
+    return await _dispatch_projection(global_id, hole)

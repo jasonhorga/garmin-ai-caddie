@@ -1,4 +1,5 @@
 """J4.2: cached Garmin images/projections return in <1 s during server heavy work."""
+import asyncio
 from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from io import BytesIO
@@ -11,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 import anyio.to_thread
+import anyio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -147,17 +149,15 @@ class GarminRasterFastLaneTests(unittest.TestCase):
         with TestClient(self.app) as client, ThreadPoolExecutor(max_workers=4) as pool:
             with self.held_lock(reference._release_lock(GID, self.root)):
                 self.assert_cached_http(client, pool)
-                self.assertEqual(self.network.call_count, 0, "J4.2 cache hit must never refresh Garmin release")
 
     def test_J42_projection_cache_bypasses_registration_lock(self):
         with TestClient(self.app) as client, ThreadPoolExecutor(max_workers=4) as pool:
             with self.held_lock(api._register_lock(GID, 1, "777")):
                 self.assert_cached_http(client, pool)
 
-    def test_J42_cache_hit_never_refreshes_and_keeps_timing_stages(self):
+    def test_J42_cache_hit_keeps_timing_stages_while_refresh_runs_in_background(self):
         with TestClient(self.app) as client, ThreadPoolExecutor(max_workers=4) as pool:
             self.assert_cached_http(client, pool)
-        self.assertEqual(self.network.call_count, 0, "J4.2 cached HTTP must not refresh an expired release")
         stages = {name for timing in self.timings for name in timing.marks}
         self.assertIn("raster_projection_hit", stages)
 
@@ -211,7 +211,6 @@ class GarminRasterFastLaneTests(unittest.TestCase):
                 self.assertEqual(response.content, b"")
                 self.assertEqual(response.headers["etag"], f'"{version}"')
                 self.assertEqual(response.headers["cache-control"], "public, max-age=31536000, immutable")
-        self.assertEqual(self.network.call_count, 0)
 
     def test_J42_version_mismatch_and_unpinned_keep_slow_path_contract(self):
         with TestClient(self.app) as client:
@@ -236,6 +235,204 @@ class GarminRasterFastLaneTests(unittest.TestCase):
                 self.assertEqual(raster.load_projection_cache(GID, 1, "777")["projection"], PROJECTION)
                 self.assertEqual(client.get(BASE).status_code, 200)
             register.assert_called_once()
+
+    def test_J42_three_cold_same_hole_waiters_do_not_consume_other_hole_slot(self):
+        """J4.2 N1: waiters share the leader future outside the two-slot slow lane."""
+        async def scenario():
+            fast_limiter = anyio.CapacityLimiter(8)
+            slow_limiter = anyio.CapacityLimiter(2)
+            same_hole_started = threading.Event()
+            other_hole_started = threading.Event()
+            release_same_hole = threading.Event()
+
+            def register(global_id, hole, **_kwargs):
+                if hole == 1:
+                    same_hole_started.set()
+                    release_same_hole.wait(10)
+                else:
+                    other_hole_started.set()
+                result = dict(CACHED)
+                future = _kwargs["_inflight_future"]
+                if not future.cancelled():
+                    future.set_result(result)
+                return result
+
+            tasks = []
+            try:
+                with (patch.object(api, "_http_limiters", return_value=(fast_limiter, slow_limiter)),
+                      patch.object(api, "_cached_projection", return_value=None),
+                      patch.object(api, "_cached_asset_version", return_value="777"),
+                      patch.object(api, "course_hole_garmin_raster", side_effect=register)):
+                    tasks = [asyncio.create_task(api._dispatch_projection(GID, 1))]
+                    self.assertTrue(
+                        await anyio.to_thread.run_sync(same_hole_started.wait, 3),
+                        "same-hole registration did not start",
+                    )
+                    tasks.extend(asyncio.create_task(api._dispatch_projection(GID, 1)) for _ in range(2))
+                    tasks.append(asyncio.create_task(api._dispatch_projection(GID, 2)))
+                    self.assertTrue(
+                        await anyio.to_thread.run_sync(other_hole_started.wait, 3),
+                        "another hole waited behind same-hole waiters",
+                    )
+            finally:
+                release_same_hole.set()
+                if tasks:
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    self.assertTrue(all(isinstance(result, dict) for result in results))
+
+        anyio.run(scenario)
+
+    def test_J42_unversioned_same_hole_waiters_do_not_hold_slow_slots(self):
+        """A release lookup that has no version still admits one leader per hole."""
+        same_hole_started = threading.Event()
+        other_hole_started = threading.Event()
+        release_same_hole = threading.Event()
+
+        def register(_global_id, hole, _version, _fetched):
+            if hole == 1:
+                same_hole_started.set()
+                self.assertTrue(release_same_hole.wait(10), "test did not release same-hole registration")
+            else:
+                other_hole_started.set()
+            return dict(CACHED)
+
+        with (patch.object(api, "_cached_projection", return_value=None),
+              patch.object(api, "_cached_asset_version", return_value=None),
+              patch.object(api, "_asset_version", return_value="777"),
+              patch.object(api, "_projection_result", return_value=None),
+              patch.object(api, "_register_one", side_effect=register),
+              patch.object(raster, "fetch_raster", return_value=self.jpg),
+              TestClient(self.app) as client, ThreadPoolExecutor(max_workers=6) as pool):
+            same_jobs = [pool.submit(client.get, BASE) for _ in range(3)]
+            self.assertTrue(same_hole_started.wait(3), "same-hole fallback did not start")
+            other_job = pool.submit(client.get, BASE.replace("/holes/1/", "/holes/2/"))
+            try:
+                self.assertTrue(other_hole_started.wait(3), "another hole waited behind unversioned waiters")
+            finally:
+                release_same_hole.set()
+            for job in same_jobs + [other_job]:
+                self.assertEqual(job.result(timeout=5).status_code, 200)
+
+    def test_J42_registration_rebinds_when_fetch_refreshes_release_version(self):
+        registered_versions = []
+
+        def register(_global_id, _hole, version, _fetched):
+            registered_versions.append(version)
+            return dict(CACHED)
+
+        with (patch.object(api, "_projection_result", return_value=None),
+              patch.object(api, "_cached_asset_version", return_value="778"),
+              patch.object(api, "_register_one", side_effect=register),
+              patch.object(raster, "fetch_raster", return_value=self.jpg)):
+            future = api.Future()
+            result = api.course_hole_garmin_raster(
+                GID, 1, _version="777", _inflight_future=future,
+            )
+        self.assertTrue(result["available"])
+        self.assertEqual(registered_versions, ["778"])
+
+    def test_J42_conditional_image_hit_schedules_expired_release_refresh(self):
+        with (patch.object(raster, "raster_release_refresh_due", return_value=True),
+              patch.object(api, "_schedule_release_refresh") as schedule,
+              TestClient(self.app) as client):
+            response = client.get(
+                BASE + ".jpg?v=777", headers={"If-None-Match": '"777"'},
+            )
+        self.assertEqual(response.status_code, 304)
+        schedule.assert_called_once_with(GID)
+
+    def test_J42_cancelled_leader_releases_inflight_for_waiter(self):
+        """A disconnect while queued for registration must not strand same-hole waiters."""
+        async def scenario():
+            fast_limiter = anyio.CapacityLimiter(8)
+            slow_limiter = anyio.CapacityLimiter(2)
+            borrowers = [object(), object()]
+            for borrower in borrowers:
+                await slow_limiter.acquire_on_behalf_of(borrower)
+            key = (GID, 1, "777")
+            with api._INFLIGHT_LOCK:
+                api._INFLIGHT.pop(key, None)
+            try:
+                with (patch.object(api, "_http_limiters", return_value=(fast_limiter, slow_limiter)),
+                      patch.object(api, "_cached_projection", return_value=None),
+                      patch.object(api, "_cached_asset_version", return_value="777"),
+                      patch.object(api, "course_hole_garmin_raster", return_value=dict(CACHED))):
+                    leader = asyncio.create_task(api._dispatch_projection(GID, 1))
+                    for _ in range(100):
+                        with api._INFLIGHT_LOCK:
+                            claimed = key in api._INFLIGHT
+                        if claimed:
+                            break
+                        await anyio.sleep(0)
+                    leader.cancel()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await leader
+                    with api._INFLIGHT_LOCK:
+                        self.assertNotIn(key, api._INFLIGHT)
+                    for borrower in borrowers:
+                        slow_limiter.release_on_behalf_of(borrower)
+                    result = await asyncio.wait_for(api._dispatch_projection(GID, 1), timeout=2)
+                    self.assertEqual(result["available"], True)
+            finally:
+                for borrower in borrowers:
+                    try:
+                        slow_limiter.release_on_behalf_of(borrower)
+                    except RuntimeError:
+                        pass
+                with api._INFLIGHT_LOCK:
+                    api._INFLIGHT.pop(key, None)
+
+        anyio.run(scenario)
+
+    def test_J42_cached_version_mismatch_returns_fast_without_slow_lane(self):
+        entered = threading.Event()
+        release = threading.Event()
+
+        def blocked_asset_version(_global_id, _hole):
+            entered.set()
+            self.assertTrue(release.wait(10), "test did not release slow version lookup")
+            return "777"
+
+        with (patch.object(api, "_asset_version", side_effect=blocked_asset_version),
+              TestClient(self.app) as client, ThreadPoolExecutor(max_workers=4) as pool):
+            jobs = [pool.submit(client.get, BASE + f".{suffix}?v=old") for suffix in ("webp", "jpg")]
+            try:
+                done, _ = wait(jobs, timeout=RESPONSE_BUDGET)
+                self.assertEqual(set(jobs), done, "cached version mismatch must not enter the slow lane")
+                self.assertTrue(all(job.result().status_code == 409 for job in jobs))
+                self.assertFalse(entered.is_set(), "fast mismatch unexpectedly called slow version lookup")
+            finally:
+                release.set()
+
+    def test_J42_expired_release_refreshes_once_in_background_after_fast_hit(self):
+        release_path = reference._courseview_dir(self.root) / f"{GID}_releases.pb"
+        injected_now = release_path.stat().st_mtime + reference.COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S + 1
+        refresh_started = threading.Event()
+        refresh_finished = threading.Event()
+        calls = []
+        lookup = reference.courseview_release_info
+
+        def release_info(global_id, **kwargs):
+            calls.append(bool(kwargs.get("allow_fetch", True)))
+            if kwargs.get("allow_fetch", True):
+                refresh_started.set()
+            try:
+                return lookup(global_id, root=self.root, **kwargs)
+            finally:
+                if kwargs.get("allow_fetch", True):
+                    refresh_finished.set()
+
+        with (patch.object(reference.time, "time", return_value=injected_now),
+              patch.object(raster, "courseview_release_info", side_effect=release_info),
+              TestClient(self.app) as client):
+            started = time.monotonic()
+            response = client.get(BASE)
+            elapsed = time.monotonic() - started
+            self.assertEqual(response.status_code, 200)
+            self.assertLess(elapsed, 1.0, "fast lane request waited for release refresh")
+            self.assertTrue(refresh_started.wait(3), "expired release did not schedule a refresh")
+            self.assertTrue(refresh_finished.wait(3), "background release refresh did not finish")
+        self.assertEqual(calls.count(True), 1, "one fast-lane hit must trigger one release refresh")
 
 
 if __name__ == "__main__":

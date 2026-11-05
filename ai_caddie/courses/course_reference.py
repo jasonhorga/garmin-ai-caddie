@@ -741,6 +741,7 @@ def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT
                     or time.time() - freshness_clock > COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S
                     or not localized
                 )
+                cached_info["_refresh_due"] = stale
             except (OSError, ValueError):
                 stale = True
         failure_key = (str(root.resolve()), gid)
@@ -780,6 +781,7 @@ def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT
             _RELEASE_UNCACHED_FAILURES.pop(failure_key, None)
             save_release_pb(gid, candidate, root=root)
             info["_localized"] = True
+            info["_refresh_due"] = False
             return info
         return cached_info
 

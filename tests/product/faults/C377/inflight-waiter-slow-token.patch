@@ -1,0 +1,13 @@
+diff --git a/server_v2/garmin_raster.py b/server_v2/garmin_raster.py
+index dd4f3020..4aed20f6 100644
+--- a/server_v2/garmin_raster.py
++++ b/server_v2/garmin_raster.py
+@@ -186,7 +186,7 @@ async def _dispatch_projection(global_id: int, hole: int) -> dict[str, Any]:
+     if not leader:
+         mark("raster_inflight_wait")
+         try:
+-            return await _await_inflight(admission_future)
++            return await anyio.to_thread.run_sync(admission_future.result, limiter=slow_limiter)
+         except asyncio.CancelledError:
+             if admission_future.cancelled():
+                 return await _dispatch_projection(global_id, hole)
