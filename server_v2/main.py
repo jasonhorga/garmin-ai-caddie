@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import asyncio
 from dataclasses import replace
 from concurrent.futures import Future, TimeoutError as FutureTimeoutError
 from datetime import datetime, timezone
@@ -121,6 +122,7 @@ from ai_caddie.caddie.round_loops import (
     round_loop_key,
 )
 from .auth_api import auth_router
+from .club_bag_api import bag_current_player_id, run_bag_read
 from .players_api import (
     admin_request_disposition,
     admin_router,
@@ -398,7 +400,6 @@ async def _lifespan(_app: FastAPI):
 app = FastAPI(title="AI Caddie v2", version="0.1.0", lifespan=_lifespan)
 
 
-@app.middleware("http")
 async def request_timing_middleware(request: Request, call_next):
     """Expose safe request correlation and stage timing for startup diagnostics."""
     timing = RequestTiming(request_id_for(request.headers.get("X-AI-Caddie-Request-ID")))
@@ -407,6 +408,12 @@ async def request_timing_middleware(request: Request, call_next):
     with bind_request_timing(timing), work_priority(FOREGROUND):
         try:
             response = await call_next(request)
+        except asyncio.CancelledError:
+            timing.mark("cancelled")
+            route = request.scope.get("route")
+            timing.finish(method=request.method, path=request.url.path, status=499,
+                          route_path=getattr(route, "path", None) or "<unmatched>")
+            raise
         except Exception:
             timing.mark("error")
             route = request.scope.get("route")
@@ -421,7 +428,7 @@ async def request_timing_middleware(request: Request, call_next):
         finally:
             if map_request:
                 foreground_request_finished()
-    timing.mark("response")
+    timing.mark("cancelled" if response.status_code == 499 else "response")
     response.headers["X-AI-Caddie-Request-ID"] = timing.request_id
     response.headers["Server-Timing"] = timing.server_timing()
     route = request.scope.get("route")
@@ -710,6 +717,20 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
 
 @app.middleware("http")
 async def enforce_admin_token_before_body_validation(request: Request, call_next):
+    try:
+        if request.method == "GET" and (
+            request.url.path == "/api/v2/history/clubs/bag"
+            or re.fullmatch(r"/api/v2/players/[^/]+/clubs/bag", request.url.path)
+        ):
+            await run_bag_read("auth_gate", _enforce_request_authorization, request)
+        else:
+            _enforce_request_authorization(request)
+    except HTTPException as exc:
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    return await call_next(request)
+
+
+def _enforce_request_authorization(request: Request) -> None:
     if _requires_admin_token(request.method, request.url.path, request.query_params):
         # A valid per-player token grants access to player-scoped routes (history, evidence
         # writes, mobile aggregators). For genuinely-admin routes, enforce_admin_or_owner accepts
@@ -719,11 +740,7 @@ async def enforce_admin_token_before_body_validation(request: Request, call_next
             request.method, request.url.path
         ) and has_valid_player_token(request)
         if not player_token_allows:
-            try:
-                enforce_admin_or_owner(request)
-            except HTTPException as exc:
-                return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
-    return await call_next(request)
+            enforce_admin_or_owner(request)
 
 
 @app.middleware("http")
@@ -846,6 +863,7 @@ def admin_timing(
     min_ms: float | None = Query(default=None, ge=0, le=86_400_000),
     request_id: str | None = Query(default=None, max_length=96),
     limit: int = Query(default=100, ge=1, le=500),
+    include_client: bool = Query(default=False),
 ) -> list[dict[str, Any]]:
     if since is not None and since.tzinfo is None:
         raise HTTPException(status_code=422, detail="since must include a timezone")
@@ -855,6 +873,7 @@ def admin_timing(
         min_ms=min_ms,
         request_id=request_id,
         limit=limit,
+        include_client=include_client,
     )
 
 
@@ -1078,18 +1097,21 @@ def history_stats_mobile(
 
 
 @app.get("/api/v2/history/clubs/bag", response_model=ClubBagResponse)
-def history_clubs_bag(
-    player_id: str = Depends(current_player_id),
+async def history_clubs_bag(
+    player_id: str = Depends(bag_current_player_id),
 ) -> ClubBagResponse:
     # The player's real Garmin bag (clubTypeId + custom name + retired/deleted), pulled by the sync
     # from Garmin's /club/player + /club/types. Owner-scoped; names resolve to Chinese on-device.
     from ai_caddie.caddie.club_bag import build_club_bag_response
 
-    return ClubBagResponse(**build_club_bag_response(player_id=player_id, owner_id=OWNER_ID))
+    def project():
+        return ClubBagResponse(**build_club_bag_response(player_id=player_id, owner_id=OWNER_ID))
+
+    return await run_bag_read("bag_read_projection", project)
 
 
 @app.get("/api/v2/players/{player_id}/clubs/bag", response_model=EffectiveClubBagResponse)
-def player_clubs_bag(player_id: str, acting_player_id: str = Depends(current_player_id)) -> EffectiveClubBagResponse:
+async def player_clubs_bag(player_id: str, acting_player_id: str = Depends(bag_current_player_id)) -> EffectiveClubBagResponse:
     """The player's EFFECTIVE club bag (manual selection wins, else the synced Garmin bag, else
     empty). A per-player bearer may read only its own bag; the owner (admin token) may read any —
     mirrors POST /api/v2/players/{id}/rounds."""
@@ -1097,7 +1119,10 @@ def player_clubs_bag(player_id: str, acting_player_id: str = Depends(current_pla
         raise HTTPException(status_code=403, detail="cannot read another player's club bag")
     from .club_bag_api import build_effective_club_bag_response
 
-    return EffectiveClubBagResponse(**build_effective_club_bag_response(player_id))
+    def project():
+        return EffectiveClubBagResponse(**build_effective_club_bag_response(player_id))
+
+    return await run_bag_read("bag_read_projection", project)
 
 
 @app.put("/api/v2/players/{player_id}/clubs/bag", response_model=EffectiveClubBagResponse)
@@ -4553,3 +4578,5 @@ def retry_player_garmin_sync_job(
 # through the final send to the server, not just the final send to an intermediate response queue.
 from .package_admission import PackageAdmissionMiddleware
 app.add_middleware(PackageAdmissionMiddleware)
+# Register last: timing includes the authorization gate and every early rejection.
+app.middleware("http")(request_timing_middleware)
