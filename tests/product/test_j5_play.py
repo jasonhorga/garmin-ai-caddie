@@ -119,6 +119,7 @@ class PlayTests(HTTPFixture, unittest.TestCase):
                       event("location", dict(zip(("latitude","longitude"),row["point"])), id="loc2"),
                       event("location", {"latitude":0.003,"longitude":0}, id="loc3"),
                       event("location", {"latitude":0.003,"longitude":0}, id="loc4"),
+                      event("location", {"latitude":0.003,"longitude":0}, id="loc5"),
                       *score_events(penalties=0)]
                 with patch.object(geometry_evidence,"_load_hole_sources",return_value=(hazards,surfaces)), \
                      patch("ai_caddie.courses.course_prep.tee_result_geometry",return_value={
