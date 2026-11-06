@@ -67,6 +67,7 @@ public final class WatchCourseLibrary: ObservableObject {
     private let clientFactory: ((WatchRoundConfig) -> WatchBackendClient)?
     /// The precise-upgrade backoff sleep (tests replace it; production waits the real delays).
     private let retrySleep: (UInt64) async throws -> Void
+    private var courseRemovalObserver: AnyCancellable?
     private var refreshRequestToken: UUID?
     private var nearbyRequestToken: UUID?
     private var searchRequestToken: UUID?
@@ -94,6 +95,24 @@ public final class WatchCourseLibrary: ObservableObject {
         cachedCourseIds = Set(cached.compactMap {
             Self.preciseTemplateReady($0, imageStore: imageStore) ? $0.option.globalId : nil
         })
+        courseRemovalObserver = NotificationCenter.default.publisher(for: .aicaddieWatchCourseRemoved)
+            .compactMap { $0.object as? Int }
+            .sink { [weak self] globalId in
+                Task { @MainActor in self?.removeCourse(globalId: globalId) }
+            }
+    }
+
+    private func removeCourse(globalId: Int) {
+        let removedTaskKeys = wholeTemplateTasks.keys.filter { key in
+            WatchCourseSelection.globalIds(loopKey: key.components(separatedBy: "|").first ?? "").contains(globalId)
+        }
+        for key in removedTaskKeys {
+            wholeTemplateTasks.removeValue(forKey: key)?.cancel()
+        }
+        courses.removeAll { $0.globalId == globalId }
+        nearbyCourses.removeAll { $0.globalId == globalId }
+        searchMatches.removeAll { $0.globalId == globalId }
+        cachedCourseIds.remove(globalId)
     }
 
     public func refresh(config: WatchRoundConfig?) async {

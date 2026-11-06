@@ -560,6 +560,9 @@ public struct MobileCourseOption: Codable, Equatable, Identifiable {
 
 public enum PrepCourseDownloadPhase: String, Codable, Equatable {
     case queued
+    /// Explicitly stopped by the player. A paused row is durable and is never picked by an
+    /// automatic retry; tapping Resume turns it back into a queued player request.
+    case paused
     case preparing
     case downloading
     case ready
@@ -812,6 +815,9 @@ public struct OfflineCourseDownloadRow: Equatable, Identifiable {
     public let status: String
     /// Non-nil only while holes are still arriving; a finished, queued or failed row has no bar.
     public let fraction: Double?
+    public let canPause: Bool
+    public let canResume: Bool
+    public let canDelete: Bool
 
     /// `current` is the live round's identity, or nil when nothing is being played. A value for
     /// another round, another loop set or another tee — a finished, discarded, other-account or
@@ -830,7 +836,10 @@ public struct OfflineCourseDownloadRow: Equatable, Identifiable {
                 status: live.isComplete
                     ? "已下载 \(live.totalHoles) 洞"
                     : "已下载 \(live.readyHoles)/\(live.totalHoles) 洞",
-                fraction: live.isComplete ? nil : live.fraction
+                fraction: live.isComplete ? nil : live.fraction,
+                canPause: false,
+                canResume: false,
+                canDelete: false
             ))
         }
         for download in downloads {
@@ -839,6 +848,8 @@ public struct OfflineCourseDownloadRow: Equatable, Identifiable {
             switch download.phase {
             case .queued:
                 status = "等待下载"
+            case .paused:
+                status = "已暂停"
             case .preparing, .downloading:
                 status = "已下载 \(min(download.downloadedHoles, download.totalHoles))/\(download.totalHoles) 洞"
                 fraction = download.progressFraction
@@ -852,7 +863,10 @@ public struct OfflineCourseDownloadRow: Equatable, Identifiable {
                 title: download.course.localizedName,
                 subtitle: StartRoundPresentation.recentRowSubtitle(download),
                 status: status,
-                fraction: fraction
+                fraction: fraction,
+                canPause: download.phase == .queued || download.phase == .preparing || download.phase == .downloading,
+                canResume: download.phase == .paused || download.phase == .failed,
+                canDelete: true
             ))
         }
         return rows

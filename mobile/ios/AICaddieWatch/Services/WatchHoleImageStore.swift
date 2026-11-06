@@ -46,6 +46,23 @@ public final class WatchHoleImageStore {
 
     public static func key(globalId: Int, hole: Int) -> String { "\(globalId)_\(hole)" }
 
+    /// Remove every cached asset for a physical course. Phone initiated library deletion uses this
+    /// identity so a Watch never keeps a stale offline copy after the iPhone has discarded it.
+    public func remove(globalId: Int) {
+        let prefix = "\(globalId)_"
+        let roots = [directory,
+            directory.deletingLastPathComponent().appendingPathComponent(Self.garminStorageStyleVersion, isDirectory: true)]
+        for root in roots {
+            guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { continue }
+            for file in files where file.lastPathComponent.hasPrefix(prefix) {
+                try? FileManager.default.removeItem(at: file)
+            }
+        }
+        #if canImport(UIKit)
+        Self.decodedImageCache.removeAllObjects()
+        #endif
+    }
+
     private func url(
         globalId: Int,
         hole: Int,

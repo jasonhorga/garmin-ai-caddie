@@ -88,6 +88,15 @@ public final class WatchCourseStore {
         }
         try encoder.encode(courses).write(to: fileURL, options: .atomic)
     }
+
+    /// Remove all loop/Tee variants for one physical Garmin course.
+    public func remove(globalId: Int) {
+        let remaining = loadCourses().filter { course in
+            course.option.globalId != globalId
+                && course.backOption?.globalId != globalId
+        }
+        try? encoder.encode(remaining).write(to: fileURL, options: .atomic)
+    }
 }
 
 public enum WatchCourseTemplateBuilderError: Error {

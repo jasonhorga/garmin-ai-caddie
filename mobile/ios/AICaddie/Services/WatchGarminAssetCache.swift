@@ -37,4 +37,15 @@ struct WatchGarminAssetCache {
         guard let target = file(globalId: globalId, localHole: localHole, assetVersion: assetVersion) else { return nil }
         return try? Data(contentsOf: target)
     }
+
+    func remove(globalId: Int) {
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ) else { return }
+        let prefix = "\(globalId)_"
+        for file in files where file.lastPathComponent.hasPrefix(prefix) {
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
 }

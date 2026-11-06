@@ -954,6 +954,19 @@ public final class WatchEventBridge: NSObject {
         WCSession.default.transferUserInfo(["roundClosure": object])
     }
 
+    /// Keep the Watch's offline course copy aligned with a phone library deletion. This command
+    /// carries only the Garmin identity; scores, round seeds and server caches are untouched.
+    public func removeCourseFromWatch(globalId: Int) {
+        guard WCSession.isSupported(),
+              WCSession.default.activationState == .activated else { return }
+        let payload: [String: Any] = ["removeCourse": ["globalId": globalId]]
+        if WCSession.default.isReachable {
+            WCSession.default.sendMessage(payload, replyHandler: nil)
+        } else {
+            WCSession.default.transferUserInfo(payload)
+        }
+    }
+
     /// round-12 P3.4 (Watch standalone): hand the watch what it needs to reach the backend on its own
     /// (base URL + auth), so a standalone round can sync without the phone relaying each event. Sent via
     /// application context — latest-wins and delivered even when the watch isn't reachable now.

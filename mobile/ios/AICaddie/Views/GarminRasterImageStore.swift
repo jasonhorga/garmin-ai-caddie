@@ -289,6 +289,13 @@ final class GarminRasterImageStore: ObservableObject {
         imageCache.removeObject(forKey: url as NSURL)
     }
 
+    /// Remove a persisted raster when its owning offline course is explicitly deleted. The URL is
+    /// the same resolved descriptor used by `load`, so this only drops that course's hashed file.
+    static func removeDiskEntry(_ url: URL) {
+        try? FileManager.default.removeItem(at: diskURL(for: url))
+        evict(url)
+    }
+
     static func prefetch(_ url: URL?) {
         guard let url, imageCache.object(forKey: url as NSURL) == nil else { return }
         Task { _ = await image(for: url) }

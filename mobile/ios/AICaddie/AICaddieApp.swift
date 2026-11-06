@@ -7,15 +7,39 @@ import AICaddieDomain
 #if canImport(UIKit)
 import UIKit
 #endif
+#if canImport(BackgroundTasks)
+import BackgroundTasks
+#endif
 
 @main
 public struct AICaddieApp: App {
-    @StateObject private var model = LiveRoundAppModel()
+    @StateObject private var model: LiveRoundAppModel
     @StateObject private var sessionStore = SessionStore.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var usesDarkLiveChrome = false
 
-    public init() {}
+    public init() {
+        let model = LiveRoundAppModel()
+        _model = StateObject(wrappedValue: model)
+        #if canImport(BackgroundTasks)
+        // Register before SwiftUI creates the first scene. Capture the model directly so a
+        // background-only launch cannot lose the one-shot BGProcessingTask delivery.
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: Self.speculativeBackgroundTaskIdentifier,
+            using: nil
+        ) { task in
+            guard let processingTask = task as? BGProcessingTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            Task { @MainActor in model.handleSpeculativeBackgroundTask(processingTask) }
+        }
+        #endif
+    }
+
+    #if canImport(BackgroundTasks)
+    static let speculativeBackgroundTaskIdentifier = "com.ai-caddie.mobile.speculative-prep"
+    #endif
 
     /// Only an explicit DEBUG UI-test launch may bypass Apple sign-in. Ordinary DEBUG launches use
     /// the same session gate as Release so local development cannot accidentally run in another
@@ -216,6 +240,18 @@ public struct AICaddieApp: App {
                         onRetryPrepCourseDownload: { id in
                             model.retryPrepCourseDownload(id: id)
                         },
+                        onPausePrepCourseDownload: { id in
+                            model.pausePrepCourseDownload(id: id)
+                        },
+                        onResumePrepCourseDownload: { id in
+                            model.resumePrepCourseDownload(id: id)
+                        },
+                        onDeletePrepCourseDownload: { id in
+                            model.deletePrepCourseDownload(id: id)
+                        },
+                        onPrefetchLocationChanged: { fix in
+                            model.updatePrefetchLocation(fix)
+                        },
                         onValidateReadyPrepCourse: { record in
                             await model.validateReadyPrepCourse(record)
                         },
@@ -308,6 +344,24 @@ private struct OfflinePrepBatchResult: @unchecked Sendable {
     let request: OfflinePrepBatchRequest
     let holes: [CoursePrepHole]
     let errorDescription: String?
+}
+
+/// The last foreground location used by the automatic download policy. It is intentionally a
+/// timestamped snapshot: after 24 hours the app must neither guess a course nor delete one.
+public struct PrefetchLocationSnapshot: Equatable, Sendable {
+    public let latitude: Double
+    public let longitude: Double
+    public let capturedAt: Date
+
+    public init(latitude: Double, longitude: Double, capturedAt: Date) {
+        self.latitude = latitude
+        self.longitude = longitude
+        self.capturedAt = capturedAt
+    }
+
+    public func isRecent(at now: Date = Date()) -> Bool {
+        capturedAt <= now && now.timeIntervalSince(capturedAt) <= 24 * 60 * 60
+    }
 }
 
 private struct OfflineDownloadClient: @unchecked Sendable {
@@ -1015,6 +1069,50 @@ public final class LiveRoundAppModel: ObservableObject {
     /// 可能会打: the network as `NWPathMonitor` last reported it (nil observer in tests).
     private let networkPathObserver: NetworkPathObserving?
     private var networkState = SpeculativeNetworkState.unknown
+    /// Automatic guesses are admitted only during the system's overnight processing window.
+    private var speculativeBackgroundPassActive = false
+    private var speculativeBackgroundTask: Task<Void, Never>?
+    private var manuallyPausedPrepDownloadIDs = Set<String>()
+    private var locationPausedPrepDownloadIDs = Set<String>()
+    private var suppressedAutomaticDownloadIDs = Set<String>()
+    private var latestPrefetchLocation: PrefetchLocationSnapshot?
+    private var nearbyRoundDownloadReleased = false
+
+    private var suppressionDefaultsKey: String {
+        "aicaddie.prefetch.suppressed.\(boundPlayerId ?? "anonymous")"
+    }
+
+    private var locationDefaultsKey: String {
+        "aicaddie.prefetch.location.\(boundPlayerId ?? "anonymous")"
+    }
+
+    private func loadSuppressedAutomaticDownloads() {
+        suppressedAutomaticDownloadIDs = Set(UserDefaults.standard.stringArray(forKey: suppressionDefaultsKey) ?? [])
+    }
+
+    private func persistSuppressedAutomaticDownloads() {
+        UserDefaults.standard.set(Array(suppressedAutomaticDownloadIDs).sorted(), forKey: suppressionDefaultsKey)
+    }
+
+    private func loadPrefetchLocation() {
+        guard let values = UserDefaults.standard.dictionary(forKey: locationDefaultsKey),
+              let latitude = values["latitude"] as? Double,
+              let longitude = values["longitude"] as? Double,
+              let timestamp = values["capturedAt"] as? Double else { return }
+        latestPrefetchLocation = PrefetchLocationSnapshot(
+            latitude: latitude,
+            longitude: longitude,
+            capturedAt: Date(timeIntervalSince1970: timestamp)
+        )
+    }
+
+    private func persistPrefetchLocation(_ location: PrefetchLocationSnapshot) {
+        UserDefaults.standard.set([
+            "latitude": location.latitude,
+            "longitude": location.longitude,
+            "capturedAt": location.capturedAt.timeIntervalSince1970,
+        ], forKey: locationDefaultsKey)
+    }
     /// Speculative courses that failed in this launch are not queued again until the next one.
     private var failedSpeculativeDownloadIDs = Set<String>()
     /// 新区域: the area the latest nearby answer found new, with what is known of its Tees, while
@@ -1284,6 +1382,40 @@ public final class LiveRoundAppModel: ObservableObject {
         )
     }
 
+    /// Called by the Hub's when-in-use location provider. The model keeps only the last fix needed
+    /// for the 30 km automatic-download policy; no continuous background GPS is requested.
+    public func updatePrefetchLocation(_ fix: LocationFix?) {
+        guard let fix,
+              fix.coordinate.latitude.isFinite,
+              fix.coordinate.longitude.isFinite else { return }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let capturedAt = formatter.date(from: fix.capturedAt) else { return }
+        let snapshot = PrefetchLocationSnapshot(
+            latitude: fix.coordinate.latitude,
+            longitude: fix.coordinate.longitude,
+            capturedAt: capturedAt
+        )
+        latestPrefetchLocation = snapshot
+        persistPrefetchLocation(snapshot)
+        applyManualDownloadLocationPolicy()
+        // A location update may be the first useful trigger after a foreground session. It only
+        // queues the overnight request; it never starts speculative work in the foreground.
+        scheduleSpeculativeBackgroundTask()
+    }
+
+    private var recentPrefetchLocation: (latitude: Double, longitude: Double)? {
+        guard let snapshot = latestPrefetchLocation, snapshot.isRecent() else { return nil }
+        return (snapshot.latitude, snapshot.longitude)
+    }
+
+    #if DEBUG
+    func setPrefetchLocationForTesting(_ snapshot: PrefetchLocationSnapshot?) {
+        latestPrefetchLocation = snapshot
+        applyManualDownloadLocationPolicy()
+    }
+    #endif
+
     /// round-13 watch-auth: re-push backend config to the watch whenever the Apple session changes
     /// (sign-in / refresh / sign-out), so the watch's standalone sync always carries the CURRENT
     /// member/owner Bearer — or clears it on sign-out. `dropFirst` skips the initial published value;
@@ -1381,6 +1513,9 @@ public final class LiveRoundAppModel: ObservableObject {
         // The 球包 roster, typed carries and their pending PUT belong to this player only.
         ClubBagSyncCoordinator.shared.activate(playerId: session.playerId, migrateLegacy: migrateLegacyData)
         boundPlayerId = session.playerId
+        latestPrefetchLocation = nil
+        loadSuppressedAutomaticDownloads()
+        loadPrefetchLocation()
         package = nil
         liveRoundState = nil
         pendingWatchRoundStart = nil
@@ -1426,7 +1561,10 @@ public final class LiveRoundAppModel: ObservableObject {
             // Before the download queue resumes, so a queued job cannot postpone it every launch;
             // age and reference guards keep it safe beside a download that starts mid-pass.
             scheduleOfflineStorageMaintenance()
-            resumePrepCourseDownloads(retryFailed: true)
+            // Player-owned downloads may resume in the foreground. Automatic guesses are
+            // admitted only by the BGProcessingTask handler below.
+            resumePrepCourseDownloads(retryFailed: true, includeSpeculative: false)
+            scheduleSpeculativeBackgroundTask()
             networkPathObserver?.start { [weak self] state in
                 self?.networkStateChanged(state)
             }
@@ -1952,6 +2090,7 @@ public final class LiveRoundAppModel: ObservableObject {
     private func beginRoundPreparation() -> UUID {
         let replacingPreparation = roundPreparationToken != nil
         let token = UUID()
+        nearbyRoundDownloadReleased = false
         roundPreparationToken = token
         roundPreparationGeneration &+= 1
         #if DEBUG
@@ -2717,7 +2856,51 @@ public final class LiveRoundAppModel: ObservableObject {
             beginRoundEnrichmentIfNeeded()
         }
         releaseFreshEntry(reason: "live-initial-load-finished")
+        nearbyRoundDownloadReleased = true
         resumeInterruptedOfflineCourseDownload()
+        resumeLocationPausedPrepDownloads()
+    }
+
+    private func applyManualDownloadLocationPolicy() {
+        let nearby = recentPrefetchLocation.map { location in
+            prepCourseDownloads.contains { row in
+                guard !row.isSpeculative, row.phase != .ready,
+                      let lat = row.course.latitude, let lon = row.course.longitude else { return false }
+                return GeoDistance.haversineMetres(location.latitude, location.longitude, lat, lon) <= 1_500
+            }
+        } ?? false
+        guard nearby else {
+            if liveRoundState == nil { resumeLocationPausedPrepDownloads() }
+            return
+        }
+        let nearbyRows = prepCourseDownloads.filter { row in
+            !row.isSpeculative && (row.phase == .queued || row.phase == .preparing || row.phase == .downloading)
+                && isManualDownloadPausedNearCourse(row)
+        }
+        for row in nearbyRows {
+            locationPausedPrepDownloadIDs.insert(row.id)
+            if activePrepCourseDownloadID == row.id { pausePrepCourseDownload() }
+            updatePrepCourseDownload(id: row.id) { record in
+                record.phase = .paused
+                record.errorText = "已到球场附近，暂停下载"
+            }
+        }
+        persistPrepCourseDownloads()
+    }
+
+    private func resumeLocationPausedPrepDownloads() {
+        guard !locationPausedPrepDownloadIDs.isEmpty else { return }
+        let ids = locationPausedPrepDownloadIDs
+        locationPausedPrepDownloadIDs.removeAll()
+        for id in ids where !manuallyPausedPrepDownloadIDs.contains(id) {
+            updatePrepCourseDownload(id: id) { record in
+                guard record.phase == .paused else { return }
+                record.phase = .queued
+                record.errorText = nil
+            }
+            startPrepCourseDownloadQueueIfNeeded(userRequested: id)
+        }
+        persistPrepCourseDownloads()
     }
 
     /// Course discovery stops the round's all-hole download (`prioritizeCourseDiscovery`). When the
@@ -3071,6 +3254,12 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Test-only cleanup for a validation test that deliberately queues a replacement download.
     /// Production callers use the foreground/background lifecycle methods instead.
     func setNetworkStateForTesting(_ state: SpeculativeNetworkState) {
+        // Existing queue unit tests model the overnight worker directly. Keep that deterministic
+        // hook independent of Core Location; production never calls this entry point.
+        speculativeBackgroundPassActive = true
+        if latestPrefetchLocation == nil {
+            latestPrefetchLocation = PrefetchLocationSnapshot(latitude: 0, longitude: 0, capturedAt: Date())
+        }
         networkStateChanged(state)
     }
 
@@ -5370,6 +5559,10 @@ public final class LiveRoundAppModel: ObservableObject {
         guard liveRoundState == nil,
               let prep = prepPackage,
               prep.holes.contains(where: { $0.number == startHole }) else { return false }
+        suppressedAutomaticDownloadIDs.remove(
+            PrepCourseDownloadRecord.key(globalId: prep.course.globalId, teeBox: prep.course.teeBox)
+        )
+        persistSuppressedAutomaticDownloads()
         prepEnrichmentTask?.cancel()
         prepEnrichmentTask = nil
         prepEnrichmentRoundID = nil
@@ -5602,8 +5795,8 @@ public final class LiveRoundAppModel: ObservableObject {
     public func syncOnForeground() {
         endPrepBackgroundTask()
         refreshResultsCacheIfNeeded()
-        resumePrepCourseDownloads(retryFailed: true)
-        scheduleSpeculativePrepCourseDownloads()
+        resumePrepCourseDownloads(retryFailed: true, includeSpeculative: false)
+        scheduleSpeculativeBackgroundTask()
         retryDeferredRoundFinishes()
         ClubBagSyncCoordinator.shared.configure(apiBaseURL: apiBaseURL, adminToken: adminToken)
         Task { await ClubBagSyncCoordinator.shared.restoreFromServer() }
@@ -6836,6 +7029,9 @@ public final class LiveRoundAppModel: ObservableObject {
             totalHoles: course.resolvedHoles
         )
         let id = candidate.id
+        manuallyPausedPrepDownloadIDs.remove(id)
+        suppressedAutomaticDownloadIDs.remove(id)
+        persistSuppressedAutomaticDownloads()
         // The player opened this course in 备战 (选了就进).
         offlineStore.recordCourseUse(globalId: course.globalId, teeBox: candidate.teeBox)
         if let existing = prepCourseDownloads.first(where: { $0.id == id }) {
@@ -6916,12 +7112,16 @@ public final class LiveRoundAppModel: ObservableObject {
         let tee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
         guard syncClient != nil, !tee.isEmpty else { return }
         for course in courses {
+            suppressedAutomaticDownloadIDs.remove(
+                PrepCourseDownloadRecord.key(globalId: course.globalId, teeBox: tee)
+            )
             let key = PrepCourseDownloadRecord.intentKey(globalId: course.globalId, teeBox: tee)
             intentGarminStartHoles[key] = startHole
             if let template = try? offlineStore.loadCourseTemplate(globalId: course.globalId, teeBox: tee) {
                 prefetchGarminRasters(template, activeHole: startHole)
             }
         }
+        persistSuppressedAutomaticDownloads()
         // The live round's own loops already have the all-hole pipeline.
         let liveGlobalIds = liveRoundState == nil
             ? Set<Int>()
@@ -7009,6 +7209,131 @@ public final class LiveRoundAppModel: ObservableObject {
         startPrepCourseDownloadQueueIfNeeded(userRequested: id)
     }
 
+    /// Stop a visible download task immediately. The durable paused state prevents a foreground
+    /// resume or an overnight automatic pass from starting it again until the player taps Resume.
+    public func pausePrepCourseDownload(id: String) {
+        guard let index = prepCourseDownloads.firstIndex(where: { $0.id == id }) else { return }
+        let record = prepCourseDownloads[index]
+        cancelServerPreparationIfNeeded(for: record)
+        manuallyPausedPrepDownloadIDs.insert(id)
+        if record.isSpeculative {
+            suppressedAutomaticDownloadIDs.insert(id)
+            persistSuppressedAutomaticDownloads()
+        }
+        if activePrepCourseDownloadID == id {
+            pausePrepCourseDownload(markUserPaused: true)
+        } else {
+            updatePrepCourseDownload(id: id) { row in
+                row.phase = .paused
+                row.errorText = "已暂停"
+                row.serverPreparation = nil
+            }
+            persistPrepCourseDownloads()
+        }
+    }
+
+    public func stopPrepCourseDownload(id: String) {
+        pausePrepCourseDownload(id: id)
+    }
+
+    /// Resume is always a player request, so it may run in the foreground on any network allowed
+    /// for an explicit download. A previously speculative row becomes player-owned at this point.
+    public func resumePrepCourseDownload(id: String) {
+        guard prepCourseDownloads.contains(where: { $0.id == id }) else { return }
+        manuallyPausedPrepDownloadIDs.remove(id)
+        suppressedAutomaticDownloadIDs.remove(id)
+        persistSuppressedAutomaticDownloads()
+        updatePrepCourseDownload(id: id) { row in
+            row.phase = .queued
+            row.errorText = nil
+            row.serverPreparation = nil
+            row.isSpeculative = false
+        }
+        userRequestedPrepDownloadIDs.insert(id)
+        persistPrepCourseDownloads()
+        startPrepCourseDownloadQueueIfNeeded(userRequested: id)
+    }
+
+    /// Remove the local template/journal row and queue only unreferenced shared topo files for a
+    /// later sweep. Scores, history and server results are never touched. The Watch receives the
+    /// same course identity so its local copy follows the phone.
+    public func deletePrepCourseDownload(id: String) {
+        guard let record = prepCourseDownloads.first(where: { $0.id == id }) else { return }
+        cancelServerPreparationIfNeeded(for: record)
+        manuallyPausedPrepDownloadIDs.insert(id)
+        suppressedAutomaticDownloadIDs.insert(id)
+        persistSuppressedAutomaticDownloads()
+        if activePrepCourseDownloadID == id {
+            pausePrepCourseDownload(markUserPaused: true)
+        }
+        prepCourseDownloads.removeAll { $0.id == id }
+        persistPrepCourseDownloads()
+        removeOfflineCourseFiles(for: record)
+        refreshDownloadedCourseOptions()
+    }
+
+    /// Local pause/delete is immediate. The server job is shared work, so ask the backend to
+    /// release its not-yet-started install window in the background; the backend keeps a job that
+    /// is already serving an active round for its current-round owner.
+    private func cancelServerPreparationIfNeeded(for record: PrepCourseDownloadRecord) {
+        guard let jobID = record.serverPreparation?.jobId,
+              !jobID.isEmpty,
+              let syncClient else { return }
+        let globalID = record.course.globalId
+        Task { @MainActor in
+            do {
+                _ = try await syncClient.cancelCourseInstallJob(globalId: globalID, jobId: jobID)
+            } catch is CancellationError {
+                return
+            } catch {
+                AICaddieLog.network.info(
+                    "Course install cancellation deferred for \(globalID, privacy: .public): \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+    }
+
+    public func removePrepCourseDownload(id: String) {
+        deletePrepCourseDownload(id: id)
+    }
+
+    private func removeOfflineCourseFiles(for record: PrepCourseDownloadRecord) {
+        let template = (try? offlineStore.loadCourseTemplate(
+            globalId: record.course.globalId,
+            teeBox: record.teeBox
+        )) ?? (try? offlineStore.loadCourseTemplates().first {
+            $0.course.globalId == record.course.globalId
+                && $0.course.teeBox.caseInsensitiveCompare(record.teeBox) == .orderedSame
+        })
+        let physicalGlobalIDs = Set(
+            [record.course.globalId]
+                + (template?.holes.map(\.sourceGlobalId) ?? [])
+        )
+        for descriptor in template?.holes.compactMap(\.garminRaster) ?? [] {
+            let imageURL = URL(string: descriptor.imageUrl).flatMap { url -> URL? in
+                if url.scheme != nil { return url }
+                guard let baseURL = apiBaseURL else { return nil }
+                return URL(string: descriptor.imageUrl, relativeTo: baseURL)?.absoluteURL
+            }
+            if let imageURL { GarminRasterImageStore.removeDiskEntry(imageURL) }
+        }
+        for globalID in physicalGlobalIDs {
+            WatchGarminAssetCache().remove(globalId: globalID)
+            watchBridge?.removeCourseFromWatch(globalId: globalID)
+            do {
+                try offlineStore.invalidateCourseTemplate(globalId: globalID, teeBox: record.teeBox)
+            } catch {
+                AICaddieLog.storage.error(
+                    "Offline course removal failed for \(globalID, privacy: .public): \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+        let scope = offlineStore.storageScope
+        if scope.queueTopoSweep(globalIds: physicalGlobalIDs) {
+            _ = scope.sweepEvictedTopo()
+        }
+    }
+
     /// Verify a locally complete prep package against the server's release-bound install journal.
     /// 备战 opens at once (README §8 选了就进) and runs this in the background. A missing/temporarily
     /// unreachable status endpoint is deliberately non-blocking: the local package is internally
@@ -7083,10 +7408,13 @@ public final class LiveRoundAppModel: ObservableObject {
         return false
     }
 
-    private func resumePrepCourseDownloads(retryFailed: Bool) {
+    private func resumePrepCourseDownloads(retryFailed: Bool, includeSpeculative: Bool = false) {
         guard syncClient != nil else { return }
         var changed = false
         for index in prepCourseDownloads.indices {
+            if prepCourseDownloads[index].isSpeculative && !includeSpeculative {
+                continue
+            }
             if prepCourseDownloads[index].id == activePrepCourseDownloadID,
                prepCourseDownloadTask != nil {
                 continue
@@ -7114,7 +7442,10 @@ public final class LiveRoundAppModel: ObservableObject {
         startPrepCourseDownloadQueueIfNeeded()
     }
 
-    private func pausePrepCourseDownload(preserveIntentPrefetch: Bool = false) {
+    private func pausePrepCourseDownload(
+        preserveIntentPrefetch: Bool = false,
+        markUserPaused: Bool = false
+    ) {
         if preserveIntentPrefetch,
            let active = activePrepCourseDownloadID,
            prepCourseDownloads.first(where: { $0.id == active })?.isIntentPrefetch == true,
@@ -7134,8 +7465,11 @@ public final class LiveRoundAppModel: ObservableObject {
         prepCourseDownloadGeneration = nil
         if let id = activePrepCourseDownloadID {
             updatePrepCourseDownload(id: id) { record in
-                record.phase = .queued
-                record.errorText = nil
+                record.phase = markUserPaused ? .paused : .queued
+                record.errorText = markUserPaused ? "已暂停" : nil
+            }
+            if markUserPaused {
+                manuallyPausedPrepDownloadIDs.insert(id)
             }
         }
         activePrepCourseDownloadID = nil
@@ -7244,6 +7578,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 foregroundCourseRequestCount == 0
                     || userRequestedPrepDownloadIDs.contains($0.id)
             }
+            .filter { !isManualDownloadPausedNearCourse($0) && !locationPausedPrepDownloadIDs.contains($0.id) }
             .filter { !$0.isSpeculative || speculativeJobMayStart }
         // Every job the player or a round asked for goes before a speculative one. The stable
         // catalogue ordering is then applied inside that priority class.
@@ -7255,7 +7590,152 @@ public final class LiveRoundAppModel: ObservableObject {
         }).first
     }
 
+    private func isManualDownloadPausedNearCourse(_ record: PrepCourseDownloadRecord) -> Bool {
+        guard !record.isSpeculative,
+              let location = recentPrefetchLocation,
+              let latitude = record.course.latitude,
+              let longitude = record.course.longitude else { return false }
+        return !nearbyRoundDownloadReleased
+            && GeoDistance.haversineMetres(location.latitude, location.longitude, latitude, longitude) <= 1_500
+    }
+
     // MARK: - 可能会打 (speculative course downloads)
+
+    #if canImport(BackgroundTasks)
+    /// Schedule the next overnight pass. The request is deliberately power constrained so a
+    /// foreground launch never competes with Start Round or history construction.
+    private func scheduleSpeculativeBackgroundTask() {
+        guard recentPrefetchLocation != nil else { return }
+        let request = BGProcessingTaskRequest(identifier: AICaddieApp.speculativeBackgroundTaskIdentifier)
+        request.requiresNetworkConnectivity = true
+        request.requiresExternalPower = true
+        try? BGTaskScheduler.shared.submit(request)
+    }
+
+    public func handleSpeculativeBackgroundTask(_ task: BGProcessingTask) {
+        task.expirationHandler = { [weak self] in
+            Task { @MainActor in self?.finishSpeculativeBackgroundTask(success: false, task: task) }
+        }
+        speculativeBackgroundTask?.cancel()
+        speculativeBackgroundTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            SessionStore.shared.reload()
+            guard let session = SessionStore.shared.currentSession else {
+                self.finishSpeculativeBackgroundTask(success: false, task: task)
+                return
+            }
+            if self.boundPlayerId != session.playerId {
+                self.activateSession(session, migrateLegacyData: true)
+            }
+            if self.isBootstrapping {
+                await self.bootstrap()
+            }
+            // A cold launch starts the path monitor asynchronously. Give it a bounded window to
+            // publish the real path before deciding that this overnight pass has no work; otherwise
+            // the initial `.unknown` state can make a valid BGProcessingTask finish immediately.
+            for _ in 0..<50 where self.networkState == .unknown && !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            guard !Task.isCancelled, self.networkState != .unknown else {
+                self.finishSpeculativeBackgroundTask(success: false, task: task)
+                return
+            }
+            self.speculativeBackgroundPassActive = true
+            self.resumePrepCourseDownloads(retryFailed: true, includeSpeculative: true)
+            self.scheduleSpeculativePrepCourseDownloads()
+            if let measurement = self.offlineStorageRemeasureTask {
+                await measurement.value
+                self.scheduleSpeculativePrepCourseDownloads()
+            }
+            if let worker = self.prepCourseDownloadTask {
+                await worker.value
+            }
+            self.runSpeculativeCleanupIfAllowed()
+            self.finishSpeculativeBackgroundTask(success: true, task: task)
+        }
+    }
+
+    private func finishSpeculativeBackgroundTask(success: Bool, task: BGProcessingTask? = nil) {
+        if !success {
+            prepCourseDownloadTask?.cancel()
+            offlineStorageRemeasureTask?.cancel()
+            newAreaTask?.cancel()
+        }
+        speculativeBackgroundPassActive = false
+        speculativeBackgroundTask = nil
+        task?.setTaskCompleted(success: success)
+        scheduleSpeculativeBackgroundTask()
+    }
+    #else
+    private func scheduleSpeculativeBackgroundTask() {}
+    #endif
+
+    /// Testable entry point for the same policy used by BGProcessingTask. It does not create a
+    /// UIKit background task and is compiled only into DEBUG test hosts.
+    #if DEBUG
+    @MainActor
+    func runSpeculativeBackgroundPassForTesting() async {
+        speculativeBackgroundPassActive = true
+        defer { speculativeBackgroundPassActive = false }
+        resumePrepCourseDownloads(retryFailed: true, includeSpeculative: true)
+        scheduleSpeculativePrepCourseDownloads()
+        if let measurement = offlineStorageRemeasureTask {
+            await measurement.value
+            scheduleSpeculativePrepCourseDownloads()
+        }
+        if let worker = prepCourseDownloadTask { await worker.value }
+        runSpeculativeCleanupIfAllowed()
+    }
+    #endif
+
+    private func runSpeculativeCleanupIfAllowed() {
+        guard let location = recentPrefetchLocation else { return }
+        let stale = SpeculativePrefetch.staleDistantRecords(
+            prepCourseDownloads,
+            lastUsed: offlineStore.loadCourseUsage(),
+            location: location,
+            now: Date()
+        ).filter { !isCourseBusy($0) }
+        guard !stale.isEmpty else { return }
+        let ids = Set(stale.map(\.id))
+        prepCourseDownloads.removeAll { ids.contains($0.id) }
+        persistPrepCourseDownloads()
+        for record in stale {
+            removeOfflineCourseFiles(for: record)
+            watchBridge?.removeCourseFromWatch(globalId: record.course.globalId)
+        }
+        refreshDownloadedCourseOptions()
+    }
+
+    private func isCourseBusy(_ globalId: Int) -> Bool {
+        if pendingWatchRoundStart?.globalId == globalId
+            || pendingWatchRoundStart?.holes.contains(where: { $0.globalId == globalId }) == true {
+            return true
+        }
+        if liveRoundState != nil,
+           package.map({ $0.course.globalId == globalId || $0.holes.contains { $0.sourceGlobalId == globalId } }) == true {
+            return true
+        }
+        let calendar = Calendar.current
+        if offlineStore.loadCourseUsage().contains(where: { key, usedAt in
+            key.hasPrefix("\(globalId)|") && calendar.isDateInToday(usedAt)
+        }) {
+            return true
+        }
+        return prepCourseDownloads.contains { row in
+            row.course.globalId == globalId && row.phase != .ready
+                && calendar.isDateInToday(row.updatedAt)
+        }
+    }
+
+    private func isCourseBusy(_ record: PrepCourseDownloadRecord) -> Bool {
+        if isCourseBusy(record.course.globalId) { return true }
+        guard let template = try? offlineStore.loadCourseTemplate(
+            globalId: record.course.globalId,
+            teeBox: record.teeBox
+        ) else { return false }
+        return Set(template.holes.map(\.sourceGlobalId)).contains { isCourseBusy($0) }
+    }
 
     private var speculativeDownloadsAllowed: Bool {
         networkState.allowsSpeculativeDownloads(cellularAllowed: SpeculativePrefetchSettings.cellularAllowed())
@@ -7264,7 +7744,11 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Queued guesses may start: the network allows them and no round is played or being prepared
     /// (`finishRoundPreparation` restarts the queue).
     private var speculativeJobsMayRun: Bool {
-        speculativeDownloadsAllowed && liveRoundState == nil && roundPreparationToken == nil
+        speculativeBackgroundPassActive
+            && speculativeDownloadsAllowed
+            && recentPrefetchLocation != nil
+            && liveRoundState == nil
+            && roundPreparationToken == nil
     }
 
     /// Whole courses that fit under the cap by a measurement newer than the last download's writes;
@@ -7321,7 +7805,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Stops a running guess the network no longer allows (the queue start pauses it), or queues
     /// and starts guesses it now does.
     private func applySpeculativeDownloadPolicy() {
-        if speculativeDownloadsAllowed {
+        if speculativeDownloadsAllowed, speculativeBackgroundPassActive {
             scheduleSpeculativePrepCourseDownloads()
         } else {
             newAreaTask?.cancel()
@@ -7354,8 +7838,10 @@ public final class LiveRoundAppModel: ObservableObject {
             existingIDs: Set(prepCourseDownloads.map(\.id)).union(failedSpeculativeDownloadIDs),
             lastUsed: offlineStore.loadCourseUsage(),
             now: Date(),
+            location: recentPrefetchLocation,
             isInstalled: { readyPrepTemplate(for: $0) != nil }
-        ).prefix(room).map { $0 }
+        ).filter { !suppressedAutomaticDownloadIDs.contains($0.id) }
+            .prefix(room).map { $0 }
         guard !rows.isEmpty else { return }
         AICaddieLog.storage.info(
             "Speculative course downloads queued: \(rows.map(\.id).joined(separator: ","), privacy: .public)"
@@ -7513,10 +7999,9 @@ public final class LiveRoundAppModel: ObservableObject {
         startPrepCourseDownloadQueueIfNeeded()
     }
 
-    /// A speculative row leaves the list once its job ends: ready → the installed template is the
-    /// record (the 备战 list never showed it); failed on an allowed network → dropped silently, not
-    /// retried this launch; failed once the network no longer allows it → queued again. A row
-    /// paused back to `.queued` stays.
+    /// A speculative row stays in the durable library after it is ready so the overnight policy can
+    /// age and remove it after 14 days away from the player. Failed guesses are dropped for this
+    /// launch; a network interruption returns to queued.
     private func finishSpeculativePrepCourseDownload(id: String) {
         guard let row = prepCourseDownloads.first(where: { $0.id == id }), row.isSpeculative,
               row.phase == .ready || row.phase == .failed else { return }
@@ -7533,7 +8018,6 @@ public final class LiveRoundAppModel: ObservableObject {
             failedSpeculativeDownloadIDs.insert(id)
             AICaddieLog.storage.info("Speculative course download failed: \(id, privacy: .public)")
         }
-        prepCourseDownloads.removeAll { $0.id == id }
         persistPrepCourseDownloads()
         refreshDownloadedCourseOptions()
         // The next guess, once storage is measured again with this one on disk.

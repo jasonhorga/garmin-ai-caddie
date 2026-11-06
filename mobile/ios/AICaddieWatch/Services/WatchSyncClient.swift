@@ -6,6 +6,10 @@ import Security
 #endif
 import WatchConnectivity
 
+public extension Notification.Name {
+    static let aicaddieWatchCourseRemoved = Notification.Name("aicaddie.watch.course-removed")
+}
+
 protocol WatchConfigPersisting {
     func read() -> WatchRoundConfig?
     func write(_ config: WatchRoundConfig)
@@ -251,17 +255,26 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     /// watch P0.4: local cache of per-hole topo images the phone pushes via WatchConnectivity file
     /// transfer, so the hole map renders offline mid-round. Read by `WatchHoleMapView`'s geometry.
     public let holeImageStore: WatchHoleImageStore
+    public let courseStore: WatchCourseStore
     @Published public private(set) var lastHoleImageKey: String?
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? NSNumber { return value.intValue }
+        return nil
+    }
 
     public convenience init(
         queueURL: URL,
         stateURL: URL? = nil,
-        holeImageStore: WatchHoleImageStore = WatchHoleImageStore()
+        holeImageStore: WatchHoleImageStore = WatchHoleImageStore(),
+        courseStore: WatchCourseStore? = nil
     ) {
         self.init(
             queueURL: queueURL,
             stateURL: stateURL,
             holeImageStore: holeImageStore,
+            courseStore: courseStore,
             configStore: WatchFileConfigStore(
                 url: queueURL.deletingLastPathComponent().appendingPathComponent("backend_config.json")
             )
@@ -272,6 +285,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         queueURL: URL,
         stateURL: URL?,
         holeImageStore: WatchHoleImageStore,
+        courseStore: WatchCourseStore?,
         configStore: WatchConfigPersisting
     ) {
         self.queueURL = queueURL
@@ -279,6 +293,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         self.roundStartURL = queueURL.deletingLastPathComponent().appendingPathComponent("pending_round_start.json")
         self.configStore = configStore
         self.holeImageStore = holeImageStore
+        self.courseStore = courseStore ?? WatchCourseStore()
         super.init()
         currentState = try? loadPersistedState()
         config = self.configStore.read()
@@ -298,6 +313,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             queueURL: directory.appendingPathComponent("queued_events.json"),
             stateURL: directory.appendingPathComponent("current_state.json"),
             holeImageStore: WatchHoleImageStore(),
+            courseStore: nil,
             configStore: WatchKeychainConfigStore()
         )
     }
@@ -757,6 +773,12 @@ extension WatchSyncClient: WCSessionDelegate {
     }
 
     public func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        if let remove = message["removeCourse"] as? [String: Any],
+           let globalId = Self.intValue(remove["globalId"]) {
+            courseStore.remove(globalId: globalId)
+            holeImageStore.remove(globalId: globalId)
+            NotificationCenter.default.post(name: .aicaddieWatchCourseRemoved, object: globalId)
+        }
         if let state = message["state"] as? [String: Any] {
             receiveStatePayload(state)
         }
@@ -769,6 +791,12 @@ extension WatchSyncClient: WCSessionDelegate {
     }
 
     public func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        if let remove = userInfo["removeCourse"] as? [String: Any],
+           let globalId = Self.intValue(remove["globalId"]) {
+            courseStore.remove(globalId: globalId)
+            holeImageStore.remove(globalId: globalId)
+            NotificationCenter.default.post(name: .aicaddieWatchCourseRemoved, object: globalId)
+        }
         if let state = userInfo["state"] as? [String: Any] {
             receiveStatePayload(state)
         }
