@@ -2,12 +2,10 @@ diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
 index 3415ddd7..03d1a4cc 100644
 --- a/ops/backfill_manual_gir.py
 +++ b/ops/backfill_manual_gir.py
-@@ -154,8 +154,6 @@ def _evaluate_hole(
-     endpoint, landing_source = _landing(rows, required_index)
+@@ -155,6 +155,4 @@ def _evaluate_hole(
      if endpoint is None:
          return None, "regulation landing not recorded (only aim target)", landing_source
 -    if len(rows) != strokes:
 -        return None, f"{len(rows)} positions do not match {strokes} strokes; landing index unknown", None
      gir, basis = _geometry_classification(root, raw, number, endpoint)
      return gir, basis, landing_source
- 
