@@ -519,7 +519,7 @@ final class SpeculativePrefetchTests: XCTestCase {
         return (model, lookups)
     }
 
-    /// New-area guesses in the list (the home course is a 可能会打 guess of its own).
+    /// New-area guesses in the list; the distant home course must not consume any room.
     private func newAreaGuesses(_ model: LiveRoundAppModel) -> Set<Int> {
         Set(model.prepCourseDownloads.filter { $0.isSpeculative && $0.course.globalId != 900 }.map(\.course.globalId))
     }
@@ -599,16 +599,16 @@ final class SpeculativePrefetchTests: XCTestCase {
         let (model, lookups) = try newAreaModel(nearby: [(31, 0.4, 18), (32, 1.0, 18)])
         let course = SpeculativePrefetch.estimatedCourseBytes
         let cap = OfflineStorageEviction.capBytes
-        model.publishOfflineStorageUsageForTesting(OfflineStorageUsage(topoBytes: cap - 2 * course, templateBytes: 0))
+        model.publishOfflineStorageUsageForTesting(OfflineStorageUsage(topoBytes: cap - course, templateBytes: 0))
         model.setNetworkStateForTesting(wifi)
-        XCTAssertEqual(model.speculativeCourseRoomForTesting, 1, "the home course took one of the two")
+        XCTAssertEqual(model.speculativeCourseRoomForTesting, 1, "only one nearby course fits")
+        XCTAssertFalse(model.prepCourseDownloads.contains { $0.course.globalId == 900 }, "a distant home course consumes no download room")
 
         _ = try await model.nearbyCourses(latitude: away.latitude, longitude: away.longitude, radiusKm: 5)
         await model.waitForNewAreaPassForTesting()
         XCTAssertEqual(newAreaGuesses(model), [31])
         XCTAssertNil(NewAreaPrefetch.loadAnchor(), "not taken while a course still waits")
 
-        try await Task.sleep(nanoseconds: 2_000_000)
         model.publishOfflineStorageUsageForTesting(empty)
         XCTAssertEqual(newAreaGuesses(model), [31, 32])
         XCTAssertEqual(lookups.all.sorted(), [31, 32], "the waiting course kept its Tee")
@@ -692,10 +692,11 @@ final class SpeculativePrefetchTests: XCTestCase {
         lookups.held = [72]
         let course = SpeculativePrefetch.estimatedCourseBytes
         model.publishOfflineStorageUsageForTesting(
-            OfflineStorageUsage(topoBytes: OfflineStorageEviction.capBytes - 2 * course, templateBytes: 0)
+            OfflineStorageUsage(topoBytes: OfflineStorageEviction.capBytes - course, templateBytes: 0)
         )
         model.setNetworkStateForTesting(wifi)
-        XCTAssertEqual(model.speculativeCourseRoomForTesting, 1, "the home course took one of the two")
+        XCTAssertEqual(model.speculativeCourseRoomForTesting, 1, "only one nearby course fits")
+        XCTAssertFalse(model.prepCourseDownloads.contains { $0.course.globalId == 900 }, "a distant home course consumes no download room")
 
         _ = try await model.nearbyCourses(latitude: away.latitude, longitude: away.longitude, radiusKm: 5)
         for _ in 0..<10_000 where lookups.all.count < 2 { try await Task.sleep(nanoseconds: 1_000_000) }

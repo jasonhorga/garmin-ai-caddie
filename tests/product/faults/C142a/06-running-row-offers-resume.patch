@@ -1,9 +1,9 @@
 diff --git a/mobile/ios/AICaddie/Models/StartRoundPresentation.swift b/mobile/ios/AICaddie/Models/StartRoundPresentation.swift
-index 70b2da3f..aa66b9eb 100644
+index 0343193b..e655debb 100644
 --- a/mobile/ios/AICaddie/Models/StartRoundPresentation.swift
 +++ b/mobile/ios/AICaddie/Models/StartRoundPresentation.swift
-@@ -47,5 +47,5 @@ enum StartRoundPresentation {
-         case .failed: return "重试"
+@@ -39,5 +39,5 @@ enum StartRoundPresentation {
+         case .paused: return "继续"
          case .queued: return row.serverPreparation == nil ? "下载" : nil
 -        case .preparing, .downloading: return nil
 +        case .preparing, .downloading: return "继续下载"
