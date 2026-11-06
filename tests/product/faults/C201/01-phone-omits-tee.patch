@@ -1,0 +1,14 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 7ea949d7..24d3b4bb 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4663,8 +4663,7 @@ public final class LiveRoundAppModel: ObservableObject {
+                 courseName: package.course.venueDisplayName,
+                 holePars: package.holes.sorted { $0.number < $1.number }.map(\.par),
+                 holesCompleted: completedHoles.count,
+-                courseGlobalId: package.course.globalId,
+-                teeBox: package.course.teeBox
++                courseGlobalId: package.course.globalId
+             )
+             try offlineStore.sealRoundForDeferredFinish(package: package, metadata: metadata)
+             // Seal first: quarantine/media failures above must leave every round-owned task alive

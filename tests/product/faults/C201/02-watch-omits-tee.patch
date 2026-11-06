@@ -1,0 +1,14 @@
+diff --git a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
+index a63bf867..3f2bdcb5 100644
+--- a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
++++ b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
+@@ -2465,8 +2465,7 @@ public final class WatchRoundModel: ObservableObject {
+             courseName: current.courseName ?? "Watch round",
+             holePars: current.holeStates.sorted { $0.hole < $1.hole }.map(\.par),
+             holesCompleted: current.holeStates.filter { $0.score > 0 }.count,
+-            courseGlobalId: current.holeStates.compactMap(\.globalId).first,
+-            teeBox: current.teeBox
++            courseGlobalId: current.holeStates.compactMap(\.globalId).first
+         )
+         if let finisherOverride {
+             try await finisherOverride(current.roundId, metadata)
