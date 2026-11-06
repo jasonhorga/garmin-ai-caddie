@@ -107,6 +107,9 @@ class C187ManualGirBackfillTests(unittest.TestCase):
                 ]}}],
             "courseSnapshots": [{"name": "Manual Fixture", "holePars": "44444444"}],
         }
+        # Positive backfill controls have explicit zero penalties and complete position logs.
+        for hole in manual["scorecardDetails"][0]["scorecard"]["holes"]:
+            hole["penalties"] = 0
         self.manual_path.write_text(json.dumps(manual, indent=2) + "\n", encoding="utf-8")
         # Hole 2's second-shot endpoint is the selected Green.drc component centroid.
         target = {"lat": 22.541708951284377, "lon": 113.95557545718002}
@@ -125,6 +128,8 @@ class C187ManualGirBackfillTests(unittest.TestCase):
                 {"shotOrder": 2, "startLoc": {"lat": _semicircle(22.5410), "lon": _semicircle(113.9550)},
                  "endLoc": {"lat": _semicircle(target["lat"]), "lon": _semicircle(target["lon"])}},
                 {"shotOrder": 3, "startLoc": {"lat": _semicircle(target["lat"]), "lon": _semicircle(target["lon"])}},
+                {"shotOrder": 4, "startLoc": {"lat": _semicircle(target["lat"]), "lon": _semicircle(target["lon"])}},
+                {"shotOrder": 5, "startLoc": {"lat": _semicircle(target["lat"]), "lon": _semicircle(target["lon"])}},
             ]},
             {"holeNumber": 3, "shots": []},
             {"holeNumber": 4, "shots": []},
@@ -657,9 +662,10 @@ class C187ManualGirBackfillTests(unittest.TestCase):
         for count in (4, 5):
             with self.subTest(positions=count):
                 events = [
-                    *self._position((22.5400, 113.9540)),
-                    *self._position((22.5410, 113.9550)),
-                    *sum([self._position((22.541708951284377, 113.95557545718002))
+                    *self._position((22.5400, 113.9540), {"clubName": "1D", "lie": "TeeBox"}),
+                    *self._position((22.5410, 113.9550), {"clubName": "8I", "lie": "Fairway"}),
+                    *sum([self._position((22.541708951284377, 113.95557545718002),
+                                        {"clubName": "Putter", "lie": "Green"})
                           for _ in range(count - 2)], []),
                     {"hole": 2, "kind": "score", "payload": {"strokes": 5}},
                 ]
@@ -672,6 +678,20 @@ class C187ManualGirBackfillTests(unittest.TestCase):
                 before = card.read_bytes()
                 backfill_manual_gir.backfill(root=self.root, apply=True)
                 self.assertEqual(card.read_bytes(), before)
+
+    def test_j2_5_penalty_and_extra_putt_cannot_invent_a_putt_total(self) -> None:
+        """J2.5: 5 strokes including 1 penalty, but 5 taps with 3 putt-like positions."""
+        events = [
+            *self._position((22.5400, 113.9540), {"clubName": "1D", "lie": "TeeBox"}),
+            *self._position((22.5410, 113.9550), {"clubName": "8I", "lie": "Fairway"}),
+            *sum([self._position((22.541708951284377, 113.95557545718002),
+                                {"clubName": "Putter", "lie": "Green"}) for _ in range(3)], []),
+            {"hole": 2, "kind": "penalty", "payload": {"penalties": 1}},
+            {"hole": 2, "kind": "score", "payload": {"strokes": 5}},
+        ]
+        # Counting all three taps as putts would falsely give 5-3=2 (GIR).
+        self._assert_ingest_and_backfill_gir(events, {"courseGlobalId": 31834, "holePars": "44"},
+                                           ingest_gir=None, backfill_gir=None)
 
     def test_j2_5_holed_in_regulation_stays_known_with_penalty(self) -> None:
         """J2.5: a par4 holed in 2 strokes including a penalty is still regulation-or-better."""

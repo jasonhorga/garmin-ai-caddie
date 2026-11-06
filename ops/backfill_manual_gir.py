@@ -137,22 +137,25 @@ def _evaluate_hole(
     ]
     putts = round_ingest._shot_putt_count(
         rows, total_strokes=strokes, club_details=(shot_data or {}).get("clubDetails"),
+        penalties=_int(hole.get("penalties")),
     )
     if putts is not None:
         gir = strokes - putts <= par - 2
         return gir, f"shot log counted {putts} putts; strokes-putts={strokes - putts} vs par-2={par - 2}", None
     if strokes <= par - 2:
         return True, f"strokes {strokes} are at or below the regulation limit par-2={par - 2}", None
+    if _int(hole.get("penalties")) is None:
+        return None, "penalties are unknown; missing is not zero", None
     if _int(hole.get("penalties")):
         return None, "penalty strokes shift the regulation landing index", None
-    if len(rows) > strokes:
-        return None, f"{len(rows)} positions exceed {strokes} strokes; landing index unknown", None
     required_index = par - 3
     if required_index < 0 or required_index >= len(rows):
         return None, f"regulation landing shot {required_index + 1} is missing", None
     endpoint, landing_source = _landing(rows, required_index)
     if endpoint is None:
         return None, "regulation landing not recorded (only aim target)", landing_source
+    if len(rows) != strokes:
+        return None, f"{len(rows)} positions do not match {strokes} strokes; landing index unknown", None
     gir, basis = _geometry_classification(root, raw, number, endpoint)
     return gir, basis, landing_source
 

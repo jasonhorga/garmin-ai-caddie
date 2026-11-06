@@ -454,13 +454,13 @@ def _build_scorecard(
             putts=(
                 acc.putts
                 if acc.putts_entered
-                else _shot_putt_count(acc.shots, total_strokes=acc.strokes)
+                else _shot_putt_count(acc.shots, total_strokes=acc.strokes, penalties=acc.penalties)
             ),
             penalties=acc.penalties,
         )
     for number, acc, global_id, local_hole, par in scored:
         resolved_putts = acc.putts if acc.putts_entered else _shot_putt_count(
-            acc.shots, total_strokes=acc.strokes
+            acc.shots, total_strokes=acc.strokes, penalties=acc.penalties
         )
         hole_dict: dict[str, Any] = {
             "number": number,
@@ -746,6 +746,7 @@ def _shot_putt_count(
     *,
     total_strokes: int | None = None,
     club_details: list[dict[str, Any]] | None = None,
+    penalties: int | None = None,
 ) -> int | None:
     """Count explicit green putts only in an exact-length log with a recognized putt tail.
 
@@ -754,8 +755,11 @@ def _shot_putt_count(
     TEE/APPROACH/RECOVERY. A custom putter name may therefore lose its putt evidence on disk.
     Before the first putt, every stroke must have a known lie off the green; afterwards every
     stroke must be a recognized putt. Otherwise callers try the observed regulation landing.
-    Extra or missing positions also make the putt total unknown.
+    Extra or missing positions also make the putt total unknown. Penalties must be explicitly
+    zero: aggregate penalties cannot identify which positions represent actual strokes.
     """
+    if penalties != 0 or total_strokes is None:
+        return None
     if total_strokes is not None and len(shots) != total_strokes:
         return None
     clubs = {row.get("id"): row for row in (club_details or []) if isinstance(row, dict)}
@@ -794,13 +798,13 @@ def _geometry_inputs(
     """``(gir_end, tee_point)``: the positions one hole classifies against its mesh, ``None`` when
     that classification does not run. ``gir_end`` is the regulation shot's end (none when the hole
     was holed out in regulation); ``tee_point`` is the second recorded position on a par 4/5
-    only when penalties and extra taps have not made its stroke index unreliable.
+    only with explicit zero penalties and exactly one position per scored stroke.
     Both :func:`_derive_gir_fairway` and the ingest's mesh-use count read them from here."""
     if par is None or par < 3:
         return None, None
     gir_end = None
-    # Penalties and extra taps break the correspondence between position and stroke indices.
-    index_reliable = not penalties and (total_strokes is None or len(shots) <= total_strokes)
+    # Missing positions can be anywhere in the log; missing penalties never means zero.
+    index_reliable = penalties == 0 and total_strokes is not None and len(shots) == total_strokes
     if (putts is None or total_strokes is None) and index_reliable:
         if total_strokes is None or total_strokes > par - 2:
             reg_idx = par - 3  # 0-indexed regulation-stroke shot (par3->0, par4->1, par5->2)
@@ -836,13 +840,17 @@ def _derive_gir_fairway(
       * total hole strokes <= par-2  ->  holed out in regulation-or-better -> gir True.
       * otherwise classify the observed landing: the next shot's start, ``shots[par-2]``
         (0-indexed: par3->shots[1], par4->shots[2], par5->shots[3]); gir = (kind == "green").
-      * penalties, extra positions, no next-shot start or unclassifiable surface -> gir None;
+      * unknown/nonzero penalties, missing/extra positions, no next-shot start or
+        unclassifiable surface -> gir None;
         an aim is not a landing. Recorded putts and holed-out scores still take precedence.
 
     The tee result exists ONLY for par 4/5 (there is no fairway off a par-3 tee): the second
     recorded position (the second shot, or the first putt when there was none) against the hole's
     fairway outline and route -> "hit" / "left" / "right" (:func:`_tee_result`); no second
-    position or no outline -> None. A non-fairway finish is sided, never a blanket "miss".
+    position or no outline -> None. Unknown/nonzero penalties or missing/extra positions also
+    yield None: a hole-level total cannot locate a drop, and repeated green points may be real
+    putts. Explicitly entered tee results remain authoritative. A non-fairway finish is sided,
+    never a blanket "miss".
     """
     gir: bool | None = None
     fairway: str | None = None
