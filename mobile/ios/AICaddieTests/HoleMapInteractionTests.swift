@@ -213,6 +213,60 @@ final class HoleMapInteractionTests: XCTestCase {
         XCTAssertLessThanOrEqual(back.x, viewport.width - LiveHazardAnnotationLayout.labelWidth / 2)
     }
 
+    func testHazardEvidenceKeepsTwoPointSpansExplicitUntilPreciseOutlineArrives() {
+        XCTAssertFalse(HoleMapHazardEvidence.hasPreciseOutline([]))
+        XCTAssertFalse(HoleMapHazardEvidence.hasPreciseOutline([[100, 300], [102, 280]]))
+        XCTAssertFalse(
+            HoleMapHazardEvidence.hasPreciseOutline([[100, 300], [102, .infinity], [104, 260]])
+        )
+        XCTAssertTrue(
+            HoleMapHazardEvidence.hasPreciseOutline([[100, 300], [102, 280], [104, 260]])
+        )
+        XCTAssertNotNil(
+            HoleMapHazardEvidence.knownBoundaryPixels(
+                frontPx: [100, 300],
+                backPx: [102, 280],
+                project: { $0 }
+            ),
+            "partial CourseView rows still expose drawable front/back evidence"
+        )
+        XCTAssertNil(
+            HoleMapHazardEvidence.knownBoundaryPixels(
+                frontPx: [100, 300],
+                backPx: [102, 280],
+                project: { _ in nil }
+            ),
+            "a failed frame projection must not claim that the two points are shown"
+        )
+        let visibleCount = HoleMapHazardEvidence.countVisibleIntervalOnly(
+            items: [true, false, true],
+            isIntervalOnly: { $0 },
+            isVisible: { $0 }
+        )
+        XCTAssertEqual(visibleCount, 2)
+        let projectedOutCount = HoleMapHazardEvidence.countVisibleIntervalOnly(
+            items: [true, true],
+            isIntervalOnly: { $0 },
+            isVisible: { _ in false }
+        )
+        XCTAssertEqual(projectedOutCount, 0, "the prep notice follows the same projection gate as the spans")
+        XCTAssertTrue(
+            HoleMapHazardEvidence.factualLayerProjectionUsable(
+                hasGarminRaster: false,
+                projectionUsable: false
+            )
+        )
+        XCTAssertFalse(
+            HoleMapHazardEvidence.factualLayerProjectionUsable(
+                hasGarminRaster: true,
+                projectionUsable: false
+            ),
+            "an unregistered Garmin frame suppresses both factual pixels and its evidence notice"
+        )
+        XCTAssertTrue(HoleMapHazardEvidence.intervalOnlyNotice.contains("前后沿"))
+        XCTAssertTrue(HoleMapHazardEvidence.intervalOnlyNotice.contains("已知两点"))
+    }
+
     func testHorizontalHoleSwipeChangesOnlyToAnAdjacentHole() {
         let holes = [1, 2, 3]
 

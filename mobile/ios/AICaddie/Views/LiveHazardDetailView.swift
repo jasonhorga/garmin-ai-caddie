@@ -662,7 +662,7 @@ struct LiveHazardDetailView: View {
                 showsCardChrome: false,
                 showsFactualRoute: true,
                 showsRecommendedRoute: false,
-                showsHazards: false
+                showsHazards: true
             )
             .frame(width: size.width, height: size.height)
             Canvas { context, canvasSize in
