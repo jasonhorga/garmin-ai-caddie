@@ -1,5 +1,7 @@
 import tempfile, unittest
 from pathlib import Path
+from tests.service_logging import ServiceLoggingIsolationMixin
+
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine
@@ -17,7 +19,7 @@ def _cfg(url: str) -> Config:
     return cfg
 
 
-class Migration0002Tests(unittest.TestCase):
+class Migration0002Tests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_user_id_is_unique_in_legacy_map(self):
         engine = create_engine("sqlite://", future=True)
         Base.metadata.create_all(engine)

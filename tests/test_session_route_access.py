@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from tests.service_logging import ServiceLoggingIsolationMixin
+
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
@@ -17,7 +19,7 @@ BUNDLE = "com.example.aicaddie"
 ADMIN = "admin-secret"
 
 
-class SessionRouteAccessTests(unittest.TestCase):
+class SessionRouteAccessTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     """A Phase-1b Apple session bearer must authorize a player-scoped route through the REAL
     admin-gate middleware — exercised in a PRIVATE profile where the dev-open fallback is closed
     (the only place this end-to-end path actually matters; dev profile lets any bearer through)."""

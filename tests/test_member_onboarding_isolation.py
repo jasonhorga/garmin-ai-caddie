@@ -18,6 +18,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from tests.service_logging import ServiceLoggingIsolationMixin
+
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
@@ -37,7 +39,7 @@ OWNER_FIXTURE_COURSE = "Black Knight"
 MEMBER_COURSE = "Member Private Course"
 
 
-class MemberOnboardingIsolationTests(unittest.TestCase):
+class MemberOnboardingIsolationTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def setUp(self) -> None:
         self.addCleanup(db.reset_engine_for_tests)
         self._tmp = tempfile.TemporaryDirectory()
