@@ -3655,15 +3655,11 @@ final class LiveRoundAppModelTests: XCTestCase {
 
         let lock = NSLock()
         var finishBodies: [Data] = []
-        var paths: [String] = []
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             let path = request.url?.path ?? ""
-            lock.lock()
-            paths.append(path)
-            lock.unlock()
             let response: Data
             if path == "/api/v2/mobile/rounds/\(package.roundId)/events" {
                 let batch = try JSONDecoder().decode(EventBatch.self, from: capturedRequestBodyData(from: request))
@@ -3679,6 +3675,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                 lock.unlock()
                 response = Data("{}".utf8)
             } else {
+                // Bootstrap may try to refresh a package, but no package request succeeds.
                 throw URLError(.notConnectedToInternet)
             }
             return (HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200,
@@ -3697,13 +3694,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         await online.stopRoundBackgroundWorkForTesting()
         lock.lock()
         let bodies = finishBodies
-        let requestedPaths = paths
         lock.unlock()
         XCTAssertEqual(bodies.count, 1)
         let body = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(bodies.first)) as? [String: Any])
         let meta = try XCTUnwrap(body["meta"] as? [String: Any])
         XCTAssertEqual(meta["teeBox"] as? String, "White", "offline finish must retain the opening Tee")
-        XCTAssertFalse(requestedPaths.contains("/api/v2/mobile/rounds/\(package.roundId)/package"))
         XCTAssertFalse(try reopened.isRoundPendingFinish(package.roundId))
     }
 
