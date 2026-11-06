@@ -36,6 +36,7 @@ enum StartRoundPresentation {
         switch row.phase {
         case .ready: return nil
         case .failed: return "重试"
+        case .paused: return "继续"
         case .queued: return row.serverPreparation == nil ? "下载" : nil
         case .preparing, .downloading: return nil
         }

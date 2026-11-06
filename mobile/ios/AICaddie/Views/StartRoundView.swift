@@ -622,6 +622,7 @@ public struct StartRoundView: View {
         }
         switch row.phase {
         case .queued: return "等待下载"
+        case .paused: return "已暂停"
         case .preparing: return "正在准备"
         case .downloading: return "正在下载 · \(row.downloadedHoles)/\(row.totalHoles) 洞"
         case .ready:

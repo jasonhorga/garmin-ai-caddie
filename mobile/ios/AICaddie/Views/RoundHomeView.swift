@@ -734,6 +734,10 @@ public struct RoundHomeView: View {
     public let onNearbyCourses: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
     public let onDownloadPrepCourse: (MobileCourseOption) -> Void
     public let onRetryPrepCourseDownload: (String) -> Void
+    public let onPausePrepCourseDownload: (String) -> Void
+    public let onResumePrepCourseDownload: (String) -> Void
+    public let onDeletePrepCourseDownload: (String) -> Void
+    public let onPrefetchLocationChanged: (LocationFix?) -> Void
     /// Re-check a locally complete prep package against the current Garmin release before opening it.
     /// A transport failure is handled by the model as a deferred check, so offline use remains valid.
     public let onValidateReadyPrepCourse: (PrepCourseDownloadRecord) async -> Bool
@@ -878,6 +882,10 @@ public struct RoundHomeView: View {
         onCourseIntent: @escaping ([MobileCourseOption], String) -> Void = { _, _ in },
         onDownloadPrepCourse: @escaping (MobileCourseOption) -> Void = { _ in },
         onRetryPrepCourseDownload: @escaping (String) -> Void = { _ in },
+        onPausePrepCourseDownload: @escaping (String) -> Void = { _ in },
+        onResumePrepCourseDownload: @escaping (String) -> Void = { _ in },
+        onDeletePrepCourseDownload: @escaping (String) -> Void = { _ in },
+        onPrefetchLocationChanged: @escaping (LocationFix?) -> Void = { _ in },
         onValidateReadyPrepCourse: @escaping (PrepCourseDownloadRecord) async -> Bool = { _ in true },
         pendingLiveHole: Int? = nil,
         pendingLiveHoleIsFreshEntry: Bool = false,
@@ -970,6 +978,10 @@ public struct RoundHomeView: View {
         self.onNearbyCourses = onNearbyCourses
         self.onDownloadPrepCourse = onDownloadPrepCourse
         self.onRetryPrepCourseDownload = onRetryPrepCourseDownload
+        self.onPausePrepCourseDownload = onPausePrepCourseDownload
+        self.onResumePrepCourseDownload = onResumePrepCourseDownload
+        self.onDeletePrepCourseDownload = onDeletePrepCourseDownload
+        self.onPrefetchLocationChanged = onPrefetchLocationChanged
         self.onValidateReadyPrepCourse = onValidateReadyPrepCourse
         self.pendingLiveHole = pendingLiveHole
         self.pendingLiveHoleIsFreshEntry = pendingLiveHoleIsFreshEntry
@@ -1087,6 +1099,9 @@ public struct RoundHomeView: View {
                 loadLastRoundStrip()
             }
             .onAppear(perform: startHeroLocation)
+            .onReceive(heroLocation.$latestFix) { fix in
+                onPrefetchLocationChanged(fix)
+            }
             .task(id: heroNearbyKey) {
                 await refreshHeroNearby()
             }
@@ -2291,10 +2306,11 @@ public struct RoundHomeView: View {
                     current: liveRoundState.flatMap { state in
                         package.flatMap { $0.roundId == state.roundId ? LiveCourseDownloadProgress.Identity(package: $0) : nil }
                     },
-                    // A guess shows only while it is actually downloading, never as a standing
-                    // "等待下载" the player did not ask for.
-                    downloads: prepCourseDownloads.filter { !$0.isSpeculative || $0.phase != .queued }
-                ), usage: offlineStorageUsage)
+                    downloads: prepCourseDownloads
+                ), usage: offlineStorageUsage,
+                onPause: onPausePrepCourseDownload,
+                onResume: onResumePrepCourseDownload,
+                onDelete: onDeletePrepCourseDownload)
                 SpeculativePrefetchSettingsSection(onChange: onSpeculativePrefetchSettingChanged)
             }
             .task {
@@ -2322,6 +2338,9 @@ public struct RoundHomeView: View {
 struct OfflineCourseDownloadsSection: View {
     let rows: [OfflineCourseDownloadRow]
     var usage: OfflineStorageUsage? = nil
+    var onPause: (String) -> Void = { _ in }
+    var onResume: (String) -> Void = { _ in }
+    var onDelete: (String) -> Void = { _ in }
 
     private var storedUsage: OfflineStorageUsage? {
         usage.flatMap { $0.totalBytes > 0 ? $0 : nil }
@@ -2344,10 +2363,30 @@ struct OfflineCourseDownloadsSection: View {
                                 }
                             }
                             Spacer(minLength: 8)
-                            Text(row.status)
-                                .font(.caption)
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
+                            VStack(alignment: .trailing, spacing: 4) {
+                                Text(row.status)
+                                    .font(.caption)
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                                HStack(spacing: 8) {
+                                    if row.canPause {
+                                        Button("停止") { onPause(row.id.replacingOccurrences(of: "prep:", with: "")) }
+                                            .font(.caption2.weight(.semibold))
+                                            .accessibilityIdentifier("settings-offline-pause-\(row.id)")
+                                    } else if row.canResume {
+                                        Button("继续") { onResume(row.id.replacingOccurrences(of: "prep:", with: "")) }
+                                            .font(.caption2.weight(.semibold))
+                                            .accessibilityIdentifier("settings-offline-resume-\(row.id)")
+                                    }
+                                    if row.canDelete {
+                                        Button("删除", role: .destructive) {
+                                            onDelete(row.id.replacingOccurrences(of: "prep:", with: ""))
+                                        }
+                                        .font(.caption2.weight(.semibold))
+                                        .accessibilityIdentifier("settings-offline-delete-\(row.id)")
+                                    }
+                                }
+                            }
                         }
                         if let fraction = row.fraction {
                             // Drawn in SwiftUI rather than `ProgressView(value:)`, which is

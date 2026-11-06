@@ -79,6 +79,10 @@ public enum SpeculativePrefetchSettings {
 /// the 200 MB cap bounds what speculative downloads can take.
 enum SpeculativePrefetch {
     static let maximumCourses = 5
+    /// Automatic guesses use the same radius as NewAreaPrefetch. Keeping one value avoids a
+    /// Salzburg/Wien cache surviving a trip home and makes the two location concepts agree.
+    static let automaticRadiusMetres: Double = NewAreaPrefetch.areaMetres
+    static let automaticIdleInterval: TimeInterval = 14 * 24 * 60 * 60
     /// A whole course on the phone: 18 bitmaps at ~220 KB plus facts and the template, rounded up.
     static let estimatedCourseBytes: Int64 = 8_000_000
 
@@ -101,7 +105,8 @@ enum SpeculativePrefetch {
         existingIDs: Set<String>,
         lastUsed: [String: Date],
         now: Date,
-        isInstalled: (PrepCourseDownloadRecord) -> Bool
+        isInstalled: (PrepCourseDownloadRecord) -> Bool,
+        excludeIdleUsed: Bool = true
     ) -> [PrepCourseDownloadRecord] {
         let played = options
             .filter { $0.roundCount > 0 }
@@ -126,12 +131,74 @@ enum SpeculativePrefetch {
                 isSpeculative: true
             )
             guard !existingIDs.contains(record.id), !isInstalled(record) else { return nil }
-            if let key = CourseUsageLog.key(globalId: entry.course.globalId, teeBox: entry.tee),
+            if excludeIdleUsed,
+               let key = CourseUsageLog.key(globalId: entry.course.globalId, teeBox: entry.tee),
                let used = lastUsed[key],
                OfflineStorageEviction.isIdle(lastUsedAt: used, now: now) {
                 return nil
             }
             return record
+        }
+    }
+
+    /// The production gate for automatic guesses. A recent fix is supplied by the app model;
+    /// callers without one must keep the queue asleep. Courses with no coordinates are not
+    /// guessed because proximity cannot be established honestly.
+    static func candidates(
+        options: [MobileCourseOption],
+        recent: MobileCourseOption?,
+        existingIDs: Set<String>,
+        lastUsed: [String: Date],
+        now: Date,
+        location: (latitude: Double, longitude: Double)?,
+        isInstalled: (PrepCourseDownloadRecord) -> Bool
+    ) -> [PrepCourseDownloadRecord] {
+        guard let location else { return [] }
+        func isNearby(_ course: MobileCourseOption) -> Bool {
+            guard let latitude = course.latitude, let longitude = course.longitude else { return false }
+            return GeoDistance.haversineMetres(
+                location.latitude,
+                location.longitude,
+                latitude,
+                longitude
+            ) <= automaticRadiusMetres
+        }
+        let nearbyOptions = options.filter(isNearby)
+        let nearbyRecent = recent.flatMap { isNearby($0) ? $0 : nil }
+        return candidates(
+            options: nearbyOptions,
+            recent: nearbyRecent,
+            existingIDs: existingIDs,
+            lastUsed: lastUsed,
+            now: now,
+            isInstalled: isInstalled,
+            excludeIdleUsed: false
+        )
+    }
+
+    /// Automatic rows eligible for the 14-day distant-course cleanup. A missing or stale fix
+    /// returns no candidates, so opening the app after a long GPS gap cannot delete anything.
+    static func staleDistantRecords(
+        _ records: [PrepCourseDownloadRecord],
+        lastUsed: [String: Date],
+        location: (latitude: Double, longitude: Double)?,
+        now: Date
+    ) -> [PrepCourseDownloadRecord] {
+        guard let location else { return [] }
+        return records.filter { record in
+            guard record.isSpeculative, record.phase == .ready,
+                  let key = CourseUsageLog.key(globalId: record.course.globalId, teeBox: record.teeBox) else { return false }
+            let used = lastUsed[key] ?? record.updatedAt
+            guard used <= now,
+                  now.timeIntervalSince(used) >= automaticIdleInterval,
+                  let latitude = record.course.latitude,
+                  let longitude = record.course.longitude else { return false }
+            return GeoDistance.haversineMetres(
+                location.latitude,
+                location.longitude,
+                latitude,
+                longitude
+            ) > automaticRadiusMetres
         }
     }
 }
