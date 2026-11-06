@@ -16,4 +16,4 @@
 +    r"(\bAuthorization[\"']?\s*[:=]\s*)"
      r"(?:"
      r"(?P<quote>[\"'])(?:Bearer\s*:?\s*)?(?:\\.|(?!(?P=quote)).)*(?P=quote)?"
-     r"|(?:Bearer\s*:?\s*)?(?:\[redacted\]|[^\s,;}\]]+)"
+     r"|\\+(?P<escaped_quote>[\"'])(?:\\.|(?!(?P=escaped_quote)).)*(?P=escaped_quote)?"

@@ -106,9 +106,15 @@ class J7LogPrivacyTests(unittest.TestCase):
                       "authorization=Bearer PRIVATEBEARER",
                       "authorization=bearer PRIVATEBEARER",
                       "Authorization: BEARER PRIVATEBEARER",
+                      "Authorization: Bearer:PRIVATEBEARER",
+                      "Authorization={\"Bearer PRIVATEBEARER\"}",
                       "invalid Bearer PRIVATEBEARER",
                       "invalid bearer PRIVATEBEARER",
                       "INVALID Bearer PRIVATEBEARER",
+                      "Bearer token-PRIVATEBEARER",
+                      "Bearer header.PRIVATEBEARER",
+                      "Bearer abc}PRIVATEBEARER",
+                      "Bearer : PRIVATEBEARER",
                       "api_key: Bearer PRIVATEBEARER",
                       {"Authorization": "Bearer PRIVATEBEARER"},
                       "Bearer PRIVATEBEARER"):
@@ -130,8 +136,14 @@ class J7LogPrivacyTests(unittest.TestCase):
             ("Authorization: [redacted]", "Authorization: [redacted]", 1),
             ("Authorization: 'Bearer PRIVATEBEARER", "Authorization: [redacted]", 1),
             ('Authorization: Bearer abc\\"PRIVATEBEARER', "Authorization: [redacted]", 1),
+            ('Authorization: "Bearer abc\\"PRIVATEBEARER"', 'Authorization: "[redacted]"', 1),
+            ('Authorization: \\"Bearer PRIVATEBEARER', "Authorization: [redacted]", 1),
             ("invalid Bearer PRIVATEBEARER", "invalid Bearer [redacted]", 1),
             ("INVALID Bearer PRIVATEBEARER", "INVALID Bearer [redacted]", 1),
+            ('Authorization: "Bearer PRIVATEBEARER" status=PRIVATEBEARER',
+             'Authorization: "[redacted]" [redacted]', 2),
+            ('Authorization: "Bearer PRIVATEBEARER" status=200 total_ms=12 reason=timeout',
+             'Authorization: "[redacted]" status=200 total_ms=12 reason=timeout', 1),
             ("invalid bearer header received", "invalid bearer header received", 0),
         )
         for message, expected, marker_count in cases:
@@ -142,6 +154,7 @@ class J7LogPrivacyTests(unittest.TestCase):
                 output = streams[target.name].getvalue()
                 self.assertIn(expected, output)
                 self.assertNotIn("PRIVATEBEARER", output)
+                self.assertNotIn("[redacted]]", output)
                 self.assertEqual(output.count("[redacted]"), marker_count)
 
     def test_J73_repeated_cron_guard_expands_existing_service_guard(self):
