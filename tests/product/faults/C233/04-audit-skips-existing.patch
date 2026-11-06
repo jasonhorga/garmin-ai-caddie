@@ -1,0 +1,13 @@
+diff --git a/ops/audit_manual_gir.py b/ops/audit_manual_gir.py
+index e6331e32..62906031 100644
+--- a/ops/audit_manual_gir.py
++++ b/ops/audit_manual_gir.py
+@@ -123,6 +123,8 @@ def audit(root: Path) -> dict[str, Any]:
+             clubs = shots.get("clubDetails") or []
+             counts["manualRounds"] += 1
+             for hole in card["holes"]:
++                if hole.get("gir") is not None:
++                    continue
+                 number = _int(hole.get("number"))
+                 rows = by_hole.get(number, [])
+                 flags = _flags(hole, rows, clubs, _hole_par(raw, hole, number or 0))

@@ -1,0 +1,24 @@
+diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
+index 3415ddd7..bc9cd7e7 100644
+--- a/ops/backfill_manual_gir.py
++++ b/ops/backfill_manual_gir.py
+@@ -137,16 +137,16 @@ def _evaluate_hole(
+     ]
+     putts = round_ingest._shot_putt_count(
+         rows, total_strokes=strokes, club_details=(shot_data or {}).get("clubDetails"),
+-        penalties=_int(hole.get("penalties")),
++        penalties=_int(hole.get("penalties", 0)),
+     )
+     if putts is not None:
+         gir = strokes - putts <= par - 2
+         return gir, f"shot log counted {putts} putts; strokes-putts={strokes - putts} vs par-2={par - 2}", None
+     if strokes <= par - 2:
+         return True, f"strokes {strokes} are at or below the regulation limit par-2={par - 2}", None
+-    if _int(hole.get("penalties")) is None:
++    if _int(hole.get("penalties", 0)) is None:
+         return None, "penalties are unknown; missing is not zero", None
+-    if _int(hole.get("penalties")):
++    if _int(hole.get("penalties", 0)):
+         return None, "penalty strokes shift the regulation landing index", None
+     required_index = par - 3
+     if required_index < 0 or required_index >= len(rows):

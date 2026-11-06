@@ -247,6 +247,17 @@ class GirFairwayDerivationTests(unittest.TestCase):
             self.assertEqual(round_ingest._derive_gir_fairway(GID, 1, None, shots, 5), (None, None))
 
     # ----- only-when-absent -----
+    def test_unknown_penalties_keep_legacy_position_results_unknown(self) -> None:
+        """J2.5/J5.8: even an exact-length legacy log cannot prove there were no penalties."""
+        shots = [_shot(TEE_C), _shot(FAIRWAY_C), _shot(GREEN_C), _shot(GREEN_C)]
+        hole = {"number": 1, "strokes": 4}
+        with _patch_geometry(self.geo_dir):
+            round_ingest._enrich_hole_gir_fairway(
+                hole, global_id=GID, local_hole=1, par=4, shots=shots, total_strokes=4,
+            )
+        self.assertNotIn("gir", hole)
+        self.assertNotIn("fairway", hole)
+
     def test_only_when_absent_does_not_overwrite(self) -> None:
         """(f) A hole already carrying gir (Garmin-authoritative) is NOT overwritten, while an
         absent fairway IS filled in."""

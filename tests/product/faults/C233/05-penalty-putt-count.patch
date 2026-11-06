@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/rounds/round_ingest.py b/ai_caddie/rounds/round_ingest.py
+index ded0e7b2..ee756bf2 100644
+--- a/ai_caddie/rounds/round_ingest.py
++++ b/ai_caddie/rounds/round_ingest.py
+@@ -758,7 +758,7 @@ def _shot_putt_count(
+     Extra or missing positions also make the putt total unknown. Penalties must be explicitly
+     zero: aggregate penalties cannot identify which positions represent actual strokes.
+     """
+-    if penalties != 0 or total_strokes is None:
++    if total_strokes is None:
+         return None
+     if total_strokes is not None and len(shots) != total_strokes:
+         return None

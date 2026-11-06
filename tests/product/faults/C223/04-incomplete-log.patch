@@ -1,11 +1,11 @@
 diff --git a/ai_caddie/rounds/round_ingest.py b/ai_caddie/rounds/round_ingest.py
-index ca1ef9bd..2ecb53fc 100644
+index ded0e7b2..32428403 100644
 --- a/ai_caddie/rounds/round_ingest.py
 +++ b/ai_caddie/rounds/round_ingest.py
-@@ -756,7 +756,7 @@ def _shot_putt_count(
-     stroke must be a recognized putt. Otherwise callers try the observed regulation landing.
-     Extra or missing positions also make the putt total unknown.
+@@ -760,7 +760,7 @@ def _shot_putt_count(
      """
+     if penalties != 0 or total_strokes is None:
+         return None
 -    if total_strokes is not None and len(shots) != total_strokes:
 +    if False:
          return None
