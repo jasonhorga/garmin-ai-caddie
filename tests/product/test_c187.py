@@ -25,11 +25,11 @@ def _semicircle(value: float) -> int:
     return int(round(value / (180.0 / (1 << 31))))
 
 
-def _ingest_fixture(root: Path, events: list[dict], meta: dict) -> tuple[Path, Path]:
+def _ingest_fixture(root: Path, events: list[dict], meta: dict, *, key: str = "fixture") -> tuple[Path, Path]:
     """Generate authentic scorecard/shots files through the manual ingest entry point."""
     with patch.object(history, "ROOT", root):
         result = round_ingest.ingest_round(
-            "probe", events, meta, idempotency_key="fixture", root=root,
+            "probe", events, meta, idempotency_key=key, root=root,
         )
     player = root / "data" / "players" / "probe"
     return player / "scorecards" / f"{result['id']}.json", player / "shots" / f"{result['id']}.json"
@@ -636,6 +636,42 @@ class C187ManualGirBackfillTests(unittest.TestCase):
                 card, _ = _ingest_fixture(Path(tmp), events, {"holePars": "4"})
                 # 5-2=3 > par4-2 -> False; 4-2=2 -> True.
                 self.assertIs(json.loads(card.read_bytes())["scorecardDetails"][0]["scorecard"]["holes"][0].get("gir"), expected)
+
+    def test_j2_5_one_missing_position_cannot_invent_gir(self) -> None:
+        """J2.5: missing chip start makes index 2 look green, but 5-2=3 is a miss."""
+        events = [
+            *self._position((22.5400, 113.9540), {"clubName": "1D", "lie": "TeeBox"}),
+            *self._position((22.5410, 113.9550), {"clubName": "8I", "lie": "Fairway"}),
+            # The chip from rough was not recorded. These are the two real putts.
+            *self._position((22.541708951284377, 113.95557545718002),
+                            {"clubName": "Putter", "lie": "Green"}),
+            *self._position((22.541708951284377, 113.95557545718002),
+                            {"clubName": "Putter", "lie": "Green"}),
+            {"hole": 2, "kind": "score", "payload": {"strokes": 5}},
+        ]
+        self._assert_ingest_and_backfill_gir(events, {"courseGlobalId": 31834, "holePars": "44"},
+                                           ingest_gir=None, backfill_gir=None)
+
+    def test_j2_5_legacy_missing_penalties_never_means_zero(self) -> None:
+        """J2.5: legacy penalty data is unknown, for short and exact-length logs alike."""
+        for count in (4, 5):
+            with self.subTest(positions=count):
+                events = [
+                    *self._position((22.5400, 113.9540)),
+                    *self._position((22.5410, 113.9550)),
+                    *sum([self._position((22.541708951284377, 113.95557545718002))
+                          for _ in range(count - 2)], []),
+                    {"hole": 2, "kind": "score", "payload": {"strokes": 5}},
+                ]
+                card, _ = _ingest_fixture(self.root, events, {"courseGlobalId": 31834, "holePars": "44"}, key=f"legacy-{count}")
+                raw = json.loads(card.read_bytes())
+                hole = raw["scorecardDetails"][0]["scorecard"]["holes"][0]
+                hole.pop("gir", None)
+                hole.pop("penalties")  # Authentic pre-August legacy scorecard shape.
+                card.write_text(json.dumps(raw))
+                before = card.read_bytes()
+                backfill_manual_gir.backfill(root=self.root, apply=True)
+                self.assertEqual(card.read_bytes(), before)
 
     def test_j2_5_holed_in_regulation_stays_known_with_penalty(self) -> None:
         """J2.5: a par4 holed in 2 strokes including a penalty is still regulation-or-better."""

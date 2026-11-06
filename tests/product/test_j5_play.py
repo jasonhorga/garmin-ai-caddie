@@ -167,6 +167,14 @@ class PlayTests(HTTPFixture, unittest.TestCase):
         )
         self.assertIsNone(hole.get("fairway"))
 
+    def test_j5_8_one_missing_position_keeps_tee_result_unknown(self):
+        """J5.8: a missing tee or approach start cannot prove where the tee landed."""
+        hole = self._ingest_tee_positions(
+            [(0, 0), (0.0015, -0.0002), (0.003, 0)],
+            strokes=4, penalties=0, key="one-missing-position",
+        )
+        self.assertIsNone(hole.get("fairway"))
+
     def test_j5_8_exact_position_count_preserves_tee_sides(self):
         """J5.8: four positions, four strokes, no penalty preserves hit/left/right."""
         # The northbound rectangle contains lon 0; -0.0002 is left, +0.0002 right.
