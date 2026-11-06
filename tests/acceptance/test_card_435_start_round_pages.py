@@ -31,6 +31,7 @@ WATCH_SNAPSHOTS = IOS / "AICaddieWatchTests" / "WatchDesignSnapshotTests.swift"
 DESIGN_README = REPO_ROOT / "docs" / "design" / "2026-09-25-ui-redesign" / "README.md"
 PHONE_PIN = "test_ios_start_round_has_course_and_setup_pages"
 WATCH_PIN = "test_watch_round_setup_tee_tap_starts_round"
+HAZARD_PIN = "test_ios_hole_2d_map_wired"
 PIN_CLASS = "tests.test_mobile_contracts.MobileContractTests"
 KEPT_PINS = (
     "test_ios_lands_on_hub_with_choices_and_keeps_dark_chrome_live_only",
@@ -784,7 +785,7 @@ class StartRoundPagesAcceptanceTests(unittest.TestCase):
         # G1 G2 G3 G4 G5: the whole mobile pin modules pass with both new pins and the kept pins.
         code, output = _run_unittest("tests.test_mobile_contracts", "tests.test_native_visual_parity")
         self.assertEqual(code, 0, output[-6000:])
-        for name in (PHONE_PIN, WATCH_PIN, *KEPT_PINS):
+        for name in (PHONE_PIN, WATCH_PIN, HAZARD_PIN, *KEPT_PINS):
             self.assertRegex(output, rf"{name} \(.*\) \.\.\. ok", name)
 
 

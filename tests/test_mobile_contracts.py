@@ -2160,8 +2160,22 @@ class MobileContractTests(unittest.TestCase):
             "func fetchHolePrep(globalId: Int, localHole: Int, render: Bool = false, teeBox: String? = nil) async throws -> CoursePrepHole?",
             sync_client,
         )
-        # Both entry modes use the live hole map; the old prep-only hero was removed.
-        self.assertIn("showsHazards: false,", current_hole)
+        # The live-hole entry enables the factual hazard layer. Its product behavior is covered by
+        # the native interaction tests: interval-only exports draw just their known front/back
+        # pixels, while an absent precise outline never becomes a synthesized polygon.
+        live_map_factory = current_hole.split("private func liveHoleImageMap", 1)[1].split(
+            "///", 1
+        )[0]
+        self.assertRegex(live_map_factory, r"showsHazards:\s*true,")
+        self.assertNotIn("showsHazards: false,", current_hole)
+        hazard_behavior = _read_required_source(
+            self, IOS_DIR.parent / "AICaddieTests" / "HoleMapInteractionTests.swift"
+        )
+        for test_name in (
+            "testHazardEvidenceKeepsTwoPointSpansExplicitUntilPreciseOutlineArrives",
+            "testHoleMapDoesNotPaintObstaclesUntilThePlayerSelectsOne",
+        ):
+            self.assertRegex(hazard_behavior, rf"func {test_name}\(\)")
         self.assertIn("showsClubLabel: false", current_hole)
         # B4b-2 v2 holes always carry their physical identity; nothing falls back to the course id.
         self.assertIn("let mapGlobalId = hole.sourceGlobalId", current_hole)
@@ -2232,7 +2246,7 @@ class MobileContractTests(unittest.TestCase):
             current_hole,
         )
         self.assertIn("showsRecommendedRoute: true", current_hole)
-        self.assertIn("showsHazards: false", current_hole)
+        self.assertIn("showsHazards: true", current_hole)
         self.assertIn("public let showsFactualRoute: Bool", hole_map_view)
         self.assertIn("showsFactualRoute: Bool = true", hole_map_view)
         # Device review (build 77): no thin centreline over the map, only the caddie's white route.
@@ -4157,7 +4171,10 @@ class MobileContractTests(unittest.TestCase):
     def test_live_hazard_detail_owns_one_selected_outline_without_shared_duplicates(self) -> None:
         hazard_detail = _read_required_source(self, IOS_DIR / "Views" / "LiveHazardDetailView.swift")
         self.assertIn("showsRecommendedRoute: false", hazard_detail)
-        self.assertIn("showsHazards: false", hazard_detail)
+        # The detail map shares the factual interval layer; the selected overlay adds only its
+        # registered outline and labels, so a two-point hazard is never turned into a polygon.
+        self.assertIn("showsHazards: true", hazard_detail)
+        self.assertIn("LiveHazardOverlayRenderer.draw(", hazard_detail)
         self.assertIn("_selectedHazardID = State(initialValue: nil)", hazard_detail)
         self.assertIn("LiveHazardPickerPanel(", hazard_detail)
         self.assertNotIn("selectedHazardID = ids.first", hazard_detail)
