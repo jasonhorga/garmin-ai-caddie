@@ -1,9 +1,9 @@
 diff --git a/ops/backfill_manual_gir.py b/ops/backfill_manual_gir.py
-index 38e3f93a..9b2302de 100644
+index 3415ddd7..09a38483 100644
 --- a/ops/backfill_manual_gir.py
 +++ b/ops/backfill_manual_gir.py
-@@ -139,7 +139,7 @@ def _evaluate_hole(
-         rows, total_strokes=strokes, club_details=(shot_data or {}).get("clubDetails"),
+@@ -140,7 +140,7 @@ def _evaluate_hole(
+         penalties=_int(hole.get("penalties")),
      )
      if putts is not None:
 -        gir = strokes - putts <= par - 2

@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/rounds/round_ingest.py b/ai_caddie/rounds/round_ingest.py
+index ded0e7b2..e7d46ca5 100644
+--- a/ai_caddie/rounds/round_ingest.py
++++ b/ai_caddie/rounds/round_ingest.py
+@@ -804,7 +804,7 @@ def _geometry_inputs(
+         return None, None
+     gir_end = None
+     # Missing positions can be anywhere in the log; missing penalties never means zero.
+-    index_reliable = penalties == 0 and total_strokes is not None and len(shots) == total_strokes
++    index_reliable = not penalties and total_strokes is not None and len(shots) == total_strokes
+     if (putts is None or total_strokes is None) and index_reliable:
+         if total_strokes is None or total_strokes > par - 2:
+             reg_idx = par - 3  # 0-indexed regulation-stroke shot (par3->0, par4->1, par5->2)

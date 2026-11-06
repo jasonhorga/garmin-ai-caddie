@@ -63,7 +63,7 @@ RELEASE_TEES = [{"name": "Blue", "gender": "MEN", "index": 2}, {"name": "Red", "
 
 
 def _hole_events(hole: int, second: tuple[float, float]) -> list[dict]:
-    """Tee and approach shots plus an explicit putt event, five strokes total.
+    """Complete five-position log plus an explicit putt event, five strokes total.
 
     The approach aim is that shot's end, so GIR reads the mesh while the tee result reads the
     second location. Product spec 2.8 treats the explicit putt event as the only persisted putts
@@ -75,6 +75,9 @@ def _hole_events(hole: int, second: tuple[float, float]) -> list[dict]:
         {"hole": hole, "kind": "club", "payload": {"clubName": "7I", "shotType": "approach"}},
         {"hole": hole, "kind": "location", "payload": {"latitude": second[0], "longitude": second[1],
                                                        "targetLatitude": GREEN[0], "targetLongitude": GREEN[1]}},
+        *[{"hole": hole, "kind": "location", "payload": {
+            "latitude": GREEN[0], "longitude": GREEN[1],
+        }} for _ in range(3)],
         {"hole": hole, "kind": "putt", "payload": {"putts": 2}},
         {"hole": hole, "kind": "score", "payload": {"strokes": 5}},
     ]

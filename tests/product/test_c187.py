@@ -25,11 +25,11 @@ def _semicircle(value: float) -> int:
     return int(round(value / (180.0 / (1 << 31))))
 
 
-def _ingest_fixture(root: Path, events: list[dict], meta: dict) -> tuple[Path, Path]:
+def _ingest_fixture(root: Path, events: list[dict], meta: dict, *, key: str = "fixture") -> tuple[Path, Path]:
     """Generate authentic scorecard/shots files through the manual ingest entry point."""
     with patch.object(history, "ROOT", root):
         result = round_ingest.ingest_round(
-            "probe", events, meta, idempotency_key="fixture", root=root,
+            "probe", events, meta, idempotency_key=key, root=root,
         )
     player = root / "data" / "players" / "probe"
     return player / "scorecards" / f"{result['id']}.json", player / "shots" / f"{result['id']}.json"
@@ -107,6 +107,9 @@ class C187ManualGirBackfillTests(unittest.TestCase):
                 ]}}],
             "courseSnapshots": [{"name": "Manual Fixture", "holePars": "44444444"}],
         }
+        # Positive backfill controls have explicit zero penalties and complete position logs.
+        for hole in manual["scorecardDetails"][0]["scorecard"]["holes"]:
+            hole["penalties"] = 0
         self.manual_path.write_text(json.dumps(manual, indent=2) + "\n", encoding="utf-8")
         # Hole 2's second-shot endpoint is the selected Green.drc component centroid.
         target = {"lat": 22.541708951284377, "lon": 113.95557545718002}
@@ -125,6 +128,8 @@ class C187ManualGirBackfillTests(unittest.TestCase):
                 {"shotOrder": 2, "startLoc": {"lat": _semicircle(22.5410), "lon": _semicircle(113.9550)},
                  "endLoc": {"lat": _semicircle(target["lat"]), "lon": _semicircle(target["lon"])}},
                 {"shotOrder": 3, "startLoc": {"lat": _semicircle(target["lat"]), "lon": _semicircle(target["lon"])}},
+                {"shotOrder": 4, "startLoc": {"lat": _semicircle(target["lat"]), "lon": _semicircle(target["lon"])}},
+                {"shotOrder": 5, "startLoc": {"lat": _semicircle(target["lat"]), "lon": _semicircle(target["lon"])}},
             ]},
             {"holeNumber": 3, "shots": []},
             {"holeNumber": 4, "shots": []},
@@ -636,6 +641,57 @@ class C187ManualGirBackfillTests(unittest.TestCase):
                 card, _ = _ingest_fixture(Path(tmp), events, {"holePars": "4"})
                 # 5-2=3 > par4-2 -> False; 4-2=2 -> True.
                 self.assertIs(json.loads(card.read_bytes())["scorecardDetails"][0]["scorecard"]["holes"][0].get("gir"), expected)
+
+    def test_j2_5_one_missing_position_cannot_invent_gir(self) -> None:
+        """J2.5: missing chip start makes index 2 look green, but 5-2=3 is a miss."""
+        events = [
+            *self._position((22.5400, 113.9540), {"clubName": "1D", "lie": "TeeBox"}),
+            *self._position((22.5410, 113.9550), {"clubName": "8I", "lie": "Fairway"}),
+            # The chip from rough was not recorded. These are the two real putts.
+            *self._position((22.541708951284377, 113.95557545718002),
+                            {"clubName": "Putter", "lie": "Green"}),
+            *self._position((22.541708951284377, 113.95557545718002),
+                            {"clubName": "Putter", "lie": "Green"}),
+            {"hole": 2, "kind": "score", "payload": {"strokes": 5}},
+        ]
+        self._assert_ingest_and_backfill_gir(events, {"courseGlobalId": 31834, "holePars": "44"},
+                                           ingest_gir=None, backfill_gir=None)
+
+    def test_j2_5_legacy_missing_penalties_never_means_zero(self) -> None:
+        """J2.5: legacy penalty data is unknown, for short and exact-length logs alike."""
+        for count in (4, 5):
+            with self.subTest(positions=count):
+                events = [
+                    *self._position((22.5400, 113.9540), {"clubName": "1D", "lie": "TeeBox"}),
+                    *self._position((22.5410, 113.9550), {"clubName": "8I", "lie": "Fairway"}),
+                    *sum([self._position((22.541708951284377, 113.95557545718002),
+                                        {"clubName": "Putter", "lie": "Green"})
+                          for _ in range(count - 2)], []),
+                    {"hole": 2, "kind": "score", "payload": {"strokes": 5}},
+                ]
+                card, _ = _ingest_fixture(self.root, events, {"courseGlobalId": 31834, "holePars": "44"}, key=f"legacy-{count}")
+                raw = json.loads(card.read_bytes())
+                hole = raw["scorecardDetails"][0]["scorecard"]["holes"][0]
+                hole.pop("gir", None)
+                hole.pop("penalties")  # Authentic pre-August legacy scorecard shape.
+                card.write_text(json.dumps(raw))
+                before = card.read_bytes()
+                backfill_manual_gir.backfill(root=self.root, apply=True)
+                self.assertEqual(card.read_bytes(), before)
+
+    def test_j2_5_penalty_and_extra_putt_cannot_invent_a_putt_total(self) -> None:
+        """J2.5: 5 strokes including 1 penalty, but 5 taps with 3 putt-like positions."""
+        events = [
+            *self._position((22.5400, 113.9540), {"clubName": "1D", "lie": "TeeBox"}),
+            *self._position((22.5410, 113.9550), {"clubName": "8I", "lie": "Fairway"}),
+            *sum([self._position((22.541708951284377, 113.95557545718002),
+                                {"clubName": "Putter", "lie": "Green"}) for _ in range(3)], []),
+            {"hole": 2, "kind": "penalty", "payload": {"penalties": 1}},
+            {"hole": 2, "kind": "score", "payload": {"strokes": 5}},
+        ]
+        # Counting all three taps as putts would falsely give 5-3=2 (GIR).
+        self._assert_ingest_and_backfill_gir(events, {"courseGlobalId": 31834, "holePars": "44"},
+                                           ingest_gir=None, backfill_gir=None)
 
     def test_j2_5_holed_in_regulation_stays_known_with_penalty(self) -> None:
         """J2.5: a par4 holed in 2 strokes including a penalty is still regulation-or-better."""

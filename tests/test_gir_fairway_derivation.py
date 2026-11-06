@@ -124,9 +124,9 @@ class GirFairwayDerivationTests(unittest.TestCase):
 
     def test_derive_uses_degrees_so_in_green_tee_is_gir(self) -> None:
         """(c) End-to-end units check through the helper: a par-3 tee ending on the green -> GIR True."""
-        shots = [_shot(TEE_C, target_local=GREEN_C), _shot(GREEN_C)]  # observed landing
+        shots = [_shot(TEE_C, target_local=GREEN_C), _shot(GREEN_C), _shot(GREEN_C)]
         with _patch_geometry(self.geo_dir):
-            gir, fairway = round_ingest._derive_gir_fairway(GID, 1, 3, shots, total_strokes=3)
+            gir, fairway = round_ingest._derive_gir_fairway(GID, 1, 3, shots, total_strokes=3, penalties=0)
         self.assertIs(gir, True)
         self.assertIsNone(fairway)  # par 3 -> no fairway stat
 
@@ -138,9 +138,10 @@ class GirFairwayDerivationTests(unittest.TestCase):
             _shot(TEE_C),                            # tee
             _shot(ROUGH_C),                          # approach start; its END = chip start (rough)
             _shot(ROUGH_C, target_local=GREEN_C),    # chip from rough, aims at green
+            _shot(GREEN_C),                         # one putt; complete four-stroke log
         ]
         with _patch_geometry(self.geo_dir):
-            gir, _ = round_ingest._derive_gir_fairway(GID, 1, 4, shots, total_strokes=4)
+            gir, _ = round_ingest._derive_gir_fairway(GID, 1, 4, shots, total_strokes=4, penalties=0)
         self.assertIs(gir, False)  # NOT None, NOT True
 
     def test_gir_three_putt_bogey_is_true(self) -> None:
@@ -150,9 +151,10 @@ class GirFairwayDerivationTests(unittest.TestCase):
             _shot(TEE_C),                            # tee (ends in fairway)
             _shot(FAIRWAY_C, target_local=GREEN_C),  # approach aims at the green
             _shot(GREEN_C),                           # observed approach landing
+            _shot(GREEN_C), _shot(GREEN_C),            # the other two putts
         ]
         with _patch_geometry(self.geo_dir):
-            gir, _ = round_ingest._derive_gir_fairway(GID, 1, 4, shots, total_strokes=5)
+            gir, _ = round_ingest._derive_gir_fairway(GID, 1, 4, shots, total_strokes=5, penalties=0)
         self.assertIs(gir, True)
 
     def test_hole_out_in_regulation_is_gir_without_a_reg_shot(self) -> None:
@@ -175,8 +177,8 @@ class GirFairwayDerivationTests(unittest.TestCase):
         par3 = [_shot(TEE_C), _shot(FAIRWAY_C)]
         lone_tee = [_shot(TEE_C, target_local=FAIRWAY_C)]               # an aim is not a position
         with _patch_geometry(self.geo_dir):
-            _, fw_hit = round_ingest._derive_gir_fairway(GID, 1, 4, hit, total_strokes=4)
-            _, fw_right = round_ingest._derive_gir_fairway(GID, 1, 4, right, total_strokes=5)
+            _, fw_hit = round_ingest._derive_gir_fairway(GID, 1, 4, hit + [_shot(GREEN_C)] * 2, total_strokes=4, penalties=0)
+            _, fw_right = round_ingest._derive_gir_fairway(GID, 1, 4, right + [_shot(GREEN_C)] * 3, total_strokes=5, penalties=0)
             _, fw_par3 = round_ingest._derive_gir_fairway(GID, 1, 3, par3, total_strokes=3)
             _, fw_lone = round_ingest._derive_gir_fairway(GID, 1, 4, lone_tee, total_strokes=5)
         self.assertEqual(fw_hit, "hit")
@@ -245,11 +247,22 @@ class GirFairwayDerivationTests(unittest.TestCase):
             self.assertEqual(round_ingest._derive_gir_fairway(GID, 1, None, shots, 5), (None, None))
 
     # ----- only-when-absent -----
+    def test_unknown_penalties_keep_legacy_position_results_unknown(self) -> None:
+        """J2.5/J5.8: even an exact-length legacy log cannot prove there were no penalties."""
+        shots = [_shot(TEE_C), _shot(FAIRWAY_C), _shot(GREEN_C), _shot(GREEN_C)]
+        hole = {"number": 1, "strokes": 4}
+        with _patch_geometry(self.geo_dir):
+            round_ingest._enrich_hole_gir_fairway(
+                hole, global_id=GID, local_hole=1, par=4, shots=shots, total_strokes=4,
+            )
+        self.assertNotIn("gir", hole)
+        self.assertNotIn("fairway", hole)
+
     def test_only_when_absent_does_not_overwrite(self) -> None:
         """(f) A hole already carrying gir (Garmin-authoritative) is NOT overwritten, while an
         absent fairway IS filled in."""
-        shots = [_shot(TEE_C), _shot(ROUGH_C), _shot(ROUGH_C, target_local=GREEN_C)]  # would derive gir=False
-        hole = {"number": 1, "strokes": 4, "gir": True}  # pre-existing source value
+        shots = [_shot(TEE_C), _shot(ROUGH_C), _shot(ROUGH_C, target_local=GREEN_C), _shot(GREEN_C)]
+        hole = {"number": 1, "strokes": 4, "gir": True, "penalties": 0}  # pre-existing source value
         with _patch_geometry(self.geo_dir):
             round_ingest._enrich_hole_gir_fairway(
                 hole, global_id=GID, local_hole=1, par=4, shots=shots, total_strokes=4
@@ -285,6 +298,8 @@ class GirFairwayIngestIntegrationTests(unittest.TestCase):
             {"hole": 1, "kind": "club", "payload": {"clubName": "8I", "shotType": "approach"}},
             {"hole": 1, "kind": "location", "payload": {
                 "latitude": fw[0], "longitude": fw[1], "targetLatitude": gr[0], "targetLongitude": gr[1]}},
+            {"hole": 1, "kind": "location", "payload": {"latitude": gr[0], "longitude": gr[1]}},
+            {"hole": 1, "kind": "location", "payload": {"latitude": gr[0], "longitude": gr[1]}},
             {"hole": 1, "kind": "putt", "payload": {"putts": 2}},
             {"hole": 1, "kind": "score", "payload": {"strokes": 4}},
         ]
@@ -342,20 +357,16 @@ class GirFairwayIngestIntegrationTests(unittest.TestCase):
         self.assertNotIn("putts", hole)
         self.assertIsNone(hole.get("gir"))
 
-    def test_product_spec_2_8_incomplete_putter_log_uses_green_landing(self) -> None:
-        """Product spec 2.8: fewer recorded shots than strokes cannot supply a putt count."""
-        events = [
-            event
-            for event in self._par4_events()
-            if event["kind"] != "putt"
-        ]
+    def test_product_spec_2_8_incomplete_putter_log_keeps_gir_unknown(self) -> None:
+        """J2.5: a missing position also makes the apparent green landing ambiguous."""
+        events = self._par4_events()[:4] + [{"hole": 1, "kind": "score", "payload": {"strokes": 5}}]
         events[0] = {**events[0], "payload": {"clubName": "Putter", "shotType": "putt", "lie": "Green"}}
         events[2] = {**events[2], "payload": {"clubName": "Putter", "shotType": "putt", "lie": "Green"}}
         events[-1] = {**events[-1], "payload": {"strokes": 5}}
         green_lat, green_lon = _deg(GREEN_C)
         events.insert(-1, {"hole": 1, "kind": "location", "payload": {
             "latitude": green_lat, "longitude": green_lon,
-        }})  # J2.5: actual third start is the regulation landing; 3 logged shots < 5 strokes.
+        }})  # Three positions for five strokes cannot identify the regulation landing.
         with _patch_geometry(self.geo_dir):
             summary = round_ingest.ingest_round(
                 "p_friend",
@@ -366,7 +377,7 @@ class GirFairwayIngestIntegrationTests(unittest.TestCase):
             )
         path = self.root / "data" / "players" / "p_friend" / "scorecards" / f"{summary['id']}.json"
         hole = read_json(path)["scorecardDetails"][0]["scorecard"]["holes"][0]
-        self.assertIs(hole["gir"], True)
+        self.assertIsNone(hole.get("gir"))
 
 
 if __name__ == "__main__":

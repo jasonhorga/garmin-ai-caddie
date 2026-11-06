@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C233-01-missing-position-ingest",
+      "patch": "tests/product/faults/C233/01-missing-position-ingest.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_one_missing_position_cannot_invent_gir",
+      "promise": "J2.5: one missing position cannot invent GIR"
+    },
+    {
+      "id": "tests-product-faults-C233-02-missing-position-backfill",
+      "patch": "tests/product/faults/C233/02-missing-position-backfill.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_one_missing_position_cannot_invent_gir",
+      "promise": "J2.5: incomplete historical logs remain unknown"
+    },
+    {
+      "id": "tests-product-faults-C233-03-missing-penalties-backfill",
+      "patch": "tests/product/faults/C233/03-missing-penalties-backfill.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_legacy_missing_penalties_never_means_zero",
+      "promise": "J2.5: missing penalties is unknown"
+    },
+    {
+      "id": "tests-product-faults-C233-04-audit-skips-existing",
+      "patch": "tests/product/faults/C233/04-audit-skips-existing.patch",
+      "kind": "python",
+      "target": "tests.test_manual_gir_audit.ManualGirAuditTests.test_existing_values_and_ambiguous_positions_are_inventoried_read_only",
+      "promise": "J2.5: inventory includes existing GIR"
+    },
+    {
+      "id": "tests-product-faults-C233-05-penalty-putt-count",
+      "patch": "tests/product/faults/C233/05-penalty-putt-count.patch",
+      "kind": "python",
+      "target": "tests.product.test_c187.C187ManualGirBackfillTests.test_j2_5_penalty_and_extra_putt_cannot_invent_a_putt_total",
+      "promise": "J2.5: aggregate penalties cannot validate a putt tail"
+    },
+    {
+      "id": "tests-product-faults-C233-06-missing-tee-position",
+      "patch": "tests/product/faults/C239/01-unreliable-tee-index.patch",
+      "kind": "python",
+      "target": "tests.product.test_j5_play.PlayTests.test_j5_8_one_missing_position_keeps_tee_result_unknown",
+      "promise": "J5.8: incomplete position logs keep tee unknown"
+    },
+    {
+      "id": "tests-product-faults-C233-07-missing-penalties-ingest",
+      "patch": "tests/product/faults/C233/07-missing-penalties-ingest.patch",
+      "kind": "python",
+      "target": "tests.test_gir_fairway_derivation.GirFairwayDerivationTests.test_unknown_penalties_keep_legacy_position_results_unknown",
+      "promise": "J2.5/J5.8: missing penalties cannot mean zero in legacy enrichment"
+    }
+  ]
+}
