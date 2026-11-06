@@ -326,17 +326,20 @@ public struct MobileRoundFinishMetadata: Codable, Equatable {
     public let holePars: [Int]
     public let holesCompleted: Int
     public let courseGlobalId: Int?
+    public let teeBox: String?
 
     public init(
         courseName: String,
         holePars: [Int],
         holesCompleted: Int,
-        courseGlobalId: Int?
+        courseGlobalId: Int?,
+        teeBox: String? = nil
     ) {
         self.courseName = courseName
         self.holePars = holePars
         self.holesCompleted = holesCompleted
         self.courseGlobalId = courseGlobalId
+        self.teeBox = teeBox
     }
 }
 
