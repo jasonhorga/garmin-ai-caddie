@@ -324,6 +324,12 @@ final class HoleMapInteractionTests: XCTestCase {
             )
         )
         XCTAssertEqual(intervalGeometry.edges.count, 2)
+        XCTAssertTrue(intervalGeometry.edges[0].isFront)
+        XCTAssertFalse(intervalGeometry.edges[1].isFront)
+        XCTAssertEqual(intervalGeometry.edges[0].point.x, 40, accuracy: 0.001)
+        XCTAssertEqual(intervalGeometry.edges[0].point.y, 160, accuracy: 0.001)
+        XCTAssertEqual(intervalGeometry.edges[1].point.x, 42, accuracy: 0.001)
+        XCTAssertEqual(intervalGeometry.edges[1].point.y, 140, accuracy: 0.001)
         XCTAssertTrue(intervalGeometry.outline.isEmpty, "two edge facts must not synthesize a polygon")
 
         let preciseHole = hole(detail: precise)
@@ -339,6 +345,12 @@ final class HoleMapInteractionTests: XCTestCase {
         )
         XCTAssertEqual(preciseGeometry.edges.count, 2)
         XCTAssertEqual(preciseGeometry.outline.count, 3)
+        XCTAssertEqual(preciseGeometry.outline[0].x, 40, accuracy: 0.001)
+        XCTAssertEqual(preciseGeometry.outline[0].y, 160, accuracy: 0.001)
+        XCTAssertEqual(preciseGeometry.outline[1].x, 56, accuracy: 0.001)
+        XCTAssertEqual(preciseGeometry.outline[1].y, 150, accuracy: 0.001)
+        XCTAssertEqual(preciseGeometry.outline[2].x, 42, accuracy: 0.001)
+        XCTAssertEqual(preciseGeometry.outline[2].y, 140, accuracy: 0.001)
     }
 
     func testHorizontalHoleSwipeChangesOnlyToAnAdjacentHole() {
