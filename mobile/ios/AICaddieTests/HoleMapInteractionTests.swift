@@ -267,6 +267,80 @@ final class HoleMapInteractionTests: XCTestCase {
         XCTAssertTrue(HoleMapHazardEvidence.intervalOnlyNotice.contains("已知两点"))
     }
 
+    func testIntervalHazardGeometryUsesOnlyKnownEdgesUntilOutlineIsMeasured() throws {
+        let interval = CoursePrepHazardDetail(
+            kind: "bunker",
+            frontM: 100,
+            backM: 120,
+            frontRouteM: 100,
+            backRouteM: 120,
+            frontPx: [40, 160],
+            backPx: [42, 140],
+            outlinePx: [],
+            sideM: 8
+        )
+        let precise = CoursePrepHazardDetail(
+            kind: "bunker",
+            frontM: 100,
+            backM: 120,
+            frontRouteM: 100,
+            backRouteM: 120,
+            frontPx: [40, 160],
+            backPx: [42, 140],
+            outlinePx: [[40, 160], [56, 150], [42, 140]],
+            sideM: 8
+        )
+        func hole(detail: CoursePrepHazardDetail) -> CoursePrepHole {
+            CoursePrepHole(
+                hole: 1,
+                par: 4,
+                parSource: "courseData",
+                blueYards: 350,
+                routeLenM: 180,
+                route: [[40, 180, 0], [40, 20, 180]],
+                hazards: CoursePrepHazards(details: [detail]),
+                map: CoursePrepMap(
+                    image: nil,
+                    overlay: CoursePrepOverlay(
+                        w: 100,
+                        h: 200,
+                        ppm: 1,
+                        ln: 180,
+                        route: [[40, 180, 0], [40, 20, 180]]
+                    )
+                )
+            )
+        }
+
+        let intervalHole = hole(detail: interval)
+        let intervalRow = try XCTUnwrap(LiveHazardDisplayItem.rows(for: intervalHole, liveReadouts: nil).first)
+        let intervalGeometry = try XCTUnwrap(
+            LiveHazardOverlayRenderer.screenGeometry(
+                size: CGSize(width: 100, height: 200),
+                hole: intervalHole,
+                row: intervalRow,
+                scale: 1,
+                offset: .zero
+            )
+        )
+        XCTAssertEqual(intervalGeometry.edges.count, 2)
+        XCTAssertTrue(intervalGeometry.outline.isEmpty, "two edge facts must not synthesize a polygon")
+
+        let preciseHole = hole(detail: precise)
+        let preciseRow = try XCTUnwrap(LiveHazardDisplayItem.rows(for: preciseHole, liveReadouts: nil).first)
+        let preciseGeometry = try XCTUnwrap(
+            LiveHazardOverlayRenderer.screenGeometry(
+                size: CGSize(width: 100, height: 200),
+                hole: preciseHole,
+                row: preciseRow,
+                scale: 1,
+                offset: .zero
+            )
+        )
+        XCTAssertEqual(preciseGeometry.edges.count, 2)
+        XCTAssertEqual(preciseGeometry.outline.count, 3)
+    }
+
     func testHorizontalHoleSwipeChangesOnlyToAnAdjacentHole() {
         let holes = [1, 2, 3]
 

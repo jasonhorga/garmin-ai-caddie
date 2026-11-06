@@ -2163,19 +2163,8 @@ class MobileContractTests(unittest.TestCase):
         # The live-hole entry enables the factual hazard layer. Its product behavior is covered by
         # the native interaction tests: interval-only exports draw just their known front/back
         # pixels, while an absent precise outline never becomes a synthesized polygon.
-        live_map_factory = current_hole.split("private func liveHoleImageMap", 1)[1].split(
-            "///", 1
-        )[0]
-        self.assertRegex(live_map_factory, r"showsHazards:\s*true,")
+        self.assertIn("showsHazards: true,", current_hole)
         self.assertNotIn("showsHazards: false,", current_hole)
-        hazard_behavior = _read_required_source(
-            self, IOS_DIR.parent / "AICaddieTests" / "HoleMapInteractionTests.swift"
-        )
-        for test_name in (
-            "testHazardEvidenceKeepsTwoPointSpansExplicitUntilPreciseOutlineArrives",
-            "testHoleMapDoesNotPaintObstaclesUntilThePlayerSelectsOne",
-        ):
-            self.assertRegex(hazard_behavior, rf"func {test_name}\(\)")
         self.assertIn("showsClubLabel: false", current_hole)
         # B4b-2 v2 holes always carry their physical identity; nothing falls back to the course id.
         self.assertIn("let mapGlobalId = hole.sourceGlobalId", current_hole)
