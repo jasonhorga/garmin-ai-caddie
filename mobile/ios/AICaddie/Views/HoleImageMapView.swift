@@ -515,23 +515,10 @@ public struct HoleImageMapView: View {
         sy: CGFloat
     ) {
         let routeLengthM = overlay.ln > 0 ? overlay.ln : hole.routeLenM
-        for detail in hole.hazards.details where
-            (detail.kind == "bunker" || detail.kind == "water")
-            && !HoleMapHazardEvidence.hasPreciseOutline(detail.outlinePx)
-            && CoursePrepHazardRelevance.isRelevant(
-                kind: detail.kind,
-                frontRouteM: detail.frontRouteM,
-                backRouteM: detail.backRouteM,
+        for detail in hole.hazards.details {
+            guard let (frontPx, backPx) = HoleMapHazardEvidence.intervalSpanPixels(
+                detail: detail,
                 routeLengthM: routeLengthM,
-                hasPreciseOutline: false
-            )
-            && detail.frontPx.count >= 2
-            && detail.backPx.count >= 2
-            && detail.frontPx.prefix(2).allSatisfy(\.isFinite)
-            && detail.backPx.prefix(2).allSatisfy(\.isFinite) {
-            guard let (frontPx, backPx) = HoleMapHazardEvidence.knownBoundaryPixels(
-                frontPx: detail.frontPx,
-                backPx: detail.backPx,
                 project: displayPixel
             ) else { continue }
             let front = CGPoint(x: frontPx[0] * sx, y: frontPx[1] * sy)
@@ -881,21 +868,12 @@ public struct HoleImageMapView: View {
     private var intervalOnlyHazardCount: Int {
         guard factualLayerProjectionUsable else { return 0 }
         let routeLengthM = displayOverlay?.ln ?? hole.routeLenM
-        return hole.hazards.details.filter { detail in
-            (detail.kind == "bunker" || detail.kind == "water")
-                && !HoleMapHazardEvidence.hasPreciseOutline(detail.outlinePx)
-                && CoursePrepHazardRelevance.isRelevant(
-                    kind: detail.kind,
-                    frontRouteM: detail.frontRouteM,
-                    backRouteM: detail.backRouteM,
-                    routeLengthM: routeLengthM,
-                    hasPreciseOutline: false
-                )
-                && HoleMapHazardEvidence.knownBoundaryPixels(
-                    frontPx: detail.frontPx,
-                    backPx: detail.backPx,
-                    project: displayPixel
-                ) != nil
+        return hole.hazards.details.filter {
+            HoleMapHazardEvidence.intervalSpanPixels(
+                detail: $0,
+                routeLengthM: routeLengthM,
+                project: displayPixel
+            ) != nil
         }.count
     }
 
@@ -1499,6 +1477,30 @@ enum HoleMapHazardEvidence {
               front.prefix(2).allSatisfy(\.isFinite),
               back.prefix(2).allSatisfy(\.isFinite) else { return nil }
         return (front, back)
+    }
+
+    /// The exact geometry contract used by `HoleImageMapView` for interval-only hazards.
+    /// A measured outline takes over when available; otherwise only the exported front/back
+    /// points may reach the canvas. Projection failure removes both the span and its notice.
+    static func intervalSpanPixels(
+        detail: CoursePrepHazardDetail,
+        routeLengthM: Double?,
+        project: ([Double]) -> [Double]?
+    ) -> ([Double], [Double])? {
+        guard (detail.kind == "bunker" || detail.kind == "water"),
+              !hasPreciseOutline(detail.outlinePx),
+              CoursePrepHazardRelevance.isRelevant(
+                  kind: detail.kind,
+                  frontRouteM: detail.frontRouteM,
+                  backRouteM: detail.backRouteM,
+                  routeLengthM: routeLengthM,
+                  hasPreciseOutline: false
+              ) else { return nil }
+        return knownBoundaryPixels(
+            frontPx: detail.frontPx,
+            backPx: detail.backPx,
+            project: project
+        )
     }
 
     static func countVisibleIntervalOnly<Item>(

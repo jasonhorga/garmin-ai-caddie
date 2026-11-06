@@ -290,6 +290,31 @@ final class HoleMapInteractionTests: XCTestCase {
             outlinePx: [[40, 160], [56, 150], [42, 140]],
             sideM: 8
         )
+        let span = try XCTUnwrap(
+            HoleMapHazardEvidence.intervalSpanPixels(
+                detail: interval,
+                routeLengthM: 180,
+                project: { $0 }
+            )
+        )
+        XCTAssertEqual(span.0, [40, 160])
+        XCTAssertEqual(span.1, [42, 140])
+        XCTAssertNil(
+            HoleMapHazardEvidence.intervalSpanPixels(
+                detail: precise,
+                routeLengthM: 180,
+                project: { $0 }
+            ),
+            "a measured outline is rendered by the precise path, never as an interval span"
+        )
+        XCTAssertNil(
+            HoleMapHazardEvidence.intervalSpanPixels(
+                detail: interval,
+                routeLengthM: 180,
+                project: { _ in nil }
+            ),
+            "an unprojectable Garmin frame suppresses both interval pixels and its notice"
+        )
         func hole(detail: CoursePrepHazardDetail) -> CoursePrepHole {
             CoursePrepHole(
                 hole: 1,

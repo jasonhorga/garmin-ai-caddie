@@ -41,6 +41,25 @@ def _read_required_source(testcase: unittest.TestCase, path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _swift_bool_argument(source: str, function_marker: str, argument: str) -> bool:
+    """Read one named Swift argument from a bounded function body.
+
+    This keeps the Linux contract check about the call's product configuration rather than
+    pinning a whole source line. Native XCTest owns the rendered geometry and evidence behavior.
+    """
+    start = source.find(function_marker)
+    if start < 0:
+        raise AssertionError(f"missing Swift function marker: {function_marker}")
+    body = source[start:]
+    next_doc = body.find("\n    ///", len(function_marker))
+    if next_doc >= 0:
+        body = body[:next_doc]
+    matches = re.findall(rf"\b{re.escape(argument)}\s*:\s*(true|false)\b", body)
+    if len(matches) != 1:
+        raise AssertionError(f"expected one {argument} argument in {function_marker}, got {matches!r}")
+    return matches[0] == "true"
+
+
 def _assert_schema_accepts(testcase: unittest.TestCase, schema: dict[str, object], payload: dict[str, object]) -> None:
     testcase.assertEqual(schema["type"], "object")
     for field in schema.get("required", []):
@@ -2160,11 +2179,10 @@ class MobileContractTests(unittest.TestCase):
             "func fetchHolePrep(globalId: Int, localHole: Int, render: Bool = false, teeBox: String? = nil) async throws -> CoursePrepHole?",
             sync_client,
         )
-        # The live-hole entry enables the factual hazard layer. Its product behavior is covered by
-        # the native interaction tests: interval-only exports draw just their known front/back
-        # pixels, while an absent precise outline never becomes a synthesized polygon.
-        self.assertIn("showsHazards: true,", current_hole)
-        self.assertNotIn("showsHazards: false,", current_hole)
+        # The live-hole entry enables the factual hazard layer. Native interaction tests exercise
+        # the shared intervalSpanPixels path: only known front/back pixels reach the canvas, while
+        # an absent precise outline never becomes a synthesized polygon.
+        self.assertTrue(_swift_bool_argument(current_hole, "private func liveHoleImageMap", "showsHazards"))
         self.assertIn("showsClubLabel: false", current_hole)
         # B4b-2 v2 holes always carry their physical identity; nothing falls back to the course id.
         self.assertIn("let mapGlobalId = hole.sourceGlobalId", current_hole)
@@ -2235,7 +2253,6 @@ class MobileContractTests(unittest.TestCase):
             current_hole,
         )
         self.assertIn("showsRecommendedRoute: true", current_hole)
-        self.assertIn("showsHazards: true", current_hole)
         self.assertIn("public let showsFactualRoute: Bool", hole_map_view)
         self.assertIn("showsFactualRoute: Bool = true", hole_map_view)
         # Device review (build 77): no thin centreline over the map, only the caddie's white route.
@@ -4160,9 +4177,9 @@ class MobileContractTests(unittest.TestCase):
     def test_live_hazard_detail_owns_one_selected_outline_without_shared_duplicates(self) -> None:
         hazard_detail = _read_required_source(self, IOS_DIR / "Views" / "LiveHazardDetailView.swift")
         self.assertIn("showsRecommendedRoute: false", hazard_detail)
-        # The detail map shares the factual interval layer; the selected overlay adds only its
-        # registered outline and labels, so a two-point hazard is never turned into a polygon.
-        self.assertIn("showsHazards: true", hazard_detail)
+        # The detail map shares the factual interval layer; native geometry tests cover the
+        # selected overlay separately, so a two-point hazard is never turned into a polygon.
+        self.assertTrue(_swift_bool_argument(hazard_detail, "private func hazardMapContent", "showsHazards"))
         self.assertIn("LiveHazardOverlayRenderer.draw(", hazard_detail)
         self.assertIn("_selectedHazardID = State(initialValue: nil)", hazard_detail)
         self.assertIn("LiveHazardPickerPanel(", hazard_detail)
