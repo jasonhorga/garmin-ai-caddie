@@ -115,9 +115,9 @@ public struct HoleImageMapView: View {
     /// Prep/review use a bounded map card. Live play places the same map directly into its hero, so
     /// the shared map must not add a second rounded card boundary around the instrument backdrop.
     public let showsCardChrome: Bool
-    /// Live map-layer controls. Prep/review callers retain the full factual rendering by default.
-    /// Gates the lightweight fairway band drawn from the installed tee-to-green route while the
-    /// precise map is pending, so a hole is never blank; no centreline is drawn over a real map.
+    /// Live map-layer controls. Prep/review callers retain the factual rendering by default.
+    /// Kept for source compatibility with older callers; the old lightweight fairway band is no
+    /// longer rendered, because a CourseView centreline is not the fairway boundary.
     public let showsFactualRoute: Bool
     public let showsRecommendedRoute: Bool
     public let showsHazards: Bool
@@ -246,8 +246,13 @@ public struct HoleImageMapView: View {
                         .background(.black.opacity(0.68), in: Capsule())
                         .accessibilityIdentifier("garmin-route-waiting-for-precise-map")
                 }
-                if showsPrepFactOverlays {
+                if showsPrepFactOverlays, factualLayerProjectionUsable {
                     prepFactOverlays(overlay: overlay)
+                }
+                if showsHazards, intervalOnlyHazardCount > 0 {
+                    PrepMapHazardEvidenceNotice(count: intervalOnlyHazardCount)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .padding(10)
                 }
             }
             .aspectRatio(CGFloat(overlay.w) / CGFloat(overlay.h), contentMode: .fit)
@@ -411,6 +416,9 @@ public struct HoleImageMapView: View {
         }().flatMap { Self.safeLandingMetres($0, for: hole) }
         let landingRow = Self.landingOverlayPoint(overlay, targetMetres: landingTargetMetres)
         let landing = landingRow.map { CGPoint(x: $0[0] * sx, y: $0[1] * sy) }
+        if showsHazards {
+            drawKnownHazardSpans(&context, overlay: overlay, sx: sx, sy: sy)
+        }
         // No thin centreline over the map: the hole's own art (or, before the precise map, the
         // bitmap already shows the hole, and a second tee-to-green line
         // read as a competing route next to the caddie's white one (device review, build 77).
@@ -494,6 +502,46 @@ public struct HoleImageMapView: View {
         // Pin (green end of the route): a compact flag, never a target ring or crosshair.
         if showsRecommendedRoute, let pin {
             drawPinFlag(&context, at: pin)
+        }
+    }
+
+    /// Draw only the two boundary pixels supplied by an interval-only CourseView export. The
+    /// dashed connector is a range cue, never a filled shape; the real raster remains the sole
+    /// authority for anything outside those known front/back points.
+    private func drawKnownHazardSpans(
+        _ context: inout GraphicsContext,
+        overlay: CoursePrepOverlay,
+        sx: CGFloat,
+        sy: CGFloat
+    ) {
+        let routeLengthM = overlay.ln > 0 ? overlay.ln : hole.routeLenM
+        for detail in hole.hazards.details {
+            guard let (frontPx, backPx) = HoleMapHazardEvidence.intervalSpanPixels(
+                detail: detail,
+                routeLengthM: routeLengthM,
+                project: displayPixel
+            ) else { continue }
+            let front = CGPoint(x: frontPx[0] * sx, y: frontPx[1] * sy)
+            let back = CGPoint(x: backPx[0] * sx, y: backPx[1] * sy)
+            var span = Path()
+            span.move(to: front)
+            span.addLine(to: back)
+            context.stroke(
+                span,
+                with: .color(.black.opacity(0.78)),
+                style: StrokeStyle(lineWidth: 4, lineCap: .round)
+            )
+            context.stroke(
+                span,
+                with: .color(Color(red: 0.95, green: 0.16, blue: 0.14)),
+                style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [5, 4])
+            )
+            for point in [front, back] {
+                context.fill(
+                    Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)),
+                    with: .color(Color(red: 0.95, green: 0.16, blue: 0.14))
+                )
+            }
         }
     }
 
@@ -741,11 +789,19 @@ public struct HoleImageMapView: View {
     }
 
     /// Preparation is a spatial planning surface, not a second report below the map. These overlays
-    /// consume only facts with a shared topo coordinate: the measured green target and at most the
-    /// nearest two measured obstacle spans. A partial CourseView package deliberately withholds the
-    /// obstacle readouts because that subset is not a completeness guarantee.
+    /// consume only facts with a shared topo coordinate: the measured green target and the mapped
+    /// obstacle spans. A partial CourseView package contributes only its known front/back edges;
+    /// it never supplies a guessed polygon or a claim that all hazards were exported.
     private func prepFactOverlays(overlay: CoursePrepOverlay) -> some View {
         GeometryReader { proxy in
+            let intervalOnlyCount = HoleMapHazardEvidence.countVisibleIntervalOnly(
+                items: prepHazardAnnotations,
+                isIntervalOnly: { !$0.hasPreciseOutline },
+                isVisible: { item in
+                    mapPoint(item.frontPx, in: proxy.size, overlay: overlay) != nil
+                        && mapPoint(item.backPx, in: proxy.size, overlay: overlay) != nil
+                }
+            )
             ZStack {
                 PrepMapHoleInfoOverlay(
                     hole: hole.hole,
@@ -757,6 +813,12 @@ public struct HoleImageMapView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(10)
                 .accessibilityIdentifier("prep-hole-header-\(hole.hole)")
+
+                if intervalOnlyCount > 0 {
+                    PrepMapHazardEvidenceNotice(count: intervalOnlyCount)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .padding(10)
+                }
 
                 if let anchor = prepGreenAnchor(in: proxy.size, overlay: overlay),
                    let distances = prepGreenYards {
@@ -779,6 +841,7 @@ public struct HoleImageMapView: View {
                             overYards: item.overYards,
                             front: front,
                             back: back,
+                            hasPreciseOutline: item.hasPreciseOutline,
                             index: index,
                             viewportSize: proxy.size
                         )
@@ -799,10 +862,29 @@ public struct HoleImageMapView: View {
         let overYards: Int
         let frontPx: [Double]
         let backPx: [Double]
+        let hasPreciseOutline: Bool
+    }
+
+    private var intervalOnlyHazardCount: Int {
+        guard factualLayerProjectionUsable else { return 0 }
+        let routeLengthM = displayOverlay?.ln ?? hole.routeLenM
+        return hole.hazards.details.filter {
+            HoleMapHazardEvidence.intervalSpanPixels(
+                detail: $0,
+                routeLengthM: routeLengthM,
+                project: displayPixel
+            ) != nil
+        }.count
+    }
+
+    private var factualLayerProjectionUsable: Bool {
+        HoleMapHazardEvidence.factualLayerProjectionUsable(
+            hasGarminRaster: garminRasterURL != nil,
+            projectionUsable: garminRasterProjection?.isUsable == true
+        )
     }
 
     private var prepHazardAnnotations: [PrepHazardAnnotation] {
-        guard hole.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else { return [] }
         let route = displayOverlay?.route
         let routeLengthM = displayOverlay?.ln ?? hole.routeLenM
         return hole.hazards.details
@@ -813,7 +895,7 @@ public struct HoleImageMapView: View {
                         frontRouteM: $0.frontRouteM,
                         backRouteM: $0.backRouteM,
                         routeLengthM: routeLengthM,
-                        hasPreciseOutline: $0.outlinePx.count >= 3
+                        hasPreciseOutline: HoleMapHazardEvidence.hasPreciseOutline($0.outlinePx)
                     )
                     && $0.frontPx.count >= 2
                     && $0.backPx.count >= 2
@@ -833,7 +915,8 @@ public struct HoleImageMapView: View {
                     toYards: CoursePrepRoute.yards(fromMetres: detail.frontM),
                     overYards: CoursePrepRoute.yards(fromMetres: detail.backM),
                     frontPx: detail.frontPx,
-                    backPx: detail.backPx
+                    backPx: detail.backPx,
+                    hasPreciseOutline: HoleMapHazardEvidence.hasPreciseOutline(detail.outlinePx)
                 )
             }
     }
@@ -1365,6 +1448,104 @@ private struct PrepMapGreenRangeOverlay: View {
     }
 }
 
+/// The CourseView hazard export can provide only the two measured boundary points until the
+/// precise prodgeometry outline is available. Keep that state explicit in the map: a two-point
+/// span is evidence of the known front/back edges, never a guessed polygon or a neighbouring-hole
+/// shape borrowed from the raster beneath it.
+enum HoleMapHazardEvidence {
+    static let intervalOnlyNotice = "精确图到位前只有前后沿 · 障碍范围按已知两点显示"
+
+    static func hasPreciseOutline(_ points: [[Double]]) -> Bool {
+        points.count >= 3 && points.allSatisfy { point in
+            point.count == 2 && point.allSatisfy { $0.isFinite }
+        }
+    }
+
+    static func knownBoundaryPixels(
+        frontPx: [Double],
+        backPx: [Double],
+        project: ([Double]) -> [Double]?
+    ) -> ([Double], [Double])? {
+        guard frontPx.count >= 2,
+              backPx.count >= 2,
+              frontPx.prefix(2).allSatisfy(\.isFinite),
+              backPx.prefix(2).allSatisfy(\.isFinite),
+              let front = project(frontPx),
+              let back = project(backPx),
+              front.count >= 2,
+              back.count >= 2,
+              front.prefix(2).allSatisfy(\.isFinite),
+              back.prefix(2).allSatisfy(\.isFinite) else { return nil }
+        return (front, back)
+    }
+
+    /// The exact geometry contract used by `HoleImageMapView` for interval-only hazards.
+    /// A measured outline takes over when available; otherwise only the exported front/back
+    /// points may reach the canvas. Projection failure removes both the span and its notice.
+    static func intervalSpanPixels(
+        detail: CoursePrepHazardDetail,
+        routeLengthM: Double?,
+        project: ([Double]) -> [Double]?
+    ) -> ([Double], [Double])? {
+        guard (detail.kind == "bunker" || detail.kind == "water"),
+              !hasPreciseOutline(detail.outlinePx),
+              CoursePrepHazardRelevance.isRelevant(
+                  kind: detail.kind,
+                  frontRouteM: detail.frontRouteM,
+                  backRouteM: detail.backRouteM,
+                  routeLengthM: routeLengthM,
+                  hasPreciseOutline: false
+              ) else { return nil }
+        return knownBoundaryPixels(
+            frontPx: detail.frontPx,
+            backPx: detail.backPx,
+            project: project
+        )
+    }
+
+    static func countVisibleIntervalOnly<Item>(
+        items: [Item],
+        isIntervalOnly: (Item) -> Bool,
+        isVisible: (Item) -> Bool
+    ) -> Int {
+        items.reduce(into: 0) { count, item in
+            if isIntervalOnly(item), isVisible(item) {
+                count += 1
+            }
+        }
+    }
+
+    static func factualLayerProjectionUsable(
+        hasGarminRaster: Bool,
+        projectionUsable: Bool
+    ) -> Bool {
+        !hasGarminRaster || projectionUsable
+    }
+}
+
+private struct PrepMapHazardEvidenceNotice: View {
+    let count: Int
+
+    var body: some View {
+        Label(
+            count == 1
+                ? HoleMapHazardEvidence.intervalOnlyNotice
+                : "\(HoleMapHazardEvidence.intervalOnlyNotice)（\(count) 个）",
+            systemImage: "ruler"
+        )
+        .font(.system(size: 10, weight: .semibold))
+        .foregroundStyle(.white.opacity(0.94))
+        .multilineTextAlignment(.leading)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color.white.opacity(0.2)))
+        .shadow(color: .black.opacity(0.28), radius: 4, y: 2)
+        .accessibilityIdentifier("prep-map-hazard-evidence-note")
+        .accessibilityLabel(HoleMapHazardEvidence.intervalOnlyNotice)
+    }
+}
+
 /// Preparation obstacle facts use the exact same visual language as live play: yellow is sand,
 /// blue is water, and `到 / 过` are attached to the measured near/far boundary pixels.
 private struct PrepMapHazardRangeOverlay: View {
@@ -1374,19 +1555,67 @@ private struct PrepMapHazardRangeOverlay: View {
     let overYards: Int
     let front: CGPoint
     let back: CGPoint
+    let hasPreciseOutline: Bool
     let index: Int
     let viewportSize: CGSize
 
     var body: some View {
-        LiveMapHazardRangeOverlay(
-            kind: kind,
-            label: label,
-            toYards: toYards,
-            overYards: overYards,
-            front: front,
-            back: back,
+        ZStack {
+            if !hasPreciseOutline {
+                knownSpan
+            }
+            boundaryMarker(at: front)
+            boundaryMarker(at: back)
+            boundaryLabel("\(toYards)", at: front, isFront: true)
+            boundaryLabel("\(overYards)", at: back, isFront: false)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            hasPreciseOutline
+                ? "\(label)，到 \(toYards) 码，过 \(overYards) 码"
+                : "\(label)，到 \(toYards) 码，过 \(overYards) 码，仅显示已知前后沿"
+        )
+    }
+
+    private var knownSpan: some View {
+        ZStack {
+            Path { path in
+                path.move(to: front)
+                path.addLine(to: back)
+            }
+            .stroke(Color.black.opacity(0.78), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+            Path { path in
+                path.move(to: front)
+                path.addLine(to: back)
+            }
+            .stroke(
+                Color(red: 0.95, green: 0.16, blue: 0.14),
+                style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [5, 4])
+            )
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func boundaryLabel(_ text: String, at point: CGPoint, isFront: Bool) -> some View {
+        let center = LiveHazardCalloutLayout.center(
+            for: point,
+            isFront: isFront,
             index: index,
             viewportSize: viewportSize
         )
+        return Text(text)
+            .font(.system(size: 8, weight: .heavy, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(.white)
+            .frame(width: LiveHazardCalloutLayout.labelWidth, height: LiveHazardCalloutLayout.labelHeight)
+            .shadow(color: .black.opacity(0.95), radius: 1.5)
+            .position(center)
+    }
+
+    private func boundaryMarker(at point: CGPoint) -> some View {
+        Circle()
+            .fill(Color(red: 0.95, green: 0.16, blue: 0.14))
+            .frame(width: 5, height: 5)
+            .position(point)
     }
 }

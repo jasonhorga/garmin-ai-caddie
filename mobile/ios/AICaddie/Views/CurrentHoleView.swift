@@ -3169,9 +3169,10 @@ public struct CurrentHoleView: View {
                              // bitmap owns the frame; no line-map fallback is drawn while assets load.
                              showsRecommendedRoute: true,
                              // The selected obstacle is rendered once by the viewport-plane
-                             // `LiveHazardOverlayRenderer` below. Keep HoleImageMapView's legacy
-                             // partial spans off so an unselected obstacle can never leak through.
-                             showsHazards: false,
+                             // Keep interval-only CourseView hazards visible on the factual map;
+                             // the viewport renderer below adds the selected hazard's labels and
+                             // precise outline on top of the same registered frame.
+                             showsHazards: true,
                              showsPrepClubLabel: false,
                              showsClubLabel: false,
                              teeDistanceArcYards: showsTeeDistanceArc ? teeDistanceArcYards : nil,

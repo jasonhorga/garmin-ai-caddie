@@ -213,6 +213,171 @@ final class HoleMapInteractionTests: XCTestCase {
         XCTAssertLessThanOrEqual(back.x, viewport.width - LiveHazardAnnotationLayout.labelWidth / 2)
     }
 
+    func testHazardEvidenceKeepsTwoPointSpansExplicitUntilPreciseOutlineArrives() {
+        XCTAssertFalse(HoleMapHazardEvidence.hasPreciseOutline([]))
+        XCTAssertFalse(HoleMapHazardEvidence.hasPreciseOutline([[100, 300], [102, 280]]))
+        XCTAssertFalse(
+            HoleMapHazardEvidence.hasPreciseOutline([[100, 300], [102, .infinity], [104, 260]])
+        )
+        XCTAssertTrue(
+            HoleMapHazardEvidence.hasPreciseOutline([[100, 300], [102, 280], [104, 260]])
+        )
+        XCTAssertNotNil(
+            HoleMapHazardEvidence.knownBoundaryPixels(
+                frontPx: [100, 300],
+                backPx: [102, 280],
+                project: { $0 }
+            ),
+            "partial CourseView rows still expose drawable front/back evidence"
+        )
+        XCTAssertNil(
+            HoleMapHazardEvidence.knownBoundaryPixels(
+                frontPx: [100, 300],
+                backPx: [102, 280],
+                project: { _ in nil }
+            ),
+            "a failed frame projection must not claim that the two points are shown"
+        )
+        let visibleCount = HoleMapHazardEvidence.countVisibleIntervalOnly(
+            items: [true, false, true],
+            isIntervalOnly: { $0 },
+            isVisible: { $0 }
+        )
+        XCTAssertEqual(visibleCount, 2)
+        let projectedOutCount = HoleMapHazardEvidence.countVisibleIntervalOnly(
+            items: [true, true],
+            isIntervalOnly: { $0 },
+            isVisible: { _ in false }
+        )
+        XCTAssertEqual(projectedOutCount, 0, "the prep notice follows the same projection gate as the spans")
+        XCTAssertTrue(
+            HoleMapHazardEvidence.factualLayerProjectionUsable(
+                hasGarminRaster: false,
+                projectionUsable: false
+            )
+        )
+        XCTAssertFalse(
+            HoleMapHazardEvidence.factualLayerProjectionUsable(
+                hasGarminRaster: true,
+                projectionUsable: false
+            ),
+            "an unregistered Garmin frame suppresses both factual pixels and its evidence notice"
+        )
+        XCTAssertTrue(HoleMapHazardEvidence.intervalOnlyNotice.contains("前后沿"))
+        XCTAssertTrue(HoleMapHazardEvidence.intervalOnlyNotice.contains("已知两点"))
+    }
+
+    func testIntervalHazardGeometryUsesOnlyKnownEdgesUntilOutlineIsMeasured() throws {
+        let interval = CoursePrepHazardDetail(
+            kind: "bunker",
+            frontM: 100,
+            backM: 120,
+            frontRouteM: 100,
+            backRouteM: 120,
+            frontPx: [40, 160],
+            backPx: [42, 140],
+            outlinePx: [],
+            sideM: 8
+        )
+        let precise = CoursePrepHazardDetail(
+            kind: "bunker",
+            frontM: 100,
+            backM: 120,
+            frontRouteM: 100,
+            backRouteM: 120,
+            frontPx: [40, 160],
+            backPx: [42, 140],
+            outlinePx: [[40, 160], [56, 150], [42, 140]],
+            sideM: 8
+        )
+        let span = try XCTUnwrap(
+            HoleMapHazardEvidence.intervalSpanPixels(
+                detail: interval,
+                routeLengthM: 180,
+                project: { $0 }
+            )
+        )
+        XCTAssertEqual(span.0, [40, 160])
+        XCTAssertEqual(span.1, [42, 140])
+        XCTAssertNil(
+            HoleMapHazardEvidence.intervalSpanPixels(
+                detail: precise,
+                routeLengthM: 180,
+                project: { $0 }
+            ),
+            "a measured outline is rendered by the precise path, never as an interval span"
+        )
+        XCTAssertNil(
+            HoleMapHazardEvidence.intervalSpanPixels(
+                detail: interval,
+                routeLengthM: 180,
+                project: { _ in nil }
+            ),
+            "an unprojectable Garmin frame suppresses both interval pixels and its notice"
+        )
+        func hole(detail: CoursePrepHazardDetail) -> CoursePrepHole {
+            CoursePrepHole(
+                hole: 1,
+                par: 4,
+                parSource: "courseData",
+                blueYards: 350,
+                routeLenM: 180,
+                route: [[40, 180, 0], [40, 20, 180]],
+                hazards: CoursePrepHazards(details: [detail]),
+                map: CoursePrepMap(
+                    image: nil,
+                    overlay: CoursePrepOverlay(
+                        w: 100,
+                        h: 200,
+                        ppm: 1,
+                        ln: 180,
+                        route: [[40, 180, 0], [40, 20, 180]]
+                    )
+                )
+            )
+        }
+
+        let intervalHole = hole(detail: interval)
+        let intervalRow = try XCTUnwrap(LiveHazardDisplayItem.rows(for: intervalHole, liveReadouts: nil).first)
+        let intervalGeometry = try XCTUnwrap(
+            LiveHazardOverlayRenderer.screenGeometry(
+                size: CGSize(width: 100, height: 200),
+                hole: intervalHole,
+                row: intervalRow,
+                scale: 1,
+                offset: .zero
+            )
+        )
+        XCTAssertEqual(intervalGeometry.edges.count, 2)
+        XCTAssertTrue(intervalGeometry.edges[0].isFront)
+        XCTAssertFalse(intervalGeometry.edges[1].isFront)
+        XCTAssertEqual(intervalGeometry.edges[0].point.x, 40, accuracy: 0.001)
+        XCTAssertEqual(intervalGeometry.edges[0].point.y, 160, accuracy: 0.001)
+        XCTAssertEqual(intervalGeometry.edges[1].point.x, 42, accuracy: 0.001)
+        XCTAssertEqual(intervalGeometry.edges[1].point.y, 140, accuracy: 0.001)
+        XCTAssertTrue(intervalGeometry.outline.isEmpty, "two edge facts must not synthesize a polygon")
+
+        let preciseHole = hole(detail: precise)
+        let preciseRow = try XCTUnwrap(LiveHazardDisplayItem.rows(for: preciseHole, liveReadouts: nil).first)
+        let preciseGeometry = try XCTUnwrap(
+            LiveHazardOverlayRenderer.screenGeometry(
+                size: CGSize(width: 100, height: 200),
+                hole: preciseHole,
+                row: preciseRow,
+                scale: 1,
+                offset: .zero
+            )
+        )
+        XCTAssertEqual(preciseGeometry.edges.count, 2)
+        XCTAssertEqual(preciseGeometry.outline.count, 3)
+        XCTAssertEqual(preciseGeometry.outline[0].x, 40, accuracy: 0.001)
+        XCTAssertEqual(preciseGeometry.outline[0].y, 160, accuracy: 0.001)
+        XCTAssertEqual(preciseGeometry.outline[1].x, 56, accuracy: 0.001)
+        XCTAssertEqual(preciseGeometry.outline[1].y, 150, accuracy: 0.001)
+        XCTAssertEqual(preciseGeometry.outline[2].x, 42, accuracy: 0.001)
+        XCTAssertEqual(preciseGeometry.outline[2].y, 140, accuracy: 0.001)
+    }
+
     func testHorizontalHoleSwipeChangesOnlyToAnAdjacentHole() {
         let holes = [1, 2, 3]
 
