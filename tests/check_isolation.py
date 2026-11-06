@@ -5,10 +5,15 @@ Full CI usage: python -m tests.check_isolation discover -s tests -t . -v
 """
 import logging
 import builtins
+import copy
+import io
 from pathlib import Path
 import subprocess
 import sys
 import unittest
+
+
+_NO_MEMO = object()
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,6 +48,8 @@ class LoggingIsolationSuite(unittest.TestSuite):
 
     original_methods = (logging.Logger.addHandler, logging.Logger.callHandlers)
     _module_snapshots = {}
+    _module_setup_leaks = {}
+    _module_setup_method_leaks = {}
     _import_leaks = []
     _tracking_import = False
     _track_imports_enabled = True
@@ -53,61 +60,235 @@ class LoggingIsolationSuite(unittest.TestSuite):
     @classmethod
     def reset_tracking(cls):
         cls._module_snapshots = {}
+        cls._module_setup_leaks = {}
+        cls._module_setup_method_leaks = {}
         cls._import_leaks = []
         cls._track_imports_enabled = True
 
     @staticmethod
-    def _snapshot_logging():
+    def _stable_state(value):
+        """Copy logging component state without retaining object identities."""
+        if value is None or isinstance(value, (bool, int, float, str, bytes)):
+            return value
+        if isinstance(value, dict):
+            return tuple(sorted((repr(key), LoggingIsolationSuite._stable_state(item))
+                                for key, item in value.items()))
+        if isinstance(value, (list, tuple)):
+            return tuple(LoggingIsolationSuite._stable_state(item) for item in value)
+        if isinstance(value, (set, frozenset)):
+            return frozenset(LoggingIsolationSuite._stable_state(item) for item in value)
+        if hasattr(value, "__dict__"):
+            return (type(value), LoggingIsolationSuite._stable_state(vars(value)))
+        return type(value)
+
+    @staticmethod
+    def _callable_state(value):
+        code = getattr(value, "__code__", None)
+        if code is None:
+            return None
+        return (
+            code.co_code,
+            code.co_consts,
+            code.co_names,
+            code.co_varnames,
+            LoggingIsolationSuite._stable_state(getattr(value, "__defaults__", None)),
+            LoggingIsolationSuite._stable_state(getattr(value, "__kwdefaults__", None)),
+            LoggingIsolationSuite._stable_state(
+                tuple(getattr(cell, "cell_contents", None)
+                      for cell in (getattr(value, "__closure__", None) or ()))
+            ),
+        )
+
+    @staticmethod
+    def _component_snapshot(item, memo=None):
+        memo = {} if memo is None else memo
+        original_defaults = getattr(item, "__defaults__", None)
+        original_kwdefaults = getattr(item, "__kwdefaults__", None)
+        original_closure = tuple(getattr(cell, "cell_contents", None)
+                                 for cell in (getattr(item, "__closure__", None) or ()))
+        defaults, kwdefaults, closure = copy.deepcopy((
+            getattr(item, "__defaults__", None),
+            getattr(item, "__kwdefaults__", None),
+            tuple(getattr(cell, "cell_contents", None)
+                  for cell in (getattr(item, "__closure__", None) or ())),
+        ), memo)
+        return (
+            copy.deepcopy(getattr(item, "__dict__", {}), memo),
+            defaults,
+            kwdefaults,
+            closure,
+            (original_defaults, original_kwdefaults, original_closure),
+        )
+
+    @staticmethod
+    def _restore_callable(item, state, memo=None):
+        memo = {} if memo is None else memo
+        originals = state[4] if len(state) > 4 else (None, None, ())
+        original_defaults, original_kwdefaults, original_closure = originals
+        current_defaults = original_defaults or getattr(item, "__defaults__", None)
+        defaults = (tuple(LoggingIsolationSuite._restore_value(current, saved, memo)
+                           for current, saved in zip(current_defaults or (), state[1] or ()))
+                    if state[1] is not None else None)
+        current_kwdefaults = original_kwdefaults or getattr(item, "__kwdefaults__", None) or {}
+        kwdefaults = (dict((key, LoggingIsolationSuite._restore_value(current_kwdefaults.get(key), value, memo))
+                            for key, value in state[2].items())
+                      if state[2] is not None else None)
+        closure = getattr(item, "__closure__", None) or ()
+        current_closure = original_closure or tuple(
+            getattr(cell, "cell_contents", None) for cell in closure
+        )
+        closure_values = tuple(
+            LoggingIsolationSuite._restore_value(current, saved, memo)
+            for current, saved in zip(current_closure, state[3])
+        )
+        if hasattr(item, "__defaults__"):
+            item.__defaults__ = defaults
+        if hasattr(item, "__kwdefaults__"):
+            item.__kwdefaults__ = kwdefaults
+        for cell, value in zip(closure, closure_values):
+            cell.cell_contents = value
+
+    @staticmethod
+    def _restore_value(current, saved, memo):
+        if saved is current or memo.get(id(saved), _NO_MEMO) is current:
+            return current
+        if isinstance(current, tuple) and isinstance(saved, tuple):
+            return tuple(LoggingIsolationSuite._restore_value(existing, original, memo)
+                         for existing, original in zip(current, saved))
+        if isinstance(current, dict) and isinstance(saved, dict):
+            memo[id(saved)] = current
+            for key in tuple(current):
+                if key not in saved:
+                    del current[key]
+            for key, value in saved.items():
+                current[key] = LoggingIsolationSuite._restore_value(
+                    current.get(key), value, memo
+                )
+            return current
+        if isinstance(current, list) and isinstance(saved, list):
+            memo[id(saved)] = current
+            current[:] = [LoggingIsolationSuite._restore_value(
+                current[index] if index < len(current) else None, value, memo
+            ) for index, value in enumerate(saved)]
+            return current
+        if isinstance(current, set) and isinstance(saved, set):
+            saved_copy = copy.deepcopy(saved, memo)
+            memo[id(saved)] = current
+            current.clear()
+            current.update(saved_copy)
+            return current
+        return copy.deepcopy(saved, memo)
+
+    @classmethod
+    def _restore_component_dict(cls, item, saved, memo):
+        current = dict(getattr(item, "__dict__", {}))
+        item.__dict__.clear()
+        for key, value in saved.items():
+            item.__dict__[key] = cls._restore_value(current.get(key), value, memo)
+
+    @staticmethod
+    def _handler_shape(handler):
+        formatter = getattr(handler, "formatter", None)
+        return (
+            type(handler),
+            handler.level,
+            id(getattr(handler, "stream", None)),
+            tuple((type(item), LoggingIsolationSuite._stable_state(getattr(item, "__dict__", {})),
+                   LoggingIsolationSuite._callable_state(item))
+                  for item in handler.filters),
+            type(formatter),
+            getattr(formatter, "_fmt", None),
+            getattr(formatter, "datefmt", None),
+            LoggingIsolationSuite._stable_state(getattr(formatter, "__dict__", {})),
+        )
+
+    @classmethod
+    def _snapshot_logging(cls):
         loggers = {"root": logging.getLogger()}
         loggers.update({name: logger for name, logger in logging.Logger.manager.loggerDict.items()
                         if isinstance(logger, logging.Logger)})
+        memo = {}
         return {
             name: (tuple(logger.handlers), tuple(logger.filters), logger.level,
-                   logger.propagate, logger.disabled)
+                   logger.propagate, logger.disabled,
+                   (tuple(cls._handler_shape(handler) for handler in logger.handlers),
+                    tuple((type(item), cls._stable_state(getattr(item, "__dict__", {})),
+                           cls._callable_state(item))
+                          for item in logger.filters)),
+                   tuple((handler.level, tuple(handler.filters),
+                          getattr(handler, "formatter", None),
+                          getattr(handler, "stream", None),
+                          tuple((item, cls._component_snapshot(item, memo))
+                                for item in handler.filters),
+                          copy.deepcopy(getattr(getattr(handler, "formatter", None),
+                                                "__dict__", {})))
+                         for handler in logger.handlers),
+                   tuple((item, cls._component_snapshot(item, memo))
+                         for item in logger.filters))
             for name, logger in loggers.items()
         }
 
     @staticmethod
-    def _logging_changes(before, after):
+    def _logging_changes(before, after, *, ignore_external=True):
+        def is_expected_external(name):
+            return any(name == prefix or name.startswith(prefix + ".")
+                       for prefix in LoggingIsolationSuite._expected_external_loggers)
+
         changes = {}
-        default = ((), (), logging.NOTSET, True, False)
+        default = ((), (), logging.NOTSET, True, False, ((), ()), (), ())
+        def comparable(state):
+            if state is None:
+                return None
+            handlers, filters, level, propagate, disabled, shapes, _details, filter_states = state
+            details_signature = tuple(
+                (level, tuple((type(item), LoggingIsolationSuite._stable_state(state),
+                               LoggingIsolationSuite._callable_state(item))
+                              for item, state in handler_filter_states),
+                 LoggingIsolationSuite._stable_state(formatter_state))
+                for level, _filters, _formatter, _stream, handler_filter_states, formatter_state
+                in _details
+            )
+            filter_signature = tuple((type(item), LoggingIsolationSuite._stable_state(data),
+                                      LoggingIsolationSuite._callable_state(item))
+                                     for item, data in filter_states)
+            return (shapes, details_signature, filter_signature, level, propagate, disabled)
         for name in before.keys() | after.keys():
-            if name not in before and after.get(name) == default:
+            if name not in before and comparable(after.get(name)) == comparable(default):
                 continue
-            if before.get(name) != after.get(name):
+            if comparable(before.get(name)) != comparable(after.get(name)):
                 changes[name] = (before.get(name), after.get(name))
-        for name in tuple(changes):
-            if name.startswith(LoggingIsolationSuite._expected_external_loggers):
-                changes.pop(name)
+        if ignore_external:
+            for name in tuple(changes):
+                if is_expected_external(name):
+                    changes.pop(name)
         # Alembic's fileConfig also replaces the root stderr handler.  Keep
         # detecting root filters, levels, propagation, and arbitrary handlers;
         # ignore this one handler-only change when the migration loggers moved
         # in the same boundary.
         root = changes.get("root")
         external_changed = any(
-            name.startswith(LoggingIsolationSuite._expected_external_loggers)
+            is_expected_external(name)
             for name in before.keys() | after.keys()
             if before.get(name) != after.get(name)
         )
         if root and external_changed:
             before_root, after_root = root
-            if (before_root[1:] == after_root[1:]
-                    and before_root[0] != after_root[0]):
+            # Alembic's fileConfig may replace an equivalent stderr handler
+            # while it adjusts its own loggers.  A real root handler change,
+            # such as a new FileHandler, remains a leak even in that case.
+            if (before_root[1:5] == after_root[1:5]
+                    and before_root[5] == after_root[5]):
                 changes.pop("root", None)
         if root and "root" in changes:
             before_root, after_root = root
-            def handler_shape(handler):
-                return (type(handler), handler.level,
-                        getattr(handler, "stream", None) is sys.stderr)
-            if (before_root[1:] == after_root[1:]
-                    and [handler_shape(item) for item in before_root[0]]
-                    == [handler_shape(item) for item in after_root[0]]):
+            if (before_root[1:5] == after_root[1:5]
+                    and before_root[5] == after_root[5]):
                 changes.pop("root", None)
         return changes
 
     @staticmethod
     def _restore_logging(snapshot):
-        default = ((), (), logging.NOTSET, True, False)
+        default = ((), (), logging.NOTSET, True, False, ((), ()), (), ())
         # Preserve logger objects created by a module.  Removing them from
         # loggerDict leaves references held by tests detached from getLogger;
         # reset only a newly-created logger that actually carries state.
@@ -115,29 +296,69 @@ class LoggingIsolationSuite(unittest.TestSuite):
             if not isinstance(logger, logging.Logger) or name in snapshot:
                 continue
             state = (tuple(logger.handlers), tuple(logger.filters), logger.level,
-                     logger.propagate, logger.disabled)
-            if state != default:
+                     logger.propagate, logger.disabled,
+                     tuple(LoggingIsolationSuite._handler_shape(handler)
+                           for handler in logger.handlers),
+                     tuple((handler.level, tuple(handler.filters),
+                            getattr(handler, "formatter", None),
+                            getattr(handler, "stream", None),
+                            tuple((item, LoggingIsolationSuite._component_snapshot(item))
+                                  for item in handler.filters),
+                            copy.deepcopy(getattr(getattr(handler, "formatter", None),
+                                                  "__dict__", {})))
+                           for handler in logger.handlers),
+                     tuple((item, LoggingIsolationSuite._component_snapshot(item))
+                           for item in logger.filters))
+            if (state[1:] != default[1:]):
                 logger.handlers[:] = []
                 logger.filters[:] = []
                 logger.setLevel(logging.NOTSET)
                 logger.propagate = True
                 logger.disabled = False
+        callable_memo = {}
+        restored_callable_ids = set()
         for name, state in snapshot.items():
             logger = logging.getLogger() if name == "root" else logging.getLogger(name)
-            handlers, filters, level, propagate, disabled = state
+            handlers, filters, level, propagate, disabled, _handler_shapes, handler_details, filter_states = state
             logger.handlers[:] = handlers
             logger.filters[:] = filters
+            for item, item_state in filter_states:
+                if id(item) in restored_callable_ids:
+                    continue
+                if hasattr(item, "__dict__"):
+                    LoggingIsolationSuite._restore_component_dict(item, item_state[0], callable_memo)
+                LoggingIsolationSuite._restore_callable(item, item_state, callable_memo)
+                restored_callable_ids.add(id(item))
             logger.setLevel(level)
             logger.propagate = propagate
             logger.disabled = disabled
+            for handler, details in zip(handlers, handler_details):
+                handler_level, handler_filters, formatter, stream, filter_states, formatter_state = details
+                handler.setLevel(handler_level)
+                handler.filters[:] = handler_filters
+                handler.setFormatter(formatter)
+                for item, state in filter_states:
+                    if id(item) in restored_callable_ids:
+                        continue
+                    if hasattr(item, "__dict__"):
+                        LoggingIsolationSuite._restore_component_dict(item, state[0], callable_memo)
+                    LoggingIsolationSuite._restore_callable(item, state, callable_memo)
+                    restored_callable_ids.add(id(item))
+                if formatter is not None and hasattr(formatter, "__dict__"):
+                    formatter.__dict__.clear()
+                    formatter.__dict__.update(copy.deepcopy(formatter_state))
+                if hasattr(handler, "stream"):
+                    handler.stream = stream
 
     @classmethod
     def _record_import_leak(cls, module_name, before):
         after = cls._snapshot_logging()
         changes = cls._logging_changes(before, after)
+        all_changes = cls._logging_changes(before, after, ignore_external=False)
+        if all_changes:
+            cls._restore_logging(before)
         if changes:
             cls._import_leaks.append((module_name, changes))
-            cls._restore_logging(before)
 
     @classmethod
     def track_imports(cls):
@@ -169,11 +390,21 @@ class LoggingIsolationSuite(unittest.TestSuite):
             ("addHandler", "callHandlers"), self.original_methods)
             if getattr(logging.Logger, name) is not original]
         snapshot = self._module_snapshots.pop(previous, None)
-        state_changes = self._logging_changes(snapshot, self._snapshot_logging()) if snapshot else {}
-        if not changed and not state_changes:
+        current = self._snapshot_logging()
+        state_changes = self._logging_changes(snapshot, current) if snapshot else {}
+        all_state_changes = self._logging_changes(snapshot, current, ignore_external=False) if snapshot else {}
+        setup_changes = self._module_setup_leaks.pop(previous, {})
+        setup_method_changes = self._module_setup_method_leaks.pop(previous, ())
+        if not changed and not state_changes and not setup_changes and not setup_method_changes:
+            if snapshot and all_state_changes:
+                self._restore_logging(snapshot)
             return
         try:
             details = [f"{previous} leaked Logger.{name}" for name in changed]
+            details.extend(f"{previous} leaked logger state in setUpModule: {name}"
+                           for name in sorted(setup_changes))
+            details.extend(f"{previous} leaked Logger.{name} in setUpModule"
+                           for name in setup_method_changes)
             if state_changes:
                 details.append(f"{previous} leaked logger state: {', '.join(sorted(state_changes))}")
             raise AssertionError("; ".join(details))
@@ -195,10 +426,27 @@ class LoggingIsolationSuite(unittest.TestSuite):
         # inspection. Once the first test starts, imports belong to test code
         # and dependency setup, so they must not be reported as import leaks.
         type(self)._track_imports_enabled = False
-        super()._handleModuleFixture(test, result)
         module = getattr(test.__class__, "__module__", None)
-        if module and module not in self._module_snapshots:
-            self._module_snapshots[module] = self._snapshot_logging()
+        previous = self._get_previous_module(result)
+        if previous == module:
+            return
+        # TestSuite normally performs the previous module's teardown inside
+        # the superclass fixture method.  Do that first so this snapshot is a
+        # genuine post-teardown baseline; otherwise a clean observer inherits
+        # the prior module's leaked state and is reported as a second leak.
+        self._handleModuleTearDown(result)
+        before = self._snapshot_logging()
+        previous_class = getattr(result, "_previousTestClass", None)
+        result._previousTestClass = None
+        try:
+            super()._handleModuleFixture(test, result)
+        finally:
+            result._previousTestClass = previous_class
+        if module:
+            # Keep the pre-fixture state as the module baseline.  setUpModule
+            # changes are allowed for the module's tests; teardown and cleanup
+            # must restore them before the next module is compared.
+            self._module_snapshots[module] = before
 
 
 def run_logging_checked_tests(arguments):
@@ -206,11 +454,15 @@ def run_logging_checked_tests(arguments):
     original_import = LoggingIsolationSuite.track_imports()
     loader = unittest.TestLoader()
     loader.suiteClass = LoggingIsolationSuite
+    runner_stream = io.StringIO()
+    verbosity = 2 if any(argument in {"-v", "--verbose"} for argument in arguments) else 1
+    runner = unittest.TextTestRunner(stream=runner_stream, verbosity=verbosity)
     try:
         program = unittest.main(module=None, argv=[sys.argv[0], *arguments],
-                                testLoader=loader, exit=False)
+                                testLoader=loader, testRunner=runner, exit=False)
     finally:
         builtins.__import__ = original_import
+    new_failures = []
     for module, changes in LoggingIsolationSuite._import_leaks:
         witness = unittest.FunctionTestCase(lambda: None,
                                             description=module + " import logging isolation")
@@ -219,7 +471,34 @@ def run_logging_checked_tests(arguments):
             raise AssertionError(message)
         except AssertionError:
             program.result.addFailure(witness, sys.exc_info())
-        print(message, file=sys.stderr)
+            new_failures.append((witness, program.result.failures[-1][1]))
+
+    # unittest.main prints its summary as soon as the test body returns.  An
+    # import leak is discovered immediately after that body, so append it to a
+    # captured report and emit one final status line.  This keeps a stale
+    # trailing ``OK`` from masking the non-zero exit status.
+    rendered = runner_stream.getvalue()
+    marker = "\n----------------------------------------------------------------------\n"
+    if marker in rendered:
+        body, _summary = rendered.rsplit(marker, 1)
+    else:
+        body = rendered.rstrip("\n")
+    if body:
+        print(body, file=sys.stderr)
+    for witness, trace in new_failures:
+        print(f"\n{witness.id()}", file=sys.stderr)
+        print(trace.rstrip("\n"), file=sys.stderr)
+    print(marker.rstrip("\n"), file=sys.stderr)
+    print(f"Ran {program.result.testsRun} tests", file=sys.stderr)
+    if program.result.wasSuccessful():
+        print("OK", file=sys.stderr)
+    else:
+        counts = []
+        if program.result.failures:
+            counts.append(f"failures={len(program.result.failures)}")
+        if program.result.errors:
+            counts.append(f"errors={len(program.result.errors)}")
+        print(f"FAILED ({', '.join(counts)})", file=sys.stderr)
     return 0 if program.result.wasSuccessful() else 1
 
 

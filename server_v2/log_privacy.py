@@ -32,11 +32,34 @@ _AUTHORIZATION_BEARER = re.compile(
     r"(?i)(\bAuthorization[\"']?\s*[:=]\s*)"
     r"(?:"
     r"(?P<quote>[\"'])(?:Bearer\s*:?\s*)?(?:\\.|(?!(?P=quote)).)*(?P=quote)?"
-    r"|(?:Bearer\s*:?\s*)?(?:\[redacted\]|[^\s,;}\]]+)"
+    r"|\\+(?P<escaped_quote>[\"'])(?:\\.|(?!(?P=escaped_quote)).)*(?P=escaped_quote)?"
+    r"|\\+(?P<escaped_bearer>Bearer(?:\\+\s*)*(?:\s*:?\s*)?[^\s,;]+)"
+    r"|(?P<malformed_bearer>Bearer\\+(?:\s*:?\s*)?[^\s,;]+)"
+    r"|(?P<container>[\{\[])(?:(?:[\"'][^\"'\n]*[\"'])|(?:\\.)|[^\}\]\n])*(?P<closing>[\}\]])?"
+    r"|(?:Bearer\s*:?\s*)?(?:\[redacted\]|[^\s,;]+)"
     r")"
 )
+_AUTHORIZATION_REDACTED_TAIL = re.compile(
+    r"(?i)(\bAuthorization[\"']?\s*[:=]\s*[\"']?\[redacted\])"
+    r"(?P<punctuation>[^A-Za-z0-9_\s,;]*)(?P<tail>[A-Za-z0-9_][^\s,;]*)"
+)
+_AUTHORIZATION_BEARER_TAIL = re.compile(
+    r"\x00(?P<tail>[^\n]*)"
+)
+_SAFE_AUTHORIZATION_DIAGNOSTIC = re.compile(
+    r"(?:status=\d{3}|total_ms=\d+(?:\.\d+)?|duration_ms=\d+(?:\.\d+)?|"
+    r"reason=(?:timeout|quota|another_warm_running|outside|unknown|unavailable|"
+    r"failed|ok|ready|cancelled)|holes=\d+/\d+|"
+    r"stages=(?:geometry|derivatives|distances)[a-z0-9_.:/-]*|"
+    r"stage=(?:geometry|derivatives|distances)[a-z0-9_.:/-]*|"
+    r"(?:course|gid)=(?:public-)?course-[a-z0-9-]+|"
+    r"error_type=[A-Za-z][A-Za-z0-9_.]*(?:Error|Exception))",
+)
 _BARE_BEARER = re.compile(
-    r"(?i)\bBearer\s*:?\s+(?!(?:header|token)\b)[^\s,;}\]]+"
+    # `header` and `token` are only explanatory words when they are complete
+    # words.  A punctuation suffix is part of the credential and must be
+    # consumed with it (for example, `Bearer token-X` or `Bearer abc}X`).
+    r"(?i)\bBearer(?P<separator>\s*:\s*|\s+)(?!(?:header|token)(?=\s|$))[^\s,;]+"
 )
 
 
@@ -60,15 +83,90 @@ def _text(value: str) -> str:
     def authorization(match):
         prefix = match.group(1)
         quote = match.group("quote")
+        escaped_quote = match.group("escaped_quote")
+        escaped_bearer = match.group("escaped_bearer")
+        malformed_bearer = match.group("malformed_bearer")
+        container = match.group("container")
         if quote:
             if match.group(0).endswith(quote):
-                return prefix + quote + _REDACTED + quote
+                body = match.group(0)[:-1]
+                suffix = ("\x00" if re.search(r"(?i)\bBearer\b", body)
+                          else "")
+                return prefix + quote + _REDACTED + quote + suffix
             # An unterminated quote is malformed input; dropping its opener
             # avoids a later key/value pass fabricating a closing quote.
             return prefix + _REDACTED
-        return prefix + _REDACTED
+        if escaped_quote:
+            # Escaped or malformed authorization quotes can terminate before
+            # the credential tail.  Mark the following token for the tail
+            # pass so an abnormal suffix cannot remain in the log.
+            suffix = ("\x00" if re.search(r"(?i)\bBearer\b", match.group(0)) else "")
+            return prefix + _REDACTED + suffix
+        if escaped_bearer:
+            return prefix + _REDACTED + "\x00"
+        if malformed_bearer:
+            return prefix + _REDACTED + "\x00"
+        if container:
+            container_value = match.group(0)[len(prefix):]
+            if container_value.strip().lower() == _REDACTED:
+                return prefix + _REDACTED
+            return prefix + _REDACTED + (match.group("closing") or "") + "\x00"
+        suffix = ("\x00" if re.search(r"(?i)\bBearer\b", match.group(0)) else "")
+        return prefix + _REDACTED + suffix
 
     value = _AUTHORIZATION_BEARER.sub(authorization, value)
+    # A malformed quoted value can close early on an even number of
+    # backslashes.  Consume any credential characters immediately following
+    # the redaction marker so they cannot survive as a second token fragment.
+    value = _AUTHORIZATION_REDACTED_TAIL.sub(
+        lambda match: match.group(1) + match.group("punctuation"), value)
+    def authorization_tail(match):
+        tail = match.group("tail")
+        boundary = re.search(r",\s*[\"'][^\"']*[\"']\s*:", tail)
+        protected = tail[boundary.start():] if boundary else ""
+        content = tail[:boundary.start()] if boundary else tail
+        content = re.sub(
+            r"([A-Za-z0-9_][^\s,;]*)",
+            lambda token: token.group(1)
+            if _SAFE_AUTHORIZATION_DIAGNOSTIC.fullmatch(token.group(1))
+            else _REDACTED,
+            content,
+        )
+        if boundary:
+            protected = re.sub(
+                r"([:\[,]\s*)([\"'])[^\"\n]*\2(?!\s*:)",
+                lambda value: value.group(1) + _REDACTED,
+                protected,
+            )
+            protected = re.sub(
+                r"(:\s*)(\d{3,})",
+                lambda value: value.group(1) + _REDACTED,
+                protected,
+            )
+            protected = re.sub(
+                r"(?<![A-Za-z0-9_\"'])[A-Za-z0-9_.-]{3,}(?!\s*:\s*)",
+                _REDACTED,
+                protected,
+            )
+        return content + protected
+
+    value = _AUTHORIZATION_BEARER_TAIL.sub(authorization_tail, value)
+    value = value.replace("\x00", "")
+    value = re.sub(
+        r"\[redacted\]([A-Z][A-Za-z0-9_]{4,})",
+        _REDACTED,
+        value,
+    )
+    value = re.sub(
+        r"\[redacted\]([A-Za-z0-9_.-]{5,})",
+        _REDACTED,
+        value,
+    )
+    value = re.sub(
+        r"(\[redacted\]\s+)([A-Z][A-Za-z0-9_]{4,})",
+        lambda match: match.group(1) + _REDACTED,
+        value,
+    )
     value = _IDENTITY.sub(identity, value)
     def path(match):
         candidate = match[0]

@@ -70,12 +70,13 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
             module = Path(tmp) / "logging_state_probe.py"
             module.write_text(
                 "import logging, unittest\n"
-                "target = logging.getLogger('logging_state_probe.named')\n"
+                "target = None\n"
                 "class Probe(unittest.TestCase):\n"
                 "    def test_leak(self):\n"
                 "        root = logging.getLogger()\n"
                 "        root.setLevel(logging.DEBUG)\n"
                 "        root.filters[:] = [logging.Filter('leaked')]\n"
+                "        global target\n"
                 "        target = logging.getLogger('logging_state_probe.named')\n"
                 "        target.handlers[:] = [logging.StreamHandler()]\n"
                 "        target.setLevel(logging.ERROR)\n"
@@ -109,6 +110,106 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
             self.assertIn("logging_state_probe.named", output)
             self.assertNotIn("logging_state_observer leaked", output)
             self.assertNotIn("FAIL: test_restored", output)
+
+    def test_J73_isolation_guard_detects_in_place_handler_mutation(self):
+        """Handler level/filter changes must not disappear from a shallow snapshot."""
+        from tests.check_isolation import LoggingIsolationSuite
+
+        root = logging.getLogger()
+        original = (root.handlers[:], root.filters[:], root.level,
+                    root.propagate, root.disabled)
+        handler = logging.StreamHandler(io.StringIO())
+        root.handlers[:] = [handler]
+        try:
+            before = LoggingIsolationSuite._snapshot_logging()
+            handler.setLevel(logging.ERROR)
+            handler.addFilter(logging.Filter("mutated"))
+            after = LoggingIsolationSuite._snapshot_logging()
+            self.assertIn("root", LoggingIsolationSuite._logging_changes(before, after))
+            LoggingIsolationSuite._restore_logging(before)
+            self.assertEqual(handler.level, logging.NOTSET)
+            self.assertEqual(handler.filters, [])
+        finally:
+            root.handlers[:] = original[0]
+            root.filters[:] = original[1]
+            root.setLevel(original[2])
+            root.propagate = original[3]
+            root.disabled = original[4]
+
+    def test_J73_setUpModule_logger_leak_is_reported_before_final_status(self):
+        """A module fixture cannot hide a logging leak in the next baseline."""
+        with tempfile.TemporaryDirectory() as tmp:
+            leaking = Path(tmp) / "logging_setup_probe.py"
+            leaking.write_text(
+                "import logging, unittest\n"
+                "def setUpModule():\n"
+                "    logging.getLogger().setLevel(logging.DEBUG)\n"
+                "class Probe(unittest.TestCase):\n"
+                "    def test_setup_leak(self):\n"
+                "        pass\n"
+            )
+            observer = Path(tmp) / "logging_setup_observer.py"
+            observer.write_text(
+                "import logging, unittest\n"
+                "class Observer(unittest.TestCase):\n"
+                "    def test_restored(self):\n"
+                "        self.assertEqual(logging.getLogger().level, logging.WARNING)\n"
+            )
+            result = subprocess.run(
+                [sys.executable, "-m", "tests.check_isolation",
+                 "logging_setup_probe", "logging_setup_observer"],
+                env={**os.environ, "PYTHONPATH": os.pathsep.join(
+                    [tmp, str(Path(__file__).resolve().parents[1])])},
+                capture_output=True, text=True, timeout=30,
+            )
+            output = result.stdout + result.stderr
+            self.assertNotEqual(result.returncode, 0, output)
+            self.assertIn("logging_setup_probe leaked logger state: root", output)
+            self.assertNotIn("logging_setup_observer leaked", output)
+            self.assertIn("FAILED", output)
+            self.assertNotIn("\nOK\n", output)
+            self.assertLess(output.index("logging_setup_probe leaked logger state"),
+                            output.rindex("FAILED"))
+
+    def test_J73_external_logger_does_not_hide_root_handler_leak(self):
+        """Migration logger churn may not excuse a real root handler mutation."""
+        with tempfile.TemporaryDirectory() as tmp:
+            module = Path(tmp) / "logging_external_probe.py"
+            module.write_text(
+                "import logging, unittest\n"
+                "class Probe(unittest.TestCase):\n"
+                "    def test_leak(self):\n"
+                "        logging.getLogger('alembic.runtime').setLevel(logging.INFO)\n"
+                f"        logging.getLogger().handlers.append(logging.FileHandler({str(Path(tmp) / 'isolation.tmp')!r}))\n"
+            )
+            result = subprocess.run(
+                [sys.executable, "-m", "tests.check_isolation", "logging_external_probe"],
+                env={**os.environ, "PYTHONPATH": os.pathsep.join(
+                    [tmp, str(Path(__file__).resolve().parents[1])])},
+                capture_output=True, text=True, timeout=30,
+            )
+            output = result.stdout + result.stderr
+            self.assertNotEqual(result.returncode, 0, output)
+            self.assertIn("logging_external_probe leaked logger state: root", output)
+
+    def test_J73_external_logger_whitelist_requires_component_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            module = Path(tmp) / "logging_prefix_probe.py"
+            module.write_text(
+                "import logging, unittest\n"
+                "class Probe(unittest.TestCase):\n"
+                "    def test_prefix_is_not_external(self):\n"
+                "        logging.getLogger('sqlalchemy_custom').setLevel(logging.INFO)\n"
+            )
+            result = subprocess.run(
+                [sys.executable, "-m", "tests.check_isolation", "logging_prefix_probe"],
+                env={**os.environ, "PYTHONPATH": os.pathsep.join(
+                    [tmp, str(Path(__file__).resolve().parents[1])])},
+                capture_output=True, text=True, timeout=30,
+            )
+            output = result.stdout + result.stderr
+            self.assertNotEqual(result.returncode, 0, output)
+            self.assertIn("logging_prefix_probe leaked logger state: sqlalchemy_custom", output)
 
     def test_J73_import_time_leak_names_the_importing_module(self):
         """J7.3: discover reports the module that leaked while being imported."""
