@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -62,6 +63,18 @@ elif args[:2] == ["run", "view"]:
                           "jobs": run.get("jobs", [])}))
 else:
     sys.exit(3)
+"""
+
+ADVANCING_DATE = r"""#!/usr/bin/env python3
+import os, sys
+from pathlib import Path
+if sys.argv[1:] == ["+%s"]:
+    clock = Path(os.environ["WAIT_TEST_CLOCK"])
+    now = int(clock.read_text()) if clock.exists() else 0
+    clock.write_text(str(now + 10))
+    print(now)
+else:
+    os.execv(os.environ["WAIT_REAL_DATE"], ["date", *sys.argv[1:]])
 """
 
 RUNS = {
@@ -135,12 +148,27 @@ class WaitForConclusionProvenanceTests(unittest.TestCase):
 
     def _feedback(self) -> str:
         self.cursor.write_text("0\n", encoding="utf-8")
-        result = subprocess.run(
-            ["bash", str(WAITER), "--feedback", "--poll-seconds", "1", "--timeout-seconds", "5"],
-            env=self.env, capture_output=True, text=True, timeout=60,
-        )
-        lines = result.stdout.strip().splitlines()
-        self.assertEqual(len(lines), 1, result.stdout)
+        # These cases assert delivery/filtering of ready events, not how fast
+        # the shell can start jq/gh children on a busy runner. Keep the real
+        # waiter's deadline disabled and bound the whole test process instead.
+        with subprocess.Popen(
+            ["bash", str(WAITER), "--feedback", "--poll-seconds", "1", "--timeout-seconds", "0"],
+            env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, start_new_session=True,
+        ) as waiter:
+            try:
+                stdout, stderr = waiter.communicate(timeout=60)
+            except subprocess.TimeoutExpired:
+                # The tail coprocess also inherits the pipes. Kill only this
+                # test's process group so a regression cannot strand it.
+                try:
+                    os.killpg(waiter.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                stdout, stderr = waiter.communicate()
+                self.fail(f"Fixture feedback did not finish:\n{stdout}\n{stderr}")
+        lines = stdout.strip().splitlines()
+        self.assertEqual(len(lines), 1, stdout)
         return lines[0]
 
     def test_manual_release_and_apple_outcomes_survive_self_head_filtering(self) -> None:
@@ -299,6 +327,13 @@ class WaitForConclusionProvenanceTests(unittest.TestCase):
     # (`ci_changed`, which has no head of its own — only each check's run link).
 
     def test_feedback_skips_the_run_and_check_summary_of_codex_ci_then_returns_feedback(self) -> None:
+        # These events are ready before startup. Slow provenance subprocesses
+        # (or a clock jump) must not turn their filtering into a deadline test.
+        date = self.tmp / "bin" / "date"
+        date.write_text(ADVANCING_DATE, encoding="utf-8")
+        date.chmod(0o755)
+        self.env["WAIT_REAL_DATE"] = shutil.which("date")
+        self.env["WAIT_TEST_CLOCK"] = str(self.tmp / "clock")
         self._write_events(
             run_event("105", prs=[7]),
             checks_event(7, "105", "FAILURE"),

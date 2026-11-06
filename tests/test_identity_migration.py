@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.service_logging import ServiceLoggingIsolationMixin
+
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
@@ -13,7 +15,7 @@ from server_v2.identity_models import Base
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-class IdentityMigrationTests(unittest.TestCase):
+class IdentityMigrationTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def test_upgrade_head_creates_all_model_tables(self):
         application_logger = logging.getLogger("server_v2.course_install")
         with tempfile.TemporaryDirectory() as tmp:

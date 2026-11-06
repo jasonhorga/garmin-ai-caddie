@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from tests.service_logging import ServiceLoggingIsolationMixin
+
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
@@ -16,7 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 BUNDLE = "com.example.aicaddie"
 
 
-class AuthApiTests(unittest.TestCase):
+class AuthApiTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def setUp(self):
         self.addCleanup(db.reset_engine_for_tests)
         self._tmp = tempfile.TemporaryDirectory(); self.addCleanup(self._tmp.cleanup)
@@ -286,7 +288,7 @@ class AuthApiTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/v2/auth/logout", headers={"Authorization": f"Bearer {token}"}).status_code, 401)
 
 
-class FamilyUsersRosterTests(unittest.TestCase):
+class FamilyUsersRosterTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     """GET /api/v2/admin/family/users — owner-facing roster from the identity DB (admin-gated)."""
 
     ADMIN_HEADER = {"X-AI-Caddie-Admin-Token": "admin-secret"}

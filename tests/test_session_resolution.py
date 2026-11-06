@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
+from tests.service_logging import ServiceLoggingIsolationMixin
+
 from alembic import command
 from alembic.config import Config
 from starlette.requests import Request
@@ -26,7 +28,7 @@ def _request(bearer=None, admin=None):
                     "headers": headers, "query_string": b""})
 
 
-class SessionResolutionTests(unittest.TestCase):
+class SessionResolutionTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def setUp(self):
         self.addCleanup(db.reset_engine_for_tests)
         self._tmp = tempfile.TemporaryDirectory(); self.addCleanup(self._tmp.cleanup)

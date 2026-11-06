@@ -1,11 +1,11 @@
 --- a/server_v2/log_privacy.py
 +++ b/server_v2/log_privacy.py
-@@ -36,7 +36,7 @@
-     r")"
- )
- _BARE_BEARER = re.compile(
--    r"(?i)\bBearer\s*:?\s+(?!(?:header|token)\b)[^\s,;}\]]+"
-+    r"(?i)\bBearer\s*:?\s+[^\s,;}\]]+"
+@@ -45,7 +45,7 @@
+     # `header` and `token` are only explanatory words when they are complete
+     # words.  A punctuation suffix is part of the credential and must be
+     # consumed with it (for example, `Bearer token-X` or `Bearer abc}X`).
+-    r"(?i)\bBearer(?P<separator>\s*:\s*|\s+)(?!(?:header|token)(?=\s|$))[^\s,;]+"
++    r"(?i)\bBearer(?P<separator>\s*:\s*|\s+)[^\s,;]+"
  )
  
  

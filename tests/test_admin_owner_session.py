@@ -18,6 +18,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
+from tests.service_logging import ServiceLoggingIsolationMixin
+
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
@@ -38,7 +40,7 @@ ADMIN_HEADER = {"X-AI-Caddie-Admin-Token": ADMIN}
 ADMIN_ROUTE = "/api/v2/admin/players"
 
 
-class AdminOwnerSessionTests(unittest.TestCase):
+class AdminOwnerSessionTests(ServiceLoggingIsolationMixin, unittest.TestCase):
     def setUp(self) -> None:
         self.addCleanup(db.reset_engine_for_tests)
         self._tmp = tempfile.TemporaryDirectory()

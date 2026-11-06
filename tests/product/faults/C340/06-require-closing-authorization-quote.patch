@@ -6,6 +6,6 @@
      r"(?:"
 -    r"(?P<quote>[\"'])(?:Bearer\s*:?\s*)?(?:\\.|(?!(?P=quote)).)*(?P=quote)?"
 +    r"(?P<quote>[\"'])(?:Bearer\s*:?\s*)?(?:\\.|(?!(?P=quote)).)*(?P=quote)"
-     r"|(?:Bearer\s*:?\s*)?(?:\[redacted\]|[^\s,;}\]]+)"
-     r")"
- )
+     r"|\\+(?P<escaped_quote>[\"'])(?:\\.|(?!(?P=escaped_quote)).)*(?P=escaped_quote)?"
+     r"|\\+(?P<escaped_bearer>Bearer(?:\\+\s*)*(?:\s*:?\s*)?[^\s,;]+)"
+     r"|(?P<malformed_bearer>Bearer\\+(?:\s*:?\s*)?[^\s,;]+)"
