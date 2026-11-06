@@ -2465,7 +2465,8 @@ public final class WatchRoundModel: ObservableObject {
             courseName: current.courseName ?? "Watch round",
             holePars: current.holeStates.sorted { $0.hole < $1.hole }.map(\.par),
             holesCompleted: current.holeStates.filter { $0.score > 0 }.count,
-            courseGlobalId: current.holeStates.compactMap(\.globalId).first
+            courseGlobalId: current.holeStates.compactMap(\.globalId).first,
+            teeBox: current.teeBox
         )
         if let finisherOverride {
             try await finisherOverride(current.roundId, metadata)

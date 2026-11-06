@@ -3633,6 +3633,100 @@ final class LiveRoundAppModelTests: XCTestCase {
         await topoScope.stop()
     }
 
+    /// Promise: a round played and sealed offline keeps its selected Tee when a later launch
+    /// uploads it, even though the server has never received a package request for this round.
+    func testOfflineFinishUploadsOpeningTeeAfterRelaunch() async throws {
+        let fixture = try completedFixtureRound()
+        let package = fixture.package.replacingCourseTeeBox("White")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        try store.saveRoundPackage(package)
+        try fixture.events.forEach(store.appendEvent)
+        let offline = LiveRoundAppModel(
+            offlineStore: store, apiBaseURL: nil, adminToken: nil,
+            watchBridge: nil, garminSessionStore: nil, preferredRoundId: package.roundId
+        )
+        await offline.bootstrap()
+        let sealed = await offline.finishActiveRound()
+        XCTAssertTrue(sealed)
+        await offline.waitForDeferredRoundFinishesForTesting()
+        await offline.stopRoundBackgroundWorkForTesting()
+        XCTAssertTrue(try store.isRoundPendingFinish(package.roundId))
+
+        let lock = NSLock()
+        var finishBodies: [Data] = []
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            let response: Data
+            if path == "/api/v2/mobile/rounds/\(package.roundId)/events" {
+                let batch = try JSONDecoder().decode(EventBatch.self, from: capturedRequestBodyData(from: request))
+                response = try JSONSerialization.data(withJSONObject: [
+                    "accepted": batch.events.count, "duplicate": false,
+                    "acceptedEventIds": batch.events.map(\.eventId), "duplicateEventIds": [],
+                    "serverSequence": batch.events.count,
+                ])
+            } else if path == "/api/v2/mobile/rounds/\(package.roundId)/finish" {
+                let body = try capturedRequestBodyData(from: request)
+                lock.lock()
+                finishBodies.append(body)
+                lock.unlock()
+                response = Data("{}".utf8)
+            } else {
+                // Bootstrap may try to refresh a package, but no package request succeeds.
+                throw URLError(.notConnectedToInternet)
+            }
+            return (HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200,
+                                     httpVersion: nil, headerFields: nil)!, response)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let reopened = OfflineStore(directoryURL: directory)
+        let online = LiveRoundAppModel(
+            offlineStore: reopened, apiBaseURL: nil, adminToken: nil,
+            watchBridge: nil, garminSessionStore: nil, preferredRoundId: package.roundId,
+            syncClient: SyncClient(baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+                                   clientId: "ios-phone", session: session)
+        )
+        await online.bootstrap()
+        await online.waitForDeferredRoundFinishesForTesting()
+        await online.stopRoundBackgroundWorkForTesting()
+        lock.lock()
+        let bodies = finishBodies
+        lock.unlock()
+        XCTAssertEqual(bodies.count, 1)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(bodies.first)) as? [String: Any])
+        let meta = try XCTUnwrap(body["meta"] as? [String: Any])
+        XCTAssertEqual(meta["teeBox"] as? String, "White", "offline finish must retain the opening Tee")
+        XCTAssertFalse(try reopened.isRoundPendingFinish(package.roundId))
+    }
+
+    /// Promise: finish records written by older builds remain uploadable without inventing a Tee.
+    func testLegacyFinishMetadataUploadsWithoutInventingTee() async throws {
+        let metadata = try JSONDecoder().decode(MobileRoundFinishMetadata.self, from: Data(
+            #"{"courseName":"Fixture Links","holePars":[4],"holesCompleted":1,"courseGlobalId":31795}"#.utf8
+        ))
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)
+        let session = URLSession(configuration: configuration)
+        let uploaded = expectation(description: "legacy finish uploaded")
+        CapturingURLProtocol.requestHandler = { request in
+            let body = try XCTUnwrap(JSONSerialization.jsonObject(with: capturedRequestBodyData(from: request)) as? [String: Any])
+            let meta = try XCTUnwrap(body["meta"] as? [String: Any])
+            XCTAssertNil(meta["teeBox"])
+            XCTAssertEqual(meta["holesCompleted"] as? Int, 1)
+            uploaded.fulfill()
+            return (HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200,
+                                     httpVersion: nil, headerFields: nil)!, Data("{}".utf8))
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+                                clientId: "ios-phone", session: session)
+        try await client.finishRound(roundId: "legacy-round", metadata: metadata)
+        await fulfillment(of: [uploaded], timeout: 5)
+    }
+
     func testFinishActiveRoundSealsImmediatelyThenUploadsAndFinishesInBackground() async throws {
         let fixture = try completedFixtureRound()
         let finishedRound = RecentRoundSummary(

@@ -187,6 +187,20 @@ class TeeResultIngestTest(unittest.TestCase):
         self.assertEqual(scorecard["teeBox"], "red")
         self.assertEqual(scorecard["holes"][0]["fairway"], "left")
 
+    def test_finish_without_server_package_keeps_explicit_opening_tee(self) -> None:
+        """J5.8: offline phone/standalone Watch finish preserves its Tee in history and routing."""
+        self.install(DOGLEG)
+        for round_id in ("offline-phone-red", "standalone-watch-red"):
+            with self.subTest(round_id=round_id), patch(
+                "ai_caddie.courses.course_reference.courseview_tees", return_value=RELEASE_TEES
+            ):
+                # No package request/binding: only the client knows the opening Tee.
+                scorecard = self.finish_mobile(
+                    round_id, _hole_events(1, DOGLEG_BALL), meta={"teeBox": "Red"}
+                )
+            self.assertEqual(scorecard["teeBox"], "red")
+            self.assertEqual(scorecard["holes"][0]["fairway"], "left")
+
     def test_mobile_finish_explicit_tee_overrides_persisted_start(self) -> None:
         """Product spec 5.8 / I: explicit finish metadata remains authoritative."""
         self.install(DOGLEG)

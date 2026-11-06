@@ -4663,7 +4663,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 courseName: package.course.venueDisplayName,
                 holePars: package.holes.sorted { $0.number < $1.number }.map(\.par),
                 holesCompleted: completedHoles.count,
-                courseGlobalId: package.course.globalId
+                courseGlobalId: package.course.globalId,
+                teeBox: package.course.teeBox
             )
             try offlineStore.sealRoundForDeferredFinish(package: package, metadata: metadata)
             // Seal first: quarantine/media failures above must leave every round-owned task alive

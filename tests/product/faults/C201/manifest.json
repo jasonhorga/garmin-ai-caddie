@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C201-01-phone-omits-tee",
+      "patch": "tests/product/faults/C201/01-phone-omits-tee.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testOfflineFinishUploadsOpeningTeeAfterRelaunch",
+      "promise": "J5.8: offline and standalone finishes retain their opening Tee"
+    },
+    {
+      "id": "tests-product-faults-C201-02-watch-omits-tee",
+      "patch": "tests/product/faults/C201/02-watch-omits-tee.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchRoundFinishTeeTests/testStandaloneFinishUploadsOpeningTee",
+      "promise": "J5.8: offline and standalone finishes retain their opening Tee"
+    }
+  ]
+}
