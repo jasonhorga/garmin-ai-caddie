@@ -1,10 +1,10 @@
 diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
-index f0448376..fc20eddd 100644
+index 7ea949d7..95ea498c 100644
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -3731,10 +3731,10 @@ public final class LiveRoundAppModel: ObservableObject {
-                 holesCompleted: completedHoles.count,
-                 courseGlobalId: package.course.globalId
+@@ -4666,10 +4666,10 @@ public final class LiveRoundAppModel: ObservableObject {
+                 courseGlobalId: package.course.globalId,
+                 teeBox: package.course.teeBox
              )
 +            cancelRoundBackgroundWork(keepOfflineCourseDownload: true)
              try offlineStore.sealRoundForDeferredFinish(package: package, metadata: metadata)
