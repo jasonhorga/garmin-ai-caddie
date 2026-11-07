@@ -179,26 +179,22 @@ def _hole_scores(
             record for record in annotation_records
             if record.get("targetType") == "hole" and str(record.get("targetId")) in target_ids
         ]
+        for index, event in enumerate(correction_events):
+            if _safe_int(event.get("hole")) != number or not is_penalty_correction(correction_events, index):
+                continue
+            entries = (event.get("audit") or {}).get("entries") or []
+            before = next((entry.get("before") for entry in entries if entry.get("op") == "penalty"), None)
+            value = event.get("value") if event.get("op") == "setHolePenalty" else event.get("manualPenalty")
+            hole_annotations.append({
+                **event, "kind": "penalty_correction",
+                "payload": {"from": before, "strokes": value},
+            })
 
         def correction_chain(kind: str, source_value: int | None, effective_value: int | None) -> tuple[bool, dict[str, Any] | None]:
-            ordered = [(order_key(record, 1, index), record)
-                       for index, record in enumerate(hole_annotations) if record.get("kind") == kind]
-            if kind == "penalty_correction":
-                for index, event in enumerate(correction_events):
-                    if _safe_int(event.get("hole")) != number or not is_penalty_correction(correction_events, index):
-                        continue
-                    # Corrections and annotations share auditSeq. Use the stored before value
-                    # when available; legacy/pending audits still advance the effective chain.
-                    entries = (event.get("audit") or {}).get("entries") or []
-                    before = next((entry.get("before") for entry in entries if entry.get("op") == "penalty"), None)
-                    value = event.get("value") if event.get("op") == "setHolePenalty" else event.get("manualPenalty")
-                    ordered.append((order_key(event, 0, index), {
-                        **event, "payload": {"from": before, "strokes": value},
-                    }))
-            records = [record for _key, record in sorted(ordered, key=lambda item: item[0])]
+            records = [record for record in hole_annotations if record.get("kind") == kind]
+            records.sort(key=lambda record: (record.get("auditSeq") if isinstance(record.get("auditSeq"), int) else -1))
             prior = source_value
             conflict = False
-            mobile_baseline_invalidated = False
             winner: dict[str, Any] | None = None
             for record in records:
                 payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
@@ -212,14 +208,10 @@ def _hole_scores(
                     prior = source_value
                     conflict = False
                 elif resolution == "mobile":
-                    # The accepted Garmin baseline remains conditional even after a later
-                    # ordinary phone edit becomes the winner of the chain.
+                    # A user-selected mobile resolution establishes a new clean baseline.  A
+                    # later Garmin change is checked separately against this record's from value.
                     prior = to_value
-                    mobile_baseline_invalidated = (
-                        source_value is not None and from_value is not None
-                        and source_value != from_value
-                    )
-                    conflict = mobile_baseline_invalidated
+                    conflict = False
                 elif from_value is not None and prior is not None and from_value != prior:
                     conflict = True
                     prior = to_value
@@ -229,10 +221,22 @@ def _hole_scores(
                         conflict = False
                     prior = to_value
                 winner = record
+            mobile_baseline_invalidated = any(
+                isinstance(record.get("payload"), dict)
+                and record["payload"].get("resolution") == "mobile"
+                and source_value is not None
+                and _safe_int(record["payload"].get("from")) is not None
+                and source_value != _safe_int(record["payload"].get("from"))
+                for record in records
+            )
+            if mobile_baseline_invalidated:
+                conflict = True
             # A source that has converged to the effective corrected value is not a conflict,
             # even when an earlier link in the chain was superseded by that convergence.
             if source_value is not None and effective_value is not None and source_value == effective_value:
-                conflict = mobile_baseline_invalidated
+                conflict = False
+                if mobile_baseline_invalidated:
+                    conflict = True
             return conflict, winner
 
         score_correction_conflict, score_winner = correction_chain(
@@ -1142,12 +1146,19 @@ def reconcile_mobile_round_events(
     unsafe_event_ids = {
         str(row.get("eventId") or "")
         for row in local_only
-        if row.get("unmapped") or row.get("restoreSuperseded")
+        if row.get("unmapped")
     }
     annotation_suggestions = [
         row for row in annotation_suggestions
         if row.get("kind") == "caddie_feedback"
         or str((row.get("payload") or {}).get("sourceEventId") or "") not in unsafe_event_ids
+    ]
+    unsafe_restore_ids = {
+        str(row.get("eventId") or "") for row in local_only if row.get("restoreSuperseded")
+    }
+    annotation_suggestions = [
+        row for row in annotation_suggestions
+        if str((row.get("payload") or {}).get("sourceEventId") or "") not in unsafe_restore_ids
     ]
     return {
         "schema": "ai-caddie-mobile-reconciliation-v1",
