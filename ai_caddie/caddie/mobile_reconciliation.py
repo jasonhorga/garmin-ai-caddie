@@ -198,6 +198,7 @@ def _hole_scores(
             records = [record for _key, record in sorted(ordered, key=lambda item: item[0])]
             prior = source_value
             conflict = False
+            mobile_baseline_invalidated = False
             winner: dict[str, Any] | None = None
             for record in records:
                 payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
@@ -214,20 +215,24 @@ def _hole_scores(
                     # The accepted Garmin baseline remains conditional even after a later
                     # ordinary phone edit becomes the winner of the chain.
                     prior = to_value
-                    conflict = (source_value is not None and from_value is not None
-                                and source_value != from_value)
+                    mobile_baseline_invalidated = (
+                        source_value is not None and from_value is not None
+                        and source_value != from_value
+                    )
+                    conflict = mobile_baseline_invalidated
                 elif from_value is not None and prior is not None and from_value != prior:
                     conflict = True
                     prior = to_value
                 else:
-                    if from_value is not None and source_value is not None and from_value == source_value:
+                    if (not mobile_baseline_invalidated and from_value is not None
+                            and source_value is not None and from_value == source_value):
                         conflict = False
                     prior = to_value
                 winner = record
             # A source that has converged to the effective corrected value is not a conflict,
             # even when an earlier link in the chain was superseded by that convergence.
             if source_value is not None and effective_value is not None and source_value == effective_value:
-                conflict = False
+                conflict = mobile_baseline_invalidated
             return conflict, winner
 
         score_correction_conflict, score_winner = correction_chain(
