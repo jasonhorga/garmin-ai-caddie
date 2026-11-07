@@ -1,9 +1,9 @@
 --- a/ai_caddie/caddie/mobile_live.py
 +++ b/ai_caddie/caddie/mobile_live.py
-@@ -2380,6 +2380,8 @@
-         try:
-             meshes, _by = load_mesh(int(global_id), int(local_hole))
-             polyline, _length = course_prep.derive_route(meshes, tee_set_for_box(global_id, tee_box))
+@@ -2696,6 +2696,8 @@
+                 meshes,
+                 course_prep.resolve_tee_set_for_hole(int(global_id), int(local_hole), tee_box),
+             )
 +            if polyline:
 +                polyline = [polyline[0], polyline[-1]]
          except (OSError, KeyError, TypeError, ValueError):

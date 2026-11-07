@@ -1,10 +1,9 @@
-diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 --- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 +++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -5841,7 +5841,6 @@
-             guard requestGeneration == caddieRequestGeneration else { return }
-             if let offlineDecision = makeOfflineCaddieDecision() {
+@@ -6207,7 +6207,6 @@
+                 let offlineDecision = offline
                  caddieDecision = offlineDecision
+                 caddieDecisionDistanceSource = jsonString(offlineDecision.context["distanceToPinSource"])
 -                updateSession { entry in entry.caddieDecisionIsOnline = false }
                  caddieDecisionOriginShot = originShot
                  syncStrategyModeToDecision()
