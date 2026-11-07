@@ -65,4 +65,16 @@ final class CurrentHoleShotCountTests: XCTestCase {
         )
         XCTAssertEqual(sendReads, 2)
     }
+
+    /// C250 red test: a GPS/location fact before the first stroke must leave the hole in its
+    /// opening state. It is a position fact, not evidence that a shot was hit.
+    func testPositionOnlyEventDoesNotCountAsARecordedShot() {
+        let events = [locationEvent(id: "position", timestamp: "2026-10-27T08:00:00Z")]
+
+        XCTAssertEqual(
+            LiveMarkedShots.actualShots(in: events, roundId: "round-1", hole: 3).count,
+            0,
+            "a position-only event must not leave the tee state"
+        )
+    }
 }
