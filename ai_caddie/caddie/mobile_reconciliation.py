@@ -1134,9 +1134,10 @@ def reconcile_mobile_round_events(
         if identity_hole is not None and not row.get("unmapped"):
             row["sourceGlobalId"] = identity_hole.get("sourceGlobalId")
             row["sourceLocalHole"] = identity_hole.get("sourceLocalHole")
+    suggestion_local_only = [row for row in local_only if not row.get("restoreSuperseded")]
     annotation_suggestions = _annotation_suggestions(
         conflicts=conflicts,
-        local_only=local_only,
+        local_only=suggestion_local_only,
         garmin_only=garmin_only,
         candidate_audits=candidate_audits,
         round_row=round_row,
@@ -1148,9 +1149,6 @@ def reconcile_mobile_round_events(
         for row in local_only
         if row.get("unmapped")
     }
-    unsafe_event_ids.update(
-        str(row.get("eventId") or "") for row in local_only if row.get("restoreSuperseded")
-    )
     annotation_suggestions = [
         row for row in annotation_suggestions
         if row.get("kind") == "caddie_feedback"
