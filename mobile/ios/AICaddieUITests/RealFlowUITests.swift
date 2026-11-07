@@ -148,7 +148,7 @@ final class RealFlowUITests: XCTestCase {
         let skipClub = app.buttons["跳过球杆（位置已记录）"]
         assertAndCapture(
             skipClub.waitForExistence(timeout: 8),
-            "the first-stroke club sheet must be dismissed before undo",
+            "the first-stroke club sheet must be dismissed before checking the live banner",
             "c99-back-nine-club-sheet-missing"
         )
         dump("c97-back-nine-before-skip-club")
@@ -166,35 +166,29 @@ final class RealFlowUITests: XCTestCase {
             "the first stroke must show hole 10 as recording",
             "c99-back-nine-after-first-stroke-banner"
         )
-        let undo = app.buttons["live-undo-round-start"]
         assertAndCapture(
-            undo.waitForExistence(timeout: 15),
-            "the live hole must expose undo after the club sheet is dismissed",
-            "c99-back-nine-undo-missing"
+            !app.buttons["live-undo-round-start"].exists,
+            "J5.9: recording the first stroke must hide undo-start",
+            "back-nine-recorded-stroke-undo-visible"
         )
-        undo.tap()
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30))
+        let inProgress = app.buttons["home-in-progress-round"]
+        XCTAssertTrue(inProgress.waitForExistence(timeout: 30), "the recorded round must survive relaunch")
+        inProgress.tap()
+        XCTAssertTrue(app.staticTexts["第 10 洞"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.buttons["live-record-shot"].waitForExistence(timeout: 15))
         assertAndCapture(
-            app.buttons["live-prep-tee-menu"].waitForExistence(timeout: 15),
-            "undo must restore the prep tee controls",
-            "c99-back-nine-prep-controls-missing"
-        )
-        assertAndCapture(
-            app.staticTexts["第 10 洞"].waitForExistence(timeout: 8),
-            "undo must keep the player on hole 10",
-            "c99-back-nine-after-undo-hole"
-        )
-        let afterUndoBanner = app.descendants(matching: .any)["live-round-banner"].firstMatch
-        assertAndCapture(
-            afterUndoBanner.waitForExistence(timeout: 8)
-                && afterUndoBanner.label.contains("第 10 洞 · 记第一杆即开打"),
-            "undo must keep the prep banner on hole 10",
-            "c99-back-nine-after-undo-banner"
+            !app.buttons["live-undo-round-start"].exists,
+            "J5.9: a recovered in-progress round must not expose destructive undo-start",
+            "back-nine-restored-round-undo-visible"
         )
         settle(1); save("c99-whole-course-prep-back-nine"); dump("c99-whole-course-prep-back-nine")
     }
 
-    /// C30 rework-3 evidence: the prep surface promotes in place, can be undone in place, and
-    /// remains on the picker when a hole-priority refresh completes after Back.
+    /// Prep navigation remains on the picker when a hole-priority refresh completes after Back.
+    /// First-stroke promotion and recovery are covered by the back-nine journey above.
     func testC30PrepReworkJourney() throws {
         app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
         app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
@@ -248,24 +242,6 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["live-round-banner"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 20))
         settle(1); save("c30-prep-before-start"); dump("c30-prep-before-start")
-
-        let record = app.buttons["live-record-shot"]
-        XCTAssertTrue(record.waitForExistence(timeout: 10) && UITapHelpers.isSafelyHittable(record, in: app))
-        record.tap()
-        let skipClub = app.buttons["跳过球杆（位置已记录）"]
-        XCTAssertTrue(skipClub.waitForExistence(timeout: 8), "the first-stroke club sheet must be dismissed before undo")
-        skipClub.tap()
-        let undo = app.buttons["live-undo-round-start"]
-        XCTAssertTrue(undo.waitForExistence(timeout: 15), "first stroke must promote the same hole screen")
-        settle(1); save("c30-prep-after-start"); dump("c30-prep-after-start")
-        XCTAssertTrue(
-            app.descendants(matching: .any)["live-round-banner"].label.contains("正在记录")
-                || (app.descendants(matching: .any)["live-round-banner"].value as? String)?.contains("正在记录") == true
-        )
-
-        undo.tap()
-        XCTAssertTrue(app.buttons["live-prep-tee-menu"].waitForExistence(timeout: 15), "undo must restore prep Tee controls")
-        settle(1); save("c30-prep-after-undo"); dump("c30-prep-after-undo")
 
         let map = app.descendants(matching: .any)["live-open-map-from-hero"]
         XCTAssertTrue(map.waitForExistence(timeout: 10) && UITapHelpers.isSafelyHittable(map, in: app))

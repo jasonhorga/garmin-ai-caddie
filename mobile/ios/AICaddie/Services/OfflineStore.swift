@@ -30,7 +30,11 @@ public struct LiveRoundStateSnapshot: Codable, Equatable {
     /// nil for a round started from 开始一场, which plays its package order.
     public let startHole: Int?
 
-    public var canUndoRoundStart: Bool { startHole != nil }
+    /// Only an empty first-stroke start can return to prep. Restore stamps `updatedAt` for
+    /// every real hole event, including replayed locations and records on other holes.
+    public var canUndoRoundStart: Bool {
+        startHole != nil && scoredHoles.isEmpty && holes.allSatisfy { $0.updatedAt == nil }
+    }
 
     public init(
         roundId: String,

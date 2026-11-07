@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddie/Services/OfflineStore.swift b/mobile/ios/AICaddie/Services/OfflineStore.swift
+--- a/mobile/ios/AICaddie/Services/OfflineStore.swift
++++ b/mobile/ios/AICaddie/Services/OfflineStore.swift
+@@ -35,3 +35,3 @@
+     public var canUndoRoundStart: Bool {
+-        startHole != nil && scoredHoles.isEmpty && holes.allSatisfy { $0.updatedAt == nil }
++        startHole != nil
+     }

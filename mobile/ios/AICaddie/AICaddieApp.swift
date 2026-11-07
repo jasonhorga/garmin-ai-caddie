@@ -5586,14 +5586,15 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    /// 撤销开打: a round started by mistake goes through the existing 放弃本场 path (local package,
+    /// 撤销开打: an empty round started by mistake goes through the existing 放弃本场 path (local package,
     /// events and media removed; the Watch told it was abandoned) and the screen returns to 备战 on
     /// the same hole under a new round id, so a later start never reuses the discarded identity.
     public func undoRoundStart() {
         guard let package,
-              let state = liveRoundState,
-              state.roundId == package.roundId,
-              state.startHole != nil else { return }
+              liveRoundState?.roundId == package.roundId,
+              // Recheck disk: a Watch/replay event may have arrived before the UI refreshed.
+              let state = try? offlineStore.restoreLiveRoundState(roundId: package.roundId, package: package),
+              state.canUndoRoundStart else { return }
         let hole = state.activeHole
         discardActiveRound()
         guard liveRoundState == nil else { return }

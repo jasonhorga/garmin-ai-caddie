@@ -120,13 +120,20 @@ final class PrepRoundStateTests: XCTestCase {
         model.enterPrepMode(with: package, hole: 5)
         XCTAssertTrue(model.startRoundFromFirstStroke(startHole: 5))
         // A Watch/replay write can reach disk before the mounted phone page has refreshed.
+        let before = try XCTUnwrap(model.liveRoundState)
         let event = LiveRoundEvent(
-            eventId: "other-hole-score", roundId: package.roundId,
-            timestamp: "2026-06-20T00:00:00Z", hole: 6, kind: .score,
-            payload: ["strokes": .number(4)]
+            eventId: "other-hole-location", roundId: package.roundId,
+            timestamp: "2026-06-20T00:00:00Z", hole: 6, kind: .location,
+            payload: ["latitude": .number(40), "longitude": .number(116)]
         )
         try store.appendEvent(event)
         XCTAssertEqual(model.liveRoundState?.canUndoRoundStart, true, "control: cached page is stale")
+        let after = try store.restoreLiveRoundState(roundId: package.roundId, package: package)
+        XCTAssertFalse(after.canUndoRoundStart)
+        XCTAssertNotEqual(
+            LiveHolePageRoundInput(before, hole: 5), LiveHolePageRoundInput(after, hole: 5),
+            "J5.9: even a frozen adjacent page must hide undo when another hole records a stroke"
+        )
 
         model.undoRoundStart()
 
@@ -153,11 +160,12 @@ final class PrepRoundStateTests: XCTestCase {
         XCTAssertEqual(model.liveRoundState?.startHole, 5)
         XCTAssertEqual(model.liveRoundState?.canUndoRoundStart, false)
         let events = try store.loadEvents()
+        let hadProgress = try store.hasLiveRoundProgress()
         model.undoRoundStart()
         XCTAssertEqual(model.liveRoundState?.roundId, package.roundId)
         XCTAssertEqual(try store.loadEvents(), events)
         XCTAssertNotNil(try store.loadRoundPackage(roundId: package.roundId))
-        XCTAssertFalse(try store.hasLiveRoundProgress())
+        XCTAssertEqual(try store.hasLiveRoundProgress(), hadProgress)
     }
 
     func testPrepOpenAndHoleChangePassPriorityHoleThroughModel() async throws {

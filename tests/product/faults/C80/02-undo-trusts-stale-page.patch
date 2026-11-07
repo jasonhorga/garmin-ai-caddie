@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -5593,7 +5593,7 @@
+         guard let package,
+               liveRoundState?.roundId == package.roundId,
+               // Recheck disk: a Watch/replay event may have arrived before the UI refreshed.
+-              let state = try? offlineStore.restoreLiveRoundState(roundId: package.roundId, package: package),
++              let state = liveRoundState,
+               state.canUndoRoundStart else { return }
+         let hole = state.activeHole
+         discardActiveRound()
