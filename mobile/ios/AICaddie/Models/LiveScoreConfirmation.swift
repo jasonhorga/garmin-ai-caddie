@@ -236,4 +236,10 @@ enum LiveMarkedShots {
     static func locations(in events: [LiveRoundEvent], roundId: String, hole: Int) -> [LiveRoundEvent] {
         events.filter { $0.roundId == roundId && $0.hole == hole && $0.kind == .location }
     }
+
+    /// The temporary count seam for the C250 regression test. The implementation is intentionally
+    /// kept beside the location projection so the production fix can share the same event scope.
+    static func actualShots(in events: [LiveRoundEvent], roundId: String, hole: Int) -> [LiveRoundEvent] {
+        locations(in: events, roundId: roundId, hole: hole)
+    }
 }
