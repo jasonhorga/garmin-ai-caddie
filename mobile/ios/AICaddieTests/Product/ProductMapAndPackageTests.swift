@@ -277,11 +277,16 @@ final class ProductMapAndPackageTests: XCTestCase {
         XCTAssertTrue(read().garminImageReady, "the downgrade alternative is decoded and ready")
 
         // Invoke exactly the failure callback wired into liveHoleImageMap, after the selection task.
+        let recovered = expectation(description: "same mounted page automatically recovered precise image")
+        probe.didRecoverPreciseImage = { recovered.fulfill() }
         failPreciseImage()
         XCTAssertNotEqual(read().displayState, .garminRaster,
                           "J4.5 a precise page must not downgrade to ready Garmin after decode failure")
         XCTAssertEqual(read().displayState, .factualPending)
         XCTAssertFalse(read().hasMapOverlay, "the neutral decode frame has no geographic layers")
+        await fulfillment(of: [recovered], timeout: productEventWait)
+        XCTAssertEqual(read().displayState, .precise,
+                       "J4.5 the same selected page recovers without navigating away")
     }
 
     /// J4.5-2: Garmin is prefetched by default so a later hole can show its raster immediately.

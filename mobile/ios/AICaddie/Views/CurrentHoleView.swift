@@ -591,6 +591,7 @@ final class LiveHoleLoadingProbe {
     var loadGarmin: (() async -> Void)?
     var failPreciseImage: (() -> Void)?
     var didBootstrap: (() -> Void)?
+    var didRecoverPreciseImage: (() -> Void)?
 
     func detach() {
         didMount = nil
@@ -600,6 +601,7 @@ final class LiveHoleLoadingProbe {
         loadGarmin = nil
         failPreciseImage = nil
         didBootstrap = nil
+        didRecoverPreciseImage = nil
     }
 }
 
@@ -860,6 +862,8 @@ public struct CurrentHoleView: View {
     @State private var liveHeroFrame: CGRect = .zero
     @State private var preciseTopoImageReady = false
     @State private var preciseTopoDecodeFailed = false
+    @State private var preciseTopoLoading = false
+    @State private var preciseTopoReloadID = 0
     @State private var hasEmbeddedTopoImage = false
     @State private var resolvedLocalTopoURL: URL?
     @State private var garminRasterImageFailed = false
@@ -1033,7 +1037,7 @@ public struct CurrentHoleView: View {
         self._selectedLie = State(initialValue: restoredHoleState?.lie ?? "fairway")
         let initialHolePrep = initialSession.holePrep ?? packagePrepForHole
         self._holePrep = State(initialValue: initialHolePrep)
-        // Embedded image validation and disk URL lookup happen in the hole task, away from init.
+        // Validate the embedded bitmap before choosing the first frame.
         self._hasEmbeddedTopoImage = State(
             initialValue: CoursePrepHole.hasDecodableEmbeddedTopo(initialHolePrep?.map?.image)
         )
@@ -1059,7 +1063,14 @@ public struct CurrentHoleView: View {
         self._dailyPinSheet = State(initialValue: offlineStore?.loadDailyPinSheet())
         self._targetKind = State(initialValue: restoredManualTarget?.kind)
         self._lastTargetEditKind = State(initialValue: restoredTarget?.kind)
-        self._resolvedLocalTopoURL = State(initialValue: initialSession.localTopoURL)
+        // The session may be new or trimmed. Reserve the installed precise tier before the
+        // first body evaluation; decoding and prefetch remain asynchronous.
+        self._resolvedLocalTopoURL = State(initialValue: initialSession.localTopoURL
+            ?? LiveTopoAvailability.localTopoURL(
+                store: offlineStore, globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole,
+                geometryRevision: LiveTopoAvailability.revision(hole: hole, prep: initialHolePrep)
+            ))
         self._garminRaster = State(
             initialValue: initialSession.garminRaster
                 ?? Self.packageGarminRaster(for: hole, offlineStore: offlineStore, teeBox: package.course.teeBox)
@@ -1609,14 +1620,19 @@ public struct CurrentHoleView: View {
             carryOverLiveMapViewport(from: previous, to: next)
             recordLiveMapDisplayTrace(previous: previous, next: next)
         }
-        .task(id: "\(liveTopoURL?.absoluteString ?? ""):\(isSelected)") {
+        .task(id: "\(liveTopoURL?.absoluteString ?? ""):\(isSelected):\(preciseTopoReloadID)") {
             guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected),
                   let requestedURL = liveTopoURL else { return }
+            preciseTopoLoading = true
             preciseTopoDecodeFailed = false
             let ready = await TopoHoleImageStore.ensureLoaded(requestedURL)
             guard !Task.isCancelled, liveTopoURL == requestedURL else { return }
+            preciseTopoLoading = false
             preciseTopoImageReady = ready
             preciseTopoDecodeFailed = !ready
+            #if DEBUG
+            if ready { loadingProbe?.didRecoverPreciseImage?() }
+            #endif
         }
         .task(id: "\(garminDescriptorRecoveryKey):\(isSelected)") {
             guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
@@ -2627,10 +2643,7 @@ public struct CurrentHoleView: View {
                 value: isSelected && (
                     heroTargetDragging
                         || historyPlayerDragging
-                        || HeroMapGesturePolicy.isZoomed(
-                            scale: heroMapScale,
-                            pinchScale: heroMapPinchScale
-                        )
+                        || HeroMapGesturePolicy.isZoomed(scale: heroDisplayedMapScale)
                 )
             )
         }
@@ -2670,7 +2683,7 @@ public struct CurrentHoleView: View {
     private func heroMapPinchGesture(in viewport: CGSize) -> some Gesture {
         MagnificationGesture()
             .updating($heroMapPinchScale) { value, state, _ in
-                state = value
+                state = LiveMapDisplaySelection.gestureScale(for: liveMapDisplayState, proposed: value)
             }
             .onEnded { value in
                 guard liveMapDisplayState != .factualPending,
@@ -3144,6 +3157,13 @@ public struct CurrentHoleView: View {
             // The local precise PNG is known, but its decode is still in flight. Hold a neutral
             // ground for this first frame; neither a spinner nor the Garmin fallback is useful.
             TopoHoleBaseImage.groundColor
+                .overlay {
+                    if preciseTopoDecodeFailed && !preciseTopoLoading {
+                        Button("重试地图") { preciseTopoReloadID += 1 }
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier("live-hole-map-precise-retry")
+                    }
+                }
                 .accessibilityIdentifier("live-hole-map-precise-loading")
         } else if liveMapDisplayState == .garminRaster {
             if let holePrep {
@@ -3286,6 +3306,9 @@ public struct CurrentHoleView: View {
                              onPreciseImageFailed: {
                                  preciseTopoImageReady = false
                                  preciseTopoDecodeFailed = true
+                                 // A mounted image can fail after the page's initial load task
+                                 // completed. Restart its bounded recovery without changing holes.
+                                 if !preciseTopoLoading { preciseTopoReloadID += 1 }
                              },
                              onGarminImageReady: {
                                  garminRasterImageReady = true

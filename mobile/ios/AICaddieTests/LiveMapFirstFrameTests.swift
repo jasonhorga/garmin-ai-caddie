@@ -63,7 +63,8 @@ final class LiveMapFirstFrameTests: XCTestCase {
             }
             if trimmed { cache.trim(roundId: package.roundId, keepingHoles: [1]) }
             let view = CurrentHoleView(
-                package: package, hole: hole, offlineStore: store,
+                package: package, hole: hole,
+                caddieBaseURL: URL(string: "https://first-frame.example.test"), offlineStore: store,
                 liveRoundState: resumed ? .init(roundId: package.roundId, activeHole: number, holes: []) : nil,
                 sessionCache: cache
             )
