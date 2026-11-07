@@ -21,6 +21,13 @@
       "kind": "native-unit",
       "target": "AICaddieWatchTests/WatchRoundModelTests/testIdleAutoFinishNeverSavesARoundWithoutAStroke",
       "promise": "round-flow design §4 (no J item yet): no stroke, no save/push/prompt"
+    },
+    {
+      "id": "tests-product-faults-C32-04-phone-untouched-draft-overwrites-score",
+      "patch": "tests/product/faults/C32/04-phone-untouched-draft-overwrites-score.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testLeavingTheCourseKeepsAConfirmedScoreOverAnUntouchedDraft",
+      "promise": "round-flow design §4 (no J item yet): automatic save keeps confirmed scores"
     }
   ]
 }
