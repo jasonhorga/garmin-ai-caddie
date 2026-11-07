@@ -449,7 +449,45 @@ class LoggingIsolationSuite(unittest.TestSuite):
             self._module_snapshots[module] = before
 
 
-def run_logging_checked_tests(arguments):
+class BudgetExceeded(AssertionError):
+    """A layered test or layer ran longer than test-plan 3.1/3.2 allow (stub)."""
+
+
+def layer_of_test(test):
+    return None
+
+
+def file_of_test(test):
+    return type(test).__module__
+
+
+class BudgetTracker:
+    """Per-layer budget accounting (interface stub; records nothing yet)."""
+
+    def __init__(self, *, clock=None, limits=None, budgets=None,
+                 layer_of=layer_of_test, file_of=file_of_test):
+        self.file_seconds = {}
+
+    def begin(self):
+        pass
+
+    def start(self, test):
+        pass
+
+    def stop(self, test):
+        return None
+
+    def end(self):
+        pass
+
+    def over_budget(self):
+        return []
+
+    def report(self):
+        return ""
+
+
+def run_logging_checked_tests(arguments, *, tracker=None, durations_path=None):
     LoggingIsolationSuite.reset_tracking()
     original_import = LoggingIsolationSuite.track_imports()
     loader = unittest.TestLoader()
