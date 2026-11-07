@@ -1,0 +1,14 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index c51ab2c8..210525a2 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -214,8 +214,7 @@ def _hole_scores(
+                     # The accepted Garmin baseline remains conditional even after a later
+                     # ordinary phone edit becomes the winner of the chain.
+                     prior = to_value
+-                    conflict = (source_value is not None and from_value is not None
+-                                and source_value != from_value)
++                    conflict = False
+                 elif from_value is not None and prior is not None and from_value != prior:
+                     conflict = True
+                     prior = to_value

@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index c51ab2c8..f3512b26 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -184,7 +184,7 @@ def _hole_scores(
+             ordered = [(order_key(record, 1, index), record)
+                        for index, record in enumerate(hole_annotations) if record.get("kind") == kind]
+             if kind == "penalty_correction":
+-                for index, event in enumerate(correction_events):
++                for index, event in enumerate([]):
+                     if _safe_int(event.get("hole")) != number or not is_penalty_correction(correction_events, index):
+                         continue
+                     # Corrections and annotations share auditSeq. Use the stored before value

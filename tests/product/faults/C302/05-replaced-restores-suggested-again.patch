@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index c51ab2c8..73037730 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -1137,7 +1137,7 @@ def reconcile_mobile_round_events(
+     unsafe_event_ids = {
+         str(row.get("eventId") or "")
+         for row in local_only
+-        if row.get("unmapped") or row.get("restoreSuperseded")
++        if row.get("unmapped")
+     }
+     annotation_suggestions = [
+         row for row in annotation_suggestions
