@@ -12,7 +12,7 @@
       "id": "tests-product-faults-C302-mobile-baseline-forgotten",
       "patch": "tests/product/faults/C302/02-mobile-baseline-forgotten.patch",
       "kind": "python",
-      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_mobile_choice_baseline_survives_followup_phone_edit",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_mobile_choice_detects_garmin_change_before_followup_phone_edit",
       "promise": "J3.3: a later phone edit must retain the accepted Garmin baseline"
     },
     {
