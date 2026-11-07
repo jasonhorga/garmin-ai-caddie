@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Services/PhoneRoundIdleTracker.swift b/mobile/ios/AICaddie/Services/PhoneRoundIdleTracker.swift
+index 2ec94b53..c9c626ae 100644
+--- a/mobile/ios/AICaddie/Services/PhoneRoundIdleTracker.swift
++++ b/mobile/ios/AICaddie/Services/PhoneRoundIdleTracker.swift
+@@ -106,7 +106,7 @@ public struct PhoneRoundIdleTracker {
+ 
+         let lastSign = max(anchorAt ?? .distantPast, lastInput)
+         if hasRecordedStroke, now.timeIntervalSince(lastSign) >= Self.stationarySeconds {
+-            return .pauseStationary
++            return .finishLeftCourse
+         }
+         return .none
+     }

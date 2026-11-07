@@ -1,0 +1,14 @@
+diff --git a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
+index 86091352..f516db5f 100644
+--- a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
++++ b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
+@@ -757,8 +757,7 @@ public final class WatchRoundModel: ObservableObject {
+     private func hasRecordedStroke(in round: WatchRoundStore.PersistedRound) -> Bool {
+         // Older archives did not have the durable marker. Their pending event log is still a
+         // trustworthy migration source, so preserve a real recorded stroke across the upgrade.
+-        !(round.recordedStrokeEventIds?.isEmpty ?? true)
+-            || round.pendingEvents.contains { $0.kind == .location }
++        true
+     }
+ 
+     public var courseName: String { round?.courseName ?? "" }
