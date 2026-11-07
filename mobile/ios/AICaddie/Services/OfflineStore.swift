@@ -30,6 +30,8 @@ public struct LiveRoundStateSnapshot: Codable, Equatable {
     /// nil for a round started from 开始一场, which plays its package order.
     public let startHole: Int?
 
+    public var canUndoRoundStart: Bool { startHole != nil }
+
     public init(
         roundId: String,
         activeHole: Int,
