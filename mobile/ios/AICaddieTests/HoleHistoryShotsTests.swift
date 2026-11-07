@@ -54,3 +54,35 @@ final class HoleHistoryShotsTests: XCTestCase {
         XCTAssertEqual(response.missingData.first?["reason"], "无坐标")
     }
 }
+
+extension HoleHistoryShotsTests {
+    func testDistanceLabelsUseTheNearbySelection() {
+        let shots = [
+            HoleHistoryOverlayRenderer.ProjectedShot(
+                id: "far", start: CGPoint(x: 100, y: 0), end: nil, distanceM: 44,
+                isTee: false, result: "rough"
+            )
+        ]
+        let selected = HoleHistoryOverlayRenderer.nearby(
+            shots, player: CGPoint(x: 0, y: 0), radiusMetres: 25, pixelsPerMetre: 1
+        )
+        XCTAssertNil(HoleHistoryOverlayRenderer.distanceOnlyText(selected))
+    }
+
+    func testPlayerPixelCarriesAcrossSameOverlayWhenMapUpgrades() {
+        let hole = CoursePrepHole(
+            hole: 1, par: 4, parSource: "test", blueYards: 400,
+            routeLenM: 200,
+            route: [[0, 200, 0], [0, 0, 200]],
+            map: CoursePrepMap(
+                image: nil,
+                overlay: CoursePrepOverlay(w: 200, h: 200, ppm: 1, ln: 200,
+                                           route: [[0, 200, 0], [0, 0, 200]])
+            )
+        )
+        XCTAssertEqual(
+            HoleHistoryOverlayRenderer.carryPlayer(CGPoint(x: 40, y: 80), from: hole, to: hole),
+            CGPoint(x: 40, y: 80)
+        )
+    }
+}

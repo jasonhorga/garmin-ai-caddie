@@ -143,6 +143,7 @@ public struct HoleImageMapView: View {
     /// disabled by default so opening a hole never changes the ordinary map surface.
     public let historyShots: [HoleHistoryShot]
     public let showsHistoryLayer: Bool
+    public let showsHistoryDistanceFallback: Bool
     /// Player position in the source CourseView pixel frame. This can be changed by dragging the
     /// prep "我" marker and therefore does not have to come from a GPS fix.
     public let historyPlayerPixel: CGPoint?
@@ -182,6 +183,7 @@ public struct HoleImageMapView: View {
                 showsPrepFactOverlays: Bool = false, allowsRotation: Bool = false,
                 showsPrepClubLabel: Bool = true, showsClubLabel: Bool = true,
                 historyShots: [HoleHistoryShot] = [], showsHistoryLayer: Bool = false,
+                showsHistoryDistanceFallback: Bool = true,
                 historyPlayerPixel: CGPoint? = nil, historySummary: String? = nil,
                 teeDistanceArcYards: Int? = nil,
                 plannedShots: [MapPlannedShot] = [], selectedPlanIndex: Int? = nil,
@@ -209,6 +211,7 @@ public struct HoleImageMapView: View {
         self.showsPrepFactOverlays = showsPrepFactOverlays
         self.historyShots = historyShots
         self.showsHistoryLayer = showsHistoryLayer
+        self.showsHistoryDistanceFallback = showsHistoryDistanceFallback
         self.historyPlayerPixel = historyPlayerPixel
         self.historySummary = historySummary
         self.allowsRotation = allowsRotation
@@ -311,24 +314,11 @@ public struct HoleImageMapView: View {
 
     @ViewBuilder
     private func historyDistanceFallback() -> some View {
-        if showsHistoryLayer, displayOverlay == nil,
-           historySummary != nil || historyDistanceOnlyText != nil {
-            VStack(spacing: 3) {
-                if let historySummary {
-                    Text(historySummary)
-                        .accessibilityIdentifier("prep-history-summary")
-                }
-                if let text = historyDistanceOnlyText {
-                    Text(text)
-                        .accessibilityIdentifier("prep-history-distance-fallback")
-                }
-            }
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.white)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(.black.opacity(0.68), in: Capsule())
+        if showsHistoryLayer, showsHistoryDistanceFallback, !drawsCanvas {
+            HoleHistoryDistanceFallback(
+                summary: historySummary,
+                distanceText: HoleHistoryOverlayRenderer.unmappedDistanceText(historyShots)
+            )
         }
     }
 
@@ -637,22 +627,12 @@ public struct HoleImageMapView: View {
                 at: CGPoint(x: size.width / 2, y: size.height - 16)
             )
         }
-        if let distanceText = historyDistanceOnlyText {
+        if let distanceText = HoleHistoryOverlayRenderer.distanceOnlyText(selected) {
             context.draw(
                 Text(distanceText).font(.system(size: 9, weight: .semibold)).foregroundColor(.white),
                 at: CGPoint(x: size.width / 2, y: size.height - (historySummary == nil ? 16 : 29))
             )
         }
-    }
-
-    private var historyDistanceOnlyText: String? {
-        let values = historyShots.compactMap { shot -> Int? in
-            guard shot.end == nil, let distance = shot.distanceM,
-                  distance.isFinite, distance >= 0 else { return nil }
-            return Int((distance * 1.0936133).rounded())
-        }
-        guard !values.isEmpty else { return nil }
-        return "历史距离 " + values.prefix(5).map { "\($0)码" }.joined(separator: " · ")
     }
 
     private func historyResultColor(_ result: String) -> Color {
@@ -1786,5 +1766,31 @@ private struct PrepMapHazardRangeOverlay: View {
             .fill(Color(red: 0.95, green: 0.16, blue: 0.14))
             .frame(width: 5, height: 5)
             .position(point)
+    }
+}
+
+
+/// Numeric history remains usable while a bitmap or its registration is unavailable.
+struct HoleHistoryDistanceFallback: View {
+    let summary: String?
+    let distanceText: String?
+
+    var body: some View {
+        if summary != nil || distanceText != nil {
+            VStack(spacing: 3) {
+                if let summary {
+                    Text(summary).accessibilityIdentifier("prep-history-summary")
+                }
+                if let distanceText {
+                    Text(distanceText).accessibilityIdentifier("prep-history-distance-fallback")
+                }
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.black.opacity(0.68), in: Capsule())
+        }
     }
 }

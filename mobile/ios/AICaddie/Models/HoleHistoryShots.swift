@@ -128,4 +128,33 @@ public enum HoleHistoryOverlayRenderer {
         let average = distances.isEmpty ? nil : Int((distances.reduce(0, +) / Double(distances.count) * 1.0936133).rounded())
         return (shots.count, average)
     }
+
+    /// Retain geographic placement when the source pixel frame changes; pixel-only maps use
+    /// the same route-station transfer as the target and flag.
+    static func carryPlayer(_ pixel: CGPoint, from previous: CoursePrepHole, to next: CoursePrepHole) -> CGPoint? {
+        if let source = previous.holeImageProjection, let destination = next.holeImageProjection,
+           let mapped = GarminRasterProjectionMath.remap(pixel: pixel, from: source, to: destination) {
+            return mapped
+        }
+        guard let oldOverlay = previous.resolvedMapOverlay,
+              let newOverlay = next.resolvedMapOverlay else { return nil }
+        return LiveMapCarryOver.transfer(pixel, from: oldOverlay, to: newOverlay)
+    }
+
+    static func distanceOnlyText(_ shots: [ProjectedShot]) -> String? {
+        let values = shots.compactMap { shot -> Int? in
+            guard shot.end == nil, let distance = shot.distanceM,
+                  distance.isFinite, distance >= 0 else { return nil }
+            return Int((distance * 1.0936133).rounded())
+        }
+        guard !values.isEmpty else { return nil }
+        return "历史距离 " + values.prefix(5).map { "\($0)码" }.joined(separator: " · ")
+    }
+
+    static func unmappedDistanceText(_ shots: [HoleHistoryShot]) -> String? {
+        distanceOnlyText(shots.map {
+            ProjectedShot(id: $0.id, start: nil, end: nil, distanceM: $0.distanceM, isTee: $0.isTee, result: $0.result)
+        })
+    }
+
 }

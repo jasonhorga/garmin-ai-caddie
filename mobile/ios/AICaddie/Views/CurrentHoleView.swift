@@ -2257,6 +2257,17 @@ public struct CurrentHoleView: View {
                 .allowsHitTesting(false)
             heroInteractionLayer
         }
+        .overlay(alignment: .bottom) {
+            if isPrepMode, showsHistoryLayer,
+               !historyHasVisibleCanvas {
+                HoleHistoryDistanceFallback(
+                    summary: prepHistorySummary,
+                    distanceText: HoleHistoryOverlayRenderer.unmappedDistanceText(holeHistory?.shots ?? [])
+                )
+                .padding(.bottom, 18)
+                .allowsHitTesting(false)
+            }
+        }
         .overlay(alignment: .topTrailing) {
             if isPrepMode {
                 historyLayerToggle
@@ -2798,8 +2809,11 @@ public struct CurrentHoleView: View {
     /// through the new map's anchors; a pixel-only point is moved by route station + lateral offset.
     /// Zoom, pan and the obstacle selection are kept by their own state.
     private func carryOverMapInteraction(from previous: CoursePrepHole?, to next: CoursePrepHole?) {
-        guard let previous, let next, previous.hole == next.hole,
-              let oldOverlay = previous.resolvedMapOverlay,
+        guard let previous, let next, previous.hole == next.hole else { return }
+        if let pixel = historyPlayerPixel {
+            historyPlayerPixel = HoleHistoryOverlayRenderer.carryPlayer(pixel, from: previous, to: next)
+        }
+        guard let oldOverlay = previous.resolvedMapOverlay,
               let newOverlay = next.resolvedMapOverlay,
               oldOverlay != newOverlay else { return }
         func carried(pixel: CGPoint?, coordinate: CLLocationCoordinate2D?) -> CGPoint? {
@@ -2855,7 +2869,7 @@ public struct CurrentHoleView: View {
             .onChanged { value in
                 guard isPrepMode, showsHistoryLayer,
                       !heroTargetDragGrabbed,
-                      historyPlayerHit(at: value.startLocation, in: viewport) else { return }
+                      (historyPlayerDragging || historyPlayerHit(at: value.startLocation, in: viewport)) else { return }
                 historyPlayerDragging = true
                 if let pixel = heroOverlayPixel(at: value.location, in: viewport, clampToMap: true) {
                     historyPlayerPixel = historySourcePixel(forDisplayPixel: pixel)
@@ -3287,6 +3301,7 @@ public struct CurrentHoleView: View {
                              showsClubLabel: false,
                              historyShots: isPrepMode ? (holeHistory?.shots ?? []) : [],
                              showsHistoryLayer: isPrepMode && showsHistoryLayer,
+                             showsHistoryDistanceFallback: false,
                              historyPlayerPixel: isPrepMode ? historyPlayerPixelForMap : nil,
                              historySummary: isPrepMode && showsHistoryLayer ? prepHistorySummary : nil,
                              teeDistanceArcYards: showsTeeDistanceArc ? teeDistanceArcYards : nil,
@@ -4132,8 +4147,14 @@ public struct CurrentHoleView: View {
 
     /// The small corner line is deliberately sourced from the package's `recentHistory.holes`, as
     /// required by the prep contract. The shot endpoint remains the detailed, opt-in map layer.
+    private var historyHasVisibleCanvas: Bool {
+        guard liveMapDisplayState == .precise || liveMapDisplayState == .garminRaster,
+              let holePrep else { return false }
+        return liveHoleImageMap(holePrep).drawsCanvas
+    }
+
     private var prepHistorySummary: String? {
-        guard let recent = package.recentHistory.holes.first(where: { $0.number == hole.courseHoleNumber }) else {
+        guard let recent = package.recentHistory.holes.first(where: { $0.number == hole.number }) else {
             return nil
         }
         var parts = ["历史 \(recent.sampleCount) 次"]
