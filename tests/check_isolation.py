@@ -2,14 +2,25 @@
 
 CI/local usage: python -m tests.check_isolation tests.test_offline_followups
 Full CI usage: python -m tests.check_isolation discover -s tests -t . -v
+
+The child runner also enforces the layer budgets of docs/test-plan.md 3.1/3.2
+for tests under tests/small, tests/medium and tests/large (a single test over
+its hard limit is a BudgetExceeded failure; a layer over its total budget exits
+non-zero), prints a layer budget report and writes per-file durations to
+$TMPDIR/test-durations.json. Legacy test modules are timed but never budgeted.
 """
 import logging
 import builtins
 import copy
+from functools import partial
 import io
+import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
+import time
 import unittest
 
 
@@ -381,9 +392,18 @@ class LoggingIsolationSuite(unittest.TestSuite):
         builtins.__import__ = tracked
         return original
 
+    def _tearDownPreviousClass(self, test, result):
+        super()._tearDownPreviousClass(test, result)
+        tracker = getattr(result, "budget_tracker", None)
+        if tracker is not None:
+            tracker.teardown_done()
+
     def _handleModuleTearDown(self, result):
         previous = self._get_previous_module(result)
         super()._handleModuleTearDown(result)
+        tracker = getattr(result, "budget_tracker", None)
+        if tracker is not None:
+            tracker.teardown_done()
         if previous is None:
             return
         changed = [name for name, original in zip(
@@ -449,42 +469,166 @@ class LoggingIsolationSuite(unittest.TestSuite):
             self._module_snapshots[module] = before
 
 
+# Test-plan 3.1 hard limit per test and 3.2 wall budget per layer, in seconds.
+# Only tests under tests/<layer>/ are budgeted; legacy modules carry no layer.
+TEST_LAYERS = ("small", "medium", "large", "quarantine")
+TEST_LIMITS = {"small": 1.0, "medium": 30.0, "large": 300.0}
+LAYER_BUDGETS = {"small": 45.0, "medium": 135.0, "large": 360.0}
+
+
 class BudgetExceeded(AssertionError):
-    """A layered test or layer ran longer than test-plan 3.1/3.2 allow (stub)."""
+    """A layered test ran longer than its size's hard limit (test-plan 3.1)."""
+
+
+_module_files = {}
+
+
+def _module_file(test):
+    name = type(test).__module__
+    if name not in _module_files:
+        path = getattr(sys.modules.get(name), "__file__", None)
+        _module_files[name] = Path(path).resolve() if path else None
+    return name, _module_files[name]
 
 
 def layer_of_test(test):
-    return None
+    """'small', 'medium', 'large' or 'quarantine' by directory, else None."""
+    _name, path = _module_file(test)
+    if path is None or not path.is_relative_to(ROOT / "tests"):
+        return None
+    parts = path.relative_to(ROOT / "tests").parts
+    return parts[0] if len(parts) > 1 and parts[0] in TEST_LAYERS else None
 
 
 def file_of_test(test):
-    return type(test).__module__
+    name, path = _module_file(test)
+    if path is not None and path.is_relative_to(ROOT):
+        return path.relative_to(ROOT).as_posix()
+    return name
+
+
+def default_durations_path():
+    return Path(os.environ.get("TMPDIR") or tempfile.gettempdir()) / "test-durations.json"
 
 
 class BudgetTracker:
-    """Per-layer budget accounting (interface stub; records nothing yet)."""
+    """Wall time per test, file and layer, measured by the runner.
 
-    def __init__(self, *, clock=None, limits=None, budgets=None,
+    ``clock`` is injectable so self-tests drive it with a FakeClock. Time
+    between tests is charged too: class/module teardown to the test before
+    (see LoggingIsolationSuite), set-up to the test after.
+    """
+
+    def __init__(self, *, clock=time.monotonic, limits=None, budgets=None,
                  layer_of=layer_of_test, file_of=file_of_test):
+        self.clock = clock
+        self.limits = dict(TEST_LIMITS if limits is None else limits)
+        self.budgets = dict(LAYER_BUDGETS if budgets is None else budgets)
+        self.layer_of = layer_of
+        self.file_of = file_of
+        self.layer_counts = {}
+        self.layer_seconds = {}
         self.file_seconds = {}
+        self._mark = None
+        self._started = {}
+        self._previous = None
+
+    def _charge(self, test, seconds, *, count=False):
+        layer = self.layer_of(test)
+        file = self.file_of(test)
+        self.file_seconds[file] = self.file_seconds.get(file, 0.0) + seconds
+        if layer is not None:
+            self.layer_seconds[layer] = self.layer_seconds.get(layer, 0.0) + seconds
+            if count:
+                self.layer_counts[layer] = self.layer_counts.get(layer, 0) + 1
+        return layer
 
     def begin(self):
-        pass
+        self._mark = self.clock()
 
     def start(self, test):
-        pass
+        now = self.clock()
+        if self._mark is not None:
+            self._charge(test, now - self._mark)
+        self._started[id(test)] = now
 
     def stop(self, test):
+        """Record a finished test; return a BudgetExceeded message if it overran."""
+        now = self.clock()
+        self._mark = now
+        started = self._started.pop(id(test), None)
+        if started is None:
+            return None
+        elapsed = now - started
+        self._previous = test
+        layer = self._charge(test, elapsed, count=True)
+        limit = self.limits.get(layer)
+        if limit is not None and elapsed > limit:
+            return (f"{test.id()} took {elapsed:.2f} s; {layer} tests must finish "
+                    f"within {limit:g} s (docs/test-plan.md 3.1)")
         return None
 
+    def teardown_done(self):
+        """Charge class/module teardown since the last test to that test."""
+        if self._mark is not None and self._previous is not None:
+            now = self.clock()
+            self._charge(self._previous, now - self._mark)
+            self._mark = now
+
     def end(self):
-        pass
+        self.teardown_done()
+        self._mark = None
 
     def over_budget(self):
-        return []
+        return [layer for layer, budget in self.budgets.items()
+                if self.layer_seconds.get(layer, 0.0) > budget]
 
     def report(self):
-        return ""
+        over = set(self.over_budget())
+        lines = ["Layer budget report (docs/test-plan.md 3.2):"]
+        for layer, budget in self.budgets.items():
+            count = self.layer_counts.get(layer, 0)
+            if layer == "large" and not count:
+                continue
+            seconds = self.layer_seconds.get(layer, 0.0)
+            lines.append(f"  {layer:<7}{count:>5} tests {seconds:>9.2f} s / {budget:g} s budget"
+                         + ("  OVER BUDGET" if layer in over else ""))
+        return "\n".join(lines)
+
+    def write_durations(self, path):
+        """Write {file: seconds} atomically, for tests/durations.json refreshes."""
+        path = Path(path)
+        data = {file: round(seconds, 3) for file, seconds in sorted(self.file_seconds.items())}
+        partial_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        partial_path.write_text(json.dumps(data, indent=2) + "\n")
+        os.replace(partial_path, path)
+
+
+class BudgetedTextTestResult(unittest.TextTestResult):
+    def __init__(self, *args, budget_tracker, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.budget_tracker = budget_tracker
+
+    def startTestRun(self):
+        super().startTestRun()
+        self.budget_tracker.begin()
+
+    def startTest(self, test):
+        self.budget_tracker.start(test)
+        super().startTest(test)
+
+    def stopTest(self, test):
+        message = self.budget_tracker.stop(test)
+        if message:
+            try:
+                raise BudgetExceeded(message)
+            except BudgetExceeded:
+                self.addFailure(test, sys.exc_info())
+        super().stopTest(test)
+
+    def stopTestRun(self):
+        self.budget_tracker.end()
+        super().stopTestRun()
 
 
 def run_logging_checked_tests(arguments, *, tracker=None, durations_path=None):
@@ -494,7 +638,11 @@ def run_logging_checked_tests(arguments, *, tracker=None, durations_path=None):
     loader.suiteClass = LoggingIsolationSuite
     runner_stream = io.StringIO()
     verbosity = 2 if any(argument in {"-v", "--verbose"} for argument in arguments) else 1
-    runner = unittest.TextTestRunner(stream=runner_stream, verbosity=verbosity)
+    tracker = BudgetTracker() if tracker is None else tracker
+    runner = unittest.TextTestRunner(
+        stream=runner_stream, verbosity=verbosity,
+        resultclass=partial(BudgetedTextTestResult, budget_tracker=tracker),
+    )
     try:
         program = unittest.main(module=None, argv=[sys.argv[0], *arguments],
                                 testLoader=loader, testRunner=runner, exit=False)
@@ -526,9 +674,18 @@ def run_logging_checked_tests(arguments, *, tracker=None, durations_path=None):
     for witness, trace in new_failures:
         print(f"\n{witness.id()}", file=sys.stderr)
         print(trace.rstrip("\n"), file=sys.stderr)
+    # Layer budgets (test-plan 3.2) fail the run even when every test passed.
+    print("", file=sys.stderr)
+    print(tracker.report(), file=sys.stderr)
+    over_budget = tracker.over_budget()
+    try:
+        tracker.write_durations(durations_path or default_durations_path())
+    except OSError as error:
+        print(f"Could not write test durations: {error}", file=sys.stderr)
     print(marker.rstrip("\n"), file=sys.stderr)
     print(f"Ran {program.result.testsRun} tests", file=sys.stderr)
-    if program.result.wasSuccessful():
+    successful = program.result.wasSuccessful() and not over_budget
+    if successful:
         print("OK", file=sys.stderr)
     else:
         counts = []
@@ -536,8 +693,10 @@ def run_logging_checked_tests(arguments, *, tracker=None, durations_path=None):
             counts.append(f"failures={len(program.result.failures)}")
         if program.result.errors:
             counts.append(f"errors={len(program.result.errors)}")
+        if over_budget:
+            counts.append(f"over_budget={','.join(over_budget)}")
         print(f"FAILED ({', '.join(counts)})", file=sys.stderr)
-    return 0 if program.result.wasSuccessful() else 1
+    return 0 if successful else 1
 
 
 def main():
