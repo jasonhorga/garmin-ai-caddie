@@ -139,6 +139,15 @@ public struct HoleImageMapView: View {
     /// Live play supplies current-GPS ranges in `CurrentHoleView`, so its caller leaves this false
     /// and never gets a duplicate or a tee distance disguised as a live distance.
     public let showsPrepFactOverlays: Bool
+    /// Optional, user-enabled history layer for the preparation map. It is intentionally empty and
+    /// disabled by default so opening a hole never changes the ordinary map surface.
+    public let historyShots: [HoleHistoryShot]
+    public let showsHistoryLayer: Bool
+    public let showsHistoryDistanceFallback: Bool
+    /// Player position in the source CourseView pixel frame. This can be changed by dragging the
+    /// prep "我" marker and therefore does not have to come from a GPS fix.
+    public let historyPlayerPixel: CGPoint?
+    public let historySummary: String?
     /// Preparation-only viewport rotation. The complete map stack rotates as one unit; live play
     /// keeps Garmin's fixed orientation and Watch callers never enable this control.
     public let allowsRotation: Bool
@@ -173,6 +182,9 @@ public struct HoleImageMapView: View {
                 showsHazards: Bool = false,
                 showsPrepFactOverlays: Bool = false, allowsRotation: Bool = false,
                 showsPrepClubLabel: Bool = true, showsClubLabel: Bool = true,
+                historyShots: [HoleHistoryShot] = [], showsHistoryLayer: Bool = false,
+                showsHistoryDistanceFallback: Bool = true,
+                historyPlayerPixel: CGPoint? = nil, historySummary: String? = nil,
                 teeDistanceArcYards: Int? = nil,
                 plannedShots: [MapPlannedShot] = [], selectedPlanIndex: Int? = nil,
                 drawsPlannedRouteInMap: Bool = true, baseEdgeExtension: EdgeInsets = EdgeInsets(), baseEdgeFeather: CGFloat = 0,
@@ -197,6 +209,11 @@ public struct HoleImageMapView: View {
         self.showsRecommendedRoute = showsRecommendedRoute
         self.showsHazards = showsHazards
         self.showsPrepFactOverlays = showsPrepFactOverlays
+        self.historyShots = historyShots
+        self.showsHistoryLayer = showsHistoryLayer
+        self.showsHistoryDistanceFallback = showsHistoryDistanceFallback
+        self.historyPlayerPixel = historyPlayerPixel
+        self.historySummary = historySummary
         self.allowsRotation = allowsRotation
         self.showsPrepClubLabel = showsPrepClubLabel
         self.showsClubLabel = showsClubLabel
@@ -274,20 +291,35 @@ public struct HoleImageMapView: View {
         } else if let topoURL = preciseTopoURL {
             // C89: a row in another pixel frame never draws over the precise topo. The bitmap is
             // the whole map until the same hole's row in its frame arrives.
-            let base = TopoHoleBaseImage(
-                topoURL: topoURL,
-                fallback: nil,
-                onTopoImageReady: onPreciseImageReady,
-                onTopoImageFailed: onPreciseImageFailed
-            )
-                .continuingTerrain(baseEdgeExtension, feather: baseEdgeFeather)
+            let base = ZStack {
+                TopoHoleBaseImage(
+                    topoURL: topoURL,
+                    fallback: nil,
+                    onTopoImageReady: onPreciseImageReady,
+                    onTopoImageFailed: onPreciseImageFailed
+                )
+                    .continuingTerrain(baseEdgeExtension, feather: baseEdgeFeather)
+                historyDistanceFallback()
+            }
             if showsCardChrome {
                 base.mapSurface()
             } else {
                 base
             }
+        } else {
+            historyDistanceFallback()
         }
         #endif
+    }
+
+    @ViewBuilder
+    private func historyDistanceFallback() -> some View {
+        if showsHistoryLayer, showsHistoryDistanceFallback, !drawsCanvas {
+            HoleHistoryDistanceFallback(
+                summary: historySummary,
+                distanceText: HoleHistoryOverlayRenderer.unmappedDistanceText(historyShots)
+            )
+        }
     }
 
     public var hasMap: Bool {
@@ -502,6 +534,123 @@ public struct HoleImageMapView: View {
         // Pin (green end of the route): a compact flag, never a target ring or crosshair.
         if showsRecommendedRoute, let pin {
             drawPinFlag(&context, at: pin)
+        }
+        if showsHistoryLayer {
+            drawHistoryLayer(&context, size: size, overlay: overlay)
+        }
+    }
+
+    private func drawHistoryLayer(
+        _ context: inout GraphicsContext,
+        size: CGSize,
+        overlay: CoursePrepOverlay
+    ) {
+        let projected = historyShots.map { shot -> HoleHistoryOverlayRenderer.ProjectedShot in
+            func project(_ point: HoleHistoryCoordinate?) -> CGPoint? {
+                guard let point else { return nil }
+                let sourceProjection = hole.holeImageProjection
+                let projection = sourceProjection ?? displayProjection
+                guard let refs = projection?.refs,
+                      let px = WatchEventBridge.projectToTopoPx(
+                          lat: point.lat,
+                          lon: point.lon,
+                          refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+                      ), px.count >= 2 else { return nil }
+                let display = sourceProjection == nil ? px : displayPixel(px)
+                guard let remapped = display, remapped.count >= 2 else { return nil }
+                return CGPoint(
+                    x: remapped[0] * size.width / CGFloat(overlay.w),
+                    y: remapped[1] * size.height / CGFloat(overlay.h)
+                )
+            }
+            return HoleHistoryOverlayRenderer.ProjectedShot(
+                id: shot.id,
+                start: project(shot.start),
+                end: project(shot.end),
+                distanceM: shot.distanceM,
+                isTee: shot.isTee,
+                result: shot.result
+            )
+        }
+        let pixelsPerMetre = max(overlay.ppm, 0.001)
+        let playerDisplayPixel: CGPoint? = historyPlayerPixel.flatMap { pixel in
+            displayPixel([pixel.x, pixel.y]).flatMap { row in
+                guard row.count >= 2 else { return nil }
+                return CGPoint(x: row[0], y: row[1])
+            }
+        }
+        let selected = HoleHistoryOverlayRenderer.nearby(
+            projected,
+            player: playerDisplayPixel.map {
+                CGPoint(x: $0.x * size.width / CGFloat(overlay.w), y: $0.y * size.height / CGFloat(overlay.h))
+            },
+            pixelsPerMetre: pixelsPerMetre * size.width / CGFloat(overlay.w)
+        )
+        if let player = playerDisplayPixel {
+            let point = CGPoint(x: player.x * size.width / CGFloat(overlay.w), y: player.y * size.height / CGFloat(overlay.h))
+            let radius = 25 * CGFloat(pixelsPerMetre) * size.width / CGFloat(overlay.w)
+            let circle = Path(ellipseIn: CGRect(
+                x: point.x - radius, y: point.y - radius,
+                width: radius * 2, height: radius * 2
+            ))
+            context.stroke(circle, with: .color(.white.opacity(0.38)), style: StrokeStyle(lineWidth: 1.4, dash: [5, 4]))
+        }
+        for shot in selected {
+            if let start = shot.start, let end = shot.end, !shot.isTee {
+                var line = Path()
+                line.move(to: start)
+                line.addLine(to: end)
+                context.stroke(line, with: .color(.white.opacity(0.72)), style: StrokeStyle(lineWidth: 1.4, dash: [4, 4]))
+            }
+            if let end = shot.end {
+                let color = historyResultColor(shot.result)
+                context.fill(Path(ellipseIn: CGRect(x: end.x - 4.5, y: end.y - 4.5, width: 9, height: 9)), with: .color(color))
+                if let distance = shot.distanceM, distance.isFinite {
+                    context.draw(
+                        Text("\(Int((distance * 1.0936133).rounded()))码")
+                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                            .foregroundColor(.white),
+                        at: CGPoint(x: end.x, y: end.y - 11)
+                    )
+                }
+            }
+        }
+        if let player = playerDisplayPixel {
+            let point = CGPoint(x: player.x * size.width / CGFloat(overlay.w), y: player.y * size.height / CGFloat(overlay.h))
+            context.fill(Path(ellipseIn: CGRect(x: point.x - 7, y: point.y - 7, width: 14, height: 14)), with: .color(.white.opacity(0.95)))
+            context.stroke(Path(ellipseIn: CGRect(x: point.x - 9, y: point.y - 9, width: 18, height: 18)), with: .color(.black.opacity(0.7)), lineWidth: 2)
+            context.draw(Text("我").font(.system(size: 10, weight: .heavy)).foregroundColor(.black), at: point)
+        }
+        if let summary = HoleHistoryOverlayRenderer.summaryText(
+            selected, pixelsPerMetre: pixelsPerMetre * size.width / CGFloat(overlay.w)
+        ) {
+            context.draw(
+                Text(summary).font(.system(size: 10, weight: .semibold)).foregroundColor(.white),
+                at: CGPoint(x: size.width / 2, y: size.height - 42)
+            )
+        }
+        if let historySummary {
+            context.draw(
+                Text(historySummary).font(.system(size: 10, weight: .semibold)).foregroundColor(.white),
+                at: CGPoint(x: size.width / 2, y: size.height - 16)
+            )
+        }
+        if let distanceText = HoleHistoryOverlayRenderer.distanceOnlyText(selected) {
+            context.draw(
+                Text(distanceText).font(.system(size: 9, weight: .semibold)).foregroundColor(.white),
+                at: CGPoint(x: size.width / 2, y: size.height - (historySummary == nil ? 16 : 29))
+            )
+        }
+    }
+
+    private func historyResultColor(_ result: String) -> Color {
+        switch result.lowercased() {
+        case "fairway": return Color(red: 0.28, green: 0.85, blue: 0.46)
+        case "green": return Color(red: 0.35, green: 0.75, blue: 1.0)
+        case "water": return Color(red: 0.35, green: 0.55, blue: 1.0)
+        case "bunker": return Color(red: 1.0, green: 0.74, blue: 0.30)
+        case "rough": return Color(red: 0.78, green: 0.86, blue: 0.35)
+        default: return .white
         }
     }
 
@@ -808,7 +957,8 @@ public struct HoleImageMapView: View {
                     par: hole.par,
                     teeLabel: hole.teeYards == nil ? "蓝T" : "所选T",
                     yards: hole.playingYards,
-                    playsLikeDeltaYards: hole.playsLike?.available == true ? hole.playsLike?.deltaYd : nil
+                    playsLikeDeltaYards: hole.playsLike?.available == true ? hole.playsLike?.deltaYd : nil,
+                    historySummary: historySummary
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(10)
@@ -1366,6 +1516,7 @@ private struct PrepMapHoleInfoOverlay: View {
     let teeLabel: String
     let yards: Int
     let playsLikeDeltaYards: Int?
+    let historySummary: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
@@ -1378,6 +1529,12 @@ private struct PrepMapHoleInfoOverlay: View {
                 Text("坡度 \(delta > 0 ? "+" : "")\(delta) 码")
                     .font(.caption2.weight(.semibold).monospacedDigit())
                     .foregroundStyle(.white.opacity(0.76))
+            }
+            if let historySummary {
+                Text(historySummary)
+                    .font(.caption2.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.76))
+                    .accessibilityIdentifier("prep-history-summary")
             }
         }
         .foregroundStyle(.white)
@@ -1617,5 +1774,31 @@ private struct PrepMapHazardRangeOverlay: View {
             .fill(Color(red: 0.95, green: 0.16, blue: 0.14))
             .frame(width: 5, height: 5)
             .position(point)
+    }
+}
+
+
+/// Numeric history remains usable while a bitmap or its registration is unavailable.
+struct HoleHistoryDistanceFallback: View {
+    let summary: String?
+    let distanceText: String?
+
+    var body: some View {
+        if summary != nil || distanceText != nil {
+            VStack(spacing: 3) {
+                if let summary {
+                    Text(summary).accessibilityIdentifier("prep-history-summary")
+                }
+                if let distanceText {
+                    Text(distanceText).accessibilityIdentifier("prep-history-distance-fallback")
+                }
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.black.opacity(0.68), in: Capsule())
+        }
     }
 }

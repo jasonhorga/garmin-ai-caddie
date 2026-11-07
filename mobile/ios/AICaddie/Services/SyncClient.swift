@@ -1430,6 +1430,22 @@ public final class SyncClient {
         return try decoder.decode(RoundHoleShotMap.self, from: data)
     }
 
+    /// Corrected shots for one physical course hole. The phone owns the 25 m circle and all
+    /// presentation choices; the server only returns the raw two-year (730 day) facts.
+    public func fetchHoleHistoryShots(globalId: Int, localHole: Int, days: Int = 730) async throws -> HoleHistoryShotsResponse {
+        var components = URLComponents(
+            url: endpointURL("/api/v2/history/courses/\(globalId)/holes/\(localHole)/shots"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [URLQueryItem(name: "days", value: String(max(1, min(days, 3650))))]
+        guard let url = components?.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        applyAuth(to: &request)
+        let (data, response) = try await requestData(for: request, in: session)
+        try validate(response: response, data: data)
+        return try decoder.decode(HoleHistoryShotsResponse.self, from: data)
+    }
+
     /// Append one review-edit op to a round (`POST /api/v2/history/rounds/{ref}/corrections`): add /
     /// edit / delete a shot, drag a landing, reorder, or set a hole's manual penalty. Writes to the
     /// caller's own correction log (member-scoped), idempotent on `clientMutationId`. Succeeds (no
