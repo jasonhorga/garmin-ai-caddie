@@ -186,11 +186,6 @@ def _hole_scores(
         target_ids = {f"{ref}:{number}" for ref in [
             str(source_round_row.get("id")), *[str(item) for item in (source_round_row.get("ids") or [])]
         ]}
-        ordered = [
-            (order_key(record, 1, index), record)
-            for index, record in enumerate(annotation_records)
-            if record.get("targetType") == "hole" and str(record.get("targetId")) in target_ids
-        ]
         hole_annotations = [
             record for record in annotation_records
             if record.get("targetType") == "hole" and str(record.get("targetId")) in target_ids
@@ -201,16 +196,18 @@ def _hole_scores(
             entries = (event.get("audit") or {}).get("entries") or []
             before = next((entry.get("before") for entry in entries if entry.get("op") == "penalty"), None)
             value = event.get("value") if event.get("op") == "setHolePenalty" else event.get("manualPenalty")
-            ordered.append((order_key(event, 0, index), {
+            hole_annotations.append({
                 **event, "kind": "penalty_correction",
                 "payload": {"from": before, "strokes": value},
-            }))
+                "_correctionStore": True,
+            })
+            hole_annotations.sort(key=lambda record: order_key(
+                record, 0 if record.get("_correctionStore") else 1, 0,
+            ))
 
         def correction_chain(kind: str, source_value: int | None, effective_value: int | None) -> tuple[bool, dict[str, Any] | None]:
-            records = [
-                record for _key, record in sorted(ordered, key=lambda item: item[0])
-                if record.get("kind") == kind
-            ]
+            records = [record for record in hole_annotations if record.get("kind") == kind]
+            records.sort(key=lambda record: (record.get("auditSeq") if isinstance(record.get("auditSeq"), int) else -1))
             prior = source_value
             conflict = False
             winner: dict[str, Any] | None = None
