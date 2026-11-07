@@ -1148,17 +1148,13 @@ def reconcile_mobile_round_events(
         for row in local_only
         if row.get("unmapped")
     }
+    unsafe_event_ids.update(
+        str(row.get("eventId") or "") for row in local_only if row.get("restoreSuperseded")
+    )
     annotation_suggestions = [
         row for row in annotation_suggestions
         if row.get("kind") == "caddie_feedback"
         or str((row.get("payload") or {}).get("sourceEventId") or "") not in unsafe_event_ids
-    ]
-    unsafe_restore_ids = {
-        str(row.get("eventId") or "") for row in local_only if row.get("restoreSuperseded")
-    }
-    annotation_suggestions = [
-        row for row in annotation_suggestions
-        if str((row.get("payload") or {}).get("sourceEventId") or "") not in unsafe_restore_ids
     ]
     return {
         "schema": "ai-caddie-mobile-reconciliation-v1",
