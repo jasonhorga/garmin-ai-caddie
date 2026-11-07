@@ -25,6 +25,108 @@ final class LiveMapFirstFrameTests: XCTestCase {
         }
     }
 
+    /// J4.5-1: first hole, strip jumps, resume, and trimmed pages discover installed pixels
+    /// before any SwiftUI task runs, even when Garmin is already decoded.
+    func testInstalledTopoOwnsInitialFrameWithoutSessionPath() throws {
+        let package = try ProductInputs.package()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("first-frame-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        let png = Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        )!
+        let rasterURL = URL(string: "https://first-frame.example.test/\(UUID().uuidString).png")!
+        GarminRasterImageStore.preload(try XCTUnwrap(UIImage(data: png)), for: rasterURL)
+        defer { GarminRasterImageStore.evict(rasterURL) }
+        for (number, resumed, trimmed) in [(1, false, false), (7, false, false),
+                                           (12, true, false), (7, false, true)] {
+            let hole = try XCTUnwrap(package.holes.first { $0.number == number })
+            let cache = LiveHoleSessionCache()
+            let revision = LiveTopoAvailability.revision(hole: hole, prep: nil)
+            XCTAssertTrue(try store.saveCourseTopoImage(
+                png, globalId: hole.sourceGlobalId, localHole: hole.sourceLocalHole,
+                geometryRevision: revision
+            ))
+            cache.update(
+                roundId: package.roundId, hole: number, sourceGlobalId: hole.sourceGlobalId,
+                sourceLocalHole: hole.sourceLocalHole, teeBox: package.course.teeBox,
+                geometryRevision: revision
+            ) { entry in
+                entry.garminRaster = GarminRasterResponse(available: true, imageUrl: rasterURL.absoluteString)
+                if trimmed {
+                    entry.localTopoURL = LiveTopoAvailability.localTopoURL(
+                        store: store, globalId: hole.sourceGlobalId,
+                        localHole: hole.sourceLocalHole, geometryRevision: revision
+                    )
+                }
+            }
+            if trimmed { cache.trim(roundId: package.roundId, keepingHoles: [1]) }
+            let view = CurrentHoleView(
+                package: package, hole: hole, offlineStore: store,
+                liveRoundState: resumed ? .init(roundId: package.roundId, activeHole: number, holes: []) : nil,
+                sessionCache: cache
+            )
+            try assertNeutralDecodeFrame(view.liveMapDisplayStateForTesting())
+        }
+    }
+
+    /// J4.5: neutral ground has no map plane to zoom or pan.
+    func testNeutralDecodeFrameIgnoresMapScaleAndOffset() {
+        XCTAssertEqual(LiveMapDisplaySelection.gestureScale(for: .factualPending, proposed: 4), 1)
+        XCTAssertEqual(LiveMapDisplaySelection.gestureOffset(
+            for: .factualPending, proposed: CGSize(width: 120, height: -80)
+        ), .zero)
+    }
+
+    /// J4.5-2: a local file repaired during automatic retry recovers without leaving the hole.
+    func testLocalDecodeRetriesReadRepairedFileWithoutChangingURL() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("decode-retry-\(UUID().uuidString).png")
+        defer {
+            TopoHoleImageStore.retrySleepForTesting = nil
+            TopoHoleImageStore.evict(url)
+            try? FileManager.default.removeItem(at: url)
+        }
+        try Data("broken png".utf8).write(to: url)
+        var delays: [UInt64] = []
+        TopoHoleImageStore.retrySleepForTesting = { delay in
+            delays.append(delay)
+            let png = Data(base64Encoded:
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+            )!
+            try png.write(to: url, options: .atomic)
+        }
+        let ready = await TopoHoleImageStore.ensureLoaded(url)
+        XCTAssertTrue(ready, "a repaired local PNG must recover on the same page")
+        XCTAssertEqual(delays, [5_000_000_000])
+        XCTAssertTrue(TopoHoleImageStore.isMemoryCached(url))
+    }
+
+    /// J4.5-2: corrupt files stop after two retries; a later explicit load can recover.
+    func testLocalDecodeRetriesAreBoundedAndCanBeRestarted() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("decode-exhausted-\(UUID().uuidString).png")
+        defer {
+            TopoHoleImageStore.retrySleepForTesting = nil
+            TopoHoleImageStore.evict(url)
+            try? FileManager.default.removeItem(at: url)
+        }
+        try Data("broken png".utf8).write(to: url)
+        var delays: [UInt64] = []
+        TopoHoleImageStore.retrySleepForTesting = { delays.append($0) }
+        let failed = await TopoHoleImageStore.ensureLoaded(url)
+        XCTAssertFalse(failed)
+        XCTAssertEqual(delays, [5_000_000_000, 15_000_000_000])
+        let png = Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        )!
+        try png.write(to: url, options: .atomic)
+        let recovered = await TopoHoleImageStore.ensureLoaded(url)
+        XCTAssertTrue(recovered)
+        XCTAssertEqual(delays.count, 2, "explicit retry starts immediately")
+    }
+
     private func assertNeutralDecodeFrame(
         _ state: LiveMapDisplayState,
         file: StaticString = #filePath,
