@@ -591,7 +591,7 @@ final class LiveHoleLoadingProbe {
     var loadGarmin: (() async -> Void)?
     var failPreciseImage: (() -> Void)?
     var didBootstrap: (() -> Void)?
-    var didRecoverPreciseImage: (() -> Void)?
+    var didLoadPreciseImage: (() -> Void)?
 
     func detach() {
         didMount = nil
@@ -601,7 +601,7 @@ final class LiveHoleLoadingProbe {
         loadGarmin = nil
         failPreciseImage = nil
         didBootstrap = nil
-        didRecoverPreciseImage = nil
+        didLoadPreciseImage = nil
     }
 }
 
@@ -1631,7 +1631,7 @@ public struct CurrentHoleView: View {
             preciseTopoImageReady = ready
             preciseTopoDecodeFailed = !ready
             #if DEBUG
-            if ready, preciseTopoReloadID > 0 { loadingProbe?.didRecoverPreciseImage?() }
+            if ready { loadingProbe?.didLoadPreciseImage?() }
             #endif
         }
         .task(id: "\(garminDescriptorRecoveryKey):\(isSelected)") {
