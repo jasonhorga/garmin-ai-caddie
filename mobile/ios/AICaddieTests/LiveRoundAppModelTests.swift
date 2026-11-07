@@ -5988,6 +5988,32 @@ final class LiveRoundAppModelTests: XCTestCase {
         await fixture.model.stopRoundBackgroundWorkForTesting()
     }
 
+    /// An automatic save keeps the score the player confirmed: a score sheet reopened on a scored
+    /// hole and left untouched is not a new score.
+    func testLeavingTheCourseKeepsAConfirmedScoreOverAnUntouchedDraft() async throws {
+        let fixture = try idleDepartureFixture(withStroke: true)
+        // Hole 1 is confirmed at 5; the reopened sheet preselects one phone shot + 2 putts = 3.
+        try fixture.store.saveLiveScoreDraft(
+            roundId: fixture.package.roundId,
+            draft: LiveScoreDraft(hole: 1, par: 4, phoneShotCount: 1)
+        )
+        await fixture.model.bootstrap()
+
+        let actions = departureActions(fixture.model, from: fixture.tee, startingAt: fixture.start)
+
+        XCTAssertEqual(actions.last, .finishLeftCourse)
+        for _ in 0..<200 where fixture.model.liveRoundState != nil {
+            await Task.yield()
+        }
+        XCTAssertNil(fixture.model.liveRoundState, "the departed round is sealed")
+        let holeOneStrokes = try fixture.store.loadEvents()
+            .filter { $0.roundId == fixture.package.roundId && $0.hole == 1 && $0.kind == .score }
+            .map { $0.payload["strokes"] }
+        XCTAssertEqual(holeOneStrokes, [.number(5)])
+        XCTAssertNil(try fixture.store.loadLiveScoreDraft(roundId: fixture.package.roundId))
+        await fixture.model.stopRoundBackgroundWorkForTesting()
+    }
+
     /// Design round-flow §4: a round without a recorded stroke is not saved, pushed or prompted.
     func testLeavingTheCourseWithoutAStrokeKeepsTheRoundUnsaved() async throws {
         let fixture = try idleDepartureFixture(withStroke: false)
