@@ -1,0 +1,18 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+index a9a96df3..11d6fbf3 100644
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -1058,12 +1058,7 @@ public struct CurrentHoleView: View {
+         self._lastTargetEditKind = State(initialValue: restoredTarget?.kind)
+         // The session may be new or trimmed. Reserve the installed precise tier before the
+         // first body evaluation; decoding and prefetch remain asynchronous.
+-        self._resolvedLocalTopoURL = State(initialValue: initialSession.localTopoURL
+-            ?? LiveTopoAvailability.localTopoURL(
+-                store: offlineStore, globalId: hole.sourceGlobalId,
+-                localHole: hole.sourceLocalHole,
+-                geometryRevision: LiveTopoAvailability.revision(hole: hole, prep: initialHolePrep)
+-            ))
++        self._resolvedLocalTopoURL = State(initialValue: initialSession.localTopoURL)
+         self._garminRaster = State(
+             initialValue: initialSession.garminRaster
+                 ?? Self.packageGarminRaster(for: hole, offlineStore: offlineStore, teeBox: package.course.teeBox)

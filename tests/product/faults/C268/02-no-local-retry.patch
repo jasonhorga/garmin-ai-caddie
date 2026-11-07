@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/Views/TopoHoleBaseImage.swift b/mobile/ios/AICaddie/Views/TopoHoleBaseImage.swift
+index 6779b30a..2bcdc0a6 100644
+--- a/mobile/ios/AICaddie/Views/TopoHoleBaseImage.swift
++++ b/mobile/ios/AICaddie/Views/TopoHoleBaseImage.swift
+@@ -152,6 +152,7 @@ final class TopoHoleImageStore: ObservableObject {
+     private static func loadWithRetries(_ url: URL) async -> Bool {
+         // Local assets can be replaced while this page stays mounted. Apply the same bounded
+         // retry sequence so a repaired PNG can recover without a hole change.
++        if url.isFileURL { return await image(for: url) != nil }
+         let firstAttempt = retryAttemptByURL[url] ?? 0
+         for attempt in firstAttempt..<retryDelaysNanoseconds.count {
+             if Task.isCancelled {

@@ -1631,7 +1631,7 @@ public struct CurrentHoleView: View {
             preciseTopoImageReady = ready
             preciseTopoDecodeFailed = !ready
             #if DEBUG
-            if ready { loadingProbe?.didRecoverPreciseImage?() }
+            if ready, preciseTopoReloadID > 0 { loadingProbe?.didRecoverPreciseImage?() }
             #endif
         }
         .task(id: "\(garminDescriptorRecoveryKey):\(isSelected)") {
@@ -2305,6 +2305,15 @@ public struct CurrentHoleView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay {
+            // Controls live above the bitmap's noninteractive drawing layer.
+            if liveMapDisplayState == .factualPending,
+               preciseTopoDecodeFailed, !preciseTopoLoading {
+                Button("重试地图") { preciseTopoReloadID += 1 }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("live-hole-map-precise-retry")
+            }
+        }
     }
 
     private var historyLayerToggle: some View {
@@ -3157,13 +3166,6 @@ public struct CurrentHoleView: View {
             // The local precise PNG is known, but its decode is still in flight. Hold a neutral
             // ground for this first frame; neither a spinner nor the Garmin fallback is useful.
             TopoHoleBaseImage.groundColor
-                .overlay {
-                    if preciseTopoDecodeFailed && !preciseTopoLoading {
-                        Button("重试地图") { preciseTopoReloadID += 1 }
-                            .buttonStyle(.bordered)
-                            .accessibilityIdentifier("live-hole-map-precise-retry")
-                    }
-                }
                 .accessibilityIdentifier("live-hole-map-precise-loading")
         } else if liveMapDisplayState == .garminRaster {
             if let holePrep {
