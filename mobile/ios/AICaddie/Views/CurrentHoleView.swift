@@ -748,6 +748,12 @@ public struct CurrentHoleView: View {
     /// A manually chosen Touch Target point.  This is intentionally separate from the movable
     /// green flag below: S70's Touch Target and View Green are two different instruments.
     @State private var targetCoordinate: CLLocationCoordinate2D?
+    /// C29 history is an opt-in preparation layer. The player's marker is independent from the
+    /// live GPS fix so a press-drag can answer "what did I hit from here?" without writing a shot.
+    @State private var holeHistory: HoleHistoryShotsResponse?
+    @State private var showsHistoryLayer = false
+    @State private var historyPlayerPixel: CGPoint?
+    @State private var historyPlayerDragging = false
     /// Overlay pixel for a Touch Target.  Unlike the optional coordinate, this remains usable when
     /// a searched course has a map but no geo projection anchors or GPS fix yet.
     @State private var targetPixel: CGPoint?
@@ -1482,6 +1488,10 @@ public struct CurrentHoleView: View {
             requestedStrategyMode = nil
             selectedPlanIndex = nil
             selectedHazardID = nil
+            holeHistory = nil
+            showsHistoryLayer = false
+            historyPlayerPixel = nil
+            historyPlayerDragging = false
             // A previous hole's obstacle-mapping request is cancelled with its `.task(id:)`.
             hazardMappingRequest = nil
             preciseMapTimedOut = false
@@ -1610,6 +1620,12 @@ public struct CurrentHoleView: View {
         .task(id: "hole-map:\(hole.sourceGlobalId):\(hole.sourceLocalHole):\(isSelected)") {
             guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected), holePrep == nil else { return }
             _ = await loadHoleMap()
+        }
+        .task(id: "hole-history:\(hole.sourceGlobalId):\(hole.sourceLocalHole):\(isPrepMode):\(showsHistoryLayer):\(isSelected)") {
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected),
+                  isPrepMode,
+                  showsHistoryLayer else { return }
+            await loadHoleHistory()
         }
         .task(id: "\(garminVersionConflictURL?.absoluteString ?? ""):\(isSelected)") {
             guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected),
@@ -2241,7 +2257,33 @@ public struct CurrentHoleView: View {
                 .allowsHitTesting(false)
             heroInteractionLayer
         }
+        .overlay(alignment: .topTrailing) {
+            if isPrepMode {
+                historyLayerToggle
+                    .padding(.top, 12)
+                    .padding(.trailing, 14)
+                    .reportsLiveChrome(framesMap: false)
+            }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var historyLayerToggle: some View {
+        Button {
+            showsHistoryLayer.toggle()
+            if !showsHistoryLayer {
+                historyPlayerDragging = false
+            }
+        } label: {
+            Label(showsHistoryLayer ? "历史已开" : "历史", systemImage: showsHistoryLayer ? "clock.fill" : "clock")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(.black.opacity(0.68), in: Capsule())
+        }
+        .accessibilityLabel(showsHistoryLayer ? "关闭历史图层" : "打开历史图层")
+        .accessibilityIdentifier("live-history-layer-toggle")
     }
 
     /// The course bitmap and GPS marker share one transform. Fixed-size instruments stay in the
@@ -2304,6 +2346,17 @@ public struct CurrentHoleView: View {
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(liveTargetAccessibilityLabel)
                         .accessibilityIdentifier("live-map-target-marker")
+                }
+                if isPrepMode, showsHistoryLayer,
+                   let historyPixel = historyPlayerDisplayPixelForMap,
+                   let point = liveMapTarget([historyPixel.x, historyPixel.y], in: geo.size).map({ transformedHeroPoint($0, in: geo.size) }) {
+                    Color.clear
+                        .frame(width: 30, height: 30)
+                        .position(point)
+                        .allowsHitTesting(false)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("我，历史击球位置")
+                        .accessibilityIdentifier("live-history-player-marker")
                 }
 
                 // Holding the target shows the same map magnified around the finger (100 pt,
@@ -2537,6 +2590,7 @@ public struct CurrentHoleView: View {
                 }
             )
             .simultaneousGesture(heroTargetDragGesture(in: geometry.size))
+            .simultaneousGesture(historyPlayerDragGesture(in: geometry.size))
             .simultaneousGesture(heroMapPinchGesture(in: geometry.size))
             // Keep the two drag contracts separate. The paging gesture is active only at the fitted
             // scale, while the map pan is active only after zoom; this prevents a vertical pan from
@@ -2549,6 +2603,7 @@ public struct CurrentHoleView: View {
                 key: LiveHolePagerGestureStateKey.self,
                 value: isSelected && (
                     heroTargetDragging
+                        || historyPlayerDragging
                         || HeroMapGesturePolicy.isZoomed(
                             scale: heroMapScale,
                             pinchScale: heroMapPinchScale
@@ -2571,7 +2626,7 @@ public struct CurrentHoleView: View {
             .onEnded { value in
                 guard !usesExternalHolePager else { return }
                 // A drag that grabbed the Touch Target never pages the hole.
-                guard !heroTargetDragGrabbed else { return }
+                guard !heroTargetDragGrabbed, !historyPlayerDragging else { return }
                 guard HeroMapGesturePolicy.acceptsHoleSwipe(
                     scale: heroMapScale,
                     pinchScale: heroMapPinchScale
@@ -2627,6 +2682,7 @@ public struct CurrentHoleView: View {
                       liveMapDisplayState != .waiting,
                       liveMapDisplayState != .factualPending,
                       !heroTargetDragging,
+                      !historyPlayerDragging,
                       !heroTargetHit(at: value.startLocation, in: viewport) else { return }
                 heroMapTransientDragOffset = value.translation
             }
@@ -2638,6 +2694,7 @@ public struct CurrentHoleView: View {
                       liveMapDisplayState != .waiting,
                       liveMapDisplayState != .factualPending,
                       !heroTargetDragging,
+                      !historyPlayerDragging,
                       !heroTargetHit(at: value.startLocation, in: viewport) else {
                     heroMapTransientDragOffset = .zero
                     return
@@ -2789,6 +2846,35 @@ public struct CurrentHoleView: View {
                     heroTargetDragGrabbed = false
                 }
             }
+    }
+
+    /// Preparation-only "我" marker. A tap elsewhere remains the ordinary Touch Target distance
+    /// gesture; a press on this marker owns the drag and updates the history circle continuously.
+    private func historyPlayerDragGesture(in viewport: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { value in
+                guard isPrepMode, showsHistoryLayer,
+                      !heroTargetDragGrabbed,
+                      historyPlayerHit(at: value.startLocation, in: viewport) else { return }
+                historyPlayerDragging = true
+                if let pixel = heroOverlayPixel(at: value.location, in: viewport, clampToMap: true) {
+                    historyPlayerPixel = historySourcePixel(forDisplayPixel: pixel)
+                }
+            }
+            .onEnded { value in
+                guard historyPlayerDragging else { return }
+                if let pixel = heroOverlayPixel(at: value.location, in: viewport, clampToMap: true) {
+                    historyPlayerPixel = historySourcePixel(forDisplayPixel: pixel)
+                }
+                historyPlayerDragging = false
+            }
+    }
+
+    private func historyPlayerHit(at location: CGPoint, in viewport: CGSize) -> Bool {
+        guard let pixel = historyPlayerDisplayPixelForMap,
+              let screen = liveMapTarget([pixel.x, pixel.y], in: viewport) else { return false }
+        let transformed = transformedHeroPoint(screen, in: viewport)
+        return hypot(transformed.x - location.x, transformed.y - location.y) <= 34
     }
 
     private func handleHeroMapTap(at location: CGPoint, in viewport: CGSize) {
@@ -3199,6 +3285,10 @@ public struct CurrentHoleView: View {
                              showsHazards: true,
                              showsPrepClubLabel: false,
                              showsClubLabel: false,
+                             historyShots: isPrepMode ? (holeHistory?.shots ?? []) : [],
+                             showsHistoryLayer: isPrepMode && showsHistoryLayer,
+                             historyPlayerPixel: isPrepMode ? historyPlayerPixelForMap : nil,
+                             historySummary: isPrepMode && showsHistoryLayer ? prepHistorySummary : nil,
                              teeDistanceArcYards: showsTeeDistanceArc ? teeDistanceArcYards : nil,
                              plannedShots: livePlannedShots,
                              selectedPlanIndex: selectedPlanIndex,
@@ -3996,6 +4086,82 @@ public struct CurrentHoleView: View {
             topInset: LivePlayMapOverlayLayout.liveMapTopInset,
             fittedFrame: liveMapFittedFrame(in: heroSize)
         )
+    }
+
+    /// The history layer uses the same source pixel frame as CourseView. A manual marker wins over
+    /// GPS; otherwise the current fix is projected once and the renderer keeps it stable while the
+    /// map image upgrades between Garmin and precise geometry.
+    private var historyPlayerPixelForMap: CGPoint? {
+        if let historyPlayerPixel { return historyPlayerPixel }
+        if let coordinate = currentCoordinateForLogic,
+           let refs = holePrep?.holeImageProjection?.refs,
+           let projected = WatchEventBridge.projectToTopoPx(
+               lat: coordinate.latitude,
+               lon: coordinate.longitude,
+               refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+           ), projected.count >= 2 {
+            return CGPoint(x: projected[0], y: projected[1])
+        }
+        guard let first = holePrep?.resolvedMapOverlay?.route.first, first.count >= 2,
+              first[0].isFinite, first[1].isFinite else { return nil }
+        return CGPoint(x: first[0], y: first[1])
+    }
+
+    /// Current-hole gestures use the displayed map frame. History storage stays in the source
+    /// CourseView frame so HoleImageMapView can apply its Garmin remap exactly once.
+    private var historyPlayerDisplayPixelForMap: CGPoint? {
+        guard let source = historyPlayerPixelForMap else { return nil }
+        guard let mapped = liveDisplayPixel([source.x, source.y]), mapped.count >= 2 else { return nil }
+        return CGPoint(x: mapped[0], y: mapped[1])
+    }
+
+    private func historySourcePixel(forDisplayPixel pixel: CGPoint) -> CGPoint? {
+        guard pixel.x.isFinite, pixel.y.isFinite else { return nil }
+        guard liveMapDisplayState == .garminRaster,
+              let source = holePrep?.holeImageProjection,
+              let destination = liveGarminRasterProjection,
+              let remapped = GarminRasterProjectionMath.remap(
+                  pixel: pixel,
+                  from: destination,
+                  to: source
+              ) else {
+            return pixel
+        }
+        return remapped
+    }
+
+    /// The small corner line is deliberately sourced from the package's `recentHistory.holes`, as
+    /// required by the prep contract. The shot endpoint remains the detailed, opt-in map layer.
+    private var prepHistorySummary: String? {
+        guard let recent = package.recentHistory.holes.first(where: { $0.number == hole.courseHoleNumber }) else {
+            return nil
+        }
+        var parts = ["历史 \(recent.sampleCount) 次"]
+        if let average = recent.averageToPar, average.isFinite {
+            parts.append(String(format: "平均 %+0.1f", average))
+        }
+        if let issue = recent.repeatedIssues.first {
+            parts.append(issue.label)
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    @MainActor
+    private func loadHoleHistory() async {
+        guard isPrepMode, let caddieBaseURL else { return }
+        do {
+            let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken, session: networkSession)
+            holeHistory = try await client.fetchHoleHistoryShots(
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole,
+                days: 730
+            )
+        } catch is CancellationError {
+            return
+        } catch {
+            // History is an optional layer. Keep the normal map usable when the endpoint is offline.
+            holeHistory = nil
+        }
     }
 
     private func livePlayerTarget(in heroSize: CGSize) -> CGPoint? {
