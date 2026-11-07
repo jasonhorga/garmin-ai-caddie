@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C302-singleton-projection",
+      "patch": "tests/product/faults/C302/01-singleton-projection.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_late_cards_replace_only_covered_restores_in_reconciliation",
+      "promise": "J1.3: replaced restores cannot remain matched when a later card is present"
+    },
+    {
+      "id": "tests-product-faults-C302-mobile-baseline-forgotten",
+      "patch": "tests/product/faults/C302/02-mobile-baseline-forgotten.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_mobile_choice_baseline_survives_followup_phone_edit",
+      "promise": "J3.3: a later phone edit must retain the accepted Garmin baseline"
+    },
+    {
+      "id": "tests-product-faults-C302-penalty-store-omitted",
+      "patch": "tests/product/faults/C302/03-penalty-store-omitted.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j3_3_penalty_chain_includes_correction_store_edits",
+      "promise": "J3.3: corrections-store penalties participate in the chain in audit order"
+    },
+    {
+      "id": "tests-product-faults-C302-unmapped-old-values-local-only",
+      "patch": "tests/product/faults/C302/04-unmapped-old-values-local-only.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_superseded_unmapped_events_remain_evidence_only",
+      "promise": "J1.3: superseded phone events stay evidence even when unmapped"
+    },
+    {
+      "id": "tests-product-faults-C302-replaced-restores-suggested-again",
+      "patch": "tests/product/faults/C302/05-replaced-restores-suggested-again.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_j1_3_late_cards_replace_only_covered_restores_in_reconciliation",
+      "promise": "J1.3: replaced restore evidence cannot suggest a new ineffective restore"
+    }
+  ]
+}

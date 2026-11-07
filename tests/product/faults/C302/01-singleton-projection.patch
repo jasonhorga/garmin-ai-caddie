@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index c51ab2c8..14d6c64a 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -131,7 +131,7 @@ def _hole_scores(
+     # synthetic scorecard row before the next reconciliation pass.
+     from ai_caddie.history.corrected_history import corrected_history_data
+     projected = corrected_history_data(
+-        data,
++        HistoryData(raw_rounds=[], rounds=[round_row], shots=[]),
+         player_id=player_id,
+         annotations_root=annotations_root if annotations_root is not None else root,
+         corrections_root=root,
