@@ -1,8 +1,8 @@
 diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
-index 112b0ade..47388092 100644
+index bf0f5274..5e7eb8a2 100644
 --- a/ai_caddie/caddie/mobile_reconciliation.py
 +++ b/ai_caddie/caddie/mobile_reconciliation.py
-@@ -224,8 +224,7 @@ def _hole_scores(
+@@ -216,8 +216,7 @@ def _hole_scores(
                      conflict = True
                      prior = to_value
                  else:
