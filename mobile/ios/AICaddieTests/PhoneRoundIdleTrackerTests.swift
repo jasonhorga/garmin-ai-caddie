@@ -68,6 +68,21 @@ final class PhoneRoundIdleTrackerTests: XCTestCase {
                                         hasRecordedStroke: false, allHolesScored: true), .none)
     }
 
+    /// Design round-flow §4: a round with no recorded stroke is not saved, pushed or prompted
+    /// when the player leaves; only a course the player never reached is a wrong-course prompt.
+    func testLeavingWithoutAStrokeStaysSilent() {
+        var tracker = PhoneRoundIdleTracker()
+        _ = tracker.evaluate(latitude: 40, longitude: 116, at: start,
+                             coursePoints: course, lastActivityAt: start,
+                             hasRecordedStroke: false, allHolesScored: false)
+        XCTAssertEqual(tracker.evaluate(latitude: 40.04, longitude: 116, at: minutes(1),
+                                        coursePoints: course, lastActivityAt: start,
+                                        hasRecordedStroke: false, allHolesScored: false), .none)
+        XCTAssertEqual(tracker.evaluate(latitude: 40.04, longitude: 116, at: minutes(12),
+                                        coursePoints: course, lastActivityAt: start,
+                                        hasRecordedStroke: false, allHolesScored: false), .none)
+    }
+
     func testGPSGapResetsTheOffCourseClock() {
         var tracker = PhoneRoundIdleTracker()
         _ = tracker.evaluate(latitude: 40, longitude: 116, at: start,
