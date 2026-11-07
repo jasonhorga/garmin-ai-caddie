@@ -4,6 +4,7 @@ import Foundation
 import FoundationNetworking
 #endif
 import Combine
+import CoreLocation
 import Network
 import XCTest
 @testable import AICaddie
@@ -5966,6 +5967,93 @@ final class LiveRoundAppModelTests: XCTestCase {
                 holeCount: holes.count
             ),
         ]
+    }
+
+    /// Design round-flow §4: 1.5 km away from every tee/green for 10 quiet minutes seals the
+    /// round once a stroke was recorded.
+    func testLeavingTheCourseAfterAStrokeSavesTheRound() async throws {
+        let fixture = try idleDepartureFixture(withStroke: true)
+        await fixture.model.bootstrap()
+        XCTAssertNotNil(fixture.model.liveRoundState)
+
+        let actions = departureActions(fixture.model, from: fixture.tee, startingAt: fixture.start)
+
+        XCTAssertEqual(actions, [.none, .none, .finishLeftCourse])
+        for _ in 0..<200 where fixture.model.liveRoundState != nil {
+            await Task.yield()
+        }
+        XCTAssertNil(fixture.model.liveRoundState, "the departed round is sealed")
+        XCTAssertNil(try fixture.store.loadResumablePackage())
+        XCTAssertTrue(try fixture.store.isRoundPendingFinish(fixture.package.roundId))
+        await fixture.model.stopRoundBackgroundWorkForTesting()
+    }
+
+    /// Design round-flow §4: a round without a recorded stroke is not saved, pushed or prompted.
+    func testLeavingTheCourseWithoutAStrokeKeepsTheRoundUnsaved() async throws {
+        let fixture = try idleDepartureFixture(withStroke: false)
+        await fixture.model.bootstrap()
+        XCTAssertNotNil(fixture.model.liveRoundState)
+
+        let actions = departureActions(fixture.model, from: fixture.tee, startingAt: fixture.start)
+
+        XCTAssertEqual(actions, [.none, .none, .none])
+        for _ in 0..<200 { await Task.yield() }
+        XCTAssertEqual(fixture.model.liveRoundState?.roundId, fixture.package.roundId)
+        XCTAssertFalse(try fixture.store.isRoundPendingFinish(fixture.package.roundId))
+        await fixture.model.stopRoundBackgroundWorkForTesting()
+    }
+
+    /// On the first tee, then about 11 km north: one minute and twelve minutes after leaving.
+    private func departureActions(
+        _ model: LiveRoundAppModel,
+        from tee: CLLocationCoordinate2D,
+        startingAt start: Date
+    ) -> [PhoneRoundIdleAction] {
+        let away = CLLocationCoordinate2D(latitude: tee.latitude + 0.1, longitude: tee.longitude)
+        func fix(_ coordinate: CLLocationCoordinate2D) -> LocationFix {
+            LocationFix(coordinate: coordinate, horizontalAccuracyM: 5, altitudeM: nil,
+                        capturedAt: "2026-07-29T05:00:00Z")
+        }
+        return [
+            model.observeRoundLocation(fix(tee), at: start),
+            model.observeRoundLocation(fix(away), at: start.addingTimeInterval(60)),
+            model.observeRoundLocation(fix(away), at: start.addingTimeInterval(12 * 60)),
+        ]
+    }
+
+    private func idleDepartureFixture(withStroke: Bool) throws -> (
+        model: LiveRoundAppModel,
+        store: OfflineStore,
+        package: LiveRoundPackage,
+        tee: CLLocationCoordinate2D,
+        start: Date
+    ) {
+        let scored = try completedFixtureRound()
+        let package = try LiveRoundPackageFixture.nineHoleLoop(
+            dataMode: "local", teeOrigin: (latitude: 39.9, longitude: 116.3)
+        )
+        XCTAssertEqual(package.roundId, scored.package.roundId)
+        let store = OfflineStore(directoryURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true))
+        try store.saveRoundPackage(package)
+        try scored.events.forEach(store.appendEvent)
+        let teeLatitude = try XCTUnwrap(package.holes.first?.teeLatitude)
+        let teeLongitude = try XCTUnwrap(package.holes.first?.teeLongitude)
+        let tee = CLLocationCoordinate2D(latitude: teeLatitude, longitude: teeLongitude)
+        if withStroke {
+            try store.appendEvent(LiveRoundEvent(
+                eventId: "idle-shot", roundId: package.roundId, timestamp: "2026-07-29T05:00:00Z",
+                hole: 1, kind: .location,
+                payload: ["latitude": .number(tee.latitude), "longitude": .number(tee.longitude),
+                          "source": .string("ios_gps"), "horizontalAccuracyM": .number(5)]
+            ))
+        }
+        let model = LiveRoundAppModel(
+            offlineStore: store, apiBaseURL: nil, adminToken: nil,
+            watchBridge: nil, garminSessionStore: nil, preferredRoundId: package.roundId
+        )
+        let start = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-07-29T05:00:00Z"))
+        return (model, store, package, tee, start)
     }
 
     private func completedFixtureRound() throws -> (
