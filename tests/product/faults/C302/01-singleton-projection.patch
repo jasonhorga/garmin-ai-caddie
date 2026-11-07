@@ -1,13 +1,13 @@
 diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
-index c51ab2c8..14d6c64a 100644
+index bf0f5274..b5b10c45 100644
 --- a/ai_caddie/caddie/mobile_reconciliation.py
 +++ b/ai_caddie/caddie/mobile_reconciliation.py
-@@ -131,7 +131,7 @@ def _hole_scores(
-     # synthetic scorecard row before the next reconciliation pass.
-     from ai_caddie.history.corrected_history import corrected_history_data
-     projected = corrected_history_data(
--        data,
-+        HistoryData(raw_rounds=[], rounds=[round_row], shots=[]),
-         player_id=player_id,
-         annotations_root=annotations_root if annotations_root is not None else root,
-         corrections_root=root,
+@@ -868,7 +868,7 @@ def reconcile_mobile_round_events(
+     round_row = _round_row(round_id, data)
+     identity = load_mobile_round_identity(round_id, root=root, player_id=player_id)
+     hole_map = _reconciliation_hole_map(round_row, identity)
+-    scores = _hole_scores(round_row, data, root=root, annotations_root=annotations_root,
++    scores = _hole_scores(round_row, HistoryData(raw_rounds=[], rounds=[round_row], shots=[]), root=root, annotations_root=annotations_root,
+                           course_root=course_root, player_id=player_id)
+     shots = _shot_facts(round_id, data)
+     unmatched_shots = {shot["ref"]: shot for shot in shots}
