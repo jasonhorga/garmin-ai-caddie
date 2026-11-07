@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/Views/RoundHomeView.swift b/mobile/ios/AICaddie/Views/RoundHomeView.swift
+--- a/mobile/ios/AICaddie/Views/RoundHomeView.swift
++++ b/mobile/ios/AICaddie/Views/RoundHomeView.swift
+@@ -52,7 +52,7 @@
+         roundId = state.roundId
+         activeHole = state.activeHole
+         startHole = state.startHole
+-        canUndoRoundStart = state.canUndoRoundStart
++        canUndoRoundStart = true
+         ownHole = state.holeState(for: hole)
+         scores = state.holes.map {
+             Score(hole: $0.hole, par: $0.par, score: $0.score, putts: $0.putts,

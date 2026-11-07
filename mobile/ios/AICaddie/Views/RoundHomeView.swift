@@ -43,6 +43,7 @@ struct LiveHolePageRoundInput: Equatable {
     let roundId: String
     let activeHole: Int
     let startHole: Int?
+    let canUndoRoundStart: Bool
     let ownHole: LiveHoleStateSnapshot?
     let scores: [Score]
     let scoredHoles: [Int]
@@ -51,6 +52,7 @@ struct LiveHolePageRoundInput: Equatable {
         roundId = state.roundId
         activeHole = state.activeHole
         startHole = state.startHole
+        canUndoRoundStart = state.canUndoRoundStart
         ownHole = state.holeState(for: hole)
         scores = state.holes.map {
             Score(hole: $0.hole, par: $0.par, score: $0.score, putts: $0.putts,

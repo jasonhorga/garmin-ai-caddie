@@ -64,7 +64,7 @@ final class PrepRoundStateTests: XCTestCase {
         XCTAssertEqual(model.liveRoundState?.startHole, 10)
     }
 
-    func testUndoFirstStrokeClearsLocalRoundAndReturnsToPrepHole() throws {
+    func testUndoEmptyStartReturnsToPrepHole() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("c30-undo-\(UUID().uuidString)", isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
@@ -72,6 +72,8 @@ final class PrepRoundStateTests: XCTestCase {
         let package = try LiveRoundPackageFixture.package(dataMode: "local")
         model.enterPrepMode(with: package, hole: 5)
         XCTAssertTrue(model.startRoundFromFirstStroke(startHole: 5))
+
+        XCTAssertEqual(model.liveRoundState?.canUndoRoundStart, true)
 
         model.undoRoundStart()
 
@@ -84,7 +86,63 @@ final class PrepRoundStateTests: XCTestCase {
         XCTAssertFalse(try store.hasLiveRoundProgress())
     }
 
-    func testRecoveredFirstStrokeRoundStillSupportsUndoStart() async throws {
+    // J5.9: once a stroke is durable, undo-start must never erase the round's records.
+    func testFirstRecordedStrokePreventsUndoStart() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        let package = try LiveRoundPackageFixture.package(dataMode: "local")
+        let model = LiveRoundAppModel(offlineStore: store, watchBridge: nil)
+        model.enterPrepMode(with: package, hole: 5)
+        XCTAssertTrue(model.startRoundFromFirstStroke(startHole: 5))
+        let event = LiveRoundEventBuilder(roundId: package.roundId).makeLocationEvent(
+            hole: 5, coordinate: CLLocationCoordinate2D(latitude: 40, longitude: 116),
+            horizontalAccuracyM: 5, targetCoordinate: nil, targetKind: nil
+        )
+        model.handleEvent(event)
+        let events = try store.loadEvents()
+
+        XCTAssertEqual(model.liveRoundState?.canUndoRoundStart, false)
+        model.undoRoundStart()
+
+        XCTAssertEqual(model.liveRoundState?.roundId, package.roundId)
+        XCTAssertEqual(try store.loadEvents(), events)
+        XCTAssertNotNil(try store.loadRoundPackage(roundId: package.roundId))
+        XCTAssertTrue(try store.hasLiveRoundProgress())
+    }
+
+    func testUndoStartRechecksDurableEventsAcrossAllHoles() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        let package = try LiveRoundPackageFixture.package(dataMode: "local")
+        let model = LiveRoundAppModel(offlineStore: store, watchBridge: nil)
+        model.enterPrepMode(with: package, hole: 5)
+        XCTAssertTrue(model.startRoundFromFirstStroke(startHole: 5))
+        // A Watch/replay write can reach disk before the mounted phone page has refreshed.
+        let before = try XCTUnwrap(model.liveRoundState)
+        let event = LiveRoundEvent(
+            eventId: "other-hole-location", roundId: package.roundId,
+            timestamp: "2026-06-20T00:00:00Z", hole: 6, kind: .location,
+            payload: ["latitude": .number(40), "longitude": .number(116)]
+        )
+        try store.appendEvent(event)
+        XCTAssertEqual(model.liveRoundState?.canUndoRoundStart, true, "control: cached page is stale")
+        let after = try store.restoreLiveRoundState(roundId: package.roundId, package: package)
+        XCTAssertFalse(after.canUndoRoundStart)
+        XCTAssertNotEqual(
+            LiveHolePageRoundInput(before, hole: 5), LiveHolePageRoundInput(after, hole: 5),
+            "J5.9: even a frozen adjacent page must hide undo when another hole records a stroke"
+        )
+
+        model.undoRoundStart()
+
+        XCTAssertEqual(model.liveRoundState?.roundId, package.roundId)
+        XCTAssertEqual(try store.loadEvents().map(\.eventId), [event.eventId])
+        XCTAssertNotNil(try store.loadRoundPackage(roundId: package.roundId))
+    }
+
+    func testRecoveredInProgressRoundRejectsUndoStartAndKeepsEvents() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = OfflineStore(directoryURL: directory)
@@ -100,12 +158,14 @@ final class PrepRoundStateTests: XCTestCase {
         let model = LiveRoundAppModel(offlineStore: store, watchBridge: nil, garminSessionStore: nil)
         await model.bootstrap()
         XCTAssertEqual(model.liveRoundState?.startHole, 5)
+        XCTAssertEqual(model.liveRoundState?.canUndoRoundStart, false)
+        let events = try store.loadEvents()
+        let hadProgress = try store.hasLiveRoundProgress()
         model.undoRoundStart()
-        XCTAssertNil(model.liveRoundState)
-        XCTAssertEqual(model.pendingLiveHole, 5)
-        XCTAssertNotNil(model.prepPackage)
-        XCTAssertTrue(try store.loadEvents().isEmpty)
-        XCTAssertFalse(try store.hasLiveRoundProgress())
+        XCTAssertEqual(model.liveRoundState?.roundId, package.roundId)
+        XCTAssertEqual(try store.loadEvents(), events)
+        XCTAssertNotNil(try store.loadRoundPackage(roundId: package.roundId))
+        XCTAssertEqual(try store.hasLiveRoundProgress(), hadProgress)
     }
 
     func testPrepOpenAndHoleChangePassPriorityHoleThroughModel() async throws {

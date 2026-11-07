@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C80-01-recorded-round-still-undoable",
+      "patch": "tests/product/faults/C80/01-recorded-round-still-undoable.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/PrepRoundStateTests/testFirstRecordedStrokePreventsUndoStart",
+      "promise": "J5.9",
+      "kills": "A recorded first location must hide undo eligibility and survive a direct undo-start call."
+    },
+    {
+      "id": "tests-product-faults-C80-02-undo-trusts-stale-page",
+      "patch": "tests/product/faults/C80/02-undo-trusts-stale-page.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/PrepRoundStateTests/testUndoStartRechecksDurableEventsAcrossAllHoles",
+      "promise": "J5.9",
+      "kills": "A durable location on another hole must survive undo even before the phone snapshot refreshes."
+    },
+    {
+      "id": "tests-product-faults-C80-03-frozen-page-keeps-undo",
+      "patch": "tests/product/faults/C80/03-frozen-page-keeps-undo.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/PrepRoundStateTests/testUndoStartRechecksDurableEventsAcrossAllHoles",
+      "promise": "J5.9",
+      "kills": "The frozen page input must change when another hole receives its first recorded location."
+    }
+  ]
+}

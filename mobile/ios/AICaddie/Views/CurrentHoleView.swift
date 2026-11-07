@@ -1935,8 +1935,8 @@ public struct CurrentHoleView: View {
         // transparent spacers. The controls stay individual elements.
     }
 
-    /// The one screen has two states. The prep banner is deliberately a compact control so a
-    /// mistaken first stroke can be undone without leaving the hole screen.
+    /// The one screen has two states. The prep banner is deliberately a compact control so an
+    /// empty start can be undone without leaving the hole screen. Recorded strokes are retained.
     private var prepRoundBanner: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
@@ -1956,7 +1956,7 @@ public struct CurrentHoleView: View {
                     }
                     .accessibilityIdentifier("live-prep-tee-menu")
                 }
-                if !isPrepMode, liveRoundState?.startHole != nil {
+                if !isPrepMode, liveRoundState?.canUndoRoundStart == true {
                     Button("撤销开打") { onUndoRoundStart() }
                         .font(.system(size: 11, weight: .semibold))
                         .accessibilityIdentifier("live-undo-round-start")
