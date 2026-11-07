@@ -621,6 +621,14 @@ public struct HoleImageMapView: View {
             context.stroke(Path(ellipseIn: CGRect(x: point.x - 9, y: point.y - 9, width: 18, height: 18)), with: .color(.black.opacity(0.7)), lineWidth: 2)
             context.draw(Text("我").font(.system(size: 10, weight: .heavy)).foregroundColor(.black), at: point)
         }
+        if let summary = HoleHistoryOverlayRenderer.summaryText(
+            selected, pixelsPerMetre: pixelsPerMetre * size.width / CGFloat(overlay.w)
+        ) {
+            context.draw(
+                Text(summary).font(.system(size: 10, weight: .semibold)).foregroundColor(.white),
+                at: CGPoint(x: size.width / 2, y: size.height - 42)
+            )
+        }
         if let historySummary {
             context.draw(
                 Text(historySummary).font(.system(size: 10, weight: .semibold)).foregroundColor(.white),

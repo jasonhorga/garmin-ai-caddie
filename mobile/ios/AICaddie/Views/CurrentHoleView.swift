@@ -754,6 +754,7 @@ public struct CurrentHoleView: View {
     @State private var showsHistoryLayer = false
     @State private var historyPlayerPixel: CGPoint?
     @State private var historyPlayerDragging = false
+    @GestureState private var historyPlayerGestureActive = false
     /// Overlay pixel for a Touch Target.  Unlike the optional coordinate, this remains usable when
     /// a searched course has a map but no geo projection anchors or GPS fix yet.
     @State private var targetPixel: CGPoint?
@@ -1338,6 +1339,7 @@ public struct CurrentHoleView: View {
                 activeLocationProvider.stopUpdatingLocation()
                 heroTargetDragGrabbed = false
                 heroTargetDragLocation = nil
+                historyPlayerDragging = false
             }
         }
         .onDisappear {
@@ -1348,6 +1350,7 @@ public struct CurrentHoleView: View {
             activeLocationProvider.stopUpdatingLocation()
             heroTargetDragGrabbed = false
             heroTargetDragLocation = nil
+            historyPlayerDragging = false
         }
         .onChange(of: heroTargetDragging) { _, active in
             if !active {
@@ -1356,6 +1359,15 @@ public struct CurrentHoleView: View {
                 // actor turn, after a normal onEnded has had a chance to commit its final pixel.
                 DispatchQueue.main.async {
                     heroTargetDragGrabbed = false
+                }
+            }
+        }
+        .onChange(of: historyPlayerGestureActive) { _, active in
+            if !active {
+                // Keep ownership until all simultaneous gestures process the same end event.
+                // This also clears a cancelled drag, which has no onEnded callback.
+                DispatchQueue.main.async {
+                    historyPlayerDragging = false
                 }
             }
         }
@@ -2637,7 +2649,8 @@ public struct CurrentHoleView: View {
             .onEnded { value in
                 guard !usesExternalHolePager else { return }
                 // A drag that grabbed the Touch Target never pages the hole.
-                guard !heroTargetDragGrabbed, !historyPlayerDragging else { return }
+                guard !heroTargetDragGrabbed else { return }
+                guard !historyPlayerDragging else { return }
                 guard HeroMapGesturePolicy.acceptsHoleSwipe(
                     scale: heroMapScale,
                     pinchScale: heroMapPinchScale
@@ -2866,6 +2879,10 @@ public struct CurrentHoleView: View {
     /// gesture; a press on this marker owns the drag and updates the history circle continuously.
     private func historyPlayerDragGesture(in viewport: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 4)
+            .updating($historyPlayerGestureActive) { value, state, _ in
+                state = isPrepMode && showsHistoryLayer
+                    && (state || historyPlayerHit(at: value.startLocation, in: viewport))
+            }
             .onChanged { value in
                 guard isPrepMode, showsHistoryLayer,
                       !heroTargetDragGrabbed,
@@ -2880,7 +2897,9 @@ public struct CurrentHoleView: View {
                 if let pixel = heroOverlayPixel(at: value.location, in: viewport, clampToMap: true) {
                     historyPlayerPixel = historySourcePixel(forDisplayPixel: pixel)
                 }
-                historyPlayerDragging = false
+                DispatchQueue.main.async {
+                    historyPlayerDragging = false
+                }
             }
     }
 

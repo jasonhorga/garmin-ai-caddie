@@ -130,7 +130,11 @@ public enum HoleHistoryOverlayRenderer {
     }
 
     static func summaryText(_ shots: [ProjectedShot], pixelsPerMetre: Double) -> String? {
-        nil
+        guard !shots.isEmpty else { return nil }
+        let values = summary(shots, pixelsPerMetre: pixelsPerMetre)
+        var text = "近两年 \(values.count) 杆"
+        if let average = values.averageYards { text += " · 平均 \(average)码" }
+        return text
     }
 
     /// Retain geographic placement when the source pixel frame changes; pixel-only maps use
