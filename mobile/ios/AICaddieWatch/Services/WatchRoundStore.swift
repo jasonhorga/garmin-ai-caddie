@@ -99,6 +99,9 @@ public final class WatchRoundStore {
         public var activeHole: Int
         public var holeStates: [WatchRoundState]
         public var pendingEvents: [WatchInputEvent]
+        /// Durable evidence that at least one stroke location was recorded. This survives upload
+        /// acknowledgement so score-only edits can never satisfy the idle Save & End gate.
+        public var recordedStrokeEventIds: [String]?
         /// Round-level course label for the watch UI (optional — older persisted rounds decode it as nil).
         public var courseName: String?
         /// Optional setup identity used to resume the exact cached front/back/Tee template.
@@ -126,12 +129,17 @@ public final class WatchRoundStore {
         /// The phone has not yet echoed that table: until it does, a same-round seed still naming the
         /// old table (sent before it heard) cannot undo the Watch's choice. Optional.
         public var tableAwaitingPhone: Bool?
+        /// C32: a stationary pause that can automatically resume after a fresh walk-away fix.
+        public var idlePaused: Bool?
+        public var idlePauseLatitude: Double?
+        public var idlePauseLongitude: Double?
 
         public init(
             roundId: String,
             activeHole: Int = 0,
             holeStates: [WatchRoundState] = [],
             pendingEvents: [WatchInputEvent] = [],
+            recordedStrokeEventIds: [String]? = nil,
             courseName: String? = nil,
             courseGlobalId: Int? = nil,
             teeBox: String? = nil,
@@ -140,12 +148,16 @@ public final class WatchRoundStore {
             pendingAutoShotCandidate: WatchPendingAutoShotCandidate? = nil,
             scoreDraft: WatchScoreDraft? = nil,
             greenPlacements: [WatchGreenPlacement]? = nil,
-            phoneShots: [WatchPhoneShotSet]? = nil
+            phoneShots: [WatchPhoneShotSet]? = nil,
+            idlePaused: Bool? = nil,
+            idlePauseLatitude: Double? = nil,
+            idlePauseLongitude: Double? = nil
         ) {
             self.roundId = roundId
             self.activeHole = activeHole
             self.holeStates = holeStates
             self.pendingEvents = pendingEvents
+            self.recordedStrokeEventIds = recordedStrokeEventIds
             self.courseName = courseName
             self.courseGlobalId = courseGlobalId
             self.teeBox = teeBox
@@ -155,6 +167,9 @@ public final class WatchRoundStore {
             self.scoreDraft = scoreDraft
             self.greenPlacements = greenPlacements
             self.phoneShots = phoneShots
+            self.idlePaused = idlePaused
+            self.idlePauseLatitude = idlePauseLatitude
+            self.idlePauseLongitude = idlePauseLongitude
         }
     }
 
@@ -183,10 +198,46 @@ public final class WatchRoundStore {
     /// and the course is downloaded again. Nothing is re-derived from round hole numbers.
     public func load() -> PersistedRound? {
         guard let data = try? Data(contentsOf: fileURL),
-              let round = try? decoder.decode(PersistedRound.self, from: data) else { return nil }
+              var round = try? decoder.decode(PersistedRound.self, from: data) else { return nil }
+        // Older archives had no round-level marker. Reconstruct it from every persisted source,
+        // including acknowledged phone shots and Watch snapshots whose pending queue is now empty.
+        // Keep the existing order and append only new ids so this migration is deterministic.
+        var migratedStrokeIds = round.recordedStrokeEventIds ?? []
+        for id in round.pendingEvents where id.kind == .location {
+            if !migratedStrokeIds.contains(id.eventId) { migratedStrokeIds.append(id.eventId) }
+        }
+        for id in round.holeStates.flatMap({ $0.phoneShotEventIds ?? [] }) {
+            if !migratedStrokeIds.contains(id) { migratedStrokeIds.append(id) }
+        }
+        for id in round.phoneShots?.flatMap(\.eventIds) ?? [] {
+            if !migratedStrokeIds.contains(id) { migratedStrokeIds.append(id) }
+        }
+        // Very old Watch archives acknowledged their location queue before the round marker
+        // existed. Those snapshots still retain the last usable shot origin (or tee landing),
+        // so synthesize a stable marker per hole instead of allowing a score-only archive to
+        // pass the no-stroke finish gate.
+        for state in round.holeStates where state.lastShotLatitude != nil && state.lastShotLongitude != nil {
+            let marker = "legacy-watch-stroke-\(round.roundId)-\(state.hole)"
+            if !migratedStrokeIds.contains(marker) { migratedStrokeIds.append(marker) }
+        }
+        for state in round.holeStates where state.teeShotLandingLatitude != nil && state.teeShotLandingLongitude != nil {
+            let marker = "legacy-watch-stroke-tee-\(round.roundId)-\(state.hole)"
+            if !migratedStrokeIds.contains(marker) { migratedStrokeIds.append(marker) }
+        }
+        let migrationChanged = round.recordedStrokeEventIds == nil
+            ? !migratedStrokeIds.isEmpty
+            : round.recordedStrokeEventIds! != migratedStrokeIds
+        if migrationChanged {
+            round.recordedStrokeEventIds = migratedStrokeIds
+        }
         guard round.hasValidIdentity else {
             try? FileManager.default.removeItem(at: fileURL)
             return nil
+        }
+        if migrationChanged {
+            // Persist the migration immediately so a later phone seed or process restart does not
+            // have to infer the marker again from an acknowledged snapshot.
+            try? save(round)
         }
         guard !isClosed(roundId: round.roundId) else { return nil }
         return round
@@ -345,6 +396,11 @@ public final class WatchRoundStore {
         if makeActive {
             round.activeHole = state.hole
         }
+        if let phoneShotEventIds = state.phoneShotEventIds, !phoneShotEventIds.isEmpty {
+            var ids = round.recordedStrokeEventIds ?? []
+            for id in phoneShotEventIds where !ids.contains(id) { ids.append(id) }
+            round.recordedStrokeEventIds = ids
+        }
         try save(round)
         return round
     }
@@ -368,6 +424,11 @@ public final class WatchRoundStore {
             round.holeStates[index] = round.holeStates[index].applying(event)
         }
         round.pendingEvents.append(event)
+        if event.kind == .location {
+            var ids = round.recordedStrokeEventIds ?? []
+            if !ids.contains(event.eventId) { ids.append(event.eventId) }
+            round.recordedStrokeEventIds = ids
+        }
         if updateActiveHole {
             round.activeHole = event.hole
         }

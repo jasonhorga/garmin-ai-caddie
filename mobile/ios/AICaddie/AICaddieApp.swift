@@ -10,6 +10,23 @@ import UIKit
 #if canImport(BackgroundTasks)
 import BackgroundTasks
 #endif
+#if canImport(UserNotifications)
+import UserNotifications
+#endif
+
+#if canImport(UserNotifications)
+private final class AICaddieNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = AICaddieNotificationDelegate()
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound, .list])
+    }
+}
+#endif
 
 @main
 public struct AICaddieApp: App {
@@ -21,6 +38,9 @@ public struct AICaddieApp: App {
     public init() {
         let model = LiveRoundAppModel()
         _model = StateObject(wrappedValue: model)
+        #if canImport(UserNotifications)
+        UNUserNotificationCenter.current().delegate = AICaddieNotificationDelegate.shared
+        #endif
         #if canImport(BackgroundTasks)
         // Register before SwiftUI creates the first scene. Capture the model directly so a
         // background-only launch cannot lose the one-shot BGProcessingTask delivery.
@@ -119,6 +139,7 @@ public struct AICaddieApp: App {
                         roundStartSelection: model.roundStartSelection,
                         isFinishingRound: model.isFinishingRound,
                         finishErrorMessage: model.finishErrorMessage,
+                        roundIdlePaused: model.isRoundIdlePaused,
                         deferredFinishRecovery: model.sealedFinishRecovery,
                         liveFinishRecovery: model.liveFinishRecovery,
                         finishAttemptRoundId: model.finishAttemptRoundId,
@@ -158,6 +179,15 @@ public struct AICaddieApp: App {
                         },
                         onFinishRound: {
                             return await model.finishActiveRound()
+                        },
+                        onRoundLocation: { fix in
+                            model.observeRoundLocation(fix)
+                        },
+                        onResumeRoundIdle: {
+                            model.resumeRoundAfterIdlePause()
+                        },
+                        onRoundActivity: {
+                            model.noteRoundActivity()
                         },
                         onResumeDeferredFinish: {
                             model.resumeDeferredFinishForEditing()
@@ -559,6 +589,44 @@ public final class LiveRoundAppModel: ObservableObject {
     /// recomputed when one of those changes (see `refreshFinishRecoveries`), never on body reads.
     @Published public private(set) var liveFinishRecovery: DeferredFinishRecovery?
     private var quarantineObservation: AnyCancellable?
+    /// C32: round-id scoped, foreground-only idle policy. Location fixes are supplied by the live
+    /// hole screen while it is selected; this never requests Always authorization or runs a GPS
+    /// worker after the player leaves the screen.
+    private var roundIdleTracker = PhoneRoundIdleTracker()
+    private var roundIdleRoundId: String?
+    private var automaticFinishTask: Task<Void, Never>?
+    private var roundIdlePausedCoordinate: (latitude: Double, longitude: Double)?
+    @Published public private(set) var roundIdlePausedRoundId: String?
+
+    public var isRoundIdlePaused: Bool {
+        guard let roundId = package?.roundId else { return false }
+        return roundIdlePausedRoundId == roundId
+    }
+
+    public func resumeRoundAfterIdlePause() {
+        if let roundId = package?.roundId {
+            try? offlineStore.clearIdlePaused(roundId: roundId)
+        }
+        roundIdlePausedRoundId = nil
+        roundIdleTracker.reset()
+        roundIdlePausedCoordinate = nil
+    }
+
+    /// Score drafts and other explicit edits count as activity before their final event is saved.
+    /// Reset the in-memory idle clock so an automatic finish cannot discard an edit in progress.
+    public func noteRoundActivity() {
+        guard let roundId = package?.roundId else { return }
+        roundIdleRoundId = roundId
+        roundIdleTracker.reset()
+    }
+
+    private func restoreRoundIdlePause(for roundId: String) {
+        roundIdlePausedRoundId = (try? offlineStore.isIdlePaused(roundId: roundId)) == true
+            ? roundId
+            : nil
+        roundIdleTracker.reset()
+        roundIdleRoundId = roundId
+    }
 
     private func derivedLiveFinishRecovery() -> DeferredFinishRecovery? {
         guard let package, liveRoundState?.roundId == package.roundId,
@@ -894,6 +962,12 @@ public final class LiveRoundAppModel: ObservableObject {
     private var prepOpenGeneration: UInt64 = 0
     @Published public private(set) var liveRoundState: LiveRoundStateSnapshot? {
         didSet {
+            if liveRoundState == nil {
+                roundIdlePausedRoundId = nil
+                roundIdleRoundId = nil
+                roundIdleTracker.reset()
+                roundIdlePausedCoordinate = nil
+            }
             if oldValue?.roundId != liveRoundState?.roundId {
                 // A finish attempt and its error belong to that round only: a new round, abandon,
                 // seal, resume or account change starts the next one unmarked.
@@ -1462,6 +1536,8 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
+        automaticFinishTask?.cancel()
+        automaticFinishTask = nil
         pendingGeometryRefreshTask?.cancel()
         pendingGeometryRefreshTask = nil
         pendingGeometryLastAttemptEpoch = nil
@@ -1518,6 +1594,10 @@ public final class LiveRoundAppModel: ObservableObject {
         loadPrefetchLocation()
         package = nil
         liveRoundState = nil
+        roundIdlePausedRoundId = nil
+        roundIdleRoundId = nil
+        roundIdleTracker.reset()
+        roundIdlePausedCoordinate = nil
         pendingWatchRoundStart = nil
         pendingEventCount = 0
         quarantinedEventCount = 0
@@ -4611,39 +4691,222 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Save & End is local-first. The tap seals the round and exits live play immediately; delivery
     /// is a durable outbox transaction that retries now and on every future foreground. Network
     /// reachability must never become a prison around the player.
+    ///
+    /// C32 feeds this method from the selected live-hole location provider. It is deliberately
+    /// event-driven: there is no Always-location request and no timer that keeps GPS alive after
+    /// the live surface is gone.
+    @discardableResult
+    public func observeRoundLocation(_ fix: LocationFix?, at now: Date = Date()) -> PhoneRoundIdleAction {
+        guard let package, let live = liveRoundState, package.roundId == live.roundId else {
+            roundIdleTracker.reset()
+            roundIdleRoundId = nil
+            roundIdlePausedRoundId = nil
+            return .none
+        }
+        if roundIdlePausedRoundId == package.roundId {
+            if let fix {
+                if let paused = roundIdlePausedCoordinate {
+                    let moved = LiveRoundAppModel.haversineMetres(
+                        paused.latitude, paused.longitude,
+                        fix.coordinate.latitude, fix.coordinate.longitude
+                    ) > PhoneRoundIdleTracker.stationaryMetres
+                    guard moved else { return .none }
+                    try? offlineStore.clearIdlePaused(roundId: package.roundId)
+                    roundIdlePausedRoundId = nil
+                    roundIdlePausedCoordinate = nil
+                    roundIdleTracker.reset()
+                    return .resumed
+                }
+                roundIdlePausedCoordinate = (
+                    fix.coordinate.latitude, fix.coordinate.longitude
+                )
+            }
+            return .none
+        }
+        if roundIdleRoundId != package.roundId {
+            roundIdleTracker.reset()
+            roundIdleRoundId = package.roundId
+        }
+
+        let events = (try? offlineStore.cachedEvents())?.filter { $0.roundId == package.roundId } ?? []
+        let hasRecordedStroke = events.contains { $0.roundId == package.roundId && $0.kind == .location }
+        let lastActivityAt = events
+            .filter { $0.kind != .syncMarker }
+            .compactMap(Self.idleEventDate)
+            .max()
+        let teePoints = package.holes.compactMap { hole -> (latitude: Double, longitude: Double)? in
+            guard let latitude = hole.teeLatitude, let longitude = hole.teeLongitude else { return nil }
+            return (latitude, longitude)
+        }
+        let greenPoints = package.coursePrep?.holes.flatMap { prep -> [(latitude: Double, longitude: Double)] in
+            guard let distances = prep.greenDistances else { return [] }
+            var points: [(latitude: Double, longitude: Double)] = []
+            for pair in [(distances.frontLat, distances.frontLon),
+                         (distances.middleLat, distances.middleLon),
+                         (distances.backLat, distances.backLon)] {
+                guard let latitude = pair.0, let longitude = pair.1 else { continue }
+                points.append((latitude, longitude))
+            }
+            return points
+        } ?? []
+        let coursePoints = teePoints + greenPoints
+        let action = roundIdleTracker.evaluate(
+            latitude: fix?.coordinate.latitude,
+            longitude: fix?.coordinate.longitude,
+            horizontalAccuracyM: fix?.horizontalAccuracyM ?? .infinity,
+            at: now,
+            coursePoints: coursePoints,
+            lastActivityAt: lastActivityAt,
+            hasRecordedStroke: hasRecordedStroke,
+            // A completed nine is a valid turn boundary, not a completed round. Keep the
+            // 20-minute finish rule for full rounds only; the idle pause rule still applies to
+            // a nine-hole session left open at the turn.
+            allHolesScored: package.holes.count > 9
+                && live.scoredHoles.count >= package.holes.count
+        )
+
+        switch action {
+        case .finishLeftCourse:
+            beginAutomaticFinish(reason: "离开球场")
+        case .finishAfterCompletedRound:
+            beginAutomaticFinish(reason: "完成球局后长时间无操作")
+        case .pauseStationary:
+            // A stationary round stays on device for Resume. It is intentionally not sealed or
+            // uploaded: the player may return and continue without losing the in-progress facts.
+            syncStatus = "已暂停 · 长时间没有操作，回来可继续"
+            do {
+                try offlineStore.setIdlePaused(
+                    roundId: package.roundId,
+                    activeHole: live.activeHole
+                )
+                roundIdlePausedRoundId = package.roundId
+                roundIdlePausedCoordinate = fix.map {
+                    ($0.coordinate.latitude, $0.coordinate.longitude)
+                }
+                roundIdleTracker.reset()
+            } catch {
+                syncStatus = "暂停状态无法保存，请重试"
+                return .none
+            }
+        case .wrongCourse:
+            syncStatus = "当前位置不在所选球场附近，请确认球场"
+        case .resumed:
+            break
+        case .none:
+            break
+        }
+        return action
+    }
+
+    private static func idleEventDate(_ event: LiveRoundEvent) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: event.timestamp) ?? ISO8601DateFormatter().date(from: event.timestamp)
+    }
+
+    private static func haversineMetres(
+        _ latitude1: Double, _ longitude1: Double,
+        _ latitude2: Double, _ longitude2: Double
+    ) -> Double {
+        let radius = 6_371_000.0
+        let dLat = (latitude2 - latitude1) * .pi / 180
+        let dLon = (longitude2 - longitude1) * .pi / 180
+        let a = sin(dLat / 2) * sin(dLat / 2)
+            + cos(latitude1 * .pi / 180) * cos(latitude2 * .pi / 180)
+                * sin(dLon / 2) * sin(dLon / 2)
+        return radius * 2 * atan2(sqrt(a), sqrt(1 - a))
+    }
+
+    private func beginAutomaticFinish(reason: String) {
+        guard let roundId = package?.roundId,
+              liveRoundState?.roundId == roundId else { return }
+        guard automaticFinishTask == nil else { return }
+        automaticFinishTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.automaticFinishTask = nil }
+            guard self.package?.roundId == roundId,
+                  self.liveRoundState?.roundId == roundId,
+                  await self.finishActiveRound(expectedRoundId: roundId) else { return }
+            self.syncStatus = "已自动保存 · \(reason)"
+            Self.postAutomaticFinishNotification(reason: reason)
+        }
+    }
+
+    private static func postAutomaticFinishNotification(reason: String) {
+        #if canImport(UserNotifications)
+        let content = UNMutableNotificationContent()
+        content.title = "球局已自动保存"
+        content.body = "\(reason)，本场记录已保存并开始同步"
+        content.sound = .default
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            let request = UNNotificationRequest(
+                identifier: "ai-caddie.round-auto-finished.\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+            UNUserNotificationCenter.current().add(request)
+        }
+        #endif
+    }
+
     @discardableResult
     public func finishActiveRound() async -> Bool {
-        finishActiveRoundLocally()
+        await finishActiveRound(expectedRoundId: nil)
+    }
+
+    @discardableResult
+    private func finishActiveRound(expectedRoundId: String?) async -> Bool {
+        guard expectedRoundId == nil || package?.roundId == expectedRoundId,
+              expectedRoundId == nil || liveRoundState?.roundId == expectedRoundId else {
+            return false
+        }
+        return finishActiveRoundLocally(expectedRoundId: expectedRoundId)
     }
 
     /// The local seal has no network await. The confirmed live-hole discard uses the same
     /// transaction, then leaves delivery to the existing deferred outbox.
-    private func finishActiveRoundLocally() -> Bool {
+    private func finishActiveRoundLocally(expectedRoundId: String? = nil) -> Bool {
         guard !isFinishingRound, let package else { return false }
+        guard expectedRoundId == nil || package.roundId == expectedRoundId,
+              expectedRoundId == nil || liveRoundState?.roundId == expectedRoundId else {
+            return false
+        }
         isFinishingRound = true
         finishErrorMessage = nil
         defer { isFinishingRound = false }
+        if expectedRoundId != nil {
+            let hasRecordedStroke = (try? offlineStore.loadEvents())?.contains { event in
+                event.roundId == package.roundId && event.kind == .location
+            } == true
+            guard hasRecordedStroke else {
+                // A course package alone is not a round. This guard is the final safety net for
+                // C32's idle path, so a never-started or wrong-course session cannot be saved/pushed.
+                syncStatus = "尚未记杆，本场未保存"
+                return false
+            }
+        }
         if liveRoundState?.roundId == package.roundId {
             finishAttemptRoundId = package.roundId
         }
 
-        #if DEBUG
-        // The real-flow simulator uses a real course package but deliberately keeps synthetic scores
-        // off the owner's backend. Reaching this branch still requires the user's explicit Save & End
-        // tap; only then may the local test round be cleared.
-        if eventSyncSuppressedForUITests {
-            do {
-                try clearFinishedRoundLocally(roundId: package.roundId)
-                return true
-            } catch {
-                AICaddieLog.storage.error("Test-round cleanup failed: \(String(describing: error), privacy: .public)")
-                finishErrorMessage = "本地保存状态不可用，本场已完整保留"
-                return false
-            }
-        }
-        #endif
-
         do {
+            try materializeLiveScoreDraftIfNeeded(for: package)
+            #if DEBUG
+            // The real-flow simulator uses a real course package but deliberately keeps synthetic scores
+            // off the owner's backend. Reaching this branch still requires the user's explicit Save & End
+            // tap; only then may the local test round be cleared.
+            if eventSyncSuppressedForUITests {
+                do {
+                    try clearFinishedRoundLocally(roundId: package.roundId)
+                    return true
+                } catch {
+                    AICaddieLog.storage.error("Test-round cleanup failed: \(String(describing: error), privacy: .public)")
+                    finishErrorMessage = "本地保存状态不可用，本场已完整保留"
+                    return false
+                }
+            }
+            #endif
             if let blocked = try preferredQuarantineRecord(roundId: package.roundId) {
                 if package.holes.contains(where: { $0.number == blocked.event.hole }) {
                     setActiveHole(blocked.event.hole)
@@ -4684,6 +4947,48 @@ public final class LiveRoundAppModel: ObservableObject {
             pendingEventCount = (try? offlineStore.loadPendingEvents(roundId: package.roundId).count) ?? pendingEventCount
             return false
         }
+    }
+
+    /// A score sheet is durable user intent even while its confirmation sheet is open. Seal it as
+    /// score facts before removing live-round progress, otherwise the progress file (and its draft)
+    /// disappears with the automatic or explicit Save & End transaction.
+    private func materializeLiveScoreDraftIfNeeded(for package: LiveRoundPackage) throws {
+        guard let draft = try offlineStore.loadLiveScoreDraft(roundId: package.roundId) else { return }
+        let restored = try offlineStore.restoreLiveRoundState(roundId: package.roundId, package: package)
+        let existing = restored.holeState(for: draft.hole)
+        let hasExplicitScore = restored.scoredHoles.contains(draft.hole)
+        let generated = LiveScoreSubmission.events(
+            roundId: package.roundId,
+            draft: draft,
+            note: "",
+            timestamp: ISO8601DateFormatter().string(from: Date())
+        )
+        for event in generated {
+            let shouldAppend: Bool
+            guard let existing else {
+                shouldAppend = true
+                if shouldAppend { try offlineStore.appendEvent(event) }
+                continue
+            }
+            if !hasExplicitScore {
+                shouldAppend = true
+            } else {
+                switch event.kind {
+                case .score:
+                    let fairway = existing.fairwayResult?.uppercased()
+                    let draftFairway = draft.fairway?.rawValue.uppercased()
+                    shouldAppend = existing.score != draft.score || fairway != draftFairway
+                case .putt:
+                    shouldAppend = existing.putts != draft.putts
+                case .penalty:
+                    shouldAppend = existing.penaltyCount != draft.penalty
+                default:
+                    shouldAppend = false
+                }
+            }
+            if shouldAppend { try offlineStore.appendEvent(event) }
+        }
+        try offlineStore.clearLiveScoreDraft(roundId: package.roundId)
     }
 
     private func leaveSealedRoundLocally(package sealedPackage: LiveRoundPackage) throws {
@@ -8426,6 +8731,8 @@ public final class LiveRoundAppModel: ObservableObject {
         rememberAsRecent: Bool = false,
         sendWatchSeed: Bool = true
     ) throws {
+        automaticFinishTask?.cancel()
+        automaticFinishTask = nil
         recordUITestLatency("activate.template.begin globalId=\(nextPackage.course.globalId)")
         try? offlineStore.saveCourseTemplate(nextPackage)
         offlineStore.recordCourseUse(for: nextPackage)
@@ -8440,6 +8747,7 @@ public final class LiveRoundAppModel: ObservableObject {
         try offlineStore.saveActiveHole(roundId: nextPackage.roundId, hole: restored.activeHole)
         recordUITestLatency("activate.cursor-save.end globalId=\(nextPackage.course.globalId)")
         liveRoundState = restored
+        restoreRoundIdlePause(for: nextPackage.roundId)
         if isPreparingRound { roundStartFailure = nil }
         recordUITestLatency("activate.live-state-published globalId=\(nextPackage.course.globalId)")
         // A live round owns the hole screen: the first-stroke start hands over the same package, and
@@ -8759,6 +9067,10 @@ public final class LiveRoundAppModel: ObservableObject {
     private func activateHomePackage(_ nextPackage: LiveRoundPackage, status: String) throws {
         package = nextPackage
         liveRoundState = nil
+        roundIdlePausedRoundId = nil
+        roundIdleRoundId = nil
+        roundIdleTracker.reset()
+        roundIdlePausedCoordinate = nil
         // The Hub owns no finish sheet: nothing paused may carry into the next round.
         finishAttemptRoundId = nil
         finishErrorMessage = nil

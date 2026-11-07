@@ -75,6 +75,7 @@ struct LiveHolePageInput: Equatable {
     let isPreparingRound: Bool
     let isFinishingRound: Bool
     let finishErrorMessage: String?
+    var roundIdlePaused: Bool = false
     let isPrepMode: Bool
     let prepTeeOptions: [String]
     let apiBaseURL: URL?
@@ -134,6 +135,9 @@ final class LiveHolePageCallbacks {
         var onSetSecondLoop: (RoundLoopEntry?, String) -> Void = { _, _ in }
         var onContinueIntoSecondLoop: (RoundLoopEntry, String) -> Void = { _, _ in }
         var onFinishRound: () async -> Bool = { false }
+        var onRoundLocation: (LocationFix?) -> PhoneRoundIdleAction = { _ in .none }
+        var onResumeRoundIdle: () -> Void = {}
+        var onRoundActivity: () -> Void = {}
         var onDiscardRound: () -> Void = {}
         var onLiveHoleInitialLoadDidFinish: () -> Void = {}
         var onRetainReadyHolePrep: (String, Int, CoursePrepHole) -> Void = { _, _, _ in }
@@ -689,6 +693,7 @@ public struct RoundHomeView: View {
     public let roundStartSelection: RoundStartSelection?
     public let isFinishingRound: Bool
     public let finishErrorMessage: String?
+    public let roundIdlePaused: Bool
     public let deferredFinishRecovery: DeferredFinishRecovery?
     public let liveFinishRecovery: DeferredFinishRecovery?
     /// The live round whose Save & End was tried; the Hub's live recovery card waits for it.
@@ -707,6 +712,9 @@ public struct RoundHomeView: View {
     /// B4 turn: add the chosen second loop and open its first hole (the model navigates).
     public let onContinueIntoSecondLoop: (RoundLoopEntry, String) -> Void
     public let onFinishRound: () async -> Bool
+    public let onRoundLocation: (LocationFix?) -> PhoneRoundIdleAction
+    public let onResumeRoundIdle: () -> Void
+    public let onRoundActivity: () -> Void
     public let onResumeDeferredFinish: () -> Bool
     public let onDiscardRemovedDeferredFinish: (String, Int) -> Bool
     public let onDiscardRound: () -> Void
@@ -848,6 +856,7 @@ public struct RoundHomeView: View {
         roundStartSelection: RoundStartSelection? = nil,
         isFinishingRound: Bool = false,
         finishErrorMessage: String? = nil,
+        roundIdlePaused: Bool = false,
         deferredFinishRecovery: DeferredFinishRecovery? = nil,
         liveFinishRecovery: DeferredFinishRecovery? = nil,
         finishAttemptRoundId: String? = nil,
@@ -862,6 +871,9 @@ public struct RoundHomeView: View {
         onSetSecondLoop: @escaping (RoundLoopEntry?, String) -> Void = { _, _ in },
         onContinueIntoSecondLoop: @escaping (RoundLoopEntry, String) -> Void = { _, _ in },
         onFinishRound: @escaping () async -> Bool = { false },
+        onRoundLocation: @escaping (LocationFix?) -> PhoneRoundIdleAction = { _ in .none },
+        onResumeRoundIdle: @escaping () -> Void = {},
+        onRoundActivity: @escaping () -> Void = {},
         onResumeDeferredFinish: @escaping () -> Bool = { false },
         onDiscardRemovedDeferredFinish: @escaping (String, Int) -> Bool = { _, _ in false },
         onDiscardRound: @escaping () -> Void = {},
@@ -944,6 +956,7 @@ public struct RoundHomeView: View {
         self.roundStartSelection = roundStartSelection
         self.isFinishingRound = isFinishingRound
         self.finishErrorMessage = finishErrorMessage
+        self.roundIdlePaused = roundIdlePaused
         self.deferredFinishRecovery = deferredFinishRecovery
         self.liveFinishRecovery = liveFinishRecovery
         self.finishAttemptRoundId = finishAttemptRoundId
@@ -958,6 +971,9 @@ public struct RoundHomeView: View {
         self.onSetSecondLoop = onSetSecondLoop
         self.onContinueIntoSecondLoop = onContinueIntoSecondLoop
         self.onFinishRound = onFinishRound
+        self.onRoundLocation = onRoundLocation
+        self.onResumeRoundIdle = onResumeRoundIdle
+        self.onRoundActivity = onRoundActivity
         self.onResumeDeferredFinish = onResumeDeferredFinish
         self.onDiscardRemovedDeferredFinish = onDiscardRemovedDeferredFinish
         self.onDiscardRound = onDiscardRound
@@ -1310,7 +1326,9 @@ public struct RoundHomeView: View {
             },
             onEvent: onEvent, onSetActiveHole: onSetActiveHole, onPrepHoleChanged: onPrepHoleChanged,
             onSetSecondLoop: onSetSecondLoop, onContinueIntoSecondLoop: onContinueIntoSecondLoop,
-            onFinishRound: onFinishRound, onDiscardRound: onDiscardRound,
+            onFinishRound: onFinishRound, onRoundLocation: onRoundLocation,
+            onResumeRoundIdle: onResumeRoundIdle, onRoundActivity: onRoundActivity,
+            onDiscardRound: onDiscardRound,
             onLiveHoleInitialLoadDidFinish: onLiveHoleInitialLoadDidFinish,
             onRetainReadyHolePrep: onRetainReadyHolePrep,
             onStartRoundFromFirstStroke: onStartRoundFromFirstStroke,
@@ -1336,6 +1354,7 @@ public struct RoundHomeView: View {
                 round: liveRoundState.map { LiveHolePageRoundInput($0, hole: number) },
                 courseOptions: catalogue, isPreparingRound: isPreparingRound,
                 isFinishingRound: isFinishingRound, finishErrorMessage: finishErrorMessage,
+                roundIdlePaused: roundIdlePaused,
                 isPrepMode: isPrepHoleScreen, prepTeeOptions: prepTeeOptions,
                 apiBaseURL: apiBaseURL, adminToken: adminToken,
                 offlineStore: offlineStore.map { ObjectIdentifier($0) },
@@ -1361,6 +1380,9 @@ public struct RoundHomeView: View {
                     onSetSecondLoop: { callbacks.value.onSetSecondLoop($0, $1) },
                     onContinueIntoSecondLoop: { callbacks.value.onContinueIntoSecondLoop($0, $1) },
                     onFinishRound: { await callbacks.value.onFinishRound() },
+                    onRoundLocation: callbacks.value.onRoundLocation,
+                    onResumeRoundIdle: callbacks.value.onResumeRoundIdle,
+                    onRoundActivity: callbacks.value.onRoundActivity,
                     onDiscardRound: { callbacks.value.onDiscardRound() },
                     sessionCache: liveHoleSessions,
                     usesExternalHolePager: true,
@@ -1410,6 +1432,7 @@ public struct RoundHomeView: View {
                     onLiveHoleInitialLoadDidFinish: { callbacks.value.onLiveHoleInitialLoadDidFinish() },
                     onRetainReadyHolePrep: { callbacks.value.onRetainReadyHolePrep($0, $1, $2) },
                     isPrepMode: isPrepHoleScreen,
+                    roundIdlePaused: roundIdlePaused,
                     prepTeeOptions: prepTeeOptions,
                     onStartRoundFromFirstStroke: startFirstStroke,
                     onFirstStrokeClubPromptDismissed: dismissFirstStrokePrompt,

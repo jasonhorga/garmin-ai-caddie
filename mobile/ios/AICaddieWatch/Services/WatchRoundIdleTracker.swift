@@ -35,6 +35,9 @@ public struct WatchRoundIdleTracker {
     private var trackingSince: Date?
     private var scoredHoles: Int?
     private var scoredHolesChangedAt: Date?
+    /// A manually selected wrong course must only prompt. Auto-finish is allowed after the wrist
+    /// has first observed the player on one of the selected course's tees/greens.
+    public private(set) var hasBeenOnCourse = false
 
     public init() {}
 
@@ -46,6 +49,7 @@ public struct WatchRoundIdleTracker {
         trackingSince = nil
         scoredHoles = nil
         scoredHolesChangedAt = nil
+        hasBeenOnCourse = false
     }
 
     public mutating func evaluate(
@@ -65,6 +69,21 @@ public struct WatchRoundIdleTracker {
         let lastInput = max(lastActivityAt ?? .distantPast, scoredHolesChangedAt ?? .distantPast, since)
         let idle = now.timeIntervalSince(lastInput)
 
+        // Update movement before the off-course branch. A wrong-course player may keep walking;
+        // returning a prompt from that branch must not freeze the anchor and later misclassify
+        // the moving round as a stationary pause.
+        if let latitude, let longitude {
+            if let anchorLatitude, let anchorLongitude,
+               horizontalAccuracyM > Self.maximumAnchorAccuracyMetres
+                || WatchGeoMath.metres(anchorLatitude, anchorLongitude, latitude, longitude) <= Self.stationaryMetres {
+                // Still in the same place, or too coarse a fix to say otherwise.
+            } else {
+                anchorLatitude = latitude
+                anchorLongitude = longitude
+                anchorAt = now
+            }
+        }
+
         if let latitude, let longitude {
             if !holePoints.isEmpty {
                 let nearest = holePoints
@@ -75,22 +94,25 @@ public struct WatchRoundIdleTracker {
                     offCourseSince = away
                     // Input means the player is still playing, whatever the course geometry says.
                     if now.timeIntervalSince(away) >= Self.offCourseSeconds, idle >= Self.offCourseSeconds {
+                        // A player who selected the wrong course still gets the same 45-minute
+                        // stationary safeguard; the mismatch prompt must not keep the workout alive
+                        // forever while they remain parked.
+                        let lastSign = max(anchorAt ?? .distantPast, lastInput)
+                        if now.timeIntervalSince(lastSign) >= Self.stationarySeconds {
+                            return .stationary
+                        }
                         return .leftCourse
                     }
                 } else {
                     offCourseSince = nil
+                    hasBeenOnCourse = true
                 }
             }
 
-            if let anchorLatitude, let anchorLongitude,
-               horizontalAccuracyM > Self.maximumAnchorAccuracyMetres
-                || WatchGeoMath.metres(anchorLatitude, anchorLongitude, latitude, longitude) <= Self.stationaryMetres {
-                // Still in the same place, or too coarse a fix to say otherwise.
-            } else {
-                anchorLatitude = latitude
-                anchorLongitude = longitude
-                anchorAt = now
-            }
+        } else {
+            // Do not let a cached off-course fix continue the departure clock while the wrist has
+            // no current GPS. The stationary and completed-round clocks remain time based.
+            offCourseSince = nil
         }
 
         if allHolesScored, idle >= Self.finishedIdleSeconds { return .finished }
