@@ -654,6 +654,10 @@ def corrected_rounds(
                         and _restore_is_superseded([record], other_real_score_holes)):
                     superseded_restores.append(number)
                 break
+        if superseded_restores:
+            # Preserve the projection's decision for reconciliation without recreating its
+            # same-outing/physical-hole rules in another reader. These remain evidence only.
+            row = {**row, "_restoreSupersededHoles": superseded_restores}
         for record in annotations or []:
             if (record.get("targetType") == "hole"
                     and record.get("kind") in wanted):
@@ -707,10 +711,6 @@ def corrected_rounds(
             added_par += par
             hole_entries.append((number, len(hole_entries), synthetic))
             changed = True
-        if superseded_restores:
-            # Preserve the projection's decision for reconciliation without recreating its
-            # same-outing/physical-hole rules in another reader. These remain evidence only.
-            row = {**row, "_restoreSupersededHoles": superseded_restores}
         if not changed:
             out.append(row)
             continue
