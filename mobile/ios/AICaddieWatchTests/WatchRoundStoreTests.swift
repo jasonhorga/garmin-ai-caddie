@@ -84,6 +84,48 @@ final class WatchRoundStoreTests: XCTestCase {
         XCTAssertNil(loaded.scoreDraft)
     }
 
+    func testMigratesAcknowledgedPhoneStrokeEvidenceIntoRoundMarker() throws {
+        let (store, directory) = tempStore()
+        let legacy = Data(
+            """
+            {
+              "roundId": "legacy-round",
+              "activeHole": 1,
+              "holeStates": [],
+              "pendingEvents": [],
+              "phoneShots": [{"hole": 1, "eventIds": ["phone-stroke-1"], "revision": 7}]
+            }
+            """.utf8
+        )
+        try legacy.write(to: directory.appendingPathComponent("round.json"))
+
+        let loaded = try XCTUnwrap(store.load())
+
+        XCTAssertEqual(loaded.recordedStrokeEventIds, ["phone-stroke-1"])
+        let persisted = try Data(contentsOf: directory.appendingPathComponent("round.json"))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: persisted) as? [String: Any])
+        XCTAssertEqual(json["recordedStrokeEventIds"] as? [String], ["phone-stroke-1"])
+    }
+
+    func testMigratesLegacyAcknowledgedWatchShotOriginIntoRoundMarker() throws {
+        let (store, directory) = tempStore()
+        let state = WatchRoundState(
+            roundId: "legacy-watch-round", hole: 1, par: 4, distanceM: nil,
+            selectedClub: nil,
+            lastShotLatitude: 40.0, lastShotLongitude: 116.0,
+            lastShotCapturedAt: "2026-06-20T00:00:00Z",
+            score: 4, putts: 0, penaltyCount: 0, caddieConfidence: "low"
+        )
+        let round = WatchRoundStore.PersistedRound(
+            roundId: "legacy-watch-round", activeHole: 1, holeStates: [state]
+        )
+        try JSONEncoder().encode(round).write(to: directory.appendingPathComponent("round.json"))
+
+        let loaded = try XCTUnwrap(store.load())
+
+        XCTAssertEqual(loaded.recordedStrokeEventIds, ["legacy-watch-stroke-legacy-watch-round-1"])
+    }
+
     func testLoadsLegacyInteractionStateWithoutNewerRequiredFields() throws {
         let (store, directory) = tempStore()
         let location = try XCTUnwrap(WatchShotLocationValue(
