@@ -3309,8 +3309,9 @@ public struct CurrentHoleView: View {
                                  preciseTopoImageReady = false
                                  preciseTopoDecodeFailed = true
                                  // A mounted image can fail after the page's initial load task
-                                 // completed. Restart its bounded recovery without changing holes.
-                                 if !preciseTopoLoading { preciseTopoReloadID += 1 }
+                                 // completed, or while that task is finishing. Give the failure
+                                 // its own bounded recovery without changing holes.
+                                 preciseTopoReloadID += 1
                              },
                              onGarminImageReady: {
                                  garminRasterImageReady = true
