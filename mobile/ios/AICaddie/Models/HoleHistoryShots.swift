@@ -129,6 +129,10 @@ public enum HoleHistoryOverlayRenderer {
         return (shots.count, average)
     }
 
+    static func summaryText(_ shots: [ProjectedShot], pixelsPerMetre: Double) -> String? {
+        nil
+    }
+
     /// Retain geographic placement when the source pixel frame changes; pixel-only maps use
     /// the same route-station transfer as the target and flag.
     static func carryPlayer(_ pixel: CGPoint, from previous: CoursePrepHole, to next: CoursePrepHole) -> CGPoint? {

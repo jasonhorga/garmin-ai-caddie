@@ -28,6 +28,11 @@ final class HoleHistoryShotsTests: XCTestCase {
         let summary = HoleHistoryOverlayRenderer.summary(shots, pixelsPerMetre: 1)
         XCTAssertEqual(summary.count, 2)
         XCTAssertEqual(summary.averageYards, 66)
+        XCTAssertEqual(
+            HoleHistoryOverlayRenderer.summaryText(shots, pixelsPerMetre: 1),
+            "近两年 2 杆 · 平均 66码"
+        )
+        XCTAssertNil(HoleHistoryOverlayRenderer.summaryText([], pixelsPerMetre: 1))
     }
 
     func testDistanceOnlyShotRemainsVisibleWhenGeometryIsMissing() {
