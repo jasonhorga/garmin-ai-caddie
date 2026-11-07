@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
+index 4e00c802..41c533fa 100644
+--- a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
++++ b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
+@@ -2584,7 +2584,7 @@ enum LiveMapDisplaySelection {
+     /// A pinch is a relative multiplier, so values below one must survive until combined with
+     /// the committed scale. Neutral ground has no map plane and ignores the gesture entirely.
+     static func gestureMagnification(for state: LiveMapDisplayState, proposed: CGFloat) -> CGFloat {
+-        (state == .factualPending || state == .waiting) ? 1 : proposed
++        gestureScale(for: state, proposed: proposed)
+     }
+ 
+     static func gestureScale(for state: LiveMapDisplayState, proposed: CGFloat) -> CGFloat {

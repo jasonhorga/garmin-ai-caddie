@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C268-01-async-local-discovery",
+      "patch": "tests/product/faults/C268/01-async-local-discovery.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveMapFirstFrameTests/testInstalledTopoOwnsInitialFrameWithoutSessionPath",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C268-02-no-local-retry",
+      "patch": "tests/product/faults/C268/02-no-local-retry.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveMapFirstFrameTests/testLocalDecodeRetriesReadRepairedFileWithoutChangingURL",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C268-03-no-mounted-recovery",
+      "patch": "tests/product/faults/C268/03-no-mounted-recovery.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_mounted_precise_page_retains_map_across_selection_and_decode_failure",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C268-04-zoom-neutral-frame",
+      "patch": "tests/product/faults/C268/04-zoom-neutral-frame.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveMapFirstFrameTests/testNeutralDecodeFrameIgnoresMapScaleAndOffset",
+      "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C268-05-clamp-relative-pinch",
+      "patch": "tests/product/faults/C268/05-clamp-relative-pinch.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveMapFirstFrameTests/testPinchCanShrinkVisibleMapsButCannotZoomNeutralGround",
+      "promise": "J4.5"
+    }
+  ]
+}

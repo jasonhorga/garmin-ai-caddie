@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+index 9990d34c..1e5195ef 100644
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -3192,7 +3192,7 @@ public struct CurrentHoleView: View {
+                                  // A mounted image can fail after the page's initial load task
+                                  // completed, or while that task is finishing. Give the failure
+                                  // its own bounded recovery without changing holes.
+-                                 preciseTopoReloadID += 1
++                                 // Fault: leave the mounted page stranded after failure.
+                              },
+                              onGarminImageReady: {
+                                  garminRasterImageReady = true

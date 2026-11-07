@@ -269,19 +269,27 @@ final class ProductMapAndPackageTests: XCTestCase {
 
         let selected = expectation(description: "selected-page bootstrap ran")
         probe.didBootstrap = { selected.fulfill() }
+        let initiallyLoaded = expectation(description: "initial precise decode task finished")
+        probe.didLoadPreciseImage = { initiallyLoaded.fulfill() }
         hosted.controller.rootView = page(selected: true)
-        await fulfillment(of: [selected], timeout: productEventWait)
+        await fulfillment(of: [selected, initiallyLoaded], timeout: productEventWait)
         XCTAssertEqual(read().displayState, .precise)
         XCTAssertEqual(read().retainedMapState, .precise,
                        "J4.5 selection must not erase the already visible precise tier")
         XCTAssertTrue(read().garminImageReady, "the downgrade alternative is decoded and ready")
 
-        // Invoke exactly the failure callback wired into liveHoleImageMap, after the selection task.
+        // Invoke exactly the failure callback wired into liveHoleImageMap, after initial decode
+        // has completed. Its old task cannot accidentally satisfy the recovery expectation.
+        let recovered = expectation(description: "same mounted page automatically recovered precise image")
+        probe.didLoadPreciseImage = { recovered.fulfill() }
         failPreciseImage()
         XCTAssertNotEqual(read().displayState, .garminRaster,
                           "J4.5 a precise page must not downgrade to ready Garmin after decode failure")
         XCTAssertEqual(read().displayState, .factualPending)
         XCTAssertFalse(read().hasMapOverlay, "the neutral decode frame has no geographic layers")
+        await fulfillment(of: [recovered], timeout: productEventWait)
+        XCTAssertEqual(read().displayState, .precise,
+                       "J4.5 the same selected page recovers without navigating away")
     }
 
     /// J4.5-2: Garmin is prefetched by default so a later hole can show its raster immediately.

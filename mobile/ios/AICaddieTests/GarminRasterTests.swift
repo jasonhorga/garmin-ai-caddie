@@ -343,22 +343,22 @@ final class GarminRasterTests: XCTestCase {
             refs: preciseProjection.refs ?? []
         )
         let state = LiveMapDisplayState.resolveLive(
-            .init(
-                coverage: hole.geometryCoverage,
-                preciseTopoImageReady: true,
+            LiveMapDisplayState.liveInputs(
+                coverage: hole.geometryCoverage, decodeFailed: false,
+                resolvedLocalTopoURL: nil, hasLiveTopoURL: false, hasEmbeddedTopoImage: false,
+                preciseTopoImageReady: false, memoryCached: false,
                 garminRaster: GarminRasterResponse(available: true, imageUrl: "/raster.jpg"),
-                garminImageFailed: false,
-                hasCachedPreciseTopo: false
+                garminImageReady: true, garminImageFailed: false
             )
         )
         XCTAssertEqual(state, .garminRaster)
         let numericState = LiveMapDisplayState.resolveLive(
-            .init(
-                coverage: hole.geometryCoverage,
-                preciseTopoImageReady: false,
+            LiveMapDisplayState.liveInputs(
+                coverage: hole.geometryCoverage, decodeFailed: false,
+                resolvedLocalTopoURL: nil, hasLiveTopoURL: false, hasEmbeddedTopoImage: false,
+                preciseTopoImageReady: false, memoryCached: false,
                 garminRaster: GarminRasterResponse(available: true, imageUrl: "/raster.jpg"),
-                garminImageFailed: true,
-                hasCachedPreciseTopo: false
+                garminImageReady: false, garminImageFailed: true
             )
         )
         XCTAssertEqual(numericState, .waiting,

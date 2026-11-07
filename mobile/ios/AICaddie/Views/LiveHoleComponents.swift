@@ -2409,9 +2409,9 @@ enum LiveMapDisplayState: Equatable {
         }
     }
 
-    /// Combines precise-topo lifecycle flags at one boundary. A local file can be present while
-    /// its bytes are corrupt; after that decode fails it must stop reserving the exact map so a
-    /// ready Garmin bitmap can render.
+    /// Combines precise-topo lifecycle flags at one boundary. A known precise asset remains the
+    /// authority while its bytes are being decoded or retried; a failed decode therefore keeps the
+    /// neutral retry frame instead of allowing a ready Garmin bitmap to replace it.
     static func liveInputs(
         coverage: String?,
         decodeFailed: Bool,
@@ -2428,11 +2428,11 @@ enum LiveMapDisplayState: Equatable {
         let preciseImageReady = !decodeFailed
             && (hasEmbeddedTopoImage
                 || (hasLiveTopoURL && (preciseTopoImageReady || memoryCached)))
-        let preciseAvailable = !decodeFailed
-            && (hasEmbeddedTopoImage || resolvedLocalTopoURL != nil
-                || preciseTopoImageReady || memoryCached)
-        let cachedPreciseTopo = !decodeFailed
-            && (resolvedLocalTopoURL != nil || memoryCached)
+        // A known precise asset remains the authority while a decode is failing. Keep the
+        // neutral frame and retry affordance visible instead of falling through to Garmin.
+        let preciseAvailable = hasEmbeddedTopoImage || resolvedLocalTopoURL != nil
+            || preciseTopoImageReady || memoryCached
+        let cachedPreciseTopo = resolvedLocalTopoURL != nil || memoryCached
         return LiveInputs(
             coverage: coverage,
             preciseTopoImageReady: preciseImageReady,
@@ -2579,6 +2579,12 @@ enum LiveMapDisplaySelection {
             ? (garminProjection?.heightPx ?? 1920)
             : 1920
         return CoursePrepOverlay(w: width, h: height, ppm: 1, ln: 0, route: [])
+    }
+
+    /// A pinch is a relative multiplier, so values below one must survive until combined with
+    /// the committed scale. Neutral ground has no map plane and ignores the gesture entirely.
+    static func gestureMagnification(for state: LiveMapDisplayState, proposed: CGFloat) -> CGFloat {
+        (state == .factualPending || state == .waiting) ? 1 : proposed
     }
 
     static func gestureScale(for state: LiveMapDisplayState, proposed: CGFloat) -> CGFloat {
