@@ -2692,7 +2692,7 @@ public struct CurrentHoleView: View {
     private func heroMapPinchGesture(in viewport: CGSize) -> some Gesture {
         MagnificationGesture()
             .updating($heroMapPinchScale) { value, state, _ in
-                state = LiveMapDisplaySelection.gestureScale(for: liveMapDisplayState, proposed: value)
+                state = LiveMapDisplaySelection.gestureMagnification(for: liveMapDisplayState, proposed: value)
             }
             .onEnded { value in
                 guard liveMapDisplayState != .factualPending,

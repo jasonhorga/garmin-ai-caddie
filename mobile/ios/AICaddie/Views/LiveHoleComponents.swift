@@ -2581,6 +2581,12 @@ enum LiveMapDisplaySelection {
         return CoursePrepOverlay(w: width, h: height, ppm: 1, ln: 0, route: [])
     }
 
+    /// A pinch is a relative multiplier, so values below one must survive until combined with
+    /// the committed scale. Neutral ground has no map plane and ignores the gesture entirely.
+    static func gestureMagnification(for state: LiveMapDisplayState, proposed: CGFloat) -> CGFloat {
+        (state == .factualPending || state == .waiting) ? 1 : proposed
+    }
+
     static func gestureScale(for state: LiveMapDisplayState, proposed: CGFloat) -> CGFloat {
         guard state != .factualPending, state != .waiting else { return 1 }
         return min(max(proposed, 1), 4)

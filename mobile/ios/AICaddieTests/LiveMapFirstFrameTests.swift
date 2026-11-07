@@ -80,6 +80,19 @@ final class LiveMapFirstFrameTests: XCTestCase {
         ), .zero)
     }
 
+    /// J4.5: a visible map can shrink continuously from 2x to 1x; a neutral frame ignores the
+    /// same pinch. Relative magnification must not be clamped like the final displayed scale.
+    func testPinchCanShrinkVisibleMapsButCannotZoomNeutralGround() {
+        for state: LiveMapDisplayState in [.precise, .garminRaster] {
+            let multiplier = LiveMapDisplaySelection.gestureMagnification(for: state, proposed: 0.5)
+            XCTAssertEqual(LiveMapDisplaySelection.gestureScale(for: state, proposed: 2 * multiplier), 1)
+        }
+        for state: LiveMapDisplayState in [.factualPending, .waiting] {
+            XCTAssertEqual(LiveMapDisplaySelection.gestureMagnification(for: state, proposed: 3), 1)
+            XCTAssertEqual(LiveMapDisplaySelection.gestureScale(for: state, proposed: 3), 1)
+        }
+    }
+
     /// J4.5-2: a local file repaired during automatic retry recovers without leaving the hole.
     func testLocalDecodeRetriesReadRepairedFileWithoutChangingURL() async throws {
         let url = FileManager.default.temporaryDirectory

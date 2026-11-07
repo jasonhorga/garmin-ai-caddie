@@ -28,6 +28,13 @@
       "kind": "native-unit",
       "target": "AICaddieTests/LiveMapFirstFrameTests/testNeutralDecodeFrameIgnoresMapScaleAndOffset",
       "promise": "J4.5"
+    },
+    {
+      "id": "tests-product-faults-C268-05-clamp-relative-pinch",
+      "patch": "tests/product/faults/C268/05-clamp-relative-pinch.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveMapFirstFrameTests/testPinchCanShrinkVisibleMapsButCannotZoomNeutralGround",
+      "promise": "J4.5"
     }
   ]
 }
