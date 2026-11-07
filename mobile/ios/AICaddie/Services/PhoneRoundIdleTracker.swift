@@ -88,7 +88,8 @@ public struct PhoneRoundIdleTracker {
         if let offCourseSince,
            now.timeIntervalSince(offCourseSince) >= Self.offCourseSeconds,
            idle >= Self.offCourseSeconds {
-            if hasBeenOnCourse, hasRecordedStroke { return .finishLeftCourse }
+            // A round without a stroke is never saved, pushed or prompted (design §4).
+            if hasBeenOnCourse { return hasRecordedStroke ? .finishLeftCourse : .none }
             // A wrong-course selection is only a prompt, but a player who then remains
             // stationary still gets the same 45-minute local pause safeguard. This never
             // seals or uploads the round.
