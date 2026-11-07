@@ -1,8 +1,8 @@
 diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
-index c51ab2c8..1eccd998 100644
+index bf0f5274..42b3115f 100644
 --- a/ai_caddie/caddie/mobile_reconciliation.py
 +++ b/ai_caddie/caddie/mobile_reconciliation.py
-@@ -882,14 +882,6 @@ def reconcile_mobile_round_events(
+@@ -891,14 +891,6 @@ def reconcile_mobile_round_events(
          event_id = str(event.get("eventId") or "")
          if event_id:
              phone_holes[event_id] = phone_hole
@@ -17,18 +17,3 @@ index c51ab2c8..1eccd998 100644
          # Capture decision feedback before the unmapped branch.  If the event is mapped below,
          # update the audit's hole to the Garmin display axis while preserving the pre-map behavior
          # for an unmapped phone hole.
-@@ -914,6 +906,14 @@ def reconcile_mobile_round_events(
-             local_only.append(_unmapped_local_only_row(event, payload, kind=kind, hole=hole))
-             continue
-
-+        if event.get("superseded") is True:
-+            evidence.append({
-+                "eventId": event.get("eventId"), "roundId": event.get("roundId"),
-+                "kind": kind, "hole": (hole_map or {}).get(hole, hole), "phoneHole": phone_hole,
-+                "localValue": _payload_value(payload, "strokes", "putts", "penalties", "count", "score"),
-+                "superseded": True,
-+            })
-+            continue
-         if kind in {"score", "putt", "penalty"} and scores.get(hole, {}).get("restoreSuperseded"):
-             local_only.append({
-                 "eventId": event_id, "roundId": event.get("roundId"), "kind": kind, "hole": hole,
