@@ -46,6 +46,40 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         )
     }
 
+    func testDistanceSourceSeparatesManualMapGPSAndFallback() {
+        XCTAssertEqual(
+            CurrentHoleView.distanceToPinSource(
+                manualM: 140, mapTargetM: 120, liveMiddleM: 100, staticMiddleM: 110, holeYards: 300
+            ),
+            "manual"
+        )
+        XCTAssertEqual(
+            CurrentHoleView.distanceToPinSource(
+                manualM: nil, mapTargetM: 120, liveMiddleM: 100, staticMiddleM: 110, holeYards: 300
+            ),
+            "map_target"
+        )
+        XCTAssertEqual(
+            CurrentHoleView.distanceToPinSource(
+                manualM: nil, mapTargetM: nil, liveMiddleM: 100, staticMiddleM: 110, holeYards: 300
+            ),
+            "gps_auto"
+        )
+        XCTAssertEqual(
+            CurrentHoleView.distanceToPinSource(
+                manualM: nil, mapTargetM: nil, liveMiddleM: nil, staticMiddleM: 110, holeYards: 300
+            ),
+            "fallback"
+        )
+        XCTAssertEqual(
+            CurrentHoleView.distanceToPinSource(
+                manualM: nil, mapTargetM: nil, liveMiddleM: 100, staticMiddleM: 110, holeYards: 300,
+                usesLiveGPS: false
+            ),
+            "fallback"
+        )
+    }
+
     func testMakesAuditableOfflineDecisionFromSeedAndStrategy() throws {
         let package = try fixturePackage()
         let seed = try XCTUnwrap(package.caddieContextSeeds.first)

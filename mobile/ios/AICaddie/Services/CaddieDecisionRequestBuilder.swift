@@ -59,6 +59,10 @@ public enum LiveCaddieDistance {
 public struct LiveCaddieInput {
     public let shotType: String
     public let distanceToPinM: Double?
+    /// Provenance for the distance sent in ``distanceToPin_m``.  The server keeps the
+    /// numeric value's legacy straight-line meaning, while this marker tells it whether
+    /// the caller supplied a manual/map value or an automatic/fallback value.
+    public let distanceToPinSource: String?
     public let lie: String?
     public let coordinate: CLLocationCoordinate2D?
     public let targetCoordinate: CLLocationCoordinate2D?
@@ -72,6 +76,7 @@ public struct LiveCaddieInput {
     public init(
         shotType: String,
         distanceToPinM: Double? = nil,
+        distanceToPinSource: String? = nil,
         lie: String? = nil,
         coordinate: CLLocationCoordinate2D? = nil,
         targetCoordinate: CLLocationCoordinate2D? = nil,
@@ -84,6 +89,7 @@ public struct LiveCaddieInput {
     ) {
         self.shotType = shotType
         self.distanceToPinM = distanceToPinM
+        self.distanceToPinSource = distanceToPinSource
         self.lie = lie
         self.coordinate = coordinate
         self.targetCoordinate = targetCoordinate
@@ -113,6 +119,7 @@ public extension LiveCaddieInput {
                 staticMiddleM: staticMiddleM,
                 holeYards: holeYards
             ),
+            distanceToPinSource: "fallback",
             lie: "fairway"
         )
     }
@@ -143,6 +150,10 @@ public final class CaddieDecisionRequestBuilder {
            distanceToPinM > 0,
            distanceToPinM <= GeoDistance.maximumUsefulGreenMetres {
             context["distanceToPin_m"] = .number(distanceToPinM)
+        }
+        if let source = input.distanceToPinSource?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !source.isEmpty {
+            context["distanceToPinSource"] = .string(source)
         }
         if let lie = input.lie, !lie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             context["lie"] = .string(lie)

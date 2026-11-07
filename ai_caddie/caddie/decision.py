@@ -851,7 +851,7 @@ def _planning_distance(context: dict[str, Any]) -> float | None:
         return route_m
     # A GPS/fallback request at the projected route endpoint is a factual zero remaining
     # distance. Keep the existing one-metre pin lower bound without reviving the stale phone value.
-    if source not in (None, "manual", "map_target") and _route_at_endpoint(context):
+    if _route_at_endpoint(context):
         return 0.0
     return supplied if has_supplied else None
 
@@ -864,6 +864,12 @@ def _sequence_distance(context: dict[str, Any]) -> float:
     # Legacy tee requests omit provenance. Preserve main's CoursePrep authority before the
     # phone number and remaining-polyline fallbacks; explicit source values use _planning_distance.
     if context.get("distanceToPinSource") is None and has_canonical:
+        return canonical
+    # At the selected Tee, GPS is still a noisy position (often a few metres onto the apron)
+    # and a fallback is explicitly the downloaded opening plan. Keep the installed full-hole
+    # route authoritative for those two sources; once play is underway _planning_distance still
+    # prefers the remaining polyline for gps_auto.
+    if shot_type == "tee" and has_canonical and context.get("distanceToPinSource") in {"gps_auto", "fallback"}:
         return canonical
     distance = _planning_distance(context)
     if distance is not None:
@@ -5537,7 +5543,8 @@ def _recovery_options(context: dict[str, Any]) -> list[dict[str, Any]]:
 def _shot_context(analysis: dict[str, Any], shot_type: str) -> dict[str, Any]:
     source_ref = _source_ref(analysis, shot_type)
     supplied_distance = analysis.get("distanceToPin_m")
-    if _has_pin_distance({"distanceToPin_m": supplied_distance}):
+    source = analysis.get("distanceToPinSource")
+    if source in (None, "manual", "map_target") and _has_pin_distance({"distanceToPin_m": supplied_distance}):
         distance_to_pin_m = supplied_distance
     elif _has_pin_distance(analysis):
         distance_to_pin_m = _pin_distance(analysis)

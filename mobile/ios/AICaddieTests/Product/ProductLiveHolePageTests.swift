@@ -102,6 +102,7 @@ final class ProductLiveHolePageTests: XCTestCase {
             probe.refresh = nil; probe.request = nil; probe.routes = nil; probe.source = nil
             probe.planningDistance = nil; probe.offlineDecision = nil; probe.offlineRequest = nil
             probe.mapTargetDistance = nil; probe.setTarget = nil; probe.setFix = nil
+            probe.setPin = nil; probe.setShotType = nil; probe.setManualYards = nil; probe.distanceSourceText = nil
             session.invalidateAndCancel()
             C33URLProtocol.setHandlers(onStart: nil)
         }
@@ -120,6 +121,8 @@ final class ProductLiveHolePageTests: XCTestCase {
             }
             XCTAssertEqual(initialDistance, 284.3, accuracy: 0.1,
                            "on-hole wire value has main's straight-distance semantics")
+            XCTAssertEqual(initial.context["distanceToPinSource"], .string("fallback"),
+                           "the opening tee uses static facts until a live position is trusted")
             setTarget(CGPoint(x: 189, y: 350)) // 169 m Touch Target from tee.
             XCTAssertEqual(try XCTUnwrap(probe.mapTargetDistance)() ?? -1, 169, accuracy: 0.1,
                            "Touch Target state is written before checking its wire isolation")
@@ -128,6 +131,8 @@ final class ProductLiveHolePageTests: XCTestCase {
                 return XCTFail("wire distance missing")
             }
             XCTAssertEqual(distance, 284.3, accuracy: 0.1, "Touch Target cannot change the wire distance")
+            XCTAssertEqual(targeted.context["distanceToPinSource"], .string("fallback"),
+                           "Touch Target remains display-only while the wire value is static")
             XCTAssertNil(targeted.context["canonicalPlanRemainingRouteLength_m"], "local context never goes online")
             let offlineRequest = try XCTUnwrap(probe.offlineRequest)
             XCTAssertEqual(try XCTUnwrap(offlineRequest()).context["canonicalPlanRemainingRouteLength_m"], .number(320.9))
@@ -150,8 +155,91 @@ final class ProductLiveHolePageTests: XCTestCase {
             }
             XCTAssertEqual(movedDistance, 200.9221, accuracy: 0.1,
                            "after leaving Tee the endpoint retains straight GPS range")
+            XCTAssertEqual(movedRequest.context["distanceToPinSource"], .string("gps_auto"),
+                           "a retained Touch Target does not replace the wire distance source")
+            setTarget(nil)
+            let clearedTargetRequest = try XCTUnwrap(request())
+            XCTAssertEqual(clearedTargetRequest.context["distanceToPinSource"], .string("gps_auto"),
+                           "after clearing the map target a trusted live fix is identified as automatic")
             XCTAssertEqual(try XCTUnwrap(probe.planningDistance)() ?? -1, 185.4, accuracy: 0.1,
                            "J5.4/C164b after leaving Tee local planning uses remaining route")
+        }
+    }
+
+    func test_j5_11_distance_source_matches_moved_flag_after_touch_target_and_manual_override() async throws {
+        try await withDecisionPage { probe in
+            let request = try XCTUnwrap(probe.request)
+            let setShotType = try XCTUnwrap(probe.setShotType)
+            let setPin = try XCTUnwrap(probe.setPin)
+            let setTarget = try XCTUnwrap(probe.setTarget)
+            let setManualYards = try XCTUnwrap(probe.setManualYards)
+            setShotType("approach")
+            setPin(CLLocationCoordinate2D(latitude: 0, longitude: 0.0015))
+            setTarget(CGPoint(x: 189, y: 350))
+            let flagged = try XCTUnwrap(request())
+            XCTAssertEqual(flagged.context["distanceToPinSource"], .string("map_target"))
+            guard case .number(let distance)? = flagged.context["distanceToPin_m"] else {
+                return XCTFail("moved-flag wire distance missing")
+            }
+            // Equatorial 0.0015 degrees at mean Earth radius 6,371 km = 166.7924 metres.
+            XCTAssertEqual(distance, 166.7924, accuracy: 0.1)
+            setManualYards("150")
+            let manual = try XCTUnwrap(request())
+            XCTAssertEqual(manual.context["distanceToPinSource"], .string("manual"))
+            guard case .number(let manualDistance)? = manual.context["distanceToPin_m"] else {
+                return XCTFail("manual wire distance missing")
+            }
+            XCTAssertEqual(manualDistance, 137.16, accuracy: 0.1)
+            probe.clientUnavailable = true
+            await try XCTUnwrap(probe.refresh)()
+            XCTAssertEqual(try XCTUnwrap(probe.distanceSourceText)(), "距离来源 · 手动")
+        }
+    }
+
+    func test_j5_11_visible_source_stays_with_decision_until_next_refresh() async throws {
+        try await withDecisionPage { probe in
+            let refresh = try XCTUnwrap(probe.refresh)
+            let sourceText = try XCTUnwrap(probe.distanceSourceText)
+            let setFix = try XCTUnwrap(probe.setFix)
+            probe.clientUnavailable = true
+            await refresh()
+            XCTAssertEqual(sourceText(), "距离来源 · fallback")
+            setFix(LocationFix(
+                coordinate: .init(latitude: 0.000899321606, longitude: 0.000989253767),
+                horizontalAccuracyM: 5, altitudeM: nil, capturedAt: "2026-10-01T00:01:00Z"
+            ))
+            XCTAssertEqual(sourceText(), "距离来源 · fallback", "GPS changes cannot relabel an existing decision")
+            await refresh()
+            XCTAssertEqual(sourceText(), "距离来源 · 自动 GPS")
+        }
+    }
+
+    func test_j5_11_source_uses_online_request_or_new_offline_request_after_gps_changes_during_await() async throws {
+        for outcome in ["online", "empty", "error"] {
+            let response = try JSONEncoder().encode(pageDecision(empty: outcome == "empty"))
+            try await withDecisionPage { probe in
+                let refresh = try XCTUnwrap(probe.refresh)
+                let sourceText = try XCTUnwrap(probe.distanceSourceText)
+                let setFix = try XCTUnwrap(probe.setFix)
+                C33URLProtocol.setHandlers(onStart: { proto in
+                    Task { @MainActor in
+                        // The URLProtocol start event proves the fallback request is already in
+                        // flight. Update GPS before completing it; no wall-clock wait is needed.
+                        setFix(LocationFix(
+                            coordinate: .init(latitude: 0.000899321606, longitude: 0.000989253767),
+                            horizontalAccuracyM: 5, altitudeM: nil, capturedAt: "2026-10-01T00:01:00Z"
+                        ))
+                        if outcome == "error" {
+                            proto.client?.urlProtocol(proto, didFailWithError: URLError(.notConnectedToInternet))
+                        } else {
+                            proto.reply(200, response)
+                        }
+                    }
+                })
+                await refresh()
+                XCTAssertEqual(sourceText(), outcome == "online" ? "距离来源 · fallback" : "距离来源 · 自动 GPS",
+                               "\(outcome): provenance belongs to the request that produced this result")
+            }
         }
     }
 

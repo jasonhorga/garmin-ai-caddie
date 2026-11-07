@@ -1,9 +1,8 @@
-diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 --- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 +++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -5921,7 +5921,7 @@
-                 distanceToPinM: (recordedNonPuttShotCount == 0 && !hasLeftSelectedTee) || isTeeShotOffTheHole
+@@ -6003,7 +6003,7 @@
                      ? caddiePlanningDistanceMetres : effectiveDistanceToPinMetres,
+                 distanceToPinSource: effectiveDistanceToPinSource,
                  lie: selectedLie,
 -                coordinate: caddieRequestCoordinate,
 +                coordinate: hasLeftSelectedTee ? nil : liveCoordinateForCurrentHole,

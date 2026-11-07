@@ -1,12 +1,11 @@
-diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 --- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 +++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -5919,7 +5919,7 @@
+@@ -6000,7 +6000,7 @@
                  // Preserve the API's straight-distance semantics on the hole. Off-hole tee
                  // requests still plan from manual/static facts rather than the clubhouse GPS.
                  distanceToPinM: (recordedNonPuttShotCount == 0 && !hasLeftSelectedTee) || isTeeShotOffTheHole
 -                    ? caddiePlanningDistanceMetres : effectiveDistanceToPinMetres,
 +                    ? caddiePlanningDistanceMetres : caddiePlanningDistanceMetres,
+                 distanceToPinSource: effectiveDistanceToPinSource,
                  lie: selectedLie,
                  coordinate: caddieRequestCoordinate,
-                 // Keep the flag coordinate in the server contract: the decision service uses it

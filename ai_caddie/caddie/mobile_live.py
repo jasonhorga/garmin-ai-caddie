@@ -2685,12 +2685,17 @@ def _route_evidence_seed(
                     start = {"x": float(tee_position[0]), "y": float(tee_position[1])}
                     target = {"x": float(target_position[0]), "y": float(target_position[1])}
         # Share CoursePrep's selected-Tee/layout route without invoking its strategy/history path.
-        from ai_caddie.caddie.analysis import tee_set_for_box
+        # The per-hole resolver is the package/prep authority when a course lacks the requested
+        # Tee on this hole; using the release-level colour index here can select another Tee's
+        # geometry for the live route.
         from ai_caddie.geometry.hole_render import load_mesh
         from ai_caddie.geometry.geometry_evidence import remaining_route
         try:
             meshes, _by = load_mesh(int(global_id), int(local_hole))
-            polyline, _length = course_prep.derive_route(meshes, tee_set_for_box(global_id, tee_box))
+            polyline, _length = course_prep.derive_route(
+                meshes,
+                course_prep.resolve_tee_set_for_hole(int(global_id), int(local_hole), tee_box),
+            )
         except (OSError, KeyError, TypeError, ValueError):
             polyline = None
         if polyline:
