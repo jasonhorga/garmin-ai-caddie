@@ -45,10 +45,15 @@ def _correction_record_key(record: dict[str, Any] | None) -> str | None:
 
 
 def _mobile_baseline_invalidated(records: list[dict[str, Any]], source_value: int | None) -> bool:
-    """Whether the latest retained-mobile choice saw a different Garmin source."""
+    """Whether the latest unresolved retained-mobile choice saw a different Garmin source."""
     for record in reversed(records):
         payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
-        if payload.get("resolution") != "mobile":
+        resolution = payload.get("resolution")
+        if resolution == "garmin":
+            # Choosing Garmin establishes a new source baseline and retires every older
+            # retained-mobile baseline in this correction chain.
+            return False
+        if resolution != "mobile":
             continue
         baseline = _safe_int(payload.get("from"))
         return source_value is not None and baseline is not None and source_value != baseline
@@ -196,6 +201,11 @@ def _hole_scores(
             entries = (event.get("audit") or {}).get("entries") or []
             before = next((entry.get("before") for entry in entries if entry.get("op") == "penalty"), None)
             value = event.get("value") if event.get("op") == "setHolePenalty" else event.get("manualPenalty")
+            if before is None:
+                # A no-op setHolePenalty intentionally records no diff entry. Its value is
+                # still the baseline the player saw, so use it to keep a later Garmin change
+                # from silently matching an annotation written after that edit.
+                before = value
             hole_annotations.append({
                 **event, "kind": "penalty_correction",
                 "payload": {"from": before, "strokes": value},
