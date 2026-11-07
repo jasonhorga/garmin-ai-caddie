@@ -640,6 +640,7 @@ def corrected_rounds(
         # append-only annotation as the source of truth and materialize that display hole in the
         # corrected projection so every history reader sees the restored score.
         annotated_missing: dict[int, list[dict[str, Any]]] = {}
+        superseded_restores: list[int] = []
         for record in annotations or []:
             if (record.get("targetType") == "hole"
                     and record.get("kind") in wanted):
@@ -657,6 +658,7 @@ def corrected_rounds(
                 row, number, records, penalty_events
             )
             if _restore_is_superseded(records, other_real_score_holes):
+                superseded_restores.append(number)
                 continue
             # A hole without a score is not a materialized history hole.  Its putt and
             # penalty evidence remains in the annotation log, but cannot enter any
@@ -693,6 +695,10 @@ def corrected_rounds(
             added_par += par
             hole_entries.append((number, len(hole_entries), synthetic))
             changed = True
+        if superseded_restores:
+            # Preserve the projection's decision for reconciliation without recreating its
+            # same-outing/physical-hole rules in another reader. These remain evidence only.
+            row = {**row, "_restoreSupersededHoles": superseded_restores}
         if not changed:
             out.append(row)
             continue
