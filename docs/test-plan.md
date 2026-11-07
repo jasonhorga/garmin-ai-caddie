@@ -645,7 +645,7 @@ K3–K10 期间新旧测试**并存**（新测试在 `tests/small|medium`，旧�
 
 ### 12.3 宿主 CD 怎么切：两种做法
 
-宿主 CD 的全量命令写在宿主 `projects.json`（本 job 不可见、不可改），当前为 `python -m tests.check_isolation discover -s tests -t .`。
+宿主 CD 的全量命令写在宿主 `projects.json`（job 只读可见、不可改），当前为 `python -m tests.check_isolation discover -s tests -t .`。
 
 | | 方案 A：宿主不改（推荐先用） | 方案 B：宿主改命令 |
 |---|---|---|
@@ -682,5 +682,5 @@ K3–K10 期间新旧测试**并存**（新测试在 `tests/small|medium`，旧�
 
 - mutmut 3.x 只支持 pytest 运行器、cosmic-ray 可用任意 `test-command`：凭工具文档印象，K12 动手前核对。
 - `tests/large/__init__.py` 的 `load_tests` 返回空套件即可让 `discover` 不进该包：符合 unittest 的包级 `load_tests` 协议，K1 用一条自测确认。
-- 宿主 CD 19 分 30 秒、原生 PR 22/31 分钟取自卡面，未独立重测；宿主 `projects.json` 本 job 看不到，方案 A 的「命令不变」前提需土土确认。
+- 宿主 CD 19 分 30 秒、原生 PR 22/31 分钟取自卡面，未独立重测；宿主 `projects.json` 已由 C387 job 只读核过（11-07）：caddie 全量命令为 `heavy-lock --wait 5400 env AI_CADDIE_DATA_MODE=fixture <venv>/bin/python -m tests.check_isolation discover -s tests -t .`，`test_timeout` 5400 s，方案 A 前提成立。
 - 第 10 节「预期」是按设计推断，实际检出以 K13 注回结果为准；C369 已合并标「待TF」，是否进了 11-07 的 TF 包未确认。
