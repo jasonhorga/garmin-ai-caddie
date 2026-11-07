@@ -44,6 +44,17 @@ def _correction_record_key(record: dict[str, Any] | None) -> str | None:
     return None
 
 
+def _mobile_baseline_invalidated(records: list[dict[str, Any]], source_value: int | None) -> bool:
+    """Whether the latest retained-mobile choice saw a different Garmin source."""
+    for record in reversed(records):
+        payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+        if payload.get("resolution") != "mobile":
+            continue
+        baseline = _safe_int(payload.get("from"))
+        return source_value is not None and baseline is not None and source_value != baseline
+    return False
+
+
 def _event_rows(round_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
     # The mobile event log is per-player partitioned (mobile_live.mobile_event_log): the owner keeps
     # the flat shared log; a member's live events live under their own partition. Read the ACTING
@@ -216,26 +227,20 @@ def _hole_scores(
                     conflict = True
                     prior = to_value
                 else:
-                    if (not mobile_baseline_invalidated and from_value is not None
+                    if (not _mobile_baseline_invalidated(records, source_value)
+                            and from_value is not None
                             and source_value is not None and from_value == source_value):
                         conflict = False
                     prior = to_value
                 winner = record
-            mobile_baseline_invalidated = any(
-                isinstance(record.get("payload"), dict)
-                and record["payload"].get("resolution") == "mobile"
-                and source_value is not None
-                and _safe_int(record["payload"].get("from")) is not None
-                and source_value != _safe_int(record["payload"].get("from"))
-                for record in records
-            )
-            if mobile_baseline_invalidated:
+            baseline_changed = _mobile_baseline_invalidated(records, source_value)
+            if baseline_changed:
                 conflict = True
             # A source that has converged to the effective corrected value is not a conflict,
             # even when an earlier link in the chain was superseded by that convergence.
             if source_value is not None and effective_value is not None and source_value == effective_value:
                 conflict = False
-                if mobile_baseline_invalidated:
+                if baseline_changed:
                     conflict = True
             return conflict, winner
 
