@@ -236,4 +236,37 @@ enum LiveMarkedShots {
     static func locations(in events: [LiveRoundEvent], roundId: String, hole: Int) -> [LiveRoundEvent] {
         events.filter { $0.roundId == roundId && $0.hole == hole && $0.kind == .location }
     }
+
+    /// IDs of location facts belonging to confirmed strokes, one per stroke. Location facts are
+    /// also used for the map, so only shot-authored ones count: a phone record-button location
+    /// (`ios_gps`) once its club prompt is closed (club chosen or skipped), a phone actual club's
+    /// source location, and a Watch-authored location (its club prompt is optional too). Watch
+    /// club events alone are planning selections. Cross-device state uses these IDs so a pending
+    /// phone position never advances Watch planning or caddie origins.
+    static func actualShotLocationEventIds(
+        in events: [LiveRoundEvent], roundId: String, hole: Int, pendingLocationEventId: String? = nil
+    ) -> [String] {
+        var seen = Set<String>()
+        return events
+            .filter { $0.roundId == roundId && $0.hole == hole }
+            .compactMap { event -> String? in
+                if event.kind == .location {
+                    switch event.payload["source"] {
+                    case .string("apple_watch")?:
+                        return event.eventId
+                    case .string("ios_gps")? where event.eventId != pendingLocationEventId:
+                        return event.eventId
+                    default:
+                        return nil
+                    }
+                }
+                guard event.kind == .club,
+                      case .object(let actualShot) = event.payload["actualShot"] ?? .null,
+                      case .string(let locationId)? = actualShot["sourceLocationEventId"]
+                else { return nil }
+                return locationId
+            }
+            // A phone shot has both its location and its actual club; the pair counts once.
+            .filter { seen.insert($0).inserted }
+    }
 }
