@@ -39,6 +39,29 @@ enum LiveRoundPackageFixture {
         return try decode(root)
     }
 
+    /// `nineHoleLoop` with surveyed tees: hole N's tee sits N × 0.001° north of `origin`, so
+    /// location tests can stand on, or leave, the course.
+    static func nineHoleLoop(
+        dataMode: String? = nil,
+        teeOrigin origin: (latitude: Double, longitude: Double)
+    ) throws -> LiveRoundPackage {
+        var root = try object(dataMode: dataMode)
+        let globalId = try courseGlobalId(root)
+        root["roundLoops"] = [loopRow(globalId: globalId, half: "all", holeCount: 9)]
+        root["loopKey"] = "\(globalId):all"
+        guard let sourceHoles = root["holes"] as? [[String: Any]] else {
+            throw FixtureError.malformed("holes")
+        }
+        root["holes"] = sourceHoles.map { source in
+            var copy = source
+            let number = source["number"] as? Int ?? 0
+            copy["teeLatitude"] = origin.latitude + Double(number) * 0.001
+            copy["teeLongitude"] = origin.longitude
+            return copy
+        }
+        return try decode(root)
+    }
+
     /// The fixture's factual rows duplicated as a complete 18-hole course, used by prep tests to
     /// verify that opening a normal course exposes both halves before the first stroke.
     static func wholeCourse(dataMode: String? = nil) throws -> LiveRoundPackage {
