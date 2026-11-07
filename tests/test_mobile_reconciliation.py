@@ -175,6 +175,59 @@ class MobileReconciliationTests(unittest.TestCase):
             self.assertTrue(result["conflicts"])
             self.assertTrue(result["conflicts"][0].get("correctionConflict"))
 
+    def test_j3_3_garmin_choice_retires_older_mobile_baseline(self) -> None:
+        # J3.3: after choosing Garmin for a later conflict, a fresh phone edit starts a new
+        # ordinary correction chain; the retired mobile baseline must not reopen the old conflict.
+        for kind, field, initial in (
+            ("score", "strokes", 10),
+            ("putt", "putts", 1),
+            ("penalty", "penalties", 0),
+        ):
+            with self.subTest(kind=kind), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                data = fixture_history_data()
+                hole = data.rounds[0]["holes"][0]
+                hole.update(strokes=10, putts=1, penalties=0)
+                hole[field] = initial
+
+                def append(value: int, event_id: str) -> None:
+                    append_event_batch(
+                        "900001",
+                        [{"eventId": event_id, "roundId": "900001", "hole": 1,
+                          "kind": kind, "payload": {field: value}}],
+                        idempotency_key=event_id,
+                        root=root,
+                    )
+
+                def reconcile() -> dict:
+                    return reconcile_mobile_round_events("900001", data, root=root, annotations_root=root)
+
+                def apply(rows: list[dict]) -> None:
+                    apply_mobile_reconciliation_suggestions(
+                        "900001", data,
+                        suggestion_ids=[row["id"] for row in rows],
+                        root=root,
+                        annotations_root=root,
+                        data_loader=lambda: data,
+                    )
+
+                append(initial + 1, "phone-initial")
+                apply(reconcile()["annotationSuggestions"])
+                hole[field] = initial + 2
+                conflict = reconcile()
+                apply([row for row in conflict["annotationSuggestions"]
+                       if row["payload"].get("resolution") == "mobile"])
+                hole[field] = initial + 4
+                conflict = reconcile()
+                apply([row for row in conflict["annotationSuggestions"]
+                       if row["payload"].get("resolution") == "garmin"])
+                append(initial + 3, "phone-after-garmin")
+                ordinary = reconcile()
+                self.assertEqual(len(ordinary["conflicts"]), 1)
+                self.assertFalse(ordinary["conflicts"][0].get("correctionConflict"))
+                apply(ordinary["annotationSuggestions"])
+                self.assertEqual(reconcile()["conflicts"], [])
+
     def test_j3_3_penalty_chain_includes_correction_store_edits(self) -> None:
         # J3.3: a phone penalty edit starts at the value shown after a web penalty edit.
         from ai_caddie.rounds.round_corrections import append_correction
@@ -196,6 +249,37 @@ class MobileReconciliationTests(unittest.TestCase):
             after = reconcile_mobile_round_events("900001", data, root=root)
             self.assertTrue(after["conflicts"][0].get("correctionConflict"))
             self.assertEqual(after["conflicts"][0]["garminValue"], 3)
+
+    def test_j3_3_noop_penalty_correction_keeps_later_garmin_change_visible(self) -> None:
+        # J3.3: a no-op setHolePenalty has no audit diff, but its value still anchors the chain.
+        from ai_caddie.rounds.round_corrections import append_correction
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data = fixture_history_data()
+            hole = data.rounds[0]["holes"][0]
+            hole.update(strokes=10, putts=1, penalties=1)
+            append_correction(
+                "me", "900001", {"op": "setHolePenalty", "hole": 1, "value": 1},
+                root=root, data_loader=lambda: data,
+            )
+            append_event_batch(
+                "900001", [{"eventId": "penalty-after-noop", "roundId": "900001", "hole": 1,
+                            "kind": "penalty", "payload": {"penalties": 2}}],
+                idempotency_key="penalty-after-noop", root=root,
+            )
+            initial = reconcile_mobile_round_events("900001", data, root=root, annotations_root=root)
+            apply_mobile_reconciliation_suggestions(
+                "900001", data,
+                suggestion_ids=[row["id"] for row in initial["annotationSuggestions"]],
+                root=root, annotations_root=root, data_loader=lambda: data,
+            )
+            hole["penalties"] = 3
+            result = reconcile_mobile_round_events("900001", data, root=root, annotations_root=root)
+
+        self.assertEqual(len(result["conflicts"]), 1)
+        self.assertTrue(result["conflicts"][0].get("correctionConflict"))
+        self.assertEqual(result["conflicts"][0]["garminValue"], 3)
 
     def test_j1_3_superseded_unmapped_events_remain_evidence_only(self) -> None:
         # J1.3/J3.3: an old phone value is evidence even when physical identity cannot map it.
