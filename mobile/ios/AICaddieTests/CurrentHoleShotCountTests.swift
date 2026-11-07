@@ -137,6 +137,25 @@ final class CurrentHoleShotCountTests: XCTestCase {
         )
     }
 
+    /// J5.4: the phone record button saves the GPS shot first; "跳过球杆（位置已记录）" keeps that
+    /// stroke, so the hole leaves its opening state even without a club.
+    func testPhoneRecordedShotWithSkippedClubStillCountsOnce() {
+        let events = [
+            locationEvent(id: "phone-location", timestamp: "2026-10-27T08:00:00Z", source: "ios_gps"),
+        ]
+
+        XCTAssertEqual(
+            CurrentHoleView.recordedNonPuttShotCount(from: events, roundId: "round-1", hole: 3),
+            1,
+            "skipping the phone club prompt does not erase the recorded stroke"
+        )
+        XCTAssertEqual(
+            LiveMarkedShots.actualShotLocationEventIds(in: events, roundId: "round-1", hole: 3),
+            ["phone-location"],
+            "the skipped-club phone shot still retires Watch planning and caddie origins"
+        )
+    }
+
     func testWatchPlanningClubWithoutLocationDoesNotCountAsAShot() {
         let event = LiveRoundEvent(
             eventId: "watch-distance",
