@@ -642,6 +642,19 @@ def corrected_rounds(
         annotated_missing: dict[int, list[dict[str, Any]]] = {}
         superseded_restores: list[int] = []
         for record in annotations or []:
+            if record.get("targetType") != "hole" or record.get("kind") not in wanted:
+                continue
+            target = str(record.get("targetId") or "")
+            for ref in refs:
+                prefix = f"{ref}:"
+                if not target.startswith(prefix):
+                    continue
+                number = _int(target[len(prefix):])
+                if (number is not None and number > 0 and number not in display_numbers.values()
+                        and _restore_is_superseded([record], other_real_score_holes)):
+                    superseded_restores.append(number)
+                break
+        for record in annotations or []:
             if (record.get("targetType") == "hole"
                     and record.get("kind") in wanted):
                 target = str(record.get("targetId") or "")
@@ -694,10 +707,6 @@ def corrected_rounds(
             added_par += par
             hole_entries.append((number, len(hole_entries), synthetic))
             changed = True
-        superseded_restores = [
-            number for number, records in annotated_missing.items()
-            if _restore_is_superseded(records, other_real_score_holes)
-        ]
         if superseded_restores:
             # Preserve the projection's decision for reconciliation without recreating its
             # same-outing/physical-hole rules in another reader. These remain evidence only.
