@@ -237,36 +237,28 @@ enum LiveMarkedShots {
         events.filter { $0.roundId == roundId && $0.hole == hole && $0.kind == .location }
     }
 
-    /// Location facts are also used for the map and can exist before a shot is confirmed. A
-    /// phone stroke is counted only when its actual club event proves the hit. The Watch records
-    /// a confirmed stroke as an authored location event, even when its optional club prompt is
-    /// skipped; Watch club events by themselves are planning selections and are not shot evidence.
-    static func actualShots(in events: [LiveRoundEvent], roundId: String, hole: Int) -> [LiveRoundEvent] {
-        let scoped = events.filter { $0.roundId == roundId && $0.hole == hole }
-        let phoneShots = scoped.filter { event in
-            guard event.kind == .club else { return false }
-            if case .object = event.payload["actualShot"] ?? .null { return true }
-            return false
-        }
-        let watchLocations = scoped.filter {
-            $0.kind == .location && $0.payload["source"] == .string("apple_watch")
-        }
-        // A normal Watch shot may have both a club prompt and a location, or only the location
-        // when the prompt is skipped. Locations are the durable shot facts, so the pair counts once.
-        return phoneShots + watchLocations
-    }
-
-    /// IDs of location facts belonging to confirmed shots. Cross-device state uses these IDs so a
-    /// pending phone position never advances Watch planning or caddie origins.
+    /// IDs of location facts belonging to confirmed strokes, one per stroke. Location facts are
+    /// also used for the map, so only shot-authored ones count: a phone record-button location
+    /// (`ios_gps`) once its club prompt is closed (club chosen or skipped), a phone actual club's
+    /// source location, and a Watch-authored location (its club prompt is optional too). Watch
+    /// club events alone are planning selections. Cross-device state uses these IDs so a pending
+    /// phone position never advances Watch planning or caddie origins.
     static func actualShotLocationEventIds(
-        in events: [LiveRoundEvent], roundId: String, hole: Int
+        in events: [LiveRoundEvent], roundId: String, hole: Int, pendingLocationEventId: String? = nil
     ) -> [String] {
-        events
+        var seen = Set<String>()
+        return events
             .filter { $0.roundId == roundId && $0.hole == hole }
-            .compactMap { event in
-                if event.kind == .location,
-                   event.payload["source"] == .string("apple_watch") {
-                    return event.eventId
+            .compactMap { event -> String? in
+                if event.kind == .location {
+                    switch event.payload["source"] {
+                    case .string("apple_watch")?:
+                        return event.eventId
+                    case .string("ios_gps")? where event.eventId != pendingLocationEventId:
+                        return event.eventId
+                    default:
+                        return nil
+                    }
                 }
                 guard event.kind == .club,
                       case .object(let actualShot) = event.payload["actualShot"] ?? .null,
@@ -274,5 +266,7 @@ enum LiveMarkedShots {
                 else { return nil }
                 return locationId
             }
+            // A phone shot has both its location and its actual club; the pair counts once.
+            .filter { seen.insert($0).inserted }
     }
 }

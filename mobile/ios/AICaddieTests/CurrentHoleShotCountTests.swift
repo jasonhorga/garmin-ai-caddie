@@ -109,6 +109,7 @@ final class CurrentHoleShotCountTests: XCTestCase {
     func testActualClubEvidenceCountsWhilePositionAndPlanningEventsDoNot() {
         let events = [
             locationEvent(id: "position", timestamp: "2026-10-27T08:00:00Z"),
+            locationEvent(id: "location-phone-shot", timestamp: "2026-10-27T08:00:30Z", source: "ios_gps"),
             actualClubEvent(id: "phone-shot"),
             actualClubEvent(id: "watch-shot", source: "apple_watch"),
             locationEvent(id: "watch-location", timestamp: "2026-10-27T08:01:30Z", source: "apple_watch"),
@@ -121,7 +122,41 @@ final class CurrentHoleShotCountTests: XCTestCase {
         XCTAssertEqual(
             CurrentHoleView.recordedNonPuttShotCount(from: events, roundId: "round-1", hole: 3),
             2,
-            "only source-linked phone shots and Watch-confirmed strokes advance the hole state"
+            "a phone location and its actual club are one stroke; untagged positions and Watch planning clubs are none"
+        )
+    }
+
+    /// While the phone club prompt is still open the recorded position is pending: the hole keeps
+    /// its opening state until the prompt is answered or skipped.
+    func testPendingPhonePositionKeepsOpeningStateUntilThePromptCloses() {
+        let events = [
+            locationEvent(id: "phone-location", timestamp: "2026-10-27T08:00:00Z", source: "ios_gps"),
+        ]
+        let pendingCount = CurrentHoleView.recordedNonPuttShotCount(
+            from: events, roundId: "round-1", hole: 3, pendingLocationEventId: "phone-location"
+        )
+        let closedCount = CurrentHoleView.recordedNonPuttShotCount(
+            from: events, roundId: "round-1", hole: 3
+        )
+
+        XCTAssertEqual(pendingCount, 0, "a pending phone position must not leave the tee state")
+        XCTAssertEqual(closedCount, 1, "closing the prompt confirms the recorded stroke")
+        XCTAssertEqual(
+            CurrentHoleView.caddiePlanningDistanceMetres(
+                recordedShotCount: pendingCount,
+                hasLeftSelectedTee: false,
+                manualM: nil,
+                isTeeShotOffTheHole: false,
+                routeRemainingM: 180,
+                liveMiddleM: 205,
+                staticMiddleM: 241,
+                holeYards: 263,
+                pinM: 170,
+                shotType: "tee"
+            ) ?? -1,
+            241,
+            accuracy: 0.001,
+            "the opening plan keeps the tee distance while the shot is pending"
         )
     }
 
@@ -217,17 +252,20 @@ final class CurrentHoleShotCountTests: XCTestCase {
     }
 
     func testConfirmedShotLocationIDsExcludePendingPhonePositions() {
-        let pendingPosition = locationEvent(id: "pending-position", timestamp: "2026-10-27T08:00:00Z")
         let confirmedLocation = locationEvent(
-            id: "location-phone-shot", timestamp: "2026-10-27T08:01:00Z"
+            id: "location-phone-shot", timestamp: "2026-10-27T08:00:00Z", source: "ios_gps"
         )
         let confirmedClub = actualClubEvent(id: "phone-shot")
+        let pendingPosition = locationEvent(
+            id: "pending-position", timestamp: "2026-10-27T08:02:00Z", source: "ios_gps"
+        )
 
         XCTAssertEqual(
             LiveMarkedShots.actualShotLocationEventIds(
-                in: [pendingPosition, confirmedLocation, confirmedClub],
+                in: [confirmedLocation, confirmedClub, pendingPosition],
                 roundId: "round-1",
-                hole: 3
+                hole: 3,
+                pendingLocationEventId: "pending-position"
             ),
             ["location-phone-shot"],
             "pending phone GPS must not become a Watch shot or caddie origin"

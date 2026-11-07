@@ -6544,7 +6544,8 @@ public struct CurrentHoleView: View {
         }
         // One event-log read per send (this runs on every GPS fix).
         let shotPayload = Self.liveWatchShotPayload(
-            load: eventSnapshot.events, roundId: package.roundId, hole: hole.number
+            load: eventSnapshot.events, roundId: package.roundId, hole: hole.number,
+            pendingLocationEventId: pendingPhoneShot?.locationEvent.eventId
         )
         let markedShots = shotPayload.markedShots
         let state = watchBridge?.makeWatchRoundStatePayload(
@@ -6835,10 +6836,12 @@ public struct CurrentHoleView: View {
         ).flatMap { LiveFairwayResult(rawValue: $0.rawValue) }
     }
 
-    /// This hole's location events (phone-recorded, and Watch-recorded ones under their Watch ids).
+    /// This hole's confirmed shot locations (phone-recorded, and Watch-recorded ones under their
+    /// Watch ids); a phone shot whose club prompt is still open is not confirmed yet.
     private var recordedShotEventIds: [String] {
         LiveMarkedShots.actualShotLocationEventIds(
-            in: eventSnapshot.events(), roundId: package.roundId, hole: hole.number
+            in: eventSnapshot.events(), roundId: package.roundId, hole: hole.number,
+            pendingLocationEventId: pendingPhoneShot?.locationEvent.eventId
         )
     }
 
@@ -6874,14 +6877,15 @@ public struct CurrentHoleView: View {
     static func liveWatchShotPayload(
         load: () -> [LiveRoundEvent],
         roundId: String,
-        hole: Int
+        hole: Int,
+        pendingLocationEventId: String? = nil
     ) -> LiveWatchShotPayload {
         let events = load()
         let values = liveHoleEventDerivedValues(from: events, roundId: roundId, hole: hole)
         return LiveWatchShotPayload(
             markedShots: values.markedShots,
             confirmedShotEventIds: LiveMarkedShots.actualShotLocationEventIds(
-                in: events, roundId: roundId, hole: hole
+                in: events, roundId: roundId, hole: hole, pendingLocationEventId: pendingLocationEventId
             ),
             lastShotLatitude: values.newestShotCoordinate?.latitude,
             lastShotLongitude: values.newestShotCoordinate?.longitude,
@@ -6916,16 +6920,20 @@ public struct CurrentHoleView: View {
 
     private var recordedNonPuttShotCount: Int {
         Self.recordedNonPuttShotCount(
-            from: eventSnapshot.events(), roundId: package.roundId, hole: hole.number
+            from: eventSnapshot.events(), roundId: package.roundId, hole: hole.number,
+            pendingLocationEventId: pendingPhoneShot?.locationEvent.eventId
         )
     }
 
     /// A location event is a useful map fact but does not prove that a stroke was hit. The score,
-    /// tee/live distance and Touch Target gates must advance only on a real club event.
+    /// tee/live distance and Touch Target gates advance only on a confirmed stroke: a phone shot
+    /// whose club prompt was answered or skipped, or a Watch shot.
     static func recordedNonPuttShotCount(
-        from events: [LiveRoundEvent], roundId: String, hole: Int
+        from events: [LiveRoundEvent], roundId: String, hole: Int, pendingLocationEventId: String? = nil
     ) -> Int {
-        LiveMarkedShots.actualShots(in: events, roundId: roundId, hole: hole).count
+        LiveMarkedShots.actualShotLocationEventIds(
+            in: events, roundId: roundId, hole: hole, pendingLocationEventId: pendingLocationEventId
+        ).count
     }
 
     private var actualClubChoices: [LiveActualClubChoice] {
