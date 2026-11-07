@@ -4957,6 +4957,12 @@ public final class LiveRoundAppModel: ObservableObject {
         let restored = try offlineStore.restoreLiveRoundState(roundId: package.roundId, package: package)
         let existing = restored.holeState(for: draft.hole)
         let hasExplicitScore = restored.scoredHoles.contains(draft.hole)
+        // A sheet reopened on a scored hole preselects from shot evidence, not from the confirmed
+        // score; left untouched it is not a new score and must never overwrite the confirmed one.
+        if hasExplicitScore, !draft.edited {
+            try offlineStore.clearLiveScoreDraft(roundId: package.roundId)
+            return
+        }
         let generated = LiveScoreSubmission.events(
             roundId: package.roundId,
             draft: draft,
