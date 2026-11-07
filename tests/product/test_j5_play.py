@@ -573,6 +573,51 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
         self.assertEqual(_shot_context(invalid, "approach")["distanceToPin_m"], 396.0)
         self.assertIsNone(_route_distance({"routeEvidence": {"routeLocal": [[0, 0, 0]], "routeLength_m": 0.0}}))
 
+    def test_j5_11_tee_gps_and_fallback_keep_the_installed_opening_route(self):
+        from ai_caddie.caddie.decision import _sequence_distance
+
+        canonical = [{"clubName": "1W", "routeOffset_m": 396.0}]
+        for source in ("gps_auto", "fallback"):
+            with self.subTest(source=source):
+                context = {
+                    "shotType": "tee",
+                    "distanceToPin_m": 284.3,
+                    "distanceToPinSource": source,
+                    "canonicalShotPlan": canonical,
+                    "canonicalPlanRouteLength_m": 396.0,
+                    "routeEvidence": {
+                        "routeLocal": [[0, 0, 0], [0, 300, 300]],
+                        "routeLength_m": 300.0,
+                    },
+                }
+                self.assertEqual(_sequence_distance(context), 396.0)
+
+    def test_j5_11_gps_context_reports_planned_route_distance(self):
+        from ai_caddie.caddie.decision import _shot_context
+
+        context = {
+            "shotType": "approach",
+            "distanceToPin_m": 70.0,
+            "distanceToPinSource": "gps_auto",
+            "routeEvidence": {
+                "routeLocal": [[0, 0, 0], [0, 100, 100]],
+                "routeLength_m": 100.0,
+            },
+        }
+        self.assertEqual(_shot_context(context, "approach")["distanceToPin_m"], 100.0)
+
+    def test_j5_11_route_endpoint_without_source_has_no_tee_distance(self):
+        from ai_caddie.caddie.decision import _sequence_distance
+
+        endpoint = {
+            "shotType": "tee",
+            "routeEvidence": {
+                "routeLocal": [[0, 0, 0]],
+                "routeLength_m": 0.0,
+            },
+        }
+        self.assertEqual(_sequence_distance(endpoint), 0.0)
+
     def test_j5_11_distance_sources_fall_back_when_route_is_missing(self):
         from ai_caddie.caddie.decision import _sequence_distance, recommend_approach
         # With no geometry, every source must retain the usable number; no invented route.

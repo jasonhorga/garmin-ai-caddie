@@ -662,6 +662,38 @@ class ServerV2MobileTests(ServiceLoggingIsolationMixin, unittest.TestCase):
         self.assertEqual(build.call_args.kwargs["start"], {"x": 209.25, "y": 48.5})
         self.assertEqual(build.call_args.kwargs["target"], {"x": 45.25, "y": 315.25})
 
+    def test_mobile_route_seed_uses_the_per_hole_tee_resolver(self) -> None:
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.courses import course_prep
+
+        hazards = {
+            "globalId": 39271,
+            "target": {"position": [45.25, 315.25]},
+            "tees": [{"tee_index": 2, "sets": [2], "position": [209.25, 48.5]}],
+            "hazards": [],
+        }
+        with (
+            patch.object(mobile_live, "_load_mobile_hazards", return_value=hazards),
+            patch("ai_caddie.courses.course_reference.courseview_tees", return_value=[]),
+            patch("ai_caddie.geometry.hole_render.load_mesh", return_value=({}, {})),
+            patch.object(course_prep, "resolve_tee_set_for_hole", return_value=2) as resolve,
+            patch.object(course_prep, "derive_route", return_value=(None, None)) as derive,
+            patch.object(mobile_live, "build_route_geometry_evidence", return_value={
+                "routeLength_m": 313.1, "avoidZones": [], "missingData": []
+            }),
+        ):
+            mobile_live._route_evidence_seed(
+                39271,
+                1,
+                {"yards": 372},
+                "live-39271:1",
+                [{"clubName": "1W", "median_m": 220.0, "sampleSize": 30}],
+                "blue",
+            )
+
+        resolve.assert_called_once_with(39271, 1, "blue")
+        derive.assert_called_once_with({}, 2)
+
     def test_live_ios_decision_refresh_replaces_cold_geometry_and_candidate_risks(self) -> None:
         from ai_caddie.caddie import mobile_live
 

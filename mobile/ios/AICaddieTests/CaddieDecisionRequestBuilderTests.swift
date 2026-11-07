@@ -63,4 +63,36 @@ final class CaddieDecisionRequestBuilderTests: XCTestCase {
         XCTAssertNil(request.context["strategyMode"])
         XCTAssertNil(request.context["requestedOptionId"])
     }
+
+    func testDistanceSourceIsForwardedWithoutChangingTheNumericDistance() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
+        let package = try JSONDecoder().decode(LiveRoundPackage.self, from: Data(contentsOf: url))
+        let seed = try XCTUnwrap(package.caddieContextSeeds.first)
+
+        let request = CaddieDecisionRequestBuilder().makeDecisionRequest(
+            seed: seed,
+            input: LiveCaddieInput(
+                shotType: "approach",
+                distanceToPinM: 142,
+                distanceToPinSource: "gps_auto"
+            )
+        )
+
+        XCTAssertEqual(request.context["distanceToPin_m"], .number(142))
+        XCTAssertEqual(request.context["distanceToPinSource"], .string("gps_auto"))
+    }
+
+    func testFirstFrameTeeMarksStaticDistanceAsFallback() throws {
+        let distances = try JSONDecoder().decode(
+            CoursePrepGreenDistances.self,
+            from: Data(#"{"available":true,"middleM":170}"#.utf8)
+        )
+        let input = LiveCaddieInput.firstFrameTee(greenDistances: distances, holeYards: 190)
+
+        XCTAssertEqual(input.distanceToPinSource, "fallback")
+        XCTAssertEqual(input.distanceToPinM, 170)
+    }
 }

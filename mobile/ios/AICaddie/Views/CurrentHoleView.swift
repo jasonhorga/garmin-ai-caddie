@@ -616,6 +616,10 @@ final class LiveHoleDecisionProbe {
     var mapTargetDistance: (() -> Double?)?
     var setTarget: ((CGPoint?) -> Void)?
     var setFix: ((LocationFix?) -> Void)?
+    var setPin: ((CLLocationCoordinate2D?) -> Void)?
+    var setShotType: ((String) -> Void)?
+    var setManualYards: ((String) -> Void)?
+    var distanceSourceText: (() -> String)?
     var clientUnavailable = false
 }
 #endif
@@ -655,7 +659,11 @@ public struct CurrentHoleView: View {
         decisionProbe.offlineDecision = { makeOfflineCaddieDecision() }
         decisionProbe.offlineRequest = { makeOfflineCaddieDecisionRequest() }
         decisionProbe.mapTargetDistance = { mapTargetDistanceMetres }
-        decisionProbe.setTarget = { targetPixel = $0 }
+        decisionProbe.setTarget = { handleMapTargetPixelChanged($0, kind: "target") }
+        decisionProbe.setPin = { handleMapTargetChanged($0, kind: "pin") }
+        decisionProbe.setShotType = { selectedShotType = $0 }
+        decisionProbe.setManualYards = { distanceToPinText = $0 }
+        decisionProbe.distanceSourceText = { distanceToPinSourceDisplayText }
         decisionProbe.setFix = { fix in
             activeLocationProvider.setFixForTesting(fix)
             currentCoordinate = fix?.coordinate
@@ -763,6 +771,9 @@ public struct CurrentHoleView: View {
     @State private var currentHorizontalAccuracyM: Double?
     @State private var note: String = ""
     @State private var caddieDecision: CaddieDecisionResponse?
+    /// Provenance captured with the request that produced the visible decision. GPS can continue
+    /// moving after a response arrives; the badge must describe that response, not a later input.
+    @State private var caddieDecisionDistanceSource: String?
     /// The hole's shot event ids when `caddieDecision` was requested: the plan's origin, sent with
     /// it so the Watch never replays it after a later shot recorded on either device.
     @State private var caddieDecisionOriginShot: [String]?
@@ -1047,6 +1058,7 @@ public struct CurrentHoleView: View {
                 ?? Self.packageGarminRaster(for: hole, offlineStore: offlineStore, teeBox: package.course.teeBox)
         )
         self._caddieDecision = State(initialValue: nil)
+        self._caddieDecisionDistanceSource = State(initialValue: nil)
         if let initialRoute = initialSession.caddieRoutes.first {
             self._caddieRoutesByHole = State(initialValue: [hole.number: [initialRoute]])
             self._retainedCaddieRouteByHole = State(initialValue: [hole.number: initialRoute])
@@ -1381,6 +1393,7 @@ public struct CurrentHoleView: View {
             explicitlySelectedCaddieRouteHoles.remove(hole.number)
             selectedPlanIndex = nil
             caddieDecision = nil
+            caddieDecisionDistanceSource = nil
             caddieDecisionOriginShot = nil
             updateSession { entry in
                 entry.caddieDecision = nil
@@ -1807,14 +1820,25 @@ public struct CurrentHoleView: View {
                         .reportsLiveChrome()
                     }
                     Spacer(minLength: 8)
-                    LivePlayGreenLadder(
-                        frontYards: displayedGreenRangeYards.front,
-                        middleYards: displayedGreenRangeYards.middle,
-                        backYards: displayedGreenRangeYards.back,
-                        flagYards: placedFlagYards,
-                        isLive: isGreenRangeLive
-                    )
-                    .reportsLiveChrome()
+                    VStack(alignment: .trailing, spacing: 6) {
+                        LivePlayGreenLadder(
+                            frontYards: displayedGreenRangeYards.front,
+                            middleYards: displayedGreenRangeYards.middle,
+                            backYards: displayedGreenRangeYards.back,
+                            flagYards: placedFlagYards,
+                            isLive: isGreenRangeLive
+                        )
+                        .reportsLiveChrome()
+                        if caddieDecision != nil {
+                            Text(distanceToPinSourceDisplayText)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.88))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(.black.opacity(0.48), in: Capsule())
+                                .accessibilityIdentifier("live-caddie-distance-source")
+                        }
+                    }
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 6)
@@ -5977,6 +6001,7 @@ public struct CurrentHoleView: View {
                 // requests still plan from manual/static facts rather than the clubhouse GPS.
                 distanceToPinM: (recordedNonPuttShotCount == 0 && !hasLeftSelectedTee) || isTeeShotOffTheHole
                     ? caddiePlanningDistanceMetres : effectiveDistanceToPinMetres,
+                distanceToPinSource: effectiveDistanceToPinSource,
                 lie: selectedLie,
                 coordinate: caddieRequestCoordinate,
                 // Keep the flag coordinate in the server contract: the decision service uses it
@@ -6061,6 +6086,7 @@ public struct CurrentHoleView: View {
         // The shot this decision is for, fixed now, before any await.
         let originShot = recordedShotEventIds
         let initialRequest = makeCaddieDecisionRequest()
+        let requestDistanceSource = initialRequest.flatMap { jsonString($0.context["distanceToPinSource"]) } ?? "fallback"
         let signatureRequest = initialRequest.map(caddieDecisionSignatureRequest(from:))
         let inputSignature = signatureRequest.flatMap {
             caddieDecisionInputSignature(for: $0, endpoint: package.caddieDecisionEndpoint)
@@ -6075,6 +6101,7 @@ public struct CurrentHoleView: View {
                hasCachedDecision: true
            ) {
             caddieDecision = cached
+            caddieDecisionDistanceSource = requestDistanceSource
             caddieDecisionOriginShot = originShot
             syncStrategyModeToDecision()
             if syncClub { syncSelectedClubToRecommendation() }
@@ -6099,6 +6126,7 @@ public struct CurrentHoleView: View {
         #endif
         guard let effectiveClient else {
             caddieDecision = makeOfflineCaddieDecision()
+            caddieDecisionDistanceSource = jsonString(caddieDecision?.context["distanceToPinSource"])
             updateSession { entry in entry.caddieDecisionIsOnline = false }
             caddieDecisionOriginShot = originShot
             syncStrategyModeToDecision()
@@ -6125,6 +6153,7 @@ public struct CurrentHoleView: View {
            !seeded.isLocalNoRoute,
            LiveCaddieDecisionUsability.hasRecommendation(seeded) {
             caddieDecision = seeded
+            caddieDecisionDistanceSource = jsonString(seeded.context["distanceToPinSource"])
             updateSession { entry in entry.caddieDecisionIsOnline = false }
             caddieDecisionOriginShot = originShot
             syncStrategyModeToDecision()
@@ -6141,16 +6170,19 @@ public struct CurrentHoleView: View {
                     entry.storeOnlineDecision(response, inputSignature: inputSignature)
                 }
             }
-            let offlineDecision = makeOfflineCaddieDecision()
+            let offline = makeOfflineCaddieDecision()
             if LiveCaddieDecisionUsability.hasRecommendation(response) {
                 // Route authority is reconciled below. Keep the response itself so its measured
                 // alternatives/evidence remain available, but never let a sparse selectedSequence
                 // replace the retained CoursePrep route.
                 caddieDecision = response
+                caddieDecisionDistanceSource = requestDistanceSource
                 caddieDecisionOriginShot = originShot
                 caddieErrorMessage = nil
-            } else if let offlineDecision {
+            } else if let offline {
+                let offlineDecision = offline
                 caddieDecision = offlineDecision
+                caddieDecisionDistanceSource = jsonString(offlineDecision.context["distanceToPinSource"])
                 updateSession { entry in entry.caddieDecisionIsOnline = false }
                 caddieDecisionOriginShot = originShot
                 // A complete local route is a usable recommendation. Transport provenance is an
@@ -6158,6 +6190,7 @@ public struct CurrentHoleView: View {
                 caddieErrorMessage = offlineDecision.isLocalNoRoute ? Self.localNoRouteMessage : nil
             } else {
                 caddieDecision = nil
+                caddieDecisionDistanceSource = nil
                 updateSession { entry in entry.caddieDecisionIsOnline = false }
                 caddieErrorMessage = "球场资料准备中，请稍后刷新。"
             }
@@ -6170,8 +6203,10 @@ public struct CurrentHoleView: View {
             return
         } catch {
             guard requestGeneration == caddieRequestGeneration else { return }
-            if let offlineDecision = makeOfflineCaddieDecision() {
+            if let offline = makeOfflineCaddieDecision() {
+                let offlineDecision = offline
                 caddieDecision = offlineDecision
+                caddieDecisionDistanceSource = jsonString(offlineDecision.context["distanceToPinSource"])
                 updateSession { entry in entry.caddieDecisionIsOnline = false }
                 caddieDecisionOriginShot = originShot
                 syncStrategyModeToDecision()
@@ -6205,12 +6240,10 @@ public struct CurrentHoleView: View {
     /// An offline decision that recommends nothing must not claim a saved plan.
     static let localNoRouteMessage = "离线没有安全完整的路线 · 联网后再给建议。"
 
+    /// The evaluator echoes its request context, binding offline provenance to the inputs it used.
     private func makeOfflineCaddieDecision() -> CaddieDecisionResponse? {
         guard let caddieContextSeed,
-              let request = makeOfflineCaddieDecisionRequest()
-        else {
-            return nil
-        }
+              let request = makeOfflineCaddieDecisionRequest() else { return nil }
         return offlineDecisionEvaluator.makeDecision(
             seed: caddieContextSeed,
             request: request,
@@ -6773,6 +6806,60 @@ public struct CurrentHoleView: View {
         }
         let metres = CoursePrepRoute.metres(fromYards: yards)
         return metres <= GeoDistance.maximumUsefulGreenMetres ? metres : nil
+    }
+
+    /// The numeric request value keeps the legacy straight-line contract.  This companion marker
+    /// lets the decision service distinguish a player-entered/map target value from a live GPS
+    /// reading and from the static hole facts used when neither is available.
+    private var effectiveDistanceToPinSource: String {
+        let manual = distanceToPinMetres
+        // Match the numeric resolver: a non-tee flag distance (including today's pin sheet)
+        // wins even when a later Touch Target edit becomes the most recent map interaction.
+        // Touch Target itself remains a display-only aim point.
+        let mapTarget = selectedShotType.caseInsensitiveCompare("tee") == .orderedSame
+            ? nil : greenPinDistanceMetres
+        let usesLiveGPS = !((recordedNonPuttShotCount == 0 && !hasLeftSelectedTee) || isTeeShotOffTheHole)
+        return Self.distanceToPinSource(
+            manualM: manual,
+            mapTargetM: mapTarget,
+            liveMiddleM: liveGreenMetres?.middle,
+            staticMiddleM: liveGreenDistances?.middleM,
+            holeYards: hole.yards,
+            usesLiveGPS: usesLiveGPS
+        )
+    }
+
+    private var distanceToPinSourceDisplayText: String {
+        switch caddieDecisionDistanceSource {
+        case "manual": return "距离来源 · 手动"
+        case "map_target": return "距离来源 · 地图目标"
+        case "gps_auto": return "距离来源 · 自动 GPS"
+        default: return "距离来源 · fallback"
+        }
+    }
+
+    /// Resolve provenance in the same order as the live request: explicit user input, a map
+    /// target, a qualified live reading, then the downloaded/static hole facts.
+    static func distanceToPinSource(
+        manualM: Double?,
+        mapTargetM: Double?,
+        liveMiddleM: Double?,
+        staticMiddleM: Double?,
+        holeYards: Int?,
+        usesLiveGPS: Bool = true
+    ) -> String {
+        func valid(_ value: Double?) -> Bool {
+            guard let value else { return false }
+            return value.isFinite && value > 0 && value <= GeoDistance.maximumUsefulGreenMetres
+        }
+        if valid(manualM) { return "manual" }
+        if valid(mapTargetM) { return "map_target" }
+        let nominalM = holeYards.flatMap { $0 > 0 ? CoursePrepRoute.metres(fromYards: Double($0)) : nil }
+        let maximumPlausibleM = max(GeoDistance.maximumUsefulGreenMetres, (nominalM ?? 0) + 250)
+        if usesLiveGPS, valid(liveMiddleM), liveMiddleM ?? Double.infinity <= maximumPlausibleM {
+            return "gps_auto"
+        }
+        return "fallback"
     }
 
     /// The backend/event distance remains GPS/manual distance to the flag. A Touch Target is a
