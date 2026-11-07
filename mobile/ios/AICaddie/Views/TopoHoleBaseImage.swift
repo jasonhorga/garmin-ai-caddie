@@ -24,6 +24,7 @@ final class TopoHoleImageStore: ObservableObject {
     /// waiter, but must not cancel the one download shared by the next view that needs the bitmap.
     private static var inFlight: [URL: Task<Data?, Never>] = [:]
     private static var loadingTasks: [UUID: Task<Bool, Never>] = [:]
+    private static var loadingTaskByURL: [URL: Task<Bool, Never>] = [:]
     private static var retryAttemptByURL: [URL: Int] = [:]
     private static let retryDelaysNanoseconds: [UInt64] = [0, 5_000_000_000, 15_000_000_000]
     #if DEBUG
@@ -90,6 +91,7 @@ final class TopoHoleImageStore: ObservableObject {
         inFlight.values.forEach { $0.cancel() }
         inFlight.removeAll()
         loadingTasks.values.forEach { $0.cancel() }
+        loadingTaskByURL.removeAll()
         requestedLoadingURLs.removeAll()
         retryAttemptByURL.removeAll()
         retrySleepForTesting = nil
@@ -109,19 +111,24 @@ final class TopoHoleImageStore: ObservableObject {
     }
 
     private static func startLoading(_ url: URL) -> Task<Bool, Never> {
+        if let existing = loadingTaskByURL[url] { return existing }
         let id = UUID()
         #if DEBUG
         let generation = resetGeneration
         requestedLoadingURLs.insert(url)
         #endif
         let task = Task {
-            defer { loadingTasks[id] = nil }
+            defer {
+                loadingTasks[id] = nil
+                loadingTaskByURL[url] = nil
+            }
             #if DEBUG
             guard generation == resetGeneration else { return false }
             #endif
             return await loadWithRetries(url)
         }
         loadingTasks[id] = task
+        loadingTaskByURL[url] = task
         return task
     }
 
@@ -142,11 +149,10 @@ final class TopoHoleImageStore: ObservableObject {
     static func ensureLoaded(_ url: URL?) async -> Bool {
         guard let url else { return false }
         let task = startLoading(url)
-        return await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
-        }
+        // The task is a shared producer. A selected page may leave after starting it and before
+        // round prefetch joins, so no individual waiter may cancel the producer out from under the
+        // other waiters. Fixture reset remains the explicit lifecycle boundary that cancels it.
+        return await task.value
     }
 
     private static func loadWithRetries(_ url: URL) async -> Bool {

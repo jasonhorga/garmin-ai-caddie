@@ -191,8 +191,8 @@ final class LiveMapFirstFrameTests: XCTestCase {
         try assertNeutralDecodeFrame(LiveMapDisplayState.resolveLive(inputs))
     }
 
-    /// J4.5-1/2: a failed local decode releases the neutral frame for the ready Garmin bitmap.
-    func testFailedPreciseDecodeAllowsReadyGarminFallback() {
+    /// J4.5-2: a failed local decode keeps the exact-map authority on neutral ground for retry.
+    func testFailedPreciseDecodeKeepsNeutralRetryFrame() {
         let inputs = LiveMapDisplayState.liveInputs(
             coverage: "ready",
             decodeFailed: true,
@@ -206,11 +206,11 @@ final class LiveMapFirstFrameTests: XCTestCase {
             garminImageFailed: false
         )
         let state = LiveMapDisplayState.resolveLive(inputs)
-        XCTAssertEqual(state, .garminRaster)
+        XCTAssertEqual(state, .factualPending)
     }
 
-    /// J4.5-1/2: decode failure overrides stale cache/readiness signals and releases Garmin.
-    func testFailedCachedPreciseDecodeAllowsGarminDespiteStaleReadySignals() {
+    /// J4.5-2: decode failure overrides stale cache/readiness signals and keeps neutral ground.
+    func testFailedCachedPreciseDecodeKeepsNeutralDespiteStaleReadySignals() {
         let inputs = LiveMapDisplayState.liveInputs(
             coverage: "ready", decodeFailed: true,
             resolvedLocalTopoURL: URL(fileURLWithPath: "/tmp/failed-cached-topo.png"),
@@ -219,10 +219,10 @@ final class LiveMapFirstFrameTests: XCTestCase {
             garminRaster: GarminRasterResponse(available: true, imageUrl: "/garmin.png"),
             garminImageReady: true, garminImageFailed: false
         )
-        XCTAssertEqual(LiveMapDisplayState.resolveLive(inputs), .garminRaster)
+        XCTAssertEqual(LiveMapDisplayState.resolveLive(inputs), .factualPending)
     }
 
-    /// J4.5-1/4: local decode completion promotes to precise; failure without Garmin waits neutrally.
+    /// J4.5-1/2: local decode completion promotes to precise; failure remains a neutral retry frame.
     func testLocalPreciseDecodeCompletionAndFailureWithoutGarmin() {
         for failed in [false, true] {
             let inputs = LiveMapDisplayState.liveInputs(
@@ -232,7 +232,10 @@ final class LiveMapFirstFrameTests: XCTestCase {
                 preciseTopoImageReady: !failed, memoryCached: false,
                 garminRaster: nil, garminImageReady: false, garminImageFailed: false
             )
-            XCTAssertEqual(LiveMapDisplayState.resolveLive(inputs), failed ? .waiting : .precise)
+            XCTAssertEqual(
+                LiveMapDisplayState.resolveLive(inputs),
+                failed ? .factualPending : .precise
+            )
         }
     }
 
