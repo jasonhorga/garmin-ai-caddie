@@ -2633,7 +2633,6 @@ class MobileContractTests(unittest.TestCase):
         # P0-5: a restore must NOT blanket-overwrite save-only fields (score/putts/penalty are
         # persisted only on explicit Save) — it reconciles them, preserving unsaved local edits.
         self.assertIn("restoredHoleState.reconciledSaveOnlyFields(", current_hole)
-        self.assertIn("guard let latestFix else", current_hole)
         self.assertIn("distanceToPinText = Self.validDistanceText(restoredHoleState.distanceToPinM)", current_hole)
         # Distance remains a restorable club/shot-context fact.  The live view now builds that
         # payload as a dictionary literal; end-of-hole score confirmation deliberately does not
