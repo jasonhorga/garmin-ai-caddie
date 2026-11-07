@@ -54,12 +54,13 @@ struct LiveHoleEventDerivedValues {
 
 struct LiveWatchShotPayload {
     let markedShots: [LiveRoundEvent]
+    let confirmedShotEventIds: [String]
     let lastShotLatitude: Double?
     let lastShotLongitude: Double?
     let lastShotCapturedAt: String?
     let teeShotLanding: (latitude: Double, longitude: Double)?
 
-    var phoneShotEventIds: [String] { markedShots.map(\.eventId) }
+    var phoneShotEventIds: [String] { confirmedShotEventIds }
 }
 
 enum LiveCaddieDecisionSignaturePolicy {
@@ -6584,7 +6585,7 @@ public struct CurrentHoleView: View {
             decisionOriginShotEventIds: decision.flatMap { $0 == caddieDecision ? caddieDecisionOriginShot : nil },
             // The phone's current shots on this hole, so a shot recorded only here after the
             // decision still retires it on the Watch.
-            phoneShotEventIds: markedShots.map(\.eventId),
+            phoneShotEventIds: shotPayload.phoneShotEventIds,
             lastShotLatitude: shotPayload.lastShotLatitude,
             lastShotLongitude: shotPayload.lastShotLongitude,
             lastShotCapturedAt: shotPayload.lastShotCapturedAt,
@@ -6836,7 +6837,9 @@ public struct CurrentHoleView: View {
 
     /// This hole's location events (phone-recorded, and Watch-recorded ones under their Watch ids).
     private var recordedShotEventIds: [String] {
-        markedShotsOnHole.map(\.eventId)
+        LiveMarkedShots.actualShotLocationEventIds(
+            in: eventSnapshot.events(), roundId: package.roundId, hole: hole.number
+        )
     }
 
     /// The hole's second marked shot (Watch shots included): where the tee shot landed.
@@ -6873,9 +6876,13 @@ public struct CurrentHoleView: View {
         roundId: String,
         hole: Int
     ) -> LiveWatchShotPayload {
-        let values = liveHoleEventDerivedValues(load: load, roundId: roundId, hole: hole)
+        let events = load()
+        let values = liveHoleEventDerivedValues(from: events, roundId: roundId, hole: hole)
         return LiveWatchShotPayload(
             markedShots: values.markedShots,
+            confirmedShotEventIds: LiveMarkedShots.actualShotLocationEventIds(
+                in: events, roundId: roundId, hole: hole
+            ),
             lastShotLatitude: values.newestShotCoordinate?.latitude,
             lastShotLongitude: values.newestShotCoordinate?.longitude,
             lastShotCapturedAt: values.newestShotCoordinate?.capturedAt,
@@ -6908,7 +6915,17 @@ public struct CurrentHoleView: View {
     }
 
     private var recordedNonPuttShotCount: Int {
-        markedShotsOnHole.count
+        Self.recordedNonPuttShotCount(
+            from: eventSnapshot.events(), roundId: package.roundId, hole: hole.number
+        )
+    }
+
+    /// A location event is a useful map fact but does not prove that a stroke was hit. The score,
+    /// tee/live distance and Touch Target gates must advance only on a real club event.
+    static func recordedNonPuttShotCount(
+        from events: [LiveRoundEvent], roundId: String, hole: Int
+    ) -> Int {
+        LiveMarkedShots.actualShots(in: events, roundId: roundId, hole: hole).count
     }
 
     private var actualClubChoices: [LiveActualClubChoice] {
