@@ -138,6 +138,43 @@ class MobileReconciliationTests(unittest.TestCase):
                 self.assertEqual({r["payload"].get("resolution") for r in result["annotationSuggestions"]},
                                  {"garmin", "mobile"})
 
+    def test_j3_3_mobile_choice_detects_garmin_change_before_followup_phone_edit(self) -> None:
+        # J3.3: a Garmin change after retaining mobile remains a conflict even when a later
+        # phone edit is applied against the changed value.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data = fixture_history_data()
+            data.rounds[0]["holes"][0]["strokes"] = 10
+            append_event_batch("900001", [{"eventId": "baseline-phone", "roundId": "900001", "hole": 1,
+                "kind": "score", "payload": {"strokes": 11}}], idempotency_key="baseline-phone", root=root)
+            first = reconcile_mobile_round_events("900001", data, root=root)
+            apply_mobile_reconciliation_suggestions("900001", data,
+                suggestion_ids=[row["id"] for row in first["annotationSuggestions"]],
+                root=root, annotations_root=root, data_loader=lambda: data)
+            changed = deepcopy(data.rounds[0])
+            changed["holes"] = [{**hole, "strokes": 12} if hole.get("number") == 1 else hole
+                                 for hole in changed["holes"]]
+            changed_data = HistoryData(raw_rounds=[], rounds=[changed], shots=data.shots)
+            conflict = reconcile_mobile_round_events("900001", changed_data, root=root, annotations_root=root)
+            mobile_choice = next(row for row in conflict["annotationSuggestions"]
+                                 if row["payload"].get("resolution") == "mobile")
+            apply_mobile_reconciliation_suggestions("900001", changed_data,
+                suggestion_ids=[mobile_choice["id"]], root=root, annotations_root=root,
+                data_loader=lambda: changed_data)
+            append_event_batch("900001", [{"eventId": "followup-phone", "roundId": "900001", "hole": 1,
+                "kind": "score", "payload": {"strokes": 13}}], idempotency_key="followup-phone", root=root)
+            ordinary = reconcile_mobile_round_events("900001", changed_data, root=root, annotations_root=root)
+            apply_mobile_reconciliation_suggestions("900001", changed_data,
+                suggestion_ids=[row["id"] for row in ordinary["annotationSuggestions"]],
+                root=root, annotations_root=root, data_loader=lambda: changed_data)
+            changed_again = deepcopy(changed)
+            changed_again["holes"] = [{**hole, "strokes": 11} if hole.get("number") == 1 else hole
+                                       for hole in changed_again["holes"]]
+            result = reconcile_mobile_round_events("900001", HistoryData(raw_rounds=[], rounds=[changed_again], shots=data.shots),
+                                                   root=root, annotations_root=root)
+            self.assertTrue(result["conflicts"])
+            self.assertTrue(result["conflicts"][0].get("correctionConflict"))
+
     def test_j3_3_penalty_chain_includes_correction_store_edits(self) -> None:
         # J3.3: a phone penalty edit starts at the value shown after a web penalty edit.
         from ai_caddie.rounds.round_corrections import append_correction
