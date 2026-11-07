@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C250-01-pending-position-counts",
+      "patch": "tests/product/faults/C250/01-pending-position-counts.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/CurrentHoleShotCountTests/testPendingPhonePositionKeepsOpeningStateUntilThePromptCloses",
+      "promise": "J5.4"
+    },
+    {
+      "id": "tests-product-faults-C250-02-skipped-phone-shot-dropped",
+      "patch": "tests/product/faults/C250/02-skipped-phone-shot-dropped.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/CurrentHoleShotCountTests/testPhoneRecordedShotWithSkippedClubStillCountsOnce",
+      "promise": "J5.4"
+    },
+    {
+      "id": "tests-product-faults-C250-03-untagged-position-counts",
+      "patch": "tests/product/faults/C250/03-untagged-position-counts.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/CurrentHoleShotCountTests/testPositionOnlyEventDoesNotCountAsARecordedShot",
+      "promise": "J5.4"
+    },
+    {
+      "id": "tests-product-faults-C250-04-phone-shot-double-counted",
+      "patch": "tests/product/faults/C250/04-phone-shot-double-counted.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/CurrentHoleShotCountTests/testActualClubEvidenceCountsWhilePositionAndPlanningEventsDoNot",
+      "promise": "J5.4"
+    }
+  ]
+}
