@@ -1318,6 +1318,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 return package
             }
         )
+        watchBridge?.onHoleDisplayed = { [weak self] hole in
+            self?.watchTopoSender?.markHoleDisplayed(roundHole: hole)
+        }
         watchBridge?.onActivated = { [weak self] in
             Task { @MainActor in
                 // A (re)activated session may be a different Watch: send the round again.
@@ -1328,6 +1331,12 @@ public final class LiveRoundAppModel: ObservableObject {
         watchBridge?.onHoleImageTransferFailed = { [weak self] globalId, hole in
             Task { @MainActor in
                 self?.watchTopoSender?.transferFailed(globalId: globalId, roundHole: hole)
+            }
+        }
+        watchBridge?.onHoleAssetTransferFailed = { [weak self] globalId, hole, kind in
+            guard kind != "topo" else { return }
+            Task { @MainActor in
+                self?.watchTopoSender?.transferFailed(globalId: globalId, roundHole: hole, assetKind: kind)
             }
         }
         watchBridge?.activateSession()
@@ -2783,6 +2792,22 @@ public final class LiveRoundAppModel: ObservableObject {
                 if !GarminRasterImageStore.isOnDisk(url) {
                     _ = await self.garminRasterDownloader(url)
                 }
+                if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                   let version = components.queryItems?.first(where: { $0.name == "v" })?.value,
+                   let coursesIndex = url.pathComponents.firstIndex(of: "courses"),
+                   let holesIndex = url.pathComponents.firstIndex(of: "holes"),
+                   coursesIndex + 1 < url.pathComponents.count,
+                   holesIndex + 1 < url.pathComponents.count,
+                   let globalId = Int(url.pathComponents[coursesIndex + 1]),
+                   let localHole = Int(url.pathComponents[holesIndex + 1]) {
+                    self.watchTopoSender?.garminAssetAvailable(
+                        globalId: globalId, localHole: localHole, version: version
+                    )
+                }
+                // A raster may finish after the initial Watch sync. Re-run the sender for every
+                // completed URL so a later hole is exported as soon as its bytes are available;
+                // WatchTopoSender still holds Garmin transfers behind its first-frame gate.
+                self.watchTopoSender?.sync()
             }
             self.garminRasterDownloadTask = nil
             self.enqueuedGarminRasterURLs = Set(self.pendingGarminRasterURLs)

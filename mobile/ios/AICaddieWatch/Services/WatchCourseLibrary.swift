@@ -572,7 +572,7 @@ public final class WatchCourseLibrary: ObservableObject {
                         // A progress snapshot contains package rows for every hole. Only apply rows
                         // with drawable geometry to the active round: an as-yet-unfetched row must
                         // never clear a map that an earlier batch already made visible.
-                        onProgress?(Self.drawableHoleStates(from: prepared.holeStates))
+                        onProgress?(Self.publishableHoleStates(from: prepared.holeStates))
                     }
                 )
                 shouldQueueGeometry = false
@@ -584,7 +584,7 @@ public final class WatchCourseLibrary: ObservableObject {
                 // The final package can still contain factual rows whose precise geometry was not
                 // returned in this attempt. Do not publish those placeholder rows over maps that
                 // an earlier progress batch already made drawable in the active round.
-                onProgress?(Self.drawableHoleStates(from: prepared.holeStates))
+                onProgress?(Self.publishableHoleStates(from: prepared.holeStates))
                 if Self.preciseDownloadReady(download) {
                     errorMessage = nil
                     return prepared
@@ -1264,20 +1264,29 @@ public final class WatchCourseLibrary: ObservableObject {
     private func cacheGarminAssets(
         package: WatchCoursePackage,
         client: WatchBackendClient,
-        beforeEachRequest: (() async -> Void)?
+        priorityHole: Int?,
+        beforeEachRequest: (() async -> Void)?,
+        onAssetStored: (() async -> Void)? = nil
     ) async {
-        let holes = package.holes.filter { $0.garminRaster?.assetVersion?.isEmpty == false }
+        let holes = package.holes
+            .filter { $0.garminRaster?.assetVersion?.isEmpty == false }
+            .sorted { lhs, rhs in
+                let left = lhs.number == priorityHole
+                let right = rhs.number == priorityHole
+                return left != right ? left : lhs.number < rhs.number
+            }
         for start in stride(from: 0, to: holes.count, by: Self.courseAssetConcurrency) {
             let batch = Array(holes[start..<min(start + Self.courseAssetConcurrency, holes.count)])
             await withTaskGroup(of: (WatchCoursePackageHole, Data?).self) { group in
                 for hole in batch {
                     guard let asset = hole.garminRaster, let version = asset.assetVersion else { continue }
-                    if imageStore.image(globalId: hole.sourceGlobalId, hole: hole.sourceLocalHole, garminAssetVersion: version) != nil { continue }
+                    if imageStore.hasImage(globalId: hole.sourceGlobalId, hole: hole.sourceLocalHole, garminAssetVersion: version) { continue }
                     group.addTask {
                         await beforeEachRequest?()
                         let data = try? await client.fetchGarminAsset(asset, globalId: hole.sourceGlobalId, localHole: hole.sourceLocalHole)
-                        // WC/cache keeps one validated PNG/JPEG contract; Garmin's WebP alpha is preserved.
-                        return (hole, data.flatMap { UIImage(data: $0)?.pngData() })
+                        // The Watch endpoint negotiates JPEG because watchOS cannot decode WebP.
+                        // Keep those compact bytes; only the on-demand renderer decodes them.
+                        return (hole, data)
                     }
                 }
                 for await (hole, data) in group {
@@ -1285,6 +1294,10 @@ public final class WatchCourseLibrary: ObservableObject {
                     do {
                         try imageStore.store(data: data, globalId: hole.sourceGlobalId, hole: hole.sourceLocalHole, garminAssetVersion: version)
                         lastGarminImageKey = WatchHoleImageStore.key(globalId: hole.sourceGlobalId, hole: hole.sourceLocalHole)
+                        // Release the active-hole identity as soon as this asset is durable. The
+                        // remaining Garmin and precise requests continue independently in the
+                        // same bounded batch.
+                        await onAssetStored?()
                     } catch { /* Optional: precise downloads and the factual package continue. */ }
                 }
             }
@@ -1310,7 +1323,8 @@ public final class WatchCourseLibrary: ObservableObject {
             teeBox: selection.teeBox,
             loops: selection.loopsQuery,
             ensureGeometry: false,
-            backgroundGeometry: backgroundGeometry
+            backgroundGeometry: backgroundGeometry,
+            priorityHole: priorityHole
         )
         // The template is cached under the requested ordered loop key; a package for any other
         // loops (e.g. a server that ignored `loops=G:back`) must never be stored under it.
@@ -1344,7 +1358,30 @@ public final class WatchCourseLibrary: ObservableObject {
             return lightweight
         }
 
-        await cacheGarminAssets(package: package, client: client, beforeEachRequest: beforeEachRequest)
+        // The package's fallback URLs are available before precise prep. Publish a lightweight
+        // snapshot after each stored Garmin asset so a cold round can display its current hole
+        // even if the first prep request later fails.
+        await cacheGarminAssets(
+            package: package,
+            client: client,
+            priorityHole: priorityHole,
+            beforeEachRequest: beforeEachRequest,
+            onAssetStored: { [weak self] in
+                guard let self else { return }
+                if let partial = try? WatchCourseTemplateBuilder.build(
+                    option: selection.front,
+                    backOption: selection.back,
+                    loopKey: selection.loopKey,
+                    package: package,
+                    prepsByGlobalId: preps,
+                    topoImagesByGlobalId: [:],
+                    selectedTee: selection.teeBox,
+                    cachedAt: self.now()
+                ) {
+                    onProgress?(partial)
+                }
+            }
+        )
 
         var requestedByGlobalId: [Int: Set<Int>] = [:]
         var displayHoleByGlobalId: [Int: [Int: Int]] = [:]
@@ -1355,6 +1392,21 @@ public final class WatchCourseLibrary: ObservableObject {
             displayHoleByGlobalId[globalId, default: [:]][localHole] = hole.number
         }
         var topoImages: [Int: [Int: Data]] = [:]
+
+        // Garmin fallback bytes are independent of precise prep. Publish their version as soon as
+        // the cache pass completes, before the first prep request can fail or be retried, so a
+        // cold-start round can render the current hole's downloaded bitmap on its own.
+        let garminOnly = try WatchCourseTemplateBuilder.build(
+            option: selection.front,
+            backOption: selection.back,
+            loopKey: selection.loopKey,
+            package: package,
+            prepsByGlobalId: preps,
+            topoImagesByGlobalId: [:],
+            selectedTee: selection.teeBox,
+            cachedAt: now()
+        )
+        onProgress?(garminOnly)
 
         func publishProgress() throws {
             let partial = try WatchCourseTemplateBuilder.build(
@@ -1642,14 +1694,37 @@ public final class WatchCourseLibrary: ObservableObject {
                 geometryRevision: image.geometryRevision
             )
         }
-        try store.save(download.template)
-        if Self.preciseTemplateReady(download.template, imageStore: imageStore) {
+        let template = preservingExistingMapFacts(in: download.template)
+        try store.save(template)
+        if Self.preciseTemplateReady(template, imageStore: imageStore) {
             cachedCourseIds.insert(download.template.option.globalId)
         } else {
             cachedCourseIds.remove(download.template.option.globalId)
         }
         courses = Self.uniqueOptions(
-            from: [download.template.option, download.template.backOption].compactMap { $0 } + courses
+            from: [template.option, template.backOption].compactMap { $0 } + courses
+        )
+    }
+
+    /// Garmin-only progress has the same cache identity as a precise template but carries no map
+    /// facts. Merge it with the durable template before saving so a prep failure cannot erase maps
+    /// that were already available for a previously downloaded course.
+    private func preservingExistingMapFacts(in incoming: WatchCourseTemplate) -> WatchCourseTemplate {
+        guard let existing = store.loadCourses().first(where: { $0.cacheKey == incoming.cacheKey }) else {
+            return incoming
+        }
+        let existingByHole = Dictionary(uniqueKeysWithValues: existing.holeStates.map { ($0.hole, $0) })
+        let mergedStates = incoming.holeStates.map { state in
+            existingByHole[state.hole]?.applyingCourseMapUpgrade(state) ?? state
+        }
+        return WatchCourseTemplate(
+            option: incoming.option,
+            backOption: incoming.backOption,
+            loopKey: incoming.loopKey,
+            courseName: incoming.courseName,
+            teeBox: incoming.teeBox,
+            holeStates: mergedStates,
+            cachedAt: incoming.cachedAt
         )
     }
 
@@ -1664,6 +1739,13 @@ public final class WatchCourseLibrary: ObservableObject {
     /// `holeMap` is the shared, validated drawability gate for both vector and raster maps.
     static func drawableHoleStates(from states: [WatchRoundState]) -> [WatchRoundState] {
         states.filter { $0.holeMap != nil }
+    }
+
+    /// A cached Garmin bitmap is independently useful before precise vector geometry arrives.
+    /// Publish its version into the active round so the renderer can resolve the downloaded
+    /// physical-hole asset during a cold Watch start; later precise snapshots still merge normally.
+    static func publishableHoleStates(from states: [WatchRoundState]) -> [WatchRoundState] {
+        states.filter { $0.holeMap != nil || $0.garminAssetVersion != nil }
     }
 
     /// Merge one `/prep` response into the package seed without dropping a previously drawable

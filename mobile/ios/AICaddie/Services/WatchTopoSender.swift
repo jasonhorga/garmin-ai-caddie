@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// Sends the Watch every hole map of the live round that is on the phone.
 ///
@@ -58,6 +59,11 @@ final class WatchTopoSender {
     private var exhausted = Set<String>()
     private var running: Task<Void, Never>?
     private var retry: Task<Void, Never>?
+    private var availableGarminVersions: [String: String] = [:]
+    /// A Garmin export is held until SwiftUI has committed at least one real hole frame. After
+    /// that first frame, export every cached hole independently of which hole the phone is still
+    /// showing; otherwise a player who leaves the phone in a pocket strands later Watch holes.
+    private var hasRenderedHoleFrame = false
 
     init(
         load: @escaping (Item) async -> Data?,
@@ -71,8 +77,15 @@ final class WatchTopoSender {
         self.loadGarmin = { item in
             guard let version = item.garminAssetVersion else { return nil }
             return await Task.detached(priority: .utility) {
-                garminCache.data(globalId: item.globalId, localHole: item.localHole, assetVersion: version)
-                    .map { ($0, version) }
+                guard let raw = garminCache.data(
+                    globalId: item.globalId,
+                    localHole: item.localHole,
+                    assetVersion: version
+                ) else { return nil }
+                // Keep the compact source on disk, then make a Watch-decodable transfer only when
+                // this hole has rendered on the phone. JPEG/PNG sources remain unchanged when the
+                // decoder cannot improve them.
+                return (UIImage(data: raw)?.pngData() ?? raw, version)
             }.value
         }
     }
@@ -88,12 +101,18 @@ final class WatchTopoSender {
             reset(roundId: package.roundId)
         }
         running?.cancel()
-        let items = Self.plan(for: package)
+        let items = Self.plan(for: package).map { item -> Item in
+            guard item.garminAssetVersion == nil else { return item }
+            var resolved = item
+            resolved.garminAssetVersion = availableGarminVersions["\(item.globalId)_\(item.localHole)"]
+            return resolved
+        }
         let round = package.roundId
         running = Task { [weak self] in
             for item in items {
                 guard let self, !Task.isCancelled, self.roundId == round else { return }
-                if let (data, version) = await self.loadGarmin(item), !Task.isCancelled, self.roundId == round {
+                if self.hasRenderedHoleFrame,
+                   let (data, version) = await self.loadGarmin(item), !Task.isCancelled, self.roundId == round {
                     let fallbackKey = "\(item.roundHole)|\(item.globalId)|garmin|\(version)"
                     if !self.sent.contains(fallbackKey), !self.exhausted.contains(fallbackKey),
                        self.enqueueGarmin(item, data, version) {
@@ -117,10 +136,28 @@ final class WatchTopoSender {
         exhausted.removeAll()
     }
 
+    func markHoleDisplayed(roundHole: Int, scheduleSync: Bool = true) {
+        guard roundHole > 0 else { return }
+        hasRenderedHoleFrame = true
+        if scheduleSync { sync() }
+    }
+
+    /// Records a raster whose bytes just became durable. The package may still be an older
+    /// lightweight snapshot without the descriptor, so retain this physical identity for the next
+    /// pass instead of relying on a later package publication to discover it.
+    func garminAssetAvailable(globalId: Int, localHole: Int, version: String) {
+        guard globalId > 0, localHole > 0, !version.isEmpty else { return }
+        availableGarminVersions["\(globalId)_\(localHole)"] = version
+        sync()
+    }
+
     /// A queued topo transfer for (course, round hole) failed: it is no longer sent, and a retry is
     /// scheduled while this round is live, up to `retryDelaysNanoseconds.count` times per hole.
-    func transferFailed(globalId: Int, roundHole: Int) {
-        let failed = sent.filter { $0.hasPrefix("\(roundHole)|\(globalId)|") }
+    func transferFailed(globalId: Int, roundHole: Int, assetKind: String = "topo") {
+        let failed = sent.filter { key in
+            guard key.hasPrefix("\(roundHole)|\(globalId)|") else { return false }
+            return assetKind == "garmin" ? key.contains("|garmin|") : !key.contains("|garmin|")
+        }
         guard !failed.isEmpty else { return }
         sent.subtract(failed)
         let attempt = failed.map { failures[$0, default: 0] }.max() ?? 0
@@ -159,5 +196,7 @@ final class WatchTopoSender {
         sent.removeAll()
         failures.removeAll()
         exhausted.removeAll()
+        availableGarminVersions.removeAll()
+        hasRenderedHoleFrame = false
     }
 }

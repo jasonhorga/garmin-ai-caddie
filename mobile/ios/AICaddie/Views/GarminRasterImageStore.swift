@@ -304,11 +304,15 @@ final class GarminRasterImageStore: ObservableObject {
     private static func image(for url: URL) async -> LoadResult {
         let key = url as NSURL
         if let cached = imageCache.object(forKey: key) {
-            try? WatchGarminAssetCache().store(cached, for: url)
             return LoadResult(image: cached, versionConflict: false)
         }
         if let disk = diskImage(for: url) {
-            try? WatchGarminAssetCache().store(disk, for: url)
+            // A raster may have survived the Watch export cache cleanup. Reuse the compact source
+            // bytes from the existing disk entry; the sender converts them only after this hole is
+            // displayed, so restoring the export cannot delay the first frame.
+            if let bytes = try? Data(contentsOf: diskURL(for: url)) {
+                try? WatchGarminAssetCache().store(bytes, for: url)
+            }
             imageCache.setObject(disk, forKey: key, cost: cost(of: disk))
             return LoadResult(image: disk, versionConflict: false)
         }

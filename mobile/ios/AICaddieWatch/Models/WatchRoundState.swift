@@ -973,7 +973,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             score: score,
             putts: putts,
             penaltyCount: penaltyCount,
-            caddieConfidence: caddieConfidence
+            caddieConfidence: caddieConfidence,
+            phoneShotEventIds: phoneShotEventIds,
+            snapshotRevision: snapshotRevision
         )
     }
 
@@ -995,6 +997,21 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
            upgraded.sourceLocalHole == sourceLocalHole,
            upgraded.geometryRevision == nil || upgraded.geometryRevision == geometryRevision {
             return self
+        }
+        // A Garmin-only progress row carries the new physical asset identity but no geometry. It
+        // must never erase a vector/raster map already visible for this hole while the precise
+        // request is still pending.
+        if upgraded.garminAssetVersion != nil,
+           upgraded.holeMap == nil,
+           upgraded.geometryRevision == nil,
+           upgraded.geometryCoverage?.caseInsensitiveCompare("ready") != .orderedSame {
+            return replacingRoundId(
+                roundId,
+                hole: hole,
+                sourceLocalHole: upgraded.sourceLocalHole ?? sourceLocalHole,
+                courseHoleNumber: upgraded.courseHoleNumber ?? courseHoleNumber,
+                garminAssetVersion: upgraded.garminAssetVersion
+            )
         }
         // A background refresh is not always monotonic: Garmin may have published a new release,
         // making the formerly precise cache partial until replacement bytes arrive. When the
