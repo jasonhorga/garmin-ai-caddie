@@ -1685,9 +1685,9 @@ public final class LiveRoundAppModel: ObservableObject {
         guard !LocationProvider.isPendingRegionEntryNotified(
             "ai-caddie.course.\(candidate.globalId)"
         ) else { return }
-        LocationProvider.markPendingRegionEntryNotified(
+        guard LocationProvider.markPendingRegionEntryNotified(
             "ai-caddie.course.\(candidate.globalId)"
-        )
+        ) else { return }
         syncStatus = "区域提醒已打开最近球场 · \(candidate.name)"
         notifyAutomaticRegionEntry(for: candidate)
     }
