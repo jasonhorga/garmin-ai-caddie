@@ -44,6 +44,20 @@ leaves library internals such as logging timestamps alone. Under discovery,
 `SmallTestCase`. Not covered: clock functions captured before the test runs
 (e.g. a default argument `now=datetime.now`); inject them instead.
 
+Traceability (docs/test-plan.md section 9): a layered test names the goals it
+covers at the start of its docstring, `"""S-11 S-27 [main]: ..."""` (a class
+docstring applies to all its tests); a Swift test uses `// goals: I-10 [main]` on
+the line above it. `tests/small/test_traceability.py` fails, listing the IDs,
+when a section 2 goal has no test, no or several `[main]` tests, a D3 goal has
+fewer than four tests, or a tag names an unknown ID. It also rejects test files
+named `test_c<number>` and test code that reads `server_v2`/`ai_caddie`/`mobile`
+source text. Quarantined tests do not count; a goal whose main test is quarantined
+shows as a skip. Goals still being built are listed in
+`tests/support/traceability_allowed_missing.txt`. Delete a goal's line when its
+main test lands (a stale entry fails). The list only shrinks:
+`tests/medium/test_traceability_allowance.py` fails when it gains an ID that main
+did not have.
+
 ## Legacy suite
 
 Run a module with `python -m unittest tests.test_course_reference`. For discovery,
