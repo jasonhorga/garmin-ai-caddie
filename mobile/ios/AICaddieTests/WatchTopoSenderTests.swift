@@ -53,7 +53,11 @@ final class WatchTopoSenderTests: XCTestCase {
         }
         sender.sync()
         await sender.waitUntilIdle()
-        XCTAssertEqual(fallbackSent, package.holes.count, "J4.5: Garmin transfers without a topo")
+        XCTAssertEqual(fallbackSent, 0, "J4.5: Garmin export waits for the first committed hole frame")
+        sender.markHoleDisplayed(roundHole: package.holes[0].number, scheduleSync: false)
+        sender.sync()
+        await sender.waitUntilIdle()
+        XCTAssertEqual(fallbackSent, package.holes.count, "J4.5: one committed frame releases all cached Garmin transfers")
         XCTAssertEqual(preciseSent, 0)
         preciseReady = true
         sender.sync()
@@ -68,6 +72,9 @@ final class WatchTopoSenderTests: XCTestCase {
         let url = try XCTUnwrap(URL(string: "https://caddie.example/api/v2/courses/42/holes/10/garmin-raster.webp?v=release-a"))
         try cache.store(validOnePixelPNGData(), for: url)
         XCTAssertNotNil(cache.data(globalId: 42, localHole: 10, assetVersion: "release-a"))
+        let cachedFiles = (FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil)?.allObjects as? [URL]) ?? []
+        XCTAssertTrue(cachedFiles.contains { $0.pathExtension == "img" })
+        XCTAssertFalse(cachedFiles.contains { $0.pathExtension == "png" }, "J4.5: compact source bytes stay on disk")
         XCTAssertNil(cache.data(globalId: 42, localHole: 1, assetVersion: "release-a"))
         XCTAssertNil(cache.data(globalId: 42, localHole: 10, assetVersion: "release-b"))
         let metadata = try XCTUnwrap(WatchEventBridge.holeImageMetadata(globalId: 42, hole: 1,

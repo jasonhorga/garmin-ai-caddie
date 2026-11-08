@@ -9,6 +9,96 @@ import AICaddieDomain
 import UIKit
 #endif
 
+#if canImport(UIKit)
+/// A real display acknowledgement for the first mounted hole frame. SwiftUI lifecycle callbacks
+/// can run before Core Animation presents anything, so a one-shot display link is the boundary used
+/// to release disk-heavy Garmin exports.
+private struct FirstRenderedFrameSignal: UIViewRepresentable {
+    let enabled: Bool
+    let onRendered: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onRendered: onRendered) }
+
+    func makeUIView(context: Context) -> SignalView {
+        let view = SignalView()
+        view.alpha = 0.001
+        view.onWindow = { [weak coordinator = context.coordinator, weak view] in
+            guard let view else { return }
+            coordinator?.arm(on: view)
+        }
+        view.onDraw = { [weak coordinator = context.coordinator, weak view] in
+            guard let view else { return }
+            coordinator?.didDraw(on: view)
+        }
+        return view
+    }
+
+    func updateUIView(_ uiView: SignalView, context: Context) {
+        context.coordinator.onRendered = onRendered
+        context.coordinator.enabled = enabled
+        if enabled {
+            context.coordinator.arm(on: uiView)
+        } else {
+            context.coordinator.reset()
+        }
+    }
+
+    final class Coordinator: NSObject {
+        var onRendered: () -> Void
+        var enabled = false
+        private var displayLink: CADisplayLink?
+        private var fired = false
+        private var didDraw = false
+
+        init(onRendered: @escaping () -> Void) { self.onRendered = onRendered }
+
+        func arm(on view: UIView) {
+            guard enabled, didDraw, !fired, view.window != nil, displayLink == nil else { return }
+            let link = CADisplayLink(target: self, selector: #selector(displayTick))
+            displayLink = link
+            link.add(to: .main, forMode: .common)
+        }
+
+        func didDraw(on view: UIView) {
+            didDraw = true
+            arm(on: view)
+        }
+
+        func reset() {
+            displayLink?.invalidate()
+            displayLink = nil
+            fired = false
+            didDraw = false
+        }
+
+        @objc private func displayTick() {
+            displayLink?.invalidate()
+            displayLink = nil
+            guard enabled, !fired else { return }
+            fired = true
+            onRendered()
+        }
+
+        deinit { displayLink?.invalidate() }
+    }
+
+    final class SignalView: UIView {
+        var onWindow: (() -> Void)?
+        var onDraw: (() -> Void)?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            onWindow?()
+        }
+
+        override func draw(_ rect: CGRect) {
+            super.draw(rect)
+            onDraw?()
+        }
+    }
+}
+#endif
+
 private struct PendingPhoneShot: Identifiable {
     let locationEvent: LiveRoundEvent
     let shotOrder: Int
@@ -1290,6 +1380,11 @@ public struct CurrentHoleView: View {
         // The app shell is intentionally light, but this approved live-play surface is dark.
         // Request dark system chrome here so the status-bar time, network, and battery stay visible.
         .preferredColorScheme(.dark)
+        .background(
+            FirstRenderedFrameSignal(enabled: isSelected && !isPrepMode) {
+                watchBridge?.markHoleDisplayed(hole.number)
+            }
+        )
         // The map owns the live surface and supplies a stable navigation-style return row. The
         // inherited NavigationStack label is intentionally hidden because it can expose a stale
         // greeting from the round home rather than the approved live-play hierarchy.

@@ -1,17 +1,15 @@
-diff --git a/mobile/ios/AICaddieWatch/Services/WatchCourseLibrary.swift b/mobile/ios/AICaddieWatch/Services/WatchCourseLibrary.swift
-index 58a0bf3f..21f9f2f4 100644
 --- a/mobile/ios/AICaddieWatch/Services/WatchCourseLibrary.swift
 +++ b/mobile/ios/AICaddieWatch/Services/WatchCourseLibrary.swift
-@@ -1253,7 +1253,7 @@ public final class WatchCourseLibrary: ObservableObject {
+@@ -1280,7 +1280,7 @@
              await withTaskGroup(of: (WatchCoursePackageHole, Data?).self) { group in
                  for hole in batch {
                      guard let asset = hole.garminRaster, let version = asset.assetVersion else { continue }
--                    if imageStore.image(globalId: hole.sourceGlobalId, hole: hole.sourceLocalHole, garminAssetVersion: version) != nil { continue }
-+                    if imageStore.image(globalId: hole.sourceGlobalId, hole: hole.number, garminAssetVersion: version) != nil { continue }
+-                    if imageStore.hasImage(globalId: hole.sourceGlobalId, hole: hole.sourceLocalHole, garminAssetVersion: version) { continue }
++                    if imageStore.hasImage(globalId: hole.sourceGlobalId, hole: hole.number, garminAssetVersion: version) { continue }
                      group.addTask {
                          await beforeEachRequest?()
                          let data = try? await client.fetchGarminAsset(asset, globalId: hole.sourceGlobalId, localHole: hole.sourceLocalHole)
-@@ -1264,8 +1264,8 @@ public final class WatchCourseLibrary: ObservableObject {
+@@ -1292,8 +1292,8 @@
                  for await (hole, data) in group {
                      guard let data, let version = hole.garminRaster?.assetVersion else { continue }
                      do {
@@ -19,6 +17,6 @@ index 58a0bf3f..21f9f2f4 100644
 -                        lastGarminImageKey = WatchHoleImageStore.key(globalId: hole.sourceGlobalId, hole: hole.sourceLocalHole)
 +                        try imageStore.store(data: data, globalId: hole.sourceGlobalId, hole: hole.number, garminAssetVersion: version)
 +                        lastGarminImageKey = WatchHoleImageStore.key(globalId: hole.sourceGlobalId, hole: hole.number)
-                     } catch { /* Optional: precise downloads and the factual package continue. */ }
-                 }
-             }
+                         // Release the active-hole identity as soon as this asset is durable. The
+                         // remaining Garmin and precise requests continue independently in the
+                         // same bounded batch.

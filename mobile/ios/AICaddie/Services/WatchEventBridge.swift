@@ -1,4 +1,5 @@
 import Foundation
+import AICaddieDomain
 import WatchConnectivity
 
 public enum WatchInputKind: String, Codable, Equatable {
@@ -535,6 +536,12 @@ public final class WatchEventBridge: NSObject {
     public var onActivated: (() -> Void)?
     /// A queued hole bitmap transfer failed (globalId, round hole): the caller may send it again.
     public var onHoleImageTransferFailed: ((Int, Int) -> Void)?
+    /// Asset-aware failure callback. The legacy callback above remains for clients that only send
+    /// precise topo images; Garmin and topo retry budgets must never share a counter.
+    public var onHoleAssetTransferFailed: ((Int, Int, String) -> Void)?
+    /// Called after a hole page has yielded its first frame. Garmin fallback export is deliberately
+    /// held until this acknowledgement so disk reads cannot delay the phone's first playable frame.
+    public var onHoleDisplayed: ((Int) -> Void)?
 
     private let offlineStore: OfflineStore
     private let encoder = JSONEncoder()
@@ -905,6 +912,11 @@ public final class WatchEventBridge: NSObject {
         }
     }
 
+    public func markHoleDisplayed(_ hole: Int) {
+        guard hole > 0 else { return }
+        onHoleDisplayed?(hole)
+    }
+
     /// Send the latest real-round identity and hole list using application context. It survives an
     /// unreachable Watch and is re-pushed after WCSession activation; live per-hole state continues to
     /// use `sendStateToWatch`.
@@ -1079,7 +1091,7 @@ public final class WatchEventBridge: NSObject {
             "globalId": globalId, "hole": hole, "styleVersion": SyncClient.topoStyleVersion,
             "assetKind": assetKind,
             "assetStyleVersion": assetKind == "green-detail" ? SyncClient.greenDetailStyleVersion
-                : (assetKind == "garmin" ? SyncClient.garminRasterStyleVersion : SyncClient.topoStyleVersion),
+                : (assetKind == "garmin" ? GarminRasterContract.assetStyleVersion : SyncClient.topoStyleVersion),
         ]
         if let assetVersion { metadata["assetVersion"] = assetVersion }
         if assetKind == "garmin", let physicalHole { metadata["localHole"] = physicalHole }
@@ -1733,7 +1745,13 @@ extension WatchEventBridge: WCSessionDelegate {
            let globalId = fileTransfer.file.metadata?["globalId"] as? Int,
            let hole = fileTransfer.file.metadata?["hole"] as? Int,
            ["topo", "garmin"].contains(fileTransfer.file.metadata?["assetKind"] as? String ?? "topo") {
-            DispatchQueue.main.async { [weak self] in self?.onHoleImageTransferFailed?(globalId, hole) }
+            let kind = fileTransfer.file.metadata?["assetKind"] as? String ?? "topo"
+            DispatchQueue.main.async { [weak self] in
+                self?.onHoleAssetTransferFailed?(globalId, hole, kind)
+                if kind == "topo" {
+                    self?.onHoleImageTransferFailed?(globalId, hole)
+                }
+            }
         }
         let url = fileTransfer.file.fileURL
         guard url.lastPathComponent.hasPrefix("holeimg-"),

@@ -3045,4 +3045,25 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertTrue(model.round?.roundId.hasPrefix("watch-") ?? false)
         XCTAssertEqual(model.activeHoleState?.par, 4)
     }
+
+    func testReplacingRoundIdRetainsPhoneShotSnapshotIdentity() {
+        let state = WatchRoundState(
+            roundId: "old",
+            hole: 1,
+            par: 4,
+            distanceM: 120,
+            selectedClub: "7I",
+            score: 4,
+            putts: 2,
+            penaltyCount: 0,
+            caddieConfidence: "high",
+            phoneShotEventIds: ["phone-shot-1"],
+            snapshotRevision: 42
+        )
+
+        let replaced = state.replacingRoundId("new")
+
+        XCTAssertEqual(replaced.phoneShotEventIds, ["phone-shot-1"])
+        XCTAssertEqual(replaced.snapshotRevision, 42)
+    }
 }
