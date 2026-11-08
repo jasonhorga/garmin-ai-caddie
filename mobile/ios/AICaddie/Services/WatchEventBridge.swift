@@ -917,6 +917,20 @@ public final class WatchEventBridge: NSObject {
         onHoleDisplayed?(hole)
     }
 
+    public func sendRegionReminder(courseName: String) {
+        guard WCSession.isSupported() else { return }
+        let reminder: [String: Any] = [
+            "courseName": courseName,
+            "id": UUID().uuidString,
+        ]
+        let message: [String: Any] = ["regionReminder": reminder]
+        if WCSession.default.isReachable {
+            WCSession.default.sendMessage(message, replyHandler: nil)
+        } else {
+            WCSession.default.transferUserInfo(message)
+        }
+    }
+
     /// Send the latest real-round identity and hole list using application context. It survives an
     /// unreachable Watch and is re-pushed after WCSession activation; live per-hole state continues to
     /// use `sendStateToWatch`.

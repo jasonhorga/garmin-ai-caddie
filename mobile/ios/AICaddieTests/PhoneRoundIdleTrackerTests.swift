@@ -98,4 +98,14 @@ final class PhoneRoundIdleTrackerTests: XCTestCase {
                                         coursePoints: course, lastActivityAt: start,
                                         hasRecordedStroke: true, allHolesScored: false), .none)
     }
+
+    func testWrongCourseWithLaterGPSGapNeverAutoFinishesCompletedRound() {
+        var tracker = PhoneRoundIdleTracker()
+        _ = tracker.evaluate(latitude: 40.04, longitude: 116, at: start,
+                             coursePoints: course, lastActivityAt: start,
+                             hasRecordedStroke: true, allHolesScored: true)
+        XCTAssertEqual(tracker.evaluate(latitude: nil, longitude: nil, at: minutes(21),
+                                        coursePoints: course, lastActivityAt: start,
+                                        hasRecordedStroke: true, allHolesScored: true), .none)
+    }
 }

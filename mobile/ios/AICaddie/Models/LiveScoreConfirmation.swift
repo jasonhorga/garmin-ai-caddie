@@ -255,6 +255,9 @@ enum LiveMarkedShots {
                     case .string("apple_watch")?:
                         return event.eventId
                     case .string("ios_gps")? where event.eventId != pendingLocationEventId:
+                        if case .bool(true)? = event.payload["pendingClubPrompt"] {
+                            return nil
+                        }
                         return event.eventId
                     default:
                         return nil

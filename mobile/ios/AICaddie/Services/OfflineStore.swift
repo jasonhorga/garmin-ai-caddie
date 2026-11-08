@@ -2023,6 +2023,45 @@ public final class OfflineStore {
         }
     }
 
+    /// Append a score tuple while holding one event-log lock. Callers keep their draft until the
+    /// complete tuple has replayed successfully, so an interrupted write is retried without a
+    /// second writer observing a half-materialized score.
+    public func appendEvents(_ events: [LiveRoundEvent]) throws {
+        guard !events.isEmpty else { return }
+        try withEventLogLock {
+            eventLogCache = nil
+            var authority = try openEventLogDirectoryAuthority(createIfMissing: false)
+            if let authority {
+                try repairTornEventLogEOFIfNeededUnlocked(authority: authority)
+            }
+            let loaded = try loadEventsUnlocked(strict: true, authority: authority)
+            let writeAuthority = try requireEventLogDirectoryAuthority(&authority)
+            var authoredEvents: [LiveRoundEvent] = []
+            for event in events {
+                var authoredEvent = event
+                if event.clientId == "ios-phone", event.kind != .syncMarker, event.startHole == nil,
+                   let progress = try loadLiveRoundProgress(), progress.roundId == event.roundId,
+                   let startHole = progress.startHole, startHole > 0 {
+                    authoredEvent = LiveRoundEvent(
+                        schema: event.schema, eventId: event.eventId, roundId: event.roundId,
+                        clientId: event.clientId, timestamp: event.timestamp, hole: event.hole,
+                        kind: event.kind, payload: event.payload, startHole: startHole
+                    )
+                }
+                authoredEvents.append(authoredEvent)
+            }
+            // Rebuild through the existing atomic replacement path. A power loss therefore leaves
+            // either the old log or the complete old-plus-tuple log, never a valid score line with
+            // missing putt/penalty members.
+            _ = try rewriteEventsUnlocked(
+                loaded.events + authoredEvents,
+                authority: writeAuthority,
+                expectedState: loaded.state
+            )
+            eventLogCache = nil
+        }
+    }
+
     private func appendEventUnlocked(
         _ event: LiveRoundEvent,
         authority: EventLogDirectoryAuthority,

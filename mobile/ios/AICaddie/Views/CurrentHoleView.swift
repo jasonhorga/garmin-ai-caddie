@@ -810,6 +810,7 @@ public struct CurrentHoleView: View {
     private let onRoundLocation: (LocationFix?) -> PhoneRoundIdleAction
     private let onResumeRoundIdle: () -> Void
     private let onRoundActivity: () -> Void
+    private let onScoreEvents: (([LiveRoundEvent]) -> Void)?
     private let roundIdlePaused: Bool
     private let onDiscardRound: () -> Void
     private let onAdvanceHole: (Int) -> Void
@@ -1029,6 +1030,7 @@ public struct CurrentHoleView: View {
         onRoundLocation: @escaping (LocationFix?) -> PhoneRoundIdleAction = { _ in .none },
         onResumeRoundIdle: @escaping () -> Void = {},
         onRoundActivity: @escaping () -> Void = {},
+        onScoreEvents: (([LiveRoundEvent]) -> Void)? = nil,
         onDiscardRound: @escaping () -> Void = {},
         sessionCache: LiveHoleSessionCache? = nil,
         usesExternalHolePager: Bool = false,
@@ -1091,6 +1093,7 @@ public struct CurrentHoleView: View {
         self.onRoundLocation = onRoundLocation
         self.onResumeRoundIdle = onResumeRoundIdle
         self.onRoundActivity = onRoundActivity
+        self.onScoreEvents = onScoreEvents
         self.roundIdlePaused = roundIdlePaused
         self.onDiscardRound = onDiscardRound
         let sharedSessionCache = sessionCache ?? LiveHoleSessionCache()
@@ -1233,7 +1236,6 @@ public struct CurrentHoleView: View {
             currentCoordinate = fix.coordinate
             currentHorizontalAccuracyM = fix.horizontalAccuracyM
         }
-        guard scenePhase == .active else { return }
         if !isPrepMode {
             let action = onRoundLocation(fix)
             switch action {
@@ -1250,6 +1252,9 @@ public struct CurrentHoleView: View {
                 break
             }
         }
+        // The idle callback above must continue while the app is backgrounded. The remaining
+        // hole navigation, map and Watch presentation work is foreground-only.
+        guard scenePhase == .active else { return }
         if let fix {
             gpsHoleCandidate = LiveHoleGPSResolver.candidate(
                 holes: package.holes,
@@ -1513,7 +1518,9 @@ public struct CurrentHoleView: View {
                     sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
                 }
             } else {
-                activeLocationProvider.stopUpdatingLocation()
+                if injectedLocationProvider == nil {
+                    activeLocationProvider.stopUpdatingLocation()
+                }
                 heroTargetDragGrabbed = false
                 heroTargetDragLocation = nil
                 historyPlayerDragging = false
@@ -1534,7 +1541,9 @@ public struct CurrentHoleView: View {
             UITestPagerTrace.shared.metric(.currentHoleDisappear)
             UITestPagerTrace.shared.record("page disappear hole=\(hole.number) sheet=\(pagerPresentationIsActive)")
             #endif
-            activeLocationProvider.stopUpdatingLocation()
+            if injectedLocationProvider == nil {
+                activeLocationProvider.stopUpdatingLocation()
+            }
             heroTargetDragGrabbed = false
             heroTargetDragLocation = nil
             historyPlayerDragging = false
@@ -1560,7 +1569,6 @@ public struct CurrentHoleView: View {
         }
         .onReceive(activeLocationProvider.$latestFix) { latestFix in
             guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
-            guard scenePhase == .active else { return }
             handleRoundLocation(latestFix.flatMap { freshRoundLocationFix($0) })
         }
         .task(id: "round-idle:\(package.roundId):\(hole.number):\(isSelected):\(idlePaused):\(scenePhase)") {
@@ -2364,7 +2372,7 @@ public struct CurrentHoleView: View {
             shotNumber: pendingShot.shotOrder,
             choices: actualClubChoices,
             onSelect: { club in recordActualClub(club, for: pendingShot) },
-            onSkip: { pendingPhoneShot = nil }
+            onSkip: { recordActualClub("unknown", for: pendingShot) }
         )
     }
 
@@ -6887,9 +6895,21 @@ public struct CurrentHoleView: View {
             note: note,
             timestamp: ISO8601DateFormatter().string(from: Date())
         )
-        events.forEach(onEvent)
+        if let onScoreEvents {
+            onScoreEvents(events)
+        } else {
+            events.forEach(onEvent)
+        }
         eventSnapshot.invalidate()
         if let offlineStore {
+            let persistedIDs = Set((try? offlineStore.loadEvents())?.map(\.eventId) ?? [])
+            guard events.allSatisfy({ persistedIDs.contains($0.eventId) }) else {
+                // Keep the accepted tuple in the durable draft when any event write failed. The
+                // next automatic or explicit finish retries it through the atomic materializer.
+                scoreDraft = accepted
+                try? offlineStore.saveLiveScoreDraft(roundId: package.roundId, draft: accepted)
+                return
+            }
             try? offlineStore.clearLiveScoreDraft(roundId: package.roundId)
         }
         var dismissalAction: LiveScoreDismissalAction?
