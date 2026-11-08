@@ -178,13 +178,15 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     /// Mark the current persisted entry after its automatic prep notification has been delivered.
     /// The marker is tied to the entry timestamp, so a later arrival at the same course is a new
     /// notification even when the old identifier is reused.
-    public static func markPendingRegionEntryNotified(_ identifier: String) {
+    @discardableResult
+    public static func markPendingRegionEntryNotified(_ identifier: String) -> Bool {
         guard UserDefaults.standard.string(forKey: pendingRegionEntryKey) == identifier,
               let capturedAt = UserDefaults.standard.object(forKey: pendingRegionEntryAtKey) as? Date else {
-            return
+            return false
         }
         UserDefaults.standard.set(identifier, forKey: pendingRegionEntryNotifiedKey)
         UserDefaults.standard.set(capturedAt, forKey: pendingRegionEntryNotifiedAtKey)
+        return true
     }
 
     public static func isPendingRegionEntryNotified(_ identifier: String) -> Bool {
