@@ -27,6 +27,8 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     private static let monitoredRegionsKey = "aicaddie.course-regions.v1"
     private static let pendingRegionEntryKey = "aicaddie.pending-region-entry.v1"
     private static let pendingRegionEntryAtKey = "aicaddie.pending-region-entry-at.v1"
+    private static let pendingRegionEntryNotifiedKey = "aicaddie.pending-region-entry-notified.v1"
+    private static let pendingRegionEntryNotifiedAtKey = "aicaddie.pending-region-entry-notified-at.v1"
     private static let pendingRegionEntryMaxAge: TimeInterval = 10 * 60
     private let manager: CLLocationManager
     private let formatter = LocationProvider.makeCaptureFormatter()
@@ -169,6 +171,30 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     public func clearPendingRegionEntry() {
         UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryKey)
         UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryAtKey)
+        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryNotifiedKey)
+        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryNotifiedAtKey)
+    }
+
+    /// Mark the current persisted entry after its automatic prep notification has been delivered.
+    /// The marker is tied to the entry timestamp, so a later arrival at the same course is a new
+    /// notification even when the old identifier is reused.
+    public static func markPendingRegionEntryNotified(_ identifier: String) {
+        guard UserDefaults.standard.string(forKey: pendingRegionEntryKey) == identifier,
+              let capturedAt = UserDefaults.standard.object(forKey: pendingRegionEntryAtKey) as? Date else {
+            return
+        }
+        UserDefaults.standard.set(identifier, forKey: pendingRegionEntryNotifiedKey)
+        UserDefaults.standard.set(capturedAt, forKey: pendingRegionEntryNotifiedAtKey)
+    }
+
+    public static func isPendingRegionEntryNotified(_ identifier: String) -> Bool {
+        guard UserDefaults.standard.string(forKey: pendingRegionEntryKey) == identifier,
+              UserDefaults.standard.string(forKey: pendingRegionEntryNotifiedKey) == identifier,
+              let capturedAt = UserDefaults.standard.object(forKey: pendingRegionEntryAtKey) as? Date,
+              let notifiedAt = UserDefaults.standard.object(forKey: pendingRegionEntryNotifiedAtKey) as? Date else {
+            return false
+        }
+        return capturedAt == notifiedAt
     }
 
     public func acknowledgeRegionEntry(_ identifier: String) {
@@ -261,6 +287,8 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     }
 
     public func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
+        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryNotifiedKey)
+        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryNotifiedAtKey)
         UserDefaults.standard.set(region.identifier, forKey: Self.pendingRegionEntryKey)
         UserDefaults.standard.set(Date(), forKey: Self.pendingRegionEntryAtKey)
         // Persist first: Combine can deliver the @Published value before the property's backing

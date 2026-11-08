@@ -633,10 +633,6 @@ public final class LiveRoundAppModel: ObservableObject {
     private var lastRoundLocationFix: LocationFix?
     private var regionReminderCourseID: Int?
     private var pendingAutomaticRegionReminder: MobileCourseOption?
-    /// The Core Location entry remains persisted until the prep handoff returns `true`. Keep the
-    /// completed course id so that the retry which acknowledges that entry cannot announce the same
-    /// arrival a second time after `enterPrepMode` has already published the package.
-    private var automaticRegionReminderNotifiedCourseID: Int?
     @Published public private(set) var roundIdlePausedRoundId: String?
 
     public var isRoundIdlePaused: Bool {
@@ -1576,7 +1572,9 @@ public final class LiveRoundAppModel: ObservableObject {
            let prepPackage,
            prepPackage.course.globalId == candidate.globalId,
            regionReminderCourseID == candidate.globalId {
-            guard automaticRegionReminderNotifiedCourseID != candidate.globalId else {
+            guard !LocationProvider.isPendingRegionEntryNotified(
+                "ai-caddie.course.\(candidate.globalId)"
+            ) else {
                 return true
             }
             pendingAutomaticRegionReminder = candidate
@@ -1667,7 +1665,6 @@ public final class LiveRoundAppModel: ObservableObject {
             return
         }
         regionReminderCourseID = candidate.globalId
-        automaticRegionReminderNotifiedCourseID = nil
         guard openPrepCourse(candidate) else {
             regionReminderCourseID = nil
             return
@@ -1682,7 +1679,9 @@ public final class LiveRoundAppModel: ObservableObject {
               let prep = prepPackage,
               prep.course.globalId == candidate.globalId else { return }
         pendingAutomaticRegionReminder = nil
-        automaticRegionReminderNotifiedCourseID = candidate.globalId
+        LocationProvider.markPendingRegionEntryNotified(
+            "ai-caddie.course.\(candidate.globalId)"
+        )
         syncStatus = "区域提醒已打开最近球场 · \(candidate.name)"
         notifyAutomaticRegionEntry(for: candidate)
     }
@@ -1692,7 +1691,6 @@ public final class LiveRoundAppModel: ObservableObject {
                 || regionReminderCourseID == globalId else { return }
         pendingAutomaticRegionReminder = nil
         regionReminderCourseID = nil
-        automaticRegionReminderNotifiedCourseID = nil
     }
 
     private var recentPrefetchLocation: (latitude: Double, longitude: Double)? {
@@ -6123,7 +6121,6 @@ public final class LiveRoundAppModel: ObservableObject {
         prepTeeOptions = []
         pendingAutomaticRegionReminder = nil
         regionReminderCourseID = nil
-        automaticRegionReminderNotifiedCourseID = nil
     }
 
     /// 备战时换 T 台: the other Tee is its own library row, and the hole screen reopens on it at the
