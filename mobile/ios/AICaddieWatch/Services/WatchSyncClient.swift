@@ -11,6 +11,11 @@ public extension Notification.Name {
     static let aicaddieWatchCourseRemoved = Notification.Name("aicaddie.watch.course-removed")
 }
 
+public struct WatchRegionReminder: Equatable {
+    public let id: String
+    public let courseName: String
+}
+
 protocol WatchConfigPersisting {
     func read() -> WatchRoundConfig?
     func write(_ config: WatchRoundConfig)
@@ -236,11 +241,16 @@ public struct WatchSyncAcknowledgement: Equatable {
 }
 
 public final class WatchSyncClient: NSObject, ObservableObject {
+    private static let deliveredRegionReminderIDsKey = "aicaddie.watch.delivered-region-reminder-ids.v1"
+    private static let pendingRegionReminderIDKey = "aicaddie.watch.pending-region-reminder-id.v1"
+    private static let pendingRegionReminderNameKey = "aicaddie.watch.pending-region-reminder-name.v1"
+    private static let pendingRegionReminderRetryCountKey = "aicaddie.watch.pending-region-reminder-retry-count.v1"
     @Published public private(set) var currentState: WatchRoundState?
     @Published public private(set) var roundSeed: WatchRoundSeed?
     @Published public private(set) var phoneRoundClosure: WatchRoundClosure?
     @Published public private(set) var queuedEventCount = 0
     @Published public private(set) var phoneReachable = false
+    @Published public private(set) var regionReminder: WatchRegionReminder?
     @Published public private(set) var lastPhoneAcceptedAt: String?
     /// round-12 P3.4 (Watch standalone): backend connection info the phone delivers via application
     /// context, so a standalone round can sync on its own. Nil until the phone sends it.
@@ -251,6 +261,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     private let roundStartURL: URL
     private let configStore: WatchConfigPersisting
     private let queueFileLock = NSLock()
+    private let regionReminderIDLock = NSLock()
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     /// watch P0.4: local cache of per-hole topo images the phone pushes via WatchConnectivity file
@@ -297,6 +308,12 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         self.courseStore = courseStore ?? WatchCourseStore()
         super.init()
         currentState = try? loadPersistedState()
+        if let id = UserDefaults.standard.string(forKey: Self.pendingRegionReminderIDKey),
+           let courseName = UserDefaults.standard.string(forKey: Self.pendingRegionReminderNameKey),
+           !id.isEmpty, !courseName.isEmpty,
+           !isRegionReminderDelivered(id) {
+            regionReminder = WatchRegionReminder(id: id, courseName: courseName)
+        }
         config = self.configStore.read()
         refreshQueuedEventCount()
         if WCSession.isSupported() {
@@ -774,6 +791,9 @@ extension WatchSyncClient: WCSessionDelegate {
     }
 
     public func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        if let reminder = message["regionReminder"] as? [String: Any] {
+            receiveRegionReminder(reminder)
+        }
         if let remove = message["removeCourse"] as? [String: Any],
            let globalId = Self.intValue(remove["globalId"]) {
             courseStore.remove(globalId: globalId)
@@ -792,6 +812,9 @@ extension WatchSyncClient: WCSessionDelegate {
     }
 
     public func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        if let reminder = userInfo["regionReminder"] as? [String: Any] {
+            receiveRegionReminder(reminder)
+        }
         if let remove = userInfo["removeCourse"] as? [String: Any],
            let globalId = Self.intValue(remove["globalId"]) {
             courseStore.remove(globalId: globalId)
@@ -806,6 +829,112 @@ extension WatchSyncClient: WCSessionDelegate {
         }
         if let closure = userInfo["roundClosure"] as? [String: Any] {
             receiveRoundClosurePayload(closure)
+        }
+    }
+
+    private func receiveRegionReminder(_ value: [String: Any]) {
+        guard let id = value["id"] as? String,
+              let courseName = value["courseName"] as? String,
+              !id.isEmpty, !courseName.isEmpty else { return }
+        regionReminderIDLock.lock()
+        // WCSession can deliver the same reminder through both sendMessage and the
+        // user-info fallback, and an older user-info delivery can arrive after a newer
+        // arrival. Keep the durable entry with the greatest timestamp and do not reset
+        // its retry budget for duplicates or stale callbacks.
+        let delivered = UserDefaults.standard.stringArray(forKey: Self.deliveredRegionReminderIDsKey)?.contains(id) == true
+        let currentID = UserDefaults.standard.string(forKey: Self.pendingRegionReminderIDKey)
+        if currentID == id {
+            regionReminderIDLock.unlock()
+            return
+        }
+        let accepts = currentID == nil || Self.isNewerRegionReminderID(id, than: currentID!)
+        guard !delivered, accepts else {
+            regionReminderIDLock.unlock()
+            return
+        }
+        UserDefaults.standard.set(id, forKey: Self.pendingRegionReminderIDKey)
+        UserDefaults.standard.set(courseName, forKey: Self.pendingRegionReminderNameKey)
+        UserDefaults.standard.set(0, forKey: Self.pendingRegionReminderRetryCountKey)
+        regionReminderIDLock.unlock()
+        publishStateUpdate { client in
+            client.regionReminder = WatchRegionReminder(id: id, courseName: courseName)
+        }
+    }
+
+    private static func isNewerRegionReminderID(_ id: String, than currentID: String) -> Bool {
+        guard let incoming = regionReminderTimestamp(id),
+              let current = regionReminderTimestamp(currentID) else {
+            // Reminder IDs are generated as `<course identifier>:<entry timestamp>`.
+            // If an old build supplies an opaque ID, preserve the already-pending entry
+            // rather than allowing an unorderable callback to replace it.
+            return false
+        }
+        return incoming > current
+    }
+
+    private static func regionReminderTimestamp(_ id: String) -> Double? {
+        guard let separator = id.lastIndex(of: ":") else { return nil }
+        let value = Double(id[id.index(after: separator)...])
+        return value?.isFinite == true ? value : nil
+    }
+
+    private func isRegionReminderDelivered(_ id: String) -> Bool {
+        regionReminderIDLock.lock()
+        defer { regionReminderIDLock.unlock() }
+        return UserDefaults.standard.stringArray(forKey: Self.deliveredRegionReminderIDsKey)?.contains(id) == true
+    }
+
+    /// Record delivery only after the Watch has successfully enqueued its local notification. A
+    /// crash before that point leaves the stable entry token eligible for a later retry.
+    public func markRegionReminderDelivered(_ id: String) {
+        guard !id.isEmpty else { return }
+        regionReminderIDLock.lock()
+        defer { regionReminderIDLock.unlock() }
+        var delivered = Set(UserDefaults.standard.stringArray(forKey: Self.deliveredRegionReminderIDsKey) ?? [])
+        delivered.insert(id)
+        UserDefaults.standard.set(Array(delivered.sorted().suffix(64)), forKey: Self.deliveredRegionReminderIDsKey)
+        if UserDefaults.standard.string(forKey: Self.pendingRegionReminderIDKey) == id {
+            UserDefaults.standard.removeObject(forKey: Self.pendingRegionReminderIDKey)
+            UserDefaults.standard.removeObject(forKey: Self.pendingRegionReminderNameKey)
+            UserDefaults.standard.removeObject(forKey: Self.pendingRegionReminderRetryCountKey)
+        }
+    }
+
+    public func isPendingRegionReminder(_ id: String) -> Bool {
+        regionReminderIDLock.lock()
+        defer { regionReminderIDLock.unlock() }
+        return UserDefaults.standard.string(forKey: Self.pendingRegionReminderIDKey) == id
+            && UserDefaults.standard.stringArray(forKey: Self.deliveredRegionReminderIDsKey)?.contains(id) != true
+    }
+
+    /// Re-publish an undelivered reminder so SwiftUI's notification observer receives a new value
+    /// even when the reminder payload itself is unchanged. The pending record survives a Watch
+    /// relaunch and is cleared only after `UNUserNotificationCenter.add` succeeds.
+    public func retryPendingRegionReminder(id: String? = nil) {
+        regionReminderIDLock.lock()
+        let pendingID = UserDefaults.standard.string(forKey: Self.pendingRegionReminderIDKey)
+        let courseName = UserDefaults.standard.string(forKey: Self.pendingRegionReminderNameKey)
+        let delivered = pendingID.map {
+            UserDefaults.standard.stringArray(forKey: Self.deliveredRegionReminderIDsKey)?.contains($0) == true
+        } ?? true
+        guard let pendingID, let courseName, !delivered,
+              id == nil || id == pendingID else {
+            regionReminderIDLock.unlock()
+            return
+        }
+        let retryCount = UserDefaults.standard.integer(forKey: Self.pendingRegionReminderRetryCountKey)
+        guard retryCount < 3 else {
+            regionReminderIDLock.unlock()
+            return
+        }
+        UserDefaults.standard.set(retryCount + 1, forKey: Self.pendingRegionReminderRetryCountKey)
+        regionReminderIDLock.unlock()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, self.isPendingRegionReminder(pendingID) else { return }
+            self.publishStateUpdate { client in
+                client.regionReminder = nil
+                client.regionReminder = WatchRegionReminder(id: pendingID, courseName: courseName)
+            }
         }
     }
 

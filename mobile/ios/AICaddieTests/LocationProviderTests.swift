@@ -70,6 +70,27 @@ final class LocationProviderTests: XCTestCase {
         XCTAssertNil(provider.latestFix)
     }
 
+    func testRegionNotificationMarkerSurvivesUntilEntryAcknowledgement() {
+        let provider = LocationProvider()
+        let identifier = "ai-caddie.course.987654"
+        defer { provider.clearPendingRegionEntry() }
+
+        provider.locationManager(
+            CLLocationManager(),
+            didEnterRegion: CLCircularRegion(
+                center: CLLocationCoordinate2D(latitude: 40, longitude: 116),
+                radius: 1_500,
+                identifier: identifier
+            )
+        )
+        LocationProvider.markPendingRegionEntryNotified(identifier)
+
+        XCTAssertTrue(LocationProvider.isPendingRegionEntryNotified(identifier))
+        provider.acknowledgeRegionEntry(identifier)
+        XCTAssertFalse(LocationProvider.isPendingRegionEntryNotified(identifier))
+        XCTAssertNil(provider.peekPendingRegionEntry())
+    }
+
     func testProductSpec513CaptureRetainsMillisecondsThroughTheProvider() throws {
         let provider = LocationProvider()
         let timestamp = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970) - 1 + 0.375)
