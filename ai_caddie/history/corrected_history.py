@@ -640,6 +640,24 @@ def corrected_rounds(
         # append-only annotation as the source of truth and materialize that display hole in the
         # corrected projection so every history reader sees the restored score.
         annotated_missing: dict[int, list[dict[str, Any]]] = {}
+        superseded_restores: list[int] = []
+        for record in annotations or []:
+            if record.get("targetType") != "hole" or record.get("kind") not in wanted:
+                continue
+            target = str(record.get("targetId") or "")
+            for ref in refs:
+                prefix = f"{ref}:"
+                if not target.startswith(prefix):
+                    continue
+                number = _int(target[len(prefix):])
+                if (number is not None and number > 0 and number not in display_numbers.values()
+                        and _restore_is_superseded([record], other_real_score_holes)):
+                    superseded_restores.append(number)
+                break
+        if superseded_restores:
+            # Preserve the projection's decision for reconciliation without recreating its
+            # same-outing/physical-hole rules in another reader. These remain evidence only.
+            row = {**row, "_restoreSupersededHoles": superseded_restores}
         for record in annotations or []:
             if (record.get("targetType") == "hole"
                     and record.get("kind") in wanted):
