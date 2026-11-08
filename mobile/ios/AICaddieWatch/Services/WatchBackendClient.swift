@@ -698,20 +698,34 @@ public final class WatchBackendClient {
         return try decodeCoursePrep(data)
     }
 
-    /// Optional download-stage fallback. Preserve the backend's versioned URL and accept only
-    /// this API's canonical asset path; image requests never inherit member credentials.
+    /// Optional download-stage fallback. Garmin's canonical URL is WebP, but current watchOS
+    /// ImageIO builds do not decode that format reliably. Ask the backend for its JPEG sibling;
+    /// the asset version remains the package's Garmin version and the Watch cache stays decodable.
     func fetchGarminAsset(_ asset: WatchGarminRasterAsset, globalId: Int, localHole: Int) async throws -> Data {
         guard let parts = URLComponents(string: asset.imageUrl),
               parts.path == "/api/v2/courses/\(globalId)/holes/\(localHole)/garmin-raster.webp",
               parts.host == nil || parts.host == baseURL.host,
               parts.scheme == nil || parts.scheme == baseURL.scheme,
-              asset.assetVersion?.isEmpty == false,
-              var target = URLComponents(url: endpointURL(parts.path), resolvingAgainstBaseURL: false)
-        else { throw URLError(.badURL) }
-        target.queryItems = parts.queryItems
+              asset.assetVersion?.isEmpty == false else {
+            throw URLError(.badURL)
+        }
+        let jpegPath = "/api/v2/courses/\(globalId)/holes/\(localHole)/garmin-raster.jpg"
+        guard var target = URLComponents(url: endpointURL(jpegPath), resolvingAgainstBaseURL: false) else {
+            throw URLError(.badURL)
+        }
+        // The WebP version includes the server's matte suffix (for example `asset-sky1`), while
+        // the JPEG sibling is keyed by Garmin's source release alone. Keep the source version on
+        // the compatibility request so a changed release cannot be stored under an old package
+        // version, while removing only the WebP matte suffix.
+        let webpVersion = asset.assetVersion!
+        let jpegVersion = webpVersion.hasSuffix("-sky1")
+            ? String(webpVersion.dropLast("-sky1".count))
+            : webpVersion
+        target.queryItems = [URLQueryItem(name: "v", value: jpegVersion)]
         guard let url = target.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
+        request.setValue("image/jpeg,image/*;q=0.8", forHTTPHeaderField: "Accept")
         return try await sendForData(request)
     }
 

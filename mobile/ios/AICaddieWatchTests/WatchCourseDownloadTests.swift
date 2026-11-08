@@ -18,10 +18,10 @@ final class WatchCourseDownloadTests: XCTestCase {
                 WatchBackendClient(baseURL: config.baseURL, dataLoader: { request in
                     let url = try XCTUnwrap(request.url)
                     let isPackage = url.path.hasSuffix("/package")
-                    let isRaster = url.path.hasSuffix("/10/garmin-raster.webp")
+                    let isRaster = url.path.hasSuffix("/10/garmin-raster.jpg")
                     if isRaster {
                         rasterRequests += 1
-                        XCTAssertEqual(url.query, "v=release-a", "J4.5: fetch the package's exact asset version")
+                        XCTAssertEqual(url.query, "v=release-a", "J4.5: JPEG compatibility fetch preserves the source asset version")
                         XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
                     }
                     let data = isPackage ? package : (isRaster ? bytes : Data())

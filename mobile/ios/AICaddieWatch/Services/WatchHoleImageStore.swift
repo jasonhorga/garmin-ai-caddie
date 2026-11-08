@@ -1,5 +1,6 @@
 import Foundation
 import ImageIO
+import AICaddieDomain
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -17,6 +18,9 @@ public final class WatchHoleImageStore {
     /// v1 used the round hole in the Garmin filename. Bumping the on-device namespace makes old
     /// cursors and files unreachable after the physical-hole key fix.
     private static let garminStorageStyleVersion = "garmin-raster-v2"
+    private static let legacyGarminStorageStyleVersion = GarminRasterContract.assetStyleVersion
+    private static let garminVersionLock = NSLock()
+    private static var garminCurrentVersions: [String: String] = [:]
     private let directory: URL
     #if canImport(UIKit)
     /// Course downloads and WatchConnectivity intentionally own separate store facades over the
@@ -42,6 +46,14 @@ public final class WatchHoleImageStore {
             .appendingPathComponent("hole-images", isDirectory: true)
             .appendingPathComponent(WatchBackendClient.topoStyleVersion, isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // v1 used a cursor namespace that was never read after the physical-hole key fix. Remove
+        // that bounded cache once; current v2 files remain available for offline rounds.
+        let legacy = directory.deletingLastPathComponent()
+            .appendingPathComponent(Self.legacyGarminStorageStyleVersion, isDirectory: true)
+        if legacy != directory.deletingLastPathComponent()
+            .appendingPathComponent(Self.garminStorageStyleVersion, isDirectory: true) {
+            try? FileManager.default.removeItem(at: legacy)
+        }
     }
 
     public static func key(globalId: Int, hole: Int) -> String { "\(globalId)_\(hole)" }
@@ -58,6 +70,11 @@ public final class WatchHoleImageStore {
                 try? FileManager.default.removeItem(at: file)
             }
         }
+        Self.garminVersionLock.lock()
+        Self.garminCurrentVersions = Self.garminCurrentVersions.filter {
+            !$0.key.hasPrefix(prefix)
+        }
+        Self.garminVersionLock.unlock()
         #if canImport(UIKit)
         Self.decodedImageCache.removeAllObjects()
         #endif
@@ -90,6 +107,22 @@ public final class WatchHoleImageStore {
             .appendingPathComponent("\(Self.key(globalId: globalId, hole: hole)).current")
     }
 
+    private static func garminVersionKey(globalId: Int, hole: Int) -> String {
+        "\(globalId)_\(hole)"
+    }
+
+    private static func cachedGarminVersion(globalId: Int, hole: Int) -> String? {
+        garminVersionLock.lock()
+        defer { garminVersionLock.unlock() }
+        return garminCurrentVersions[garminVersionKey(globalId: globalId, hole: hole)]
+    }
+
+    private static func rememberGarminVersion(_ version: String, globalId: Int, hole: Int) {
+        garminVersionLock.lock()
+        garminCurrentVersions[garminVersionKey(globalId: globalId, hole: hole)] = version
+        garminVersionLock.unlock()
+    }
+
     /// The cursor is written only after valid pixels are durable; failed replacements keep the old asset.
     #if canImport(UIKit)
     /// Versioned Garmin lookup keyed by the physical course hole and the package's exact release.
@@ -98,8 +131,11 @@ public final class WatchHoleImageStore {
     }
 
     public func garminImage(globalId: Int, hole: Int) -> UIImage? {
-        guard let version = try? String(contentsOf: garminCursor(globalId: globalId, hole: hole), encoding: .utf8),
+        let version = Self.cachedGarminVersion(globalId: globalId, hole: hole)
+            ?? (try? String(contentsOf: garminCursor(globalId: globalId, hole: hole), encoding: .utf8))
+        guard let version,
               !version.isEmpty else { return nil }
+        Self.rememberGarminVersion(version, globalId: globalId, hole: hole)
         return image(globalId: globalId, hole: hole, garminAssetVersion: version)
     }
     #endif
@@ -145,6 +181,7 @@ public final class WatchHoleImageStore {
         if let existing = try? Data(contentsOf: target, options: .mappedIfSafe), existing == data {
             if let version = garminAssetVersion {
                 try Data(version.utf8).write(to: garminCursor(globalId: globalId, hole: hole), options: .atomic)
+                Self.rememberGarminVersion(version, globalId: globalId, hole: hole)
             }
             return
         }
@@ -153,8 +190,15 @@ public final class WatchHoleImageStore {
         try data.write(to: target, options: .atomic)
         if let version = garminAssetVersion {
             try Data(version.utf8).write(to: garminCursor(globalId: globalId, hole: hole), options: .atomic)
+            Self.rememberGarminVersion(version, globalId: globalId, hole: hole)
         }
         #if canImport(UIKit)
+        if garminAssetVersion != nil {
+            // Garmin assets are checked by bytes (`hasImage`/`data`) during bulk download. Do not
+            // decode every fallback into the four-entry renderer cache and evict the current topo.
+            Self.decodedImageCache.removeObject(forKey: target.path as NSString)
+            return
+        }
         let key = target.path as NSString
         if let image = UIImage(data: data) {
             Self.decodedImageCache.setObject(

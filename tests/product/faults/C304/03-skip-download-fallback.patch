@@ -1,12 +1,30 @@
-diff --git a/mobile/ios/AICaddieWatch/Services/WatchCourseLibrary.swift b/mobile/ios/AICaddieWatch/Services/WatchCourseLibrary.swift
-index 21f9f2f4..f49a4bd5 100644
 --- a/mobile/ios/AICaddieWatch/Services/WatchCourseLibrary.swift
 +++ b/mobile/ios/AICaddieWatch/Services/WatchCourseLibrary.swift
-@@ -1325,7 +1325,6 @@ public final class WatchCourseLibrary: ObservableObject {
-             return lightweight
-         }
- 
--        await cacheGarminAssets(package: package, client: client, beforeEachRequest: beforeEachRequest)
+@@ -1361,27 +1361,6 @@
+         // The package's fallback URLs are available before precise prep. Publish a lightweight
+         // snapshot after each stored Garmin asset so a cold round can display its current hole
+         // even if the first prep request later fails.
+-        await cacheGarminAssets(
+-            package: package,
+-            client: client,
+-            priorityHole: priorityHole,
+-            beforeEachRequest: beforeEachRequest,
+-            onAssetStored: { [weak self] in
+-                guard let self else { return }
+-                if let partial = try? WatchCourseTemplateBuilder.build(
+-                    option: selection.front,
+-                    backOption: selection.back,
+-                    loopKey: selection.loopKey,
+-                    package: package,
+-                    prepsByGlobalId: preps,
+-                    topoImagesByGlobalId: [:],
+-                    selectedTee: selection.teeBox,
+-                    cachedAt: self.now()
+-                ) {
+-                    onProgress?(partial)
+-                }
+-            }
+-        )
  
          var requestedByGlobalId: [Int: Set<Int>] = [:]
          var displayHoleByGlobalId: [Int: [Int: Int]] = [:]

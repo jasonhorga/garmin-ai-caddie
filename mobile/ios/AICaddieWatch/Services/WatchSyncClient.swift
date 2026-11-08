@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import AICaddieDomain
 import os
 #if canImport(Security)
 import Security
@@ -834,7 +835,7 @@ extension WatchSyncClient: WCSessionDelegate {
         if garmin, assetVersion?.isEmpty != false { return false }
         let expectedAssetStyle = detail
             ? WatchBackendClient.greenDetailStyleVersion
-            : (garmin ? "garmin-raster-v1" : WatchBackendClient.topoStyleVersion)
+            : (garmin ? GarminRasterContract.assetStyleVersion : WatchBackendClient.topoStyleVersion)
         if let receivedAssetStyle = meta["assetStyleVersion"] as? String {
             guard receivedAssetStyle == expectedAssetStyle else { return false }
         } else if detail || garmin {

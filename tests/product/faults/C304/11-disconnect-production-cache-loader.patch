@@ -1,14 +1,11 @@
-diff --git a/mobile/ios/AICaddie/Services/WatchTopoSender.swift b/mobile/ios/AICaddie/Services/WatchTopoSender.swift
-index 70dc0dbd..f5ecbe20 100644
 --- a/mobile/ios/AICaddie/Services/WatchTopoSender.swift
 +++ b/mobile/ios/AICaddie/Services/WatchTopoSender.swift
-@@ -73,8 +73,7 @@ final class WatchTopoSender {
-         self.loadGarmin = { item in
-             guard let version = item.garminAssetVersion else { return nil }
-             return await Task.detached(priority: .utility) {
--                garminCache.data(globalId: item.globalId, localHole: item.localHole, assetVersion: version)
--                    .map { ($0, version) }
-+                Optional<(Data, String)>.none
+@@ -85,7 +85,7 @@
+                 // Keep the compact source on disk, then make a Watch-decodable transfer only when
+                 // this hole has rendered on the phone. JPEG/PNG sources remain unchanged when the
+                 // decoder cannot improve them.
+-                return (UIImage(data: raw)?.pngData() ?? raw, version)
++                return Optional<(Data, String)>.none
              }.value
          }
      }
