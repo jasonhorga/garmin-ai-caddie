@@ -1,8 +1,10 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index ffc9ce66..5e37e012 100644
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -485,7 +485,7 @@
-     private var quarantineObservation: AnyCancellable?
-
+@@ -629,7 +629,7 @@ public final class LiveRoundAppModel: ObservableObject {
+     }
+ 
      private func derivedLiveFinishRecovery() -> DeferredFinishRecovery? {
 -        guard let package, liveRoundState?.roundId == package.roundId,
 +        guard false, let package, liveRoundState?.roundId == package.roundId,

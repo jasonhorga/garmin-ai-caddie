@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C32-01-phone-departure-saves-without-stroke",
+      "patch": "tests/product/faults/C32/01-phone-departure-saves-without-stroke.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/PhoneRoundIdleTrackerTests/testLeavingWithoutAStrokeStaysSilent",
+      "promise": "round-flow design §4 (no J item yet): no stroke, no save/push/prompt"
+    },
+    {
+      "id": "tests-product-faults-C32-02-phone-stationary-saves-instead-of-pausing",
+      "patch": "tests/product/faults/C32/02-phone-stationary-saves-instead-of-pausing.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/PhoneRoundIdleTrackerTests/testStationaryRoundOnlyPausesAfterFortyFiveMinutes",
+      "promise": "round-flow design §4 (no J item yet): 45 stationary minutes only pause"
+    },
+    {
+      "id": "tests-product-faults-C32-03-watch-any-round-counts-as-stroked",
+      "patch": "tests/product/faults/C32/03-watch-any-round-counts-as-stroked.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchRoundModelTests/testIdleAutoFinishNeverSavesARoundWithoutAStroke",
+      "promise": "round-flow design §4 (no J item yet): no stroke, no save/push/prompt"
+    },
+    {
+      "id": "tests-product-faults-C32-04-phone-untouched-draft-overwrites-score",
+      "patch": "tests/product/faults/C32/04-phone-untouched-draft-overwrites-score.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testLeavingTheCourseKeepsAConfirmedScoreOverAnUntouchedDraft",
+      "promise": "round-flow design §4 (no J item yet): automatic save keeps confirmed scores"
+    }
+  ]
+}

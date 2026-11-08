@@ -111,6 +111,12 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
 
     public var isSupported: Bool { Self.systemSupported }
 
+    /// A live golf workout is the watch's explicit background execution allowance. Idle checks may
+    /// continue while that session is running; once it ends, only an active scene may evaluate them.
+    public var keepsRoundAlive: Bool {
+        roundSessionDesired && workoutSession?.state == .running
+    }
+
     private static var systemSupported: Bool {
         HKHealthStore.isHealthDataAvailable()
             && CMBatchedSensorManager.isAccelerometerSupported
