@@ -737,9 +737,11 @@ public struct AICaddieWatchApp: App {
         content.sound = .default
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else {
+                guard syncClient.isPendingRegionReminder(id) else { return }
                 syncClient.retryPendingRegionReminder(id: id)
                 return
             }
+            guard syncClient.isPendingRegionReminder(id) else { return }
             UNUserNotificationCenter.current().add(
                 UNNotificationRequest(
                     identifier: "ai-caddie.watch.region-reminder.\(id)",
@@ -747,9 +749,11 @@ public struct AICaddieWatchApp: App {
                     trigger: nil
                 ) { error in
                     guard error == nil else {
+                        guard syncClient.isPendingRegionReminder(id) else { return }
                         syncClient.retryPendingRegionReminder(id: id)
                         return
                     }
+                    guard syncClient.isPendingRegionReminder(id) else { return }
                     syncClient.markRegionReminderDelivered(id)
                 }
             )

@@ -192,9 +192,12 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     /// The marker is tied to the entry timestamp, so a later arrival at the same course is a new
     /// notification even when the old identifier is reused.
     @discardableResult
-    public static func markPendingRegionEntryNotified(_ identifier: String) -> Bool {
+    public static func markPendingRegionEntryNotified(_ identifier: String, token: String? = nil) -> Bool {
         guard UserDefaults.standard.string(forKey: pendingRegionEntryKey) == identifier,
               let capturedAt = UserDefaults.standard.object(forKey: pendingRegionEntryAtKey) as? Date else {
+            return false
+        }
+        if let token, token != "\(identifier):\(capturedAt.timeIntervalSince1970)" {
             return false
         }
         UserDefaults.standard.set(identifier, forKey: pendingRegionEntryNotifiedKey)
@@ -237,16 +240,22 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     }
 
     @discardableResult
-    public static func acknowledgePendingRegionEntry(_ identifier: String) -> Bool {
-        guard freshPendingRegionEntryValue() == identifier else { return false }
+    public static func acknowledgePendingRegionEntry(_ identifier: String, token: String? = nil) -> Bool {
+        guard UserDefaults.standard.string(forKey: pendingRegionEntryKey) == identifier,
+              let capturedAt = UserDefaults.standard.object(forKey: pendingRegionEntryAtKey) as? Date,
+              Date().timeIntervalSince(capturedAt) >= 0,
+              Date().timeIntervalSince(capturedAt) <= pendingRegionEntryMaxAge else { return false }
+        if let token, token != "\(identifier):\(capturedAt.timeIntervalSince1970)" {
+            return false
+        }
         clearPersistedPendingRegionEntry()
         return true
     }
 
-    public func acknowledgeRegionEntry(_ identifier: String) {
+    public func acknowledgeRegionEntry(_ identifier: String, token: String? = nil) {
         // The persisted value is the cross-launch authority. A stale publisher callback must not
         // clear a newer region entry that another provider has already stored.
-        guard Self.acknowledgePendingRegionEntry(identifier) else { return }
+        guard Self.acknowledgePendingRegionEntry(identifier, token: token) else { return }
         enteredRegionIdentifier = nil
     }
 

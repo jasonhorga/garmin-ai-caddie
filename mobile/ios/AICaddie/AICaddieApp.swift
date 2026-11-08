@@ -42,8 +42,9 @@ public struct AICaddieApp: App {
         let regionLocationProvider = LocationProvider()
         regionLocationProvider.onRegionEntered = { identifier in
             Task { @MainActor in
+                let token = LocationProvider.pendingRegionEntryToken(identifier)
                 if model.handleAutomaticRegionEntry(identifier: identifier) {
-                    regionLocationProvider.acknowledgeRegionEntry(identifier)
+                    regionLocationProvider.acknowledgeRegionEntry(identifier, token: token)
                 }
             }
         }
@@ -310,8 +311,9 @@ public struct AICaddieApp: App {
                             )
                         },
                         onRegionEntered: { identifier in
+                            let token = LocationProvider.pendingRegionEntryToken(identifier)
                             if model.handleAutomaticRegionEntry(identifier: identifier) {
-                                regionLocationProvider.acknowledgeRegionEntry(identifier)
+                                regionLocationProvider.acknowledgeRegionEntry(identifier, token: token)
                             }
                         },
                         onValidateReadyPrepCourse: { record in
@@ -1714,7 +1716,8 @@ public final class LiveRoundAppModel: ObservableObject {
         // before it was able to acknowledge Core Location's entry. Reopen the prep for that same
         // entry, but keep the phone and Watch notifications single shot.
         if LocationProvider.isPendingRegionEntryNotified(identifier) {
-            _ = LocationProvider.acknowledgePendingRegionEntry(identifier)
+            guard let token = LocationProvider.pendingRegionEntryToken(identifier) else { return }
+            _ = LocationProvider.acknowledgePendingRegionEntry(identifier, token: token)
             return
         }
         guard let reminderID = LocationProvider.pendingRegionEntryToken(identifier) else { return }
@@ -1725,8 +1728,7 @@ public final class LiveRoundAppModel: ObservableObject {
             isCurrent: { LocationProvider.pendingRegionEntryToken(identifier) == reminderID }
         ) { [weak self] enqueued in
             guard enqueued,
-                  LocationProvider.pendingRegionEntryToken(identifier) == reminderID,
-                  LocationProvider.markPendingRegionEntryNotified(identifier) else {
+                  LocationProvider.markPendingRegionEntryNotified(identifier, token: reminderID) else {
                 if !enqueued {
                     Task { @MainActor in
                         self?.pendingAutomaticRegionReminder = candidate
@@ -1734,7 +1736,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
                 return
             }
-            _ = LocationProvider.acknowledgePendingRegionEntry(identifier)
+            _ = LocationProvider.acknowledgePendingRegionEntry(identifier, token: reminderID)
             LocationProvider.setHandledRegionEntryToken(reminderID)
             Task { @MainActor in
                 self?.handledAutomaticRegionReminderToken = reminderID
