@@ -1598,7 +1598,7 @@ public final class LiveRoundAppModel: ObservableObject {
         return false
     }
 
-    private func notifyAutomaticRegionEntry(for candidate: MobileCourseOption) {
+    private func notifyAutomaticRegionEntry(for candidate: MobileCourseOption, reminderID: String) {
         syncStatus = "区域提醒已打开最近球场 · \(candidate.name)"
         #if canImport(UserNotifications)
         let content = UNMutableNotificationContent()
@@ -1616,7 +1616,7 @@ public final class LiveRoundAppModel: ObservableObject {
             )
         }
         #endif
-        watchBridge?.sendRegionReminder(courseName: candidate.name)
+        watchBridge?.sendRegionReminder(courseName: candidate.name, id: reminderID)
     }
 
     /// The same ordered, deduplicated recent-course set used by region monitoring and automatic
@@ -1665,6 +1665,9 @@ public final class LiveRoundAppModel: ObservableObject {
             return
         }
         regionReminderCourseID = candidate.globalId
+        guard LocationProvider.ensurePendingRegionEntry(
+            "ai-caddie.course.\(candidate.globalId)"
+        ) else { return }
         guard openPrepCourse(candidate) else {
             regionReminderCourseID = nil
             return
@@ -1679,17 +1682,21 @@ public final class LiveRoundAppModel: ObservableObject {
               let prep = prepPackage,
               prep.course.globalId == candidate.globalId else { return }
         pendingAutomaticRegionReminder = nil
+        let identifier = "ai-caddie.course.\(candidate.globalId)"
         // A previous process may have published this prep and persisted the notification marker
         // before it was able to acknowledge Core Location's entry. Reopen the prep for that same
         // entry, but keep the phone and Watch notifications single shot.
-        guard !LocationProvider.isPendingRegionEntryNotified(
-            "ai-caddie.course.\(candidate.globalId)"
-        ) else { return }
-        guard LocationProvider.markPendingRegionEntryNotified(
-            "ai-caddie.course.\(candidate.globalId)"
-        ) else { return }
+        if LocationProvider.isPendingRegionEntryNotified(identifier) {
+            _ = LocationProvider.acknowledgePendingRegionEntry(identifier)
+            return
+        }
+        guard let reminderID = LocationProvider.pendingRegionEntryToken(identifier),
+              LocationProvider.markPendingRegionEntryNotified(identifier) else { return }
         syncStatus = "区域提醒已打开最近球场 · \(candidate.name)"
-        notifyAutomaticRegionEntry(for: candidate)
+        notifyAutomaticRegionEntry(for: candidate, reminderID: reminderID)
+        // Claiming the entry is durable before sending. Clear it after notification scheduling so a
+        // crash in between leaves the marker for the next launch to suppress a replay.
+        _ = LocationProvider.acknowledgePendingRegionEntry(identifier)
     }
 
     private func resetAutomaticRegionReminderAfterPrepFailure(for globalId: Int) {
@@ -6125,8 +6132,13 @@ public final class LiveRoundAppModel: ObservableObject {
         prepPackage = nil
         prepCourse = nil
         prepTeeOptions = []
-        pendingAutomaticRegionReminder = nil
-        regionReminderCourseID = nil
+        // Keep a replacement Core Location/GPS entry queued while the player closes an older prep;
+        // RoundHome retries it on the next package change. A fully acknowledged entry can release
+        // the in-memory guard immediately.
+        if LocationProvider.pendingRegionEntryIdentifier() == nil {
+            pendingAutomaticRegionReminder = nil
+            regionReminderCourseID = nil
+        }
     }
 
     /// 备战时换 T 台: the other Tee is its own library row, and the hole screen reopens on it at the
