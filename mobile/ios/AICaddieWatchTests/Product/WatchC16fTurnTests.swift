@@ -1,5 +1,6 @@
 import AICaddieDomain
 import XCTest
+import AICaddieCore
 @testable import AICaddieWatch
 
 @MainActor

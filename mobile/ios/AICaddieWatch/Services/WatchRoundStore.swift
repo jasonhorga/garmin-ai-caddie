@@ -1,4 +1,5 @@
 import Foundation
+import AICaddieCore
 
 public enum WatchRoundDisposition: String, Codable, Equatable {
     case finished

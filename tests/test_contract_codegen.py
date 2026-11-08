@@ -784,21 +784,23 @@ class ContractCodegenTests(unittest.TestCase):
             '            resources: [.copy("Fixtures")]',
             package,
         )
+        self.assertIn('.library(name: "AICaddieCore", targets: ["AICaddieCore"])', package)
         self.assertIn(
-            'name: "AICaddie",\n            dependencies: ["AICaddieDomain"],',
+            'name: "AICaddieCore",\n'
+            '            dependencies: ["AICaddieDomain"],\n'
+            '            path: "mobile/ios/AICaddieCore"',
             package,
         )
         self.assertIn(
-            'name: "AICaddieWatch",\n            dependencies: ["AICaddieDomain"],',
+            'name: "AICaddieCoreTests",\n'
+            '            dependencies: ["AICaddieCore", "AICaddieDomain"],\n'
+            '            path: "mobile/ios/AICaddieCoreTests"',
             package,
         )
-        self.assertIn(
-            'name: "AICaddieTests",\n'
-            '            dependencies: ["AICaddie"],\n'
-            '            path: "mobile/ios/AICaddieTests",\n'
-            '            resources: [.copy("Fixtures")]',
-            package,
-        )
+        # The package holds only platform-free code so `swift test` runs on a Mac host; the apps
+        # (UIKit, WatchConnectivity) build through XcodeGen.
+        for app_target in ('name: "AICaddie",', 'name: "AICaddieWatch",', 'name: "AICaddieTests",'):
+            self.assertNotIn(app_target, package)
 
     def test_xcodegen_declares_multidestination_domain_targets_and_dependencies(self) -> None:
         project = yaml.safe_load(Path("mobile/ios/project.yml").read_text(encoding="utf-8"))
@@ -851,11 +853,11 @@ class ContractCodegenTests(unittest.TestCase):
         )
 
         ios_dependencies = {entry["target"] for entry in targets["AICaddie"]["dependencies"]}
-        self.assertEqual(ios_dependencies, {"AICaddieDomain", "AICaddieWatch"})
+        self.assertEqual(ios_dependencies, {"AICaddieDomain", "AICaddieCore", "AICaddieWatch"})
         watch_dependencies = {
             entry["target"] for entry in targets["AICaddieWatch"]["dependencies"]
         }
-        self.assertEqual(watch_dependencies, {"AICaddieDomain"})
+        self.assertEqual(watch_dependencies, {"AICaddieDomain", "AICaddieCore"})
 
         ios_tests = targets["AICaddieTests"]
         self.assertIn(

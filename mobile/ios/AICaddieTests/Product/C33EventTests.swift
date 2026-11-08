@@ -2,6 +2,7 @@
 import Combine
 import Foundation
 import XCTest
+import AICaddieCore
 @testable import AICaddie
 
 @MainActor

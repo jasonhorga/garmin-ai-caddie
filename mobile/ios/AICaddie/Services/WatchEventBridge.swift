@@ -1,15 +1,7 @@
 import Foundation
+import AICaddieCore
 import AICaddieDomain
 import WatchConnectivity
-
-public enum WatchInputKind: String, Codable, Equatable {
-    case score
-    case putt
-    case penalty
-    case club
-    case distance
-    case location
-}
 
 public struct WatchClubOption: Codable, Equatable, Identifiable {
     public var id: String { clubName }
@@ -174,58 +166,6 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         self.confidence = confidence
         self.routeOffsetBasis = routeOffsetBasis
         self.originShotEventIds = originShotEventIds
-    }
-}
-
-public struct WatchInputEvent: Codable, Equatable, Identifiable {
-    public var id: String { eventId }
-
-    public let schema: String = "ai-caddie-watch-input-event-v1"
-    public let eventId: String
-    public let roundId: String
-    public let hole: Int
-    public let kind: WatchInputKind
-    public let value: String
-    public let createdAt: String
-    public let contextClub: String?
-    public let shotType: String?
-    public let strategyMode: String?
-    public let lie: String?
-    public let distanceToPinM: Double?
-    public let offlineOptionId: String?
-    public let decisionId: String?
-    public let fairwayResult: String?
-
-    public init(
-        eventId: String,
-        roundId: String,
-        hole: Int,
-        kind: WatchInputKind,
-        value: String,
-        createdAt: String,
-        contextClub: String? = nil,
-        shotType: String? = nil,
-        strategyMode: String? = nil,
-        lie: String? = nil,
-        distanceToPinM: Double? = nil,
-        offlineOptionId: String? = nil,
-        decisionId: String? = nil,
-        fairwayResult: String? = nil
-    ) {
-        self.eventId = eventId
-        self.roundId = roundId
-        self.hole = hole
-        self.kind = kind
-        self.value = value
-        self.createdAt = createdAt
-        self.contextClub = contextClub
-        self.shotType = shotType
-        self.strategyMode = strategyMode
-        self.lie = lie
-        self.distanceToPinM = distanceToPinM
-        self.offlineOptionId = offlineOptionId
-        self.decisionId = decisionId
-        self.fairwayResult = fairwayResult
     }
 }
 
@@ -544,6 +484,8 @@ public final class WatchEventBridge: NSObject {
     public var onHoleDisplayed: ((Int) -> Void)?
 
     private let offlineStore: OfflineStore
+    /// The Watch link. `WCSession.default` in the app; nil where WatchConnectivity is unsupported.
+    private let session: WatchSessioning?
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     /// Latest backend config to hand the watch; re-pushed once the session activates (round-12 P3.4).
@@ -552,19 +494,27 @@ public final class WatchEventBridge: NSObject {
     /// publish the two together instead of allowing one update to erase the other.
     private var pendingRoundSeed: [String: Any]?
 
-    public init(offlineStore: OfflineStore = OfflineStore(), autoActivate: Bool = false) {
+    public init(
+        offlineStore: OfflineStore = OfflineStore(),
+        autoActivate: Bool = false,
+        session: WatchSessioning? = WatchEventBridge.defaultSession
+    ) {
         self.offlineStore = offlineStore
+        self.session = session
         super.init()
         if autoActivate {
             activateSession()
         }
     }
 
+    public static var defaultSession: WatchSessioning? {
+        WCSession.isSupported() ? WCSession.default : nil
+    }
+
     public func activateSession() {
-        if WCSession.isSupported() {
-            WCSession.default.delegate = self
-            WCSession.default.activate()
-        }
+        guard let session else { return }
+        (session as? WCSession)?.delegate = self
+        session.activateSession()
     }
 
     public func mapWatchInputEvent(_ event: WatchInputEvent) throws -> LiveRoundEvent {
@@ -902,13 +852,13 @@ public final class WatchEventBridge: NSObject {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw URLError(.cannotParseResponse)
         }
-        guard WCSession.isSupported() else {
+        guard let session else {
             return
         }
-        if WCSession.default.isReachable {
-            WCSession.default.sendMessage(["state": object], replyHandler: nil)
+        if session.isCounterpartReachable {
+            session.send(["state": object], onReply: nil, onError: nil)
         } else {
-            WCSession.default.transferUserInfo(["state": object])
+            session.queueUserInfo(["state": object])
         }
     }
 
@@ -954,9 +904,7 @@ public final class WatchEventBridge: NSObject {
     /// previous seed stored by the system indefinitely.
     public func clearRoundSeed(roundId: String) {
         let lastSentSeed = pendingRoundSeed
-            ?? (WCSession.isSupported()
-                ? WCSession.default.applicationContext["roundSeed"] as? [String: Any]
-                : nil)
+            ?? session?.sentContext["roundSeed"] as? [String: Any]
         if let lastSentSeed,
            lastSentSeed["roundId"] as? String != roundId {
             return
@@ -976,25 +924,24 @@ public final class WatchEventBridge: NSObject {
             disposition: disposition,
             closedAt: closedAt
         )
-        guard WCSession.isSupported(),
-              WCSession.default.activationState == .activated,
+        guard let session,
+              session.isSessionActivated,
               let data = try? encoder.encode(closure),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return
         }
-        WCSession.default.transferUserInfo(["roundClosure": object])
+        session.queueUserInfo(["roundClosure": object])
     }
 
     /// Keep the Watch's offline course copy aligned with a phone library deletion. This command
     /// carries only the Garmin identity; scores, round seeds and server caches are untouched.
     public func removeCourseFromWatch(globalId: Int) {
-        guard WCSession.isSupported(),
-              WCSession.default.activationState == .activated else { return }
+        guard let session, session.isSessionActivated else { return }
         let payload: [String: Any] = ["removeCourse": ["globalId": globalId]]
-        if WCSession.default.isReachable {
-            WCSession.default.sendMessage(payload, replyHandler: nil)
+        if session.isCounterpartReachable {
+            session.send(payload, onReply: nil, onError: nil)
         } else {
-            WCSession.default.transferUserInfo(payload)
+            session.queueUserInfo(payload)
         }
     }
 
@@ -1037,14 +984,11 @@ public final class WatchEventBridge: NSObject {
     /// Push the stored config and real-round seed in one latest-wins application context. No-op until
     /// activation; the activation callback retries anything queued during launch.
     private func pushPendingApplicationContext() {
-        guard WCSession.isSupported() else {
-            return
-        }
-        guard WCSession.default.activationState == .activated else {
+        guard let session, session.isSessionActivated else {
             return
         }
         let context = pendingApplicationContext()
-        try? WCSession.default.updateApplicationContext(context)
+        try? session.replaceContext(context)
     }
 
     /// One complete latest-wins snapshot, shared by application-context delivery and the Watch's

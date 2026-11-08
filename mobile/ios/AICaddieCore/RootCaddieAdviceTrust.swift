@@ -71,6 +71,53 @@ public enum RootCaddieAdviceTrust {
         fixCapturedAt: String,
         now: String
     ) -> Bool {
-        true
+        guard fixLatitude.isFinite,
+              (-90...90).contains(fixLatitude),
+              fixLongitude.isFinite,
+              (-180...180).contains(fixLongitude),
+              fixAccuracyM.isFinite,
+              (0...15).contains(fixAccuracyM),
+              recommendation.source == "live",
+              ["automatic", "manual"].contains(recommendation.mode),
+              ["high", "medium"].contains(recommendation.confidence),
+              recommendation.sampleSize >= 10,
+              recommendation.evidenceCount > 0,
+              recommendation.aimCarryM.isFinite, recommendation.aimCarryM > 0,
+              recommendation.carryP10M.isFinite, recommendation.carryP10M > 0,
+              recommendation.carryP90M.isFinite,
+              recommendation.carryP90M >= recommendation.carryP10M,
+              recommendation.carryP10M <= recommendation.aimCarryM,
+              recommendation.aimCarryM <= recommendation.carryP90M,
+              recommendation.originLatitude.isFinite,
+              (-90...90).contains(recommendation.originLatitude),
+              recommendation.originLongitude.isFinite,
+              (-180...180).contains(recommendation.originLongitude),
+              recommendation.originAccuracyM.isFinite,
+              (0...15).contains(recommendation.originAccuracyM),
+              recommendation.maximumMovementM.isFinite,
+              recommendation.maximumMovementM > 0
+        else {
+            return false
+        }
+
+        let formatter = ISO8601DateFormatter()
+        guard let generatedAt = formatter.date(from: recommendation.generatedAt),
+              let validUntil = formatter.date(from: recommendation.validUntil),
+              let capturedAt = formatter.date(from: fixCapturedAt),
+              let current = formatter.date(from: now),
+              generatedAt < validUntil,
+              generatedAt <= current,
+              current < validUntil,
+              capturedAt <= current,
+              current.timeIntervalSince(capturedAt) <= 15,
+              WatchGeoDistance.metres(
+                recommendation.originLatitude,
+                recommendation.originLongitude,
+                fixLatitude,
+                fixLongitude
+              ) <= recommendation.maximumMovementM else {
+            return false
+        }
+        return true
     }
 }

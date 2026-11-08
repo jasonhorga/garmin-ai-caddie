@@ -3,6 +3,7 @@ import ImageIO
 import SwiftUI
 import XCTest
 import AICaddieDomain
+import AICaddieCore
 @testable import AICaddieWatch
 
 /// round-12 P3 (Watch standalone): render watch SwiftUI surfaces to PNGs in the watchOS SIMULATOR so

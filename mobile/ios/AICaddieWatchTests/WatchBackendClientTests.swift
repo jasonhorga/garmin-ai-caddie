@@ -1,5 +1,6 @@
 import XCTest
 import AICaddieDomain
+import AICaddieCore
 @testable import AICaddieWatch
 
 final class WatchBackendClientTests: XCTestCase {

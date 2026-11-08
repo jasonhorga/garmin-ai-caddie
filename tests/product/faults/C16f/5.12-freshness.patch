@@ -1,8 +1,9 @@
-diff --git a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
---- a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
-+++ b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
-@@ -560,3 +560,3 @@
+diff --git a/mobile/ios/AICaddieCore/RootCaddieAdviceTrust.swift b/mobile/ios/AICaddieCore/RootCaddieAdviceTrust.swift
+index b662d300..47d2de6c 100644
+--- a/mobile/ios/AICaddieCore/RootCaddieAdviceTrust.swift
++++ b/mobile/ios/AICaddieCore/RootCaddieAdviceTrust.swift
+@@ -109,3 +109,3 @@ public enum RootCaddieAdviceTrust {
                generatedAt <= current,
 -              current < validUntil,
 +              true,
-               fixCapturedAt <= current,
+               capturedAt <= current,

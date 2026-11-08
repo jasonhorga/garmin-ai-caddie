@@ -1,3 +1,4 @@
+import AICaddieCore
 import SwiftUI
 
 /// Garmin-style Virtual Caddie instrument: one route at a time, with the factual hole map and target

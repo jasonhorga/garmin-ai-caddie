@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddieCore/WatchInputQueue.swift b/mobile/ios/AICaddieCore/WatchInputQueue.swift
+index 16902abd..d733fe5a 100644
+--- a/mobile/ios/AICaddieCore/WatchInputQueue.swift
++++ b/mobile/ios/AICaddieCore/WatchInputQueue.swift
+@@ -15,3 +15,2 @@ public struct WatchInputQueue: Equatable {
+     public mutating func enqueue(_ event: WatchInputEvent) -> Bool {
+-        guard !events.contains(where: { $0.eventId == event.eventId }) else { return false }
+         events.append(event)

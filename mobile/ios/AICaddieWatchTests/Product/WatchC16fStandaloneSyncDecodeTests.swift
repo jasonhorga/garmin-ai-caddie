@@ -1,5 +1,6 @@
 import CoreLocation
 import XCTest
+import AICaddieCore
 @testable import AICaddieWatch
 
 /// C16f 6.1/6.2/8.3: independent Watch persistence, phone refresh ordering and old payload decode.

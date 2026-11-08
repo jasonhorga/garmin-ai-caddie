@@ -2,6 +2,7 @@ import XCTest
 #if canImport(WatchConnectivity)
 import WatchConnectivity
 #endif
+import AICaddieCore
 @testable import AICaddieWatch
 
 final class WatchSyncClientTests: XCTestCase {
