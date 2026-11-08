@@ -92,6 +92,19 @@ const applyResponse: MobileReconciliationApplyResponse = {
 }
 
 describe('MobileReconciliationPanel', () => {
+  it('labels each restored hole replaced by a later Garmin card', () => {
+    // J1.3: the local evidence explains why a formerly matched score is no longer in this round.
+    const data = { ...reconciliation, localOnly: [
+      { eventId: 'restored-score', kind: 'score', hole: 10, phoneHole: 10,
+        localValue: 5, restoreSuperseded: true },
+    ] }
+    render(<MobileReconciliationPanel state={{ status: 'ready', data }} applyState={{ status: 'idle' }}
+      onLoad={vi.fn()} onApply={vi.fn()} />)
+    const evidence = screen.getByRole('region', { name: '仅本地移动事件' })
+    expect(within(evidence).getByText('手机第 10 洞：补分已被后到 Garmin 球局替代')).toBeInTheDocument()
+    expect(within(evidence).getByText('restored-score')).toBeInTheDocument()
+  })
+
   it('uses mutually exclusive radios for conflict resolutions and leaves them unselected', async () => {
     const onApply = vi.fn().mockResolvedValue(undefined)
     const conflictData: MobileReconciliationResponse = {
