@@ -836,8 +836,22 @@ extension WatchSyncClient: WCSessionDelegate {
         guard let id = value["id"] as? String,
               let courseName = value["courseName"] as? String,
               !id.isEmpty, !courseName.isEmpty else { return }
-        guard !isRegionReminderDelivered(id) else { return }
         regionReminderIDLock.lock()
+        // WCSession can deliver the same reminder through both sendMessage and the
+        // user-info fallback, and an older user-info delivery can arrive after a newer
+        // arrival. Keep the durable entry with the greatest timestamp and do not reset
+        // its retry budget for duplicates or stale callbacks.
+        let delivered = UserDefaults.standard.stringArray(forKey: Self.deliveredRegionReminderIDsKey)?.contains(id) == true
+        let currentID = UserDefaults.standard.string(forKey: Self.pendingRegionReminderIDKey)
+        if currentID == id {
+            regionReminderIDLock.unlock()
+            return
+        }
+        let accepts = currentID == nil || Self.isNewerRegionReminderID(id, than: currentID!)
+        guard !delivered, accepts else {
+            regionReminderIDLock.unlock()
+            return
+        }
         UserDefaults.standard.set(id, forKey: Self.pendingRegionReminderIDKey)
         UserDefaults.standard.set(courseName, forKey: Self.pendingRegionReminderNameKey)
         UserDefaults.standard.set(0, forKey: Self.pendingRegionReminderRetryCountKey)
@@ -845,6 +859,23 @@ extension WatchSyncClient: WCSessionDelegate {
         publishStateUpdate { client in
             client.regionReminder = WatchRegionReminder(id: id, courseName: courseName)
         }
+    }
+
+    private static func isNewerRegionReminderID(_ id: String, than currentID: String) -> Bool {
+        guard let incoming = regionReminderTimestamp(id),
+              let current = regionReminderTimestamp(currentID) else {
+            // Reminder IDs are generated as `<course identifier>:<entry timestamp>`.
+            // If an old build supplies an opaque ID, preserve the already-pending entry
+            // rather than allowing an unorderable callback to replace it.
+            return false
+        }
+        return incoming > current
+    }
+
+    private static func regionReminderTimestamp(_ id: String) -> Double? {
+        guard let separator = id.lastIndex(of: ":") else { return nil }
+        let value = Double(id[id.index(after: separator)...])
+        return value?.isFinite == true ? value : nil
     }
 
     private func isRegionReminderDelivered(_ id: String) -> Bool {
@@ -899,7 +930,8 @@ extension WatchSyncClient: WCSessionDelegate {
         UserDefaults.standard.set(retryCount + 1, forKey: Self.pendingRegionReminderRetryCountKey)
         regionReminderIDLock.unlock()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-            self?.publishStateUpdate { client in
+            guard let self, self.isPendingRegionReminder(pendingID) else { return }
+            self.publishStateUpdate { client in
                 client.regionReminder = nil
                 client.regionReminder = WatchRegionReminder(id: pendingID, courseName: courseName)
             }
