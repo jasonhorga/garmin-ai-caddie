@@ -2490,6 +2490,13 @@ public final class WatchRoundModel: ObservableObject {
                     ready = updated.round
                     guard ready.pendingEvents.isEmpty else { continue }
                 }
+                // A phone Finish already sealed this round. Only wrist-authored facts still
+                // needed acknowledgement; their durable stroke marker must not request Finish again.
+                if deferred.needsRemoteFinish == false
+                    || store.closure(roundId: ready.roundId)?.disposition == .finished {
+                    try store.removeDeferredFinish(roundId: ready.roundId)
+                    continue
+                }
                 // Older builds allowed a location-only Save & End. Preserve that real GPS fact by
                 // waiting for an explicit upload acknowledgement, then retire the invalid archive
                 // without asking the backend to fabricate a scored round. A truly empty archive can
@@ -2526,7 +2533,11 @@ public final class WatchRoundModel: ObservableObject {
                 // Phone Finish cannot prove that wrist-authored facts reached the backend: the
                 // standalone Watch queue is uploaded only by this model. Leave the playing UI, but
                 // archive those exact event IDs for the existing idempotent deferred retry path.
-                _ = try store.deferFinish(visibleRound, savedAt: closure.closedAt)
+                _ = try store.deferFinish(
+                    visibleRound,
+                    savedAt: closure.closedAt,
+                    needsRemoteFinish: false
+                )
             } else {
                 _ = try store.closeActiveRound(
                     roundId: closure.roundId,

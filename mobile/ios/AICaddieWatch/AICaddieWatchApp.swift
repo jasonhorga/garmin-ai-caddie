@@ -742,21 +742,20 @@ public struct AICaddieWatchApp: App {
                 return
             }
             guard syncClient.isPendingRegionReminder(id) else { return }
-            UNUserNotificationCenter.current().add(
-                UNNotificationRequest(
-                    identifier: "ai-caddie.watch.region-reminder.\(id)",
-                    content: content,
-                    trigger: nil
-                ) { error in
-                    guard error == nil else {
-                        guard syncClient.isPendingRegionReminder(id) else { return }
-                        syncClient.retryPendingRegionReminder(id: id)
-                        return
-                    }
-                    guard syncClient.isPendingRegionReminder(id) else { return }
-                    syncClient.markRegionReminderDelivered(id)
-                }
+            let request = UNNotificationRequest(
+                identifier: "ai-caddie.watch.region-reminder.\(id)",
+                content: content,
+                trigger: nil
             )
+            UNUserNotificationCenter.current().add(request) { error in
+                guard error == nil else {
+                    guard syncClient.isPendingRegionReminder(id) else { return }
+                    syncClient.retryPendingRegionReminder(id: id)
+                    return
+                }
+                guard syncClient.isPendingRegionReminder(id) else { return }
+                syncClient.markRegionReminderDelivered(id)
+            }
         }
         #else
         syncClient.markRegionReminderDelivered(id)

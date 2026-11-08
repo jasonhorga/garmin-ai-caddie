@@ -87,10 +87,13 @@ public final class WatchRoundStore {
     public struct DeferredFinish: Codable, Equatable {
         public var round: PersistedRound
         public let savedAt: String
+        /// Nil in older archives means the Watch still owns the backend Finish request.
+        public let needsRemoteFinish: Bool?
 
-        public init(round: PersistedRound, savedAt: String) {
+        public init(round: PersistedRound, savedAt: String, needsRemoteFinish: Bool? = nil) {
             self.round = round
             self.savedAt = savedAt
+            self.needsRemoteFinish = needsRemoteFinish
         }
     }
 
@@ -277,14 +280,20 @@ public final class WatchRoundStore {
     /// Leave the playing UI immediately while retaining every unresolved fact for an idempotent
     /// upload/finish retry. Archive first, then tombstone, then remove the active pointer so a crash
     /// at any boundary cannot silently lose the round.
-    public func deferFinish(_ round: PersistedRound, savedAt: String) throws -> WatchRoundClosure {
+    public func deferFinish(
+        _ round: PersistedRound,
+        savedAt: String,
+        needsRemoteFinish: Bool? = nil
+    ) throws -> WatchRoundClosure {
         var deferred = loadDeferredFinishes()
         deferred.removeAll { $0.round.roundId == round.roundId }
         // View Green placement has no backend materialization and is scoped only to the active game.
         // Keep every unresolved scoring fact, but do not carry presentation state into the retry archive.
         var uploadRound = round
         uploadRound.greenPlacements = nil
-        deferred.append(DeferredFinish(round: uploadRound, savedAt: savedAt))
+        deferred.append(DeferredFinish(
+            round: uploadRound, savedAt: savedAt, needsRemoteFinish: needsRemoteFinish
+        ))
         try write(deferred, to: deferredFinishesURL)
         return try closeActiveRound(
             roundId: round.roundId,

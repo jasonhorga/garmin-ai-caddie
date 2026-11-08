@@ -1621,17 +1621,16 @@ public final class LiveRoundAppModel: ObservableObject {
         content.sound = .default
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted, isCurrent() else { completion(false); return }
-            UNUserNotificationCenter.current().add(
-                UNNotificationRequest(
-                    identifier: "ai-caddie.region-reminder.\(candidate.globalId)",
-                    content: content,
-                    trigger: nil
-                ) { error in
-                    guard error == nil, isCurrent() else { completion(false); return }
-                    self.watchBridge?.sendRegionReminder(courseName: candidate.name, id: reminderID)
-                    completion(true)
-                }
+            let request = UNNotificationRequest(
+                identifier: "ai-caddie.region-reminder.\(candidate.globalId)",
+                content: content,
+                trigger: nil
             )
+            UNUserNotificationCenter.current().add(request) { error in
+                guard error == nil, isCurrent() else { completion(false); return }
+                self.watchBridge?.sendRegionReminder(courseName: candidate.name, id: reminderID)
+                completion(true)
+            }
         }
         #else
         guard isCurrent() else { completion(false); return }

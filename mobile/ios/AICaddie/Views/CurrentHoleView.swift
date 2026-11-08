@@ -4541,7 +4541,8 @@ public struct CurrentHoleView: View {
     private var hasLeftSelectedTee: Bool {
         guard recordedNonPuttShotCount == 0,
               !isTeeShotOffTheHole,
-              let fix = currentCoordinateForLogic,
+              // A restored position/Touch Target is display state, not a provider GPS fix.
+              let fix = activeLocationProvider.latestFix?.coordinate,
               let tee = teeAnchorCoordinate else { return false }
         let distance = GeoDistance.haversineMetres(
             fix.latitude, fix.longitude, tee.latitude, tee.longitude
