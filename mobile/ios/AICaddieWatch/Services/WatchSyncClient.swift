@@ -241,7 +241,7 @@ public struct WatchSyncAcknowledgement: Equatable {
 }
 
 public final class WatchSyncClient: NSObject, ObservableObject {
-    private static let handledRegionReminderIDsKey = "aicaddie.watch.handled-region-reminder-ids.v1"
+    private static let deliveredRegionReminderIDsKey = "aicaddie.watch.delivered-region-reminder-ids.v1"
     @Published public private(set) var currentState: WatchRoundState?
     @Published public private(set) var roundSeed: WatchRoundSeed?
     @Published public private(set) var phoneRoundClosure: WatchRoundClosure?
@@ -827,23 +827,27 @@ extension WatchSyncClient: WCSessionDelegate {
         guard let id = value["id"] as? String,
               let courseName = value["courseName"] as? String,
               !id.isEmpty, !courseName.isEmpty else { return }
-        guard claimRegionReminderID(id) else { return }
+        guard !isRegionReminderDelivered(id) else { return }
         publishStateUpdate { client in
             client.regionReminder = WatchRegionReminder(id: id, courseName: courseName)
         }
     }
 
-    /// WatchConnectivity may deliver the same queued userInfo more than once. The phone uses the
-    /// persisted Core Location entry token as this id, so retain a bounded receipt set across Watch
-    /// launches before publishing the UI notification.
-    private func claimRegionReminderID(_ id: String) -> Bool {
+    private func isRegionReminderDelivered(_ id: String) -> Bool {
         regionReminderIDLock.lock()
         defer { regionReminderIDLock.unlock() }
-        var handled = Set(UserDefaults.standard.stringArray(forKey: Self.handledRegionReminderIDsKey) ?? [])
-        guard handled.insert(id).inserted else { return false }
-        let ordered = Array(handled).sorted()
-        UserDefaults.standard.set(Array(ordered.suffix(64)), forKey: Self.handledRegionReminderIDsKey)
-        return true
+        return UserDefaults.standard.stringArray(forKey: Self.deliveredRegionReminderIDsKey)?.contains(id) == true
+    }
+
+    /// Record delivery only after the Watch has successfully enqueued its local notification. A
+    /// crash before that point leaves the stable entry token eligible for a later retry.
+    public func markRegionReminderDelivered(_ id: String) {
+        guard !id.isEmpty else { return }
+        regionReminderIDLock.lock()
+        defer { regionReminderIDLock.unlock() }
+        var delivered = Set(UserDefaults.standard.stringArray(forKey: Self.deliveredRegionReminderIDsKey) ?? [])
+        delivered.insert(id)
+        UserDefaults.standard.set(Array(delivered.sorted().suffix(64)), forKey: Self.deliveredRegionReminderIDsKey)
     }
 
     public func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {

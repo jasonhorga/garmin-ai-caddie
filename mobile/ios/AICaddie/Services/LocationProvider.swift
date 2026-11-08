@@ -29,6 +29,7 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     private static let pendingRegionEntryAtKey = "aicaddie.pending-region-entry-at.v1"
     private static let pendingRegionEntryNotifiedKey = "aicaddie.pending-region-entry-notified.v1"
     private static let pendingRegionEntryNotifiedAtKey = "aicaddie.pending-region-entry-notified-at.v1"
+    private static let handledRegionCourseKey = "aicaddie.handled-region-course.v1"
     private static let pendingRegionEntryMaxAge: TimeInterval = 10 * 60
     private let manager: CLLocationManager
     private let formatter = LocationProvider.makeCaptureFormatter()
@@ -221,6 +222,18 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
 
     public static func pendingRegionEntryIdentifier() -> String? {
         freshPendingRegionEntryValue()
+    }
+
+    public static func handledRegionCourseID() -> Int? {
+        UserDefaults.standard.object(forKey: handledRegionCourseKey) as? Int
+    }
+
+    public static func setHandledRegionCourseID(_ globalID: Int) {
+        UserDefaults.standard.set(globalID, forKey: handledRegionCourseKey)
+    }
+
+    public static func clearHandledRegionCourseID() {
+        UserDefaults.standard.removeObject(forKey: handledRegionCourseKey)
     }
 
     @discardableResult

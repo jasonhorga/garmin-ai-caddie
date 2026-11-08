@@ -742,9 +742,14 @@ public struct AICaddieWatchApp: App {
                     identifier: "ai-caddie.watch.region-reminder.\(id)",
                     content: content,
                     trigger: nil
-                )
+                ) { error in
+                    guard error == nil else { return }
+                    syncClient.markRegionReminderDelivered(id)
+                }
             )
         }
+        #else
+        syncClient.markRegionReminderDelivered(id)
         #endif
     }
 
