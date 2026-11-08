@@ -26,6 +26,7 @@ public struct PhoneRoundIdleTracker {
     private var anchorLongitude: Double?
     private var anchorAt: Date?
     private var hasBeenOnCourse = false
+    private var hasSeenOffCourse = false
 
     public init() {}
 
@@ -36,6 +37,17 @@ public struct PhoneRoundIdleTracker {
         anchorLongitude = nil
         anchorAt = nil
         hasBeenOnCourse = false
+        hasSeenOffCourse = false
+    }
+
+    /// Reset the quiet and movement clocks after a score edit while retaining the evidence that
+    /// this round has already matched (or mismatched) the selected course.
+    public mutating func resetIdleClockPreservingCourse() {
+        trackingSince = nil
+        offCourseSince = nil
+        anchorLatitude = nil
+        anchorLongitude = nil
+        anchorAt = nil
     }
 
     public mutating func evaluate(
@@ -60,8 +72,10 @@ public struct PhoneRoundIdleTracker {
             }.min()
             if let nearest, nearest <= Self.offCourseMetres {
                 hasBeenOnCourse = true
+                hasSeenOffCourse = false
                 offCourseSince = nil
             } else if nearest != nil {
+                hasSeenOffCourse = true
                 offCourseSince = offCourseSince ?? now
             }
         } else {
@@ -89,18 +103,22 @@ public struct PhoneRoundIdleTracker {
            now.timeIntervalSince(offCourseSince) >= Self.offCourseSeconds,
            idle >= Self.offCourseSeconds {
             // A round without a stroke is never saved, pushed or prompted (design §4).
+            guard hasRecordedStroke else { return .none }
             if hasBeenOnCourse { return hasRecordedStroke ? .finishLeftCourse : .none }
             // A wrong-course selection is only a prompt, but a player who then remains
             // stationary still gets the same 45-minute local pause safeguard. This never
             // seals or uploads the round.
             let lastSign = max(anchorAt ?? .distantPast, lastInput)
-            if hasRecordedStroke, now.timeIntervalSince(lastSign) >= Self.stationarySeconds {
+            if now.timeIntervalSince(lastSign) >= Self.stationarySeconds {
                 return .pauseStationary
             }
             return .wrongCourse
         }
 
-        if allHolesScored, hasRecordedStroke, idle >= Self.completedRoundSeconds {
+        // Once a live round has observed a location away from the selected course without ever
+        // matching it, a later GPS gap must not turn the completed-round timer into an automatic
+        // save. The only valid outcome for that round is the visible mismatch prompt.
+        if allHolesScored, hasRecordedStroke, !hasSeenOffCourse, idle >= Self.completedRoundSeconds {
             return .finishAfterCompletedRound
         }
 

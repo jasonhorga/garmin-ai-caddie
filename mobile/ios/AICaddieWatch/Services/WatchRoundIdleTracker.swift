@@ -38,6 +38,7 @@ public struct WatchRoundIdleTracker {
     /// A manually selected wrong course must only prompt. Auto-finish is allowed after the wrist
     /// has first observed the player on one of the selected course's tees/greens.
     public private(set) var hasBeenOnCourse = false
+    private var hasSeenOffCourse = false
 
     public init() {}
 
@@ -50,6 +51,7 @@ public struct WatchRoundIdleTracker {
         scoredHoles = nil
         scoredHolesChangedAt = nil
         hasBeenOnCourse = false
+        hasSeenOffCourse = false
     }
 
     public mutating func evaluate(
@@ -60,7 +62,8 @@ public struct WatchRoundIdleTracker {
         holePoints: [(latitude: Double, longitude: Double)],
         lastActivityAt: Date?,
         scoredHoles holes: Int = 0,
-        allHolesScored: Bool
+        allHolesScored: Bool,
+        hasRecordedStroke: Bool = true
     ) -> WatchRoundPauseReason? {
         let since = trackingSince ?? now
         trackingSince = since
@@ -90,8 +93,10 @@ public struct WatchRoundIdleTracker {
                     .map { WatchGeoMath.metres($0.latitude, $0.longitude, latitude, longitude) }
                     .min() ?? 0
                 if nearest > Self.offCourseMetres {
+                    hasSeenOffCourse = true
                     let away = offCourseSince ?? now
                     offCourseSince = away
+                    guard hasRecordedStroke else { return nil }
                     // Input means the player is still playing, whatever the course geometry says.
                     if now.timeIntervalSince(away) >= Self.offCourseSeconds, idle >= Self.offCourseSeconds {
                         // A player who selected the wrong course still gets the same 45-minute
@@ -106,6 +111,7 @@ public struct WatchRoundIdleTracker {
                 } else {
                     offCourseSince = nil
                     hasBeenOnCourse = true
+                    hasSeenOffCourse = false
                 }
             }
 
@@ -115,10 +121,14 @@ public struct WatchRoundIdleTracker {
             offCourseSince = nil
         }
 
-        if allHolesScored, idle >= Self.finishedIdleSeconds { return .finished }
+        if hasRecordedStroke, allHolesScored, !hasSeenOffCourse, idle >= Self.finishedIdleSeconds {
+            return .finished
+        }
         // With no fix at all there is no sign of movement: only input keeps the round in play.
         let lastSign = max(anchorAt ?? .distantPast, lastInput)
-        if now.timeIntervalSince(lastSign) >= Self.stationarySeconds { return .stationary }
+        if hasRecordedStroke, now.timeIntervalSince(lastSign) >= Self.stationarySeconds {
+            return .stationary
+        }
         return nil
     }
 }

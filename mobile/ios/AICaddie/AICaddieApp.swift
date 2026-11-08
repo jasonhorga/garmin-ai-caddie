@@ -31,6 +31,7 @@ private final class AICaddieNotificationDelegate: NSObject, UNUserNotificationCe
 @main
 public struct AICaddieApp: App {
     @StateObject private var model: LiveRoundAppModel
+    @StateObject private var regionLocationProvider = LocationProvider()
     @StateObject private var sessionStore = SessionStore.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var usesDarkLiveChrome = false
@@ -38,6 +39,15 @@ public struct AICaddieApp: App {
     public init() {
         let model = LiveRoundAppModel()
         _model = StateObject(wrappedValue: model)
+        let regionLocationProvider = LocationProvider()
+        regionLocationProvider.onRegionEntered = { identifier in
+            Task { @MainActor in
+                if model.handleAutomaticRegionEntry(identifier: identifier) {
+                    regionLocationProvider.acknowledgeRegionEntry(identifier)
+                }
+            }
+        }
+        _regionLocationProvider = StateObject(wrappedValue: regionLocationProvider)
         #if canImport(UserNotifications)
         UNUserNotificationCenter.current().delegate = AICaddieNotificationDelegate.shared
         #endif
@@ -54,11 +64,22 @@ public struct AICaddieApp: App {
             }
             Task { @MainActor in model.handleSpeculativeBackgroundTask(processingTask) }
         }
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: Self.roundIdleBackgroundTaskIdentifier,
+            using: nil
+        ) { task in
+            guard let processingTask = task as? BGProcessingTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            Task { @MainActor in model.handleRoundIdleBackgroundTask(processingTask) }
+        }
         #endif
     }
 
     #if canImport(BackgroundTasks)
     static let speculativeBackgroundTaskIdentifier = "com.ai-caddie.mobile.speculative-prep"
+    static let roundIdleBackgroundTaskIdentifier = "com.ai-caddie.mobile.round-idle"
     #endif
 
     /// Only an explicit DEBUG UI-test launch may bypass Apple sign-in. Ordinary DEBUG launches use
@@ -189,6 +210,9 @@ public struct AICaddieApp: App {
                         onRoundActivity: {
                             model.noteRoundActivity()
                         },
+                        onScoreEvents: { events in
+                            model.handleEventsAtomically(events)
+                        },
                         onResumeDeferredFinish: {
                             model.resumeDeferredFinishForEditing()
                         },
@@ -281,6 +305,14 @@ public struct AICaddieApp: App {
                         },
                         onPrefetchLocationChanged: { fix in
                             model.updatePrefetchLocation(fix)
+                            _ = model.observeRoundLocation(
+                                LiveRoundAppModel.freshRoundLocationFix(fix)
+                            )
+                        },
+                        onRegionEntered: { identifier in
+                            if model.handleAutomaticRegionEntry(identifier: identifier) {
+                                regionLocationProvider.acknowledgeRegionEntry(identifier)
+                            }
                         },
                         onValidateReadyPrepCourse: { record in
                             await model.validateReadyPrepCourse(record)
@@ -316,7 +348,8 @@ public struct AICaddieApp: App {
                         },
                         onUndoRoundStart: {
                             model.undoRoundStart()
-                        }
+                        },
+                        heroLocationProvider: regionLocationProvider
                     )
                 }
             }
@@ -342,6 +375,7 @@ public struct AICaddieApp: App {
                     model.syncOnForeground()
                 } else if phase == .background {
                     model.continuePrepDownloadsInBackground()
+                    model.scheduleRoundIdleBackgroundTask()
                 }
             }
         }
@@ -596,6 +630,9 @@ public final class LiveRoundAppModel: ObservableObject {
     private var roundIdleRoundId: String?
     private var automaticFinishTask: Task<Void, Never>?
     private var roundIdlePausedCoordinate: (latitude: Double, longitude: Double)?
+    private var lastRoundLocationFix: LocationFix?
+    private var regionReminderCourseID: Int?
+    private var pendingAutomaticRegionReminder: MobileCourseOption?
     @Published public private(set) var roundIdlePausedRoundId: String?
 
     public var isRoundIdlePaused: Bool {
@@ -617,8 +654,37 @@ public final class LiveRoundAppModel: ObservableObject {
     public func noteRoundActivity() {
         guard let roundId = package?.roundId else { return }
         roundIdleRoundId = roundId
-        roundIdleTracker.reset()
+        roundIdleTracker.resetIdleClockPreservingCourse()
     }
+
+    #if canImport(BackgroundTasks)
+    /// Keep the idle policy alive when iOS removes the live-hole view from the foreground. The
+    /// task is best effort (Apple chooses the wake time), while the durable finish/pause gates are
+    /// rechecked on the next foreground and on every location callback as well.
+    public func scheduleRoundIdleBackgroundTask() {
+        guard liveRoundState?.roundId == package?.roundId,
+              !isRoundIdlePaused else { return }
+        let request = BGProcessingTaskRequest(identifier: AICaddieApp.roundIdleBackgroundTaskIdentifier)
+        request.requiresNetworkConnectivity = false
+        request.requiresExternalPower = false
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 60)
+        try? BGTaskScheduler.shared.submit(request)
+    }
+
+    public func handleRoundIdleBackgroundTask(_ task: BGProcessingTask) {
+        task.expirationHandler = { task.setTaskCompleted(success: false) }
+        let now = Date()
+        let freshFix = lastRoundLocationFix.flatMap { fix -> LocationFix? in
+            guard let capturedAt = PrepHoleFollowingState.sampleDate(fix.capturedAt),
+                  capturedAt <= now,
+                  now.timeIntervalSince(capturedAt) <= 15 else { return nil }
+            return fix
+        }
+        let action = observeRoundLocation(freshFix, at: now)
+        task.setTaskCompleted(success: action != .none || liveRoundState == nil)
+        if liveRoundState != nil { scheduleRoundIdleBackgroundTask() }
+    }
+    #endif
 
     private func restoreRoundIdlePause(for roundId: String) {
         roundIdlePausedRoundId = (try? offlineStore.isIdlePaused(roundId: roundId)) == true
@@ -1482,9 +1548,141 @@ public final class LiveRoundAppModel: ObservableObject {
         latestPrefetchLocation = snapshot
         persistPrefetchLocation(snapshot)
         applyManualDownloadLocationPolicy()
+        considerAutomaticRegionReminder(at: snapshot)
         // A location update may be the first useful trigger after a foreground session. It only
         // queues the overnight request; it never starts speculative work in the foreground.
         scheduleSpeculativeBackgroundTask()
+    }
+
+    /// Called by Core Location's region monitor, including after a suspended or terminated launch.
+    /// The identifier is deliberately resolved against the same recent-course catalogue used to
+    /// install the twenty regions, so a stale notification can never switch to another course.
+    @discardableResult
+    public func handleAutomaticRegionEntry(identifier: String) -> Bool {
+        guard identifier.hasPrefix("ai-caddie.course."),
+              let globalID = Int(String(identifier.dropFirst("ai-caddie.course.".count))) else { return true }
+        let candidates = recentRegionReminderCandidates
+        guard let candidate = candidates.first(where: { $0.globalId == globalID }),
+              candidate.roundCount > 0 || candidate.templateRoundId != nil
+                  || candidate.suggestedLiveRoundId != nil
+                  || prepCourseDownloads.contains(where: { $0.course.globalId == globalID }) else { return false }
+        // An already opened prep package completes an asynchronous arrival handoff. The caller
+        // acknowledges the persisted entry only after this branch returns true.
+        if liveRoundState == nil,
+           let prepPackage,
+           prepPackage.course.globalId == candidate.globalId,
+           regionReminderCourseID == candidate.globalId {
+            pendingAutomaticRegionReminder = candidate
+            completeAutomaticRegionReminderIfReady()
+            return true
+        }
+        // An arrival during another live flow is intentionally consumed. While prep is still
+        // opening, retain the persisted entry so a failed request can be retried from the home.
+        guard liveRoundState == nil else { return true }
+        // Keep the region entry pending when another course's prep is already visible. The
+        // matching callback can retry after that prep is closed; acknowledging here would lose
+        // the arrival without a notification.
+        guard prepPackage == nil else { return false }
+        guard !isOpeningPrepCourse else { return false }
+        regionReminderCourseID = candidate.globalId
+        guard openPrepCourse(candidate) else { return false }
+        pendingAutomaticRegionReminder = candidate
+        // `openPrepCourse` only schedules asynchronous work. Keep the Core Location entry pending
+        // until `prepPackage` is published; RoundHome retries it on that change and then
+        // acknowledges the durable entry after the notification is sent.
+        return false
+    }
+
+    private func notifyAutomaticRegionEntry(for candidate: MobileCourseOption) {
+        syncStatus = "区域提醒已打开最近球场 · \(candidate.name)"
+        #if canImport(UserNotifications)
+        let content = UNMutableNotificationContent()
+        content.title = "已到达最近球场"
+        content.body = "已打开 \(candidate.name) 的球局准备"
+        content.sound = .default
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            UNUserNotificationCenter.current().add(
+                UNNotificationRequest(
+                    identifier: "ai-caddie.region-reminder.\(candidate.globalId)",
+                    content: content,
+                    trigger: nil
+                )
+            )
+        }
+        #endif
+        watchBridge?.sendRegionReminder(courseName: candidate.name)
+    }
+
+    /// The same ordered, deduplicated recent-course set used by region monitoring and automatic
+    /// nearby reminders. Keeping resolution inside this set prevents an old catalogue row from
+    /// being opened by a delayed Core Location region callback.
+    private var recentRegionReminderCandidates: [MobileCourseOption] {
+        let played = courseOptions.filter { $0.roundCount > 0 }
+            .sorted { ($0.latestRoundDate ?? "") > ($1.latestRoundDate ?? "") }
+        let prepared = prepCourseDownloads
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .map(\.course)
+        return (played + [recentCourseOption].compactMap { $0 } + prepared)
+            .filter { $0.latitude != nil && $0.longitude != nil }
+            .reduce(into: [MobileCourseOption]()) { result, option in
+                guard result.count < 20, !result.contains(where: { $0.globalId == option.globalId }) else { return }
+                result.append(option)
+            }
+    }
+
+    /// C32 region reminder: the server's course catalogue is already the authoritative recent
+    /// course list. Keep the newest twenty played courses, choose the nearest one inside the same
+    /// 1.5 km ring, and open its normal prep/live entry once per arrival. This is deliberately
+    /// idempotent while a round or prep screen is active.
+    private func considerAutomaticRegionReminder(at location: PrefetchLocationSnapshot) {
+        let now = Date()
+        guard location.capturedAt <= now,
+              now.timeIntervalSince(location.capturedAt) <= 15,
+              liveRoundState == nil, prepPackage == nil, !isOpeningPrepCourse else { return }
+        let recent = recentRegionReminderCandidates
+        guard let candidate = recent.min(by: { lhs, rhs in
+            let left = GeoDistance.haversineMetres(
+                location.latitude, location.longitude, lhs.latitude ?? 0, lhs.longitude ?? 0
+            )
+            let right = GeoDistance.haversineMetres(
+                location.latitude, location.longitude, rhs.latitude ?? 0, rhs.longitude ?? 0
+            )
+            return left < right
+        }),
+        let latitude = candidate.latitude, let longitude = candidate.longitude,
+        GeoDistance.haversineMetres(location.latitude, location.longitude, latitude, longitude)
+            <= PhoneRoundIdleTracker.offCourseMetres else {
+            regionReminderCourseID = nil
+            return
+        }
+        guard regionReminderCourseID != candidate.globalId else {
+            return
+        }
+        regionReminderCourseID = candidate.globalId
+        guard openPrepCourse(candidate) else {
+            regionReminderCourseID = nil
+            return
+        }
+        pendingAutomaticRegionReminder = candidate
+    }
+
+    /// Automatic arrival is announced only after the asynchronous prep package has been published.
+    /// A failed request clears the marker so a later location/region callback can retry it.
+    private func completeAutomaticRegionReminderIfReady() {
+        guard let candidate = pendingAutomaticRegionReminder,
+              let prep = prepPackage,
+              prep.course.globalId == candidate.globalId else { return }
+        pendingAutomaticRegionReminder = nil
+        syncStatus = "区域提醒已打开最近球场 · \(candidate.name)"
+        notifyAutomaticRegionEntry(for: candidate)
+    }
+
+    private func resetAutomaticRegionReminderAfterPrepFailure(for globalId: Int) {
+        guard pendingAutomaticRegionReminder?.globalId == globalId
+                || regionReminderCourseID == globalId else { return }
+        pendingAutomaticRegionReminder = nil
+        regionReminderCourseID = nil
     }
 
     private var recentPrefetchLocation: (latitude: Double, longitude: Double)? {
@@ -4722,6 +4920,11 @@ public final class LiveRoundAppModel: ObservableObject {
     /// the live surface is gone.
     @discardableResult
     public func observeRoundLocation(_ fix: LocationFix?, at now: Date = Date()) -> PhoneRoundIdleAction {
+        if let fix { lastRoundLocationFix = fix }
+        // Core Location's provider filters stale samples. Tests and Watch relays may use a
+        // deterministic historical timestamp, so the idle policy treats the delivered fix as the
+        // observation time supplied by its caller rather than rejecting it by wall clock age.
+        let usableFix = fix
         guard let package, let live = liveRoundState, package.roundId == live.roundId else {
             roundIdleTracker.reset()
             roundIdleRoundId = nil
@@ -4729,7 +4932,7 @@ public final class LiveRoundAppModel: ObservableObject {
             return .none
         }
         if roundIdlePausedRoundId == package.roundId {
-            if let fix {
+            if let fix = usableFix {
                 if let paused = roundIdlePausedCoordinate {
                     let moved = LiveRoundAppModel.haversineMetres(
                         paused.latitude, paused.longitude,
@@ -4754,7 +4957,7 @@ public final class LiveRoundAppModel: ObservableObject {
         }
 
         let events = (try? offlineStore.cachedEvents())?.filter { $0.roundId == package.roundId } ?? []
-        let hasRecordedStroke = events.contains { $0.roundId == package.roundId && $0.kind == .location }
+        let hasRecordedStroke = hasConfirmedStroke(in: events, roundId: package.roundId)
         let lastActivityAt = events
             .filter { $0.kind != .syncMarker }
             .compactMap(Self.idleEventDate)
@@ -4776,9 +4979,9 @@ public final class LiveRoundAppModel: ObservableObject {
         } ?? []
         let coursePoints = teePoints + greenPoints
         let action = roundIdleTracker.evaluate(
-            latitude: fix?.coordinate.latitude,
-            longitude: fix?.coordinate.longitude,
-            horizontalAccuracyM: fix?.horizontalAccuracyM ?? .infinity,
+            latitude: usableFix?.coordinate.latitude,
+            longitude: usableFix?.coordinate.longitude,
+            horizontalAccuracyM: usableFix?.horizontalAccuracyM ?? .infinity,
             at: now,
             coursePoints: coursePoints,
             lastActivityAt: lastActivityAt,
@@ -4820,7 +5023,22 @@ public final class LiveRoundAppModel: ObservableObject {
         case .none:
             break
         }
+        #if canImport(BackgroundTasks)
+        if liveRoundState?.roundId == package.roundId, !isRoundIdlePaused {
+            scheduleRoundIdleBackgroundTask()
+        }
+        #endif
         return action
+    }
+
+    public static func freshRoundLocationFix(
+        _ fix: LocationFix?, now: Date = Date()
+    ) -> LocationFix? {
+        guard let fix,
+              let capturedAt = PrepHoleFollowingState.sampleDate(fix.capturedAt),
+              capturedAt <= now,
+              now.timeIntervalSince(capturedAt) <= 15 else { return nil }
+        return fix
     }
 
     private static func idleEventDate(_ event: LiveRoundEvent) -> Date? {
@@ -4901,8 +5119,8 @@ public final class LiveRoundAppModel: ObservableObject {
         finishErrorMessage = nil
         defer { isFinishingRound = false }
         if expectedRoundId != nil {
-            let hasRecordedStroke = (try? offlineStore.loadEvents())?.contains { event in
-                event.roundId == package.roundId && event.kind == .location
+            let hasRecordedStroke = (try? offlineStore.loadEvents()).map {
+                hasConfirmedStroke(in: $0, roundId: package.roundId)
             } == true
             guard hasRecordedStroke else {
                 // A course package alone is not a round. This guard is the final safety net for
@@ -4974,6 +5192,14 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
+    private func hasConfirmedStroke(in events: [LiveRoundEvent], roundId: String) -> Bool {
+        Set(events.filter { $0.roundId == roundId }.map(\.hole)).contains { hole in
+            !LiveMarkedShots.actualShotLocationEventIds(
+                in: events, roundId: roundId, hole: hole
+            ).isEmpty
+        }
+    }
+
     /// A score sheet is durable user intent even while its confirmation sheet is open. Seal it as
     /// score facts before removing live-round progress, otherwise the progress file (and its draft)
     /// disappears with the automatic or explicit Save & End transaction.
@@ -4985,6 +5211,9 @@ public final class LiveRoundAppModel: ObservableObject {
         // A sheet reopened on a scored hole preselects from shot evidence, not from the confirmed
         // score; left untouched it is not a new score and must never overwrite the confirmed one.
         if hasExplicitScore, !draft.edited {
+            // The untouched sheet is only a preselection snapshot. Its values can differ from
+            // the confirmed hole because the sheet was rebuilt from partial shot evidence; never
+            // turn that snapshot into a new score event during automatic recovery.
             try offlineStore.clearLiveScoreDraft(roundId: package.roundId)
             return
         }
@@ -4994,11 +5223,12 @@ public final class LiveRoundAppModel: ObservableObject {
             note: "",
             timestamp: ISO8601DateFormatter().string(from: Date())
         )
+        var eventsToAppend: [LiveRoundEvent] = []
         for event in generated {
             let shouldAppend: Bool
             guard let existing else {
                 shouldAppend = true
-                if shouldAppend { try offlineStore.appendEvent(event) }
+                if shouldAppend { eventsToAppend.append(event) }
                 continue
             }
             if !hasExplicitScore {
@@ -5017,7 +5247,21 @@ public final class LiveRoundAppModel: ObservableObject {
                     shouldAppend = false
                 }
             }
-            if shouldAppend { try offlineStore.appendEvent(event) }
+            if shouldAppend { eventsToAppend.append(event) }
+        }
+        try offlineStore.appendEvents(eventsToAppend)
+        // A draft is cleared only after every score field is durably represented. If a write was
+        // interrupted between fields, the next finish retries the missing events instead of
+        // silently treating a partial score as a completed sheet.
+        let verified = try offlineStore.restoreLiveRoundState(
+            roundId: package.roundId, package: package
+        ).holeState(for: draft.hole)
+        let expectedFairway = draft.fairway?.rawValue.uppercased() ?? existing?.fairwayResult?.uppercased()
+        guard verified?.score == draft.score,
+              verified?.putts == draft.putts,
+              verified?.penaltyCount == draft.penalty,
+              verified?.fairwayResult?.uppercased() == expectedFairway else {
+            throw LiveRoundFinishError.incompleteAcknowledgement
         }
         try offlineStore.clearLiveScoreDraft(roundId: package.roundId)
     }
@@ -5689,7 +5933,10 @@ public final class LiveRoundAppModel: ObservableObject {
                     deadline: foregroundDeadline
                 )
                 self.recordRoundStartStep("startPrepCourse.intent-return timedOut=\(intent.timedOut) found=\(intent.package != nil)", token: preparationToken)
-                if intent.timedOut { return }
+                if intent.timedOut {
+                    self.resetAutomaticRegionReminderAfterPrepFailure(for: course.globalId)
+                    return
+                }
                 opened = intent.package
             }
             if opened == nil {
@@ -5715,6 +5962,7 @@ public final class LiveRoundAppModel: ObservableObject {
                   !Task.isCancelled else { return }
             guard self.liveRoundState == nil else { return }
             guard let opened else {
+                self.resetAutomaticRegionReminderAfterPrepFailure(for: course.globalId)
                 self.roundStartFailure = self.roundStartFailure ?? .unavailable
                 self.syncStatus = self.roundStartFailure?.presentationMessage ?? "网络不可用，没能开始，点重试"
                 return
@@ -5836,6 +6084,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Show `package` on the hole screen in 备战 and navigate to `hole` (else its first hole).
     func enterPrepMode(with package: LiveRoundPackage, hole: Int? = nil) {
         prepPackage = package
+        completeAutomaticRegionReminderIfReady()
         if prepTeeOptions.isEmpty {
             prepTeeOptions = Self.prepTeeOptions([], selected: package.course.teeBox)
         }
@@ -5862,6 +6111,8 @@ public final class LiveRoundAppModel: ObservableObject {
         prepPackage = nil
         prepCourse = nil
         prepTeeOptions = []
+        pendingAutomaticRegionReminder = nil
+        regionReminderCourseID = nil
     }
 
     /// 备战时换 T 台: the other Tee is its own library row, and the hole screen reopens on it at the
@@ -6024,6 +6275,32 @@ public final class LiveRoundAppModel: ObservableObject {
             Task { await self.syncPendingEvents() }
         } catch {
             AICaddieLog.storage.error("Event save failed: \(String(describing: error), privacy: .public)")
+            syncStatus = "保存失败,稍后重试"
+        }
+    }
+
+    /// Score confirmation submits its score/putt/penalty tuple as one durable event-log write.
+    /// This keeps a crash between fields from exposing a partial score to automatic finish.
+    public func handleEventsAtomically(_ events: [LiveRoundEvent]) {
+        guard !events.isEmpty else { return }
+        guard let first = events.first else { return }
+        if let prepPackage, events.contains(where: { $0.roundId == prepPackage.roundId }),
+           liveRoundState?.roundId != prepPackage.roundId { return }
+        do {
+            try offlineStore.appendEvents(events)
+            if try offlineStore.isRoundPendingFinish(first.roundId) {
+                syncStatus = "已保存 · 记录待同步"
+                retryDeferredRoundFinishes()
+                return
+            }
+            if let package, package.roundId == first.roundId {
+                liveRoundState = try offlineStore.restoreLiveRoundState(roundId: first.roundId, package: package)
+            }
+            pendingEventCount = try offlineStore.loadPendingEvents(roundId: first.roundId).count
+            syncStatus = "已保存"
+            if !eventSyncSuppressedForUITests { Task { await self.syncPendingEvents() } }
+        } catch {
+            AICaddieLog.storage.error("Atomic score save failed: \(String(describing: error), privacy: .public)")
             syncStatus = "保存失败,稍后重试"
         }
     }

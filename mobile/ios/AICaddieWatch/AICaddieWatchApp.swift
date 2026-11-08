@@ -6,6 +6,20 @@ import WatchKit
 import UserNotifications
 #endif
 
+#if canImport(UserNotifications)
+private final class WatchNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = WatchNotificationDelegate()
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound, .list])
+    }
+}
+#endif
+
 @main
 public struct AICaddieWatchApp: App {
     @Environment(\.scenePhase) private var scenePhase
@@ -83,7 +97,11 @@ public struct AICaddieWatchApp: App {
         )
     }
 
-    public init() {}
+    public init() {
+        #if canImport(UserNotifications)
+        UNUserNotificationCenter.current().delegate = WatchNotificationDelegate.shared
+        #endif
+    }
 
     public var body: some Scene {
         WindowGroup {
@@ -154,6 +172,10 @@ public struct AICaddieWatchApp: App {
                         Task { await roundModel.retryDeferredFinishes() }
                         Task { await uploadFinishedSwingCandidates() }
                     }
+                }
+                .onChange(of: syncClient.regionReminder) { _, reminder in
+                    guard let reminder else { return }
+                    postRegionReminderNotification(courseName: reminder.courseName, id: reminder.id)
                 }
                 .onChange(of: roundModel.round?.roundId, initial: true) { _, _ in
                     if let promptRoundId = idleFinishedPromptRoundId,
@@ -619,7 +641,8 @@ public struct AICaddieWatchApp: App {
             scoredHoles: roundModel.scoredHoles,
             // A nine can go on to the next nine (the turn, often over lunch); only a full round
             // is finished. A nine left open is still set aside by the other two rules.
-            allHolesScored: roundModel.allPlannedHolesScored && roundModel.holeCount > 9
+            allHolesScored: roundModel.allPlannedHolesScored && roundModel.holeCount > 9,
+            hasRecordedStroke: roundModel.hasRecordedStrokeForIdle
         ) else {
             if fix != nil, roundIdleTracker.hasBeenOnCourse {
                 wrongCoursePrompted = false
@@ -702,6 +725,25 @@ public struct AICaddieWatchApp: App {
                 trigger: nil
             )
             UNUserNotificationCenter.current().add(request)
+        }
+        #endif
+    }
+
+    private func postRegionReminderNotification(courseName: String, id: String) {
+        #if canImport(UserNotifications)
+        let content = UNMutableNotificationContent()
+        content.title = "已到达最近球场"
+        content.body = "已打开 \(courseName) 的球局准备"
+        content.sound = .default
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            UNUserNotificationCenter.current().add(
+                UNNotificationRequest(
+                    identifier: "ai-caddie.watch.region-reminder.\(id)",
+                    content: content,
+                    trigger: nil
+                )
+            )
         }
         #endif
     }

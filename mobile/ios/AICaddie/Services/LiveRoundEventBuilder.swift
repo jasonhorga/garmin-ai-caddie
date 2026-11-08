@@ -37,6 +37,9 @@ public final class LiveRoundEventBuilder {
             "latitude": .number(coordinate.latitude),
             "longitude": .number(coordinate.longitude),
             "source": .string("ios_gps"),
+            // The record button writes the GPS fact before the optional club prompt is answered.
+            // A later actual-club event (including the explicit "unknown" skip marker) confirms it.
+            "pendingClubPrompt": .bool(true),
         ]
         payload["horizontalAccuracyM"] = jsonNumberOrNull(horizontalAccuracyM)
         payload["altitudeM"] = jsonNumberOrNull(altitudeM)

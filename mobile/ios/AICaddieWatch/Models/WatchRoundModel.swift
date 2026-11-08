@@ -761,6 +761,11 @@ public final class WatchRoundModel: ObservableObject {
             || round.pendingEvents.contains { $0.kind == .location }
     }
 
+    public var hasRecordedStrokeForIdle: Bool {
+        guard let round else { return false }
+        return hasRecordedStroke(in: round)
+    }
+
     public var courseName: String { round?.courseName ?? "" }
 
     /// The printed number of round hole `hole` (B4b-2 §2); the round number when unknown.
@@ -2489,7 +2494,7 @@ public final class WatchRoundModel: ObservableObject {
                 // waiting for an explicit upload acknowledgement, then retire the invalid archive
                 // without asking the backend to fabricate a scored round. A truly empty archive can
                 // still be removed immediately.
-                guard hasMaterializableFacts(in: ready) else {
+                guard hasMaterializableFacts(in: ready) || hasRecordedStroke(in: ready) else {
                     try store.removeDeferredFinish(roundId: ready.roundId)
                     continue
                 }

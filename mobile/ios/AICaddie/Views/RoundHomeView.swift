@@ -138,6 +138,7 @@ final class LiveHolePageCallbacks {
         var onRoundLocation: (LocationFix?) -> PhoneRoundIdleAction = { _ in .none }
         var onResumeRoundIdle: () -> Void = {}
         var onRoundActivity: () -> Void = {}
+        var onScoreEvents: (([LiveRoundEvent]) -> Void)?
         var onDiscardRound: () -> Void = {}
         var onLiveHoleInitialLoadDidFinish: () -> Void = {}
         var onRetainReadyHolePrep: (String, Int, CoursePrepHole) -> Void = { _, _, _ in }
@@ -715,6 +716,7 @@ public struct RoundHomeView: View {
     public let onRoundLocation: (LocationFix?) -> PhoneRoundIdleAction
     public let onResumeRoundIdle: () -> Void
     public let onRoundActivity: () -> Void
+    public let onScoreEvents: (([LiveRoundEvent]) -> Void)?
     public let onResumeDeferredFinish: () -> Bool
     public let onDiscardRemovedDeferredFinish: (String, Int) -> Bool
     public let onDiscardRound: () -> Void
@@ -748,6 +750,7 @@ public struct RoundHomeView: View {
     public let onResumePrepCourseDownload: (String) -> Void
     public let onDeletePrepCourseDownload: (String) -> Void
     public let onPrefetchLocationChanged: (LocationFix?) -> Void
+    public let onRegionEntered: (String) -> Void
     /// Re-check a locally complete prep package against the current Garmin release before opening it.
     /// A transport failure is handled by the model as a deferred check, so offline use remains valid.
     public let onValidateReadyPrepCourse: (PrepCourseDownloadRecord) async -> Bool
@@ -874,6 +877,7 @@ public struct RoundHomeView: View {
         onRoundLocation: @escaping (LocationFix?) -> PhoneRoundIdleAction = { _ in .none },
         onResumeRoundIdle: @escaping () -> Void = {},
         onRoundActivity: @escaping () -> Void = {},
+        onScoreEvents: (([LiveRoundEvent]) -> Void)? = nil,
         onResumeDeferredFinish: @escaping () -> Bool = { false },
         onDiscardRemovedDeferredFinish: @escaping (String, Int) -> Bool = { _, _ in false },
         onDiscardRound: @escaping () -> Void = {},
@@ -900,6 +904,7 @@ public struct RoundHomeView: View {
         onResumePrepCourseDownload: @escaping (String) -> Void = { _ in },
         onDeletePrepCourseDownload: @escaping (String) -> Void = { _ in },
         onPrefetchLocationChanged: @escaping (LocationFix?) -> Void = { _ in },
+        onRegionEntered: @escaping (String) -> Void = { _ in },
         onValidateReadyPrepCourse: @escaping (PrepCourseDownloadRecord) async -> Bool = { _ in true },
         pendingLiveHole: Int? = nil,
         pendingLiveHoleIsFreshEntry: Bool = false,
@@ -974,6 +979,7 @@ public struct RoundHomeView: View {
         self.onRoundLocation = onRoundLocation
         self.onResumeRoundIdle = onResumeRoundIdle
         self.onRoundActivity = onRoundActivity
+        self.onScoreEvents = onScoreEvents
         self.onResumeDeferredFinish = onResumeDeferredFinish
         self.onDiscardRemovedDeferredFinish = onDiscardRemovedDeferredFinish
         self.onDiscardRound = onDiscardRound
@@ -1000,6 +1006,7 @@ public struct RoundHomeView: View {
         self.onResumePrepCourseDownload = onResumePrepCourseDownload
         self.onDeletePrepCourseDownload = onDeletePrepCourseDownload
         self.onPrefetchLocationChanged = onPrefetchLocationChanged
+        self.onRegionEntered = onRegionEntered
         self.onValidateReadyPrepCourse = onValidateReadyPrepCourse
         self.pendingLiveHole = pendingLiveHole
         self.pendingLiveHoleIsFreshEntry = pendingLiveHoleIsFreshEntry
@@ -1120,6 +1127,31 @@ public struct RoundHomeView: View {
             .onReceive(heroLocation.$latestFix) { fix in
                 onPrefetchLocationChanged(fix)
             }
+            .onReceive(heroLocation.$enteredRegionIdentifier) { identifier in
+                guard let identifier else { return }
+                guard heroLocation.isFreshEnteredRegionIdentifier(identifier) else {
+                    // Validation is read-only inside the publisher transform. Clear an expired
+                    // entry only after the published callback has returned to avoid recursion.
+                    heroLocation.clearRegionEntry(identifier)
+                    return
+                }
+                onRegionEntered(identifier)
+            }
+            .onChange(of: courseOptions) { _, _ in
+                heroLocation.monitorCourseRegions(monitoredCourseRegions)
+                retryPendingRegionEntry()
+            }
+            .onChange(of: prepCourseDownloads) { _, _ in
+                heroLocation.monitorCourseRegions(monitoredCourseRegions)
+                retryPendingRegionEntry()
+            }
+            .onChange(of: recentCourseOption) { _, _ in
+                heroLocation.monitorCourseRegions(monitoredCourseRegions)
+                retryPendingRegionEntry()
+            }
+            .onChange(of: prepPackage?.roundId) { _, _ in
+                retryPendingRegionEntry()
+            }
             .task(id: heroNearbyKey) {
                 await refreshHeroNearby()
             }
@@ -1213,7 +1245,9 @@ public struct RoundHomeView: View {
                 sendPager(.programmaticHole(nil), source: "leave route")
                 holePagerNavigationLock = nil
             }
-            onLiveAppearanceChanged(Self.isLiveHoleRoute(routes.last))
+            let isLive = Self.isLiveHoleRoute(routes.last)
+            heroLocation.setBackgroundUpdatesEnabled(isLive || liveRoundState != nil)
+            onLiveAppearanceChanged(isLive)
             // Leaving the picker or the hole screen before the first stroke drops 备战 (and any
             // course still opening): nothing was recorded, so there is nothing to keep.
             if liveRoundState == nil, !routes.contains(where: Self.isPrepOrHoleRoute) {
@@ -1229,9 +1263,12 @@ public struct RoundHomeView: View {
             // Replacing the home package can create this view with the pending hole already set.
             // `onChange` does not fire for that initial value, so consume it here as well.
             enterPendingLiveHole(pendingLiveHole)
-            onLiveAppearanceChanged(Self.isLiveHoleRoute(path.last))
+            let isLive = Self.isLiveHoleRoute(path.last)
+            heroLocation.setBackgroundUpdatesEnabled(isLive || liveRoundState != nil)
+            onLiveAppearanceChanged(isLive)
         }
         .onDisappear {
+            heroLocation.setBackgroundUpdatesEnabled(liveRoundState != nil)
             onLiveAppearanceChanged(false)
         }
     }
@@ -1328,6 +1365,7 @@ public struct RoundHomeView: View {
             onSetSecondLoop: onSetSecondLoop, onContinueIntoSecondLoop: onContinueIntoSecondLoop,
             onFinishRound: onFinishRound, onRoundLocation: onRoundLocation,
             onResumeRoundIdle: onResumeRoundIdle, onRoundActivity: onRoundActivity,
+            onScoreEvents: onScoreEvents,
             onDiscardRound: onDiscardRound,
             onLiveHoleInitialLoadDidFinish: onLiveHoleInitialLoadDidFinish,
             onRetainReadyHolePrep: onRetainReadyHolePrep,
@@ -1370,6 +1408,7 @@ public struct RoundHomeView: View {
                 // inside the in-progress screen instead of the Hub.
                 CurrentHoleView(
                     package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken,
+                    locationProvider: heroLocation,
                     offlineStore: offlineStore, watchBridge: isPrepHoleScreen ? nil : watchBridge,
                     liveRoundState: liveRoundState,
                     // Network catalogue + installed templates: the turn's loops must resolve offline too.
@@ -1383,6 +1422,7 @@ public struct RoundHomeView: View {
                     onRoundLocation: callbacks.value.onRoundLocation,
                     onResumeRoundIdle: callbacks.value.onResumeRoundIdle,
                     onRoundActivity: callbacks.value.onRoundActivity,
+                    onScoreEvents: callbacks.value.onScoreEvents,
                     onDiscardRound: { callbacks.value.onDiscardRound() },
                     sessionCache: liveHoleSessions,
                     usesExternalHolePager: true,
@@ -1863,6 +1903,10 @@ public struct RoundHomeView: View {
 
     /// The home never prompts for location; it listens when the player has already allowed it.
     private func startHeroLocation() {
+        heroLocation.monitorCourseRegions(monitoredCourseRegions)
+        if let pending = heroLocation.peekPendingRegionEntry() {
+            onRegionEntered(pending)
+        }
         switch heroLocation.authorizationStatus {
         case .authorizedWhenInUse, .authorizedAlways:
             heroLocation.startUpdatingLocation()
@@ -1870,6 +1914,32 @@ public struct RoundHomeView: View {
             break
         }
         heroHistory = (try? offlineStore?.loadHistoryRoundsArchive())?.groups.flatMap(\.rounds) ?? []
+    }
+
+    private func retryPendingRegionEntry() {
+        guard let pending = heroLocation.peekPendingRegionEntry() else { return }
+        onRegionEntered(pending)
+    }
+
+    private var monitoredCourseRegions: [MonitoredCourseRegion] {
+        let played = courseOptions.filter { $0.roundCount > 0 }
+            .sorted { ($0.latestRoundDate ?? "") > ($1.latestRoundDate ?? "") }
+        let prepared = prepCourseDownloads
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .map(\.course)
+        let candidates = (played + [recentCourseOption].compactMap { $0 } + prepared)
+            .filter {
+                $0.latitude != nil && $0.longitude != nil
+            }
+        var seen = Set<Int>()
+        return candidates.compactMap { option in
+            guard seen.insert(option.globalId).inserted,
+                  let latitude = option.latitude, let longitude = option.longitude else { return nil }
+            return MonitoredCourseRegion(
+                identifier: "ai-caddie.course.\(option.globalId)",
+                latitude: latitude, longitude: longitude, radiusM: 1_500
+            )
+        }.prefix(20).map { $0 }
     }
 
     /// Re-query nearby only when the fix moves materially (≈100 m) and no round is active.

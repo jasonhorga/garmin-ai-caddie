@@ -11,6 +11,11 @@ public extension Notification.Name {
     static let aicaddieWatchCourseRemoved = Notification.Name("aicaddie.watch.course-removed")
 }
 
+public struct WatchRegionReminder: Equatable {
+    public let id: String
+    public let courseName: String
+}
+
 protocol WatchConfigPersisting {
     func read() -> WatchRoundConfig?
     func write(_ config: WatchRoundConfig)
@@ -241,6 +246,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     @Published public private(set) var phoneRoundClosure: WatchRoundClosure?
     @Published public private(set) var queuedEventCount = 0
     @Published public private(set) var phoneReachable = false
+    @Published public private(set) var regionReminder: WatchRegionReminder?
     @Published public private(set) var lastPhoneAcceptedAt: String?
     /// round-12 P3.4 (Watch standalone): backend connection info the phone delivers via application
     /// context, so a standalone round can sync on its own. Nil until the phone sends it.
@@ -774,6 +780,9 @@ extension WatchSyncClient: WCSessionDelegate {
     }
 
     public func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        if let reminder = message["regionReminder"] as? [String: Any] {
+            receiveRegionReminder(reminder)
+        }
         if let remove = message["removeCourse"] as? [String: Any],
            let globalId = Self.intValue(remove["globalId"]) {
             courseStore.remove(globalId: globalId)
@@ -792,6 +801,9 @@ extension WatchSyncClient: WCSessionDelegate {
     }
 
     public func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        if let reminder = userInfo["regionReminder"] as? [String: Any] {
+            receiveRegionReminder(reminder)
+        }
         if let remove = userInfo["removeCourse"] as? [String: Any],
            let globalId = Self.intValue(remove["globalId"]) {
             courseStore.remove(globalId: globalId)
@@ -806,6 +818,15 @@ extension WatchSyncClient: WCSessionDelegate {
         }
         if let closure = userInfo["roundClosure"] as? [String: Any] {
             receiveRoundClosurePayload(closure)
+        }
+    }
+
+    private func receiveRegionReminder(_ value: [String: Any]) {
+        guard let id = value["id"] as? String,
+              let courseName = value["courseName"] as? String,
+              !id.isEmpty, !courseName.isEmpty else { return }
+        publishStateUpdate { client in
+            client.regionReminder = WatchRegionReminder(id: id, courseName: courseName)
         }
     }
 
