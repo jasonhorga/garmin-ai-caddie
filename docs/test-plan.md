@@ -613,6 +613,8 @@ goals = ["*contract*"]   # 所有契约测试
 
 ### 12.1 子卡（每卡一事、≤ 4 条验收）
 
+卡号映射：K1=C390、K2=C391、K3=C392、K4=C393、K5=C394、K6=C395、K7=C396、K8=C397、K9=C398、K10=C399、K11=C400、K12=C401、K13=C387。
+
 | 卡 | 标题 | 目的 | 验收（≤4） | 依赖 |
 |---|---|---|---|---|
 | K0 | test-plan 定稿 | Jason/土土复审本文，定目标清单与预算 | ①目标清单与风险定级经 Jason 认可 ②预算数字认可 ③方案 A/B（12.3）选定 | — |
@@ -681,6 +683,6 @@ K3–K10 期间新旧测试**并存**（新测试在 `tests/small|medium`，旧�
 ### 12.6 本文未核实、需复审确认的点
 
 - mutmut 3.x 只支持 pytest 运行器、cosmic-ray 可用任意 `test-command`：凭工具文档印象，K12 动手前核对。
-- `tests/large/__init__.py` 的 `load_tests` 返回空套件即可让 `discover` 不进该包：符合 unittest 的包级 `load_tests` 协议，K1 用一条自测确认。
+- `tests/large/__init__.py` 的 `load_tests` 返回空套件即可让 `discover` 不进该包：符合 unittest 的包级 `load_tests` 协议，K1 用一条自测确认。（C390 已实测成立：Python 3.12 `discover` 导入包 `__init__` 后见到 `load_tests` 即交由它处理且不再递归，包内模块不被导入；自测 `tests/medium/test_layer_selection.py`。）
 - 宿主 CD 19 分 30 秒、原生 PR 22/31 分钟取自卡面，未独立重测；宿主 `projects.json` 已由 C387 job 只读核过（11-07）：caddie 全量命令为 `heavy-lock --wait 5400 env AI_CADDIE_DATA_MODE=fixture <venv>/bin/python -m tests.check_isolation discover -s tests -t .`，`test_timeout` 5400 s，方案 A 前提成立。
 - 第 10 节「预期」是按设计推断，实际检出以 K13 注回结果为准；C369 已合并标「待TF」，是否进了 11-07 的 TF 包未确认。

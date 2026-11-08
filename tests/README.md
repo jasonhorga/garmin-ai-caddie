@@ -1,5 +1,51 @@
 # Offline backend tests
 
+## Layered tests (docs/test-plan.md 3.1-3.3, card C390)
+
+New tests live in size directories; the legacy `tests/test_*.py`, `tests/product/`
+and `tests/acceptance/` modules stay where they are and keep their behaviour until K13.
+
+| Directory | Contents | Per-test hard limit | Layer budget | Collected by `discover -s tests -t .` |
+| --- | --- | --- | --- | --- |
+| `tests/small/` | pure in-memory tests, every class subclasses `tests.support.hermetic.SmallTestCase` | 1 s | 45 s | yes |
+| `tests/medium/` | in-process HTTP, `$TMPDIR` files, local subprocesses, threads | 30 s | 135 s | yes |
+| `tests/large/` | real ports, Docker, cross-process smoke | 300 s | 360 s | only with `AI_CADDIE_TEST_LAYER=slow` |
+| `tests/quarantine/` | unstable tests awaiting a fix (test-plan section 5) | — | — | never; run a module by name |
+| `tests/support/` | `FakeClock`, the small-layer guard, layer helpers — not tests | | | |
+
+Each test directory has its own `_bootstrap/`, like the directories below.
+`tests/large/__init__.py` and `tests/quarantine/__init__.py` define a package-level
+`load_tests`: discovery imports the package, hands it to that hook and does not
+recurse, so their modules are not even imported unless selected. The host CD command
+`python -m tests.check_isolation discover -s tests -t .` therefore needs no change.
+
+Entry point: `python -m tests.run --layer fast|slow|all` (`fast` is exactly the host
+CD discovery; `slow` is `tests/large`; `all` is both). `--changed`/`--shard` come
+with C401.
+
+Budgets: the `tests.check_isolation` child runner times every test with an
+injectable clock. A small/medium/large test over its hard limit fails with
+`BudgetExceeded`; a layer over its total budget makes the run exit non-zero
+(`FAILED (over_budget=...)`). The run prints a "Layer budget report" and writes
+per-file seconds to `$TMPDIR/test-durations.json` (the system temporary
+directory when `TMPDIR` is unset). Legacy modules are timed but never budgeted.
+
+Small-layer guard: while a `SmallTestCase` runs (including `setUpClass` /
+`tearDownClass`, and also when run by name with plain `python -m unittest`),
+repository code reading the real clock (`time.time`/`monotonic`/`perf_counter`,
+`datetime.now`/`utcnow`/`today`, `date.today`), `time.sleep`, disk writes (`open`
+in a write mode, `os` create/remove/rename, `tempfile`) and network access
+(`socket` connect/sendto, `create_connection`, `getaddrinfo`) raise
+`HermeticViolation`. A violation that the code under test catches still fails the
+test. Use `tests.support.clock.FakeClock` instead. The guard touches only the
+thread running the small test, restores every replaced object afterwards, and
+leaves library internals such as logging timestamps alone. Under discovery,
+`tests/small/__init__.py` turns the gate red for a test that does not subclass
+`SmallTestCase`. Not covered: clock functions captured before the test runs
+(e.g. a default argument `now=datetime.now`); inject them instead.
+
+## Legacy suite
+
 Run a module with `python -m unittest tests.test_course_reference`. For discovery,
 use `python -m unittest discover -s tests -t .`. CI wraps this command with
 `python -m tests.check_isolation discover -s tests -t . -v`.
