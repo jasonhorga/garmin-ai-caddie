@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index bf0f5274..cb976dd0 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -1134,7 +1134,7 @@ def reconcile_mobile_round_events(
+         if identity_hole is not None and not row.get("unmapped"):
+             row["sourceGlobalId"] = identity_hole.get("sourceGlobalId")
+             row["sourceLocalHole"] = identity_hole.get("sourceLocalHole")
+-    suggestion_local_only = [row for row in local_only if not row.get("restoreSuperseded")]
++    suggestion_local_only = [row for row in local_only if True]
+     annotation_suggestions = _annotation_suggestions(
+         conflicts=conflicts,
+         local_only=suggestion_local_only,
