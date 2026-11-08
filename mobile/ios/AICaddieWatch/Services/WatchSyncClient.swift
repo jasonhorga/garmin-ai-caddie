@@ -242,6 +242,9 @@ public struct WatchSyncAcknowledgement: Equatable {
 
 public final class WatchSyncClient: NSObject, ObservableObject {
     private static let deliveredRegionReminderIDsKey = "aicaddie.watch.delivered-region-reminder-ids.v1"
+    private static let pendingRegionReminderIDKey = "aicaddie.watch.pending-region-reminder-id.v1"
+    private static let pendingRegionReminderNameKey = "aicaddie.watch.pending-region-reminder-name.v1"
+    private static let pendingRegionReminderRetryCountKey = "aicaddie.watch.pending-region-reminder-retry-count.v1"
     @Published public private(set) var currentState: WatchRoundState?
     @Published public private(set) var roundSeed: WatchRoundSeed?
     @Published public private(set) var phoneRoundClosure: WatchRoundClosure?
@@ -305,6 +308,12 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         self.courseStore = courseStore ?? WatchCourseStore()
         super.init()
         currentState = try? loadPersistedState()
+        if let id = UserDefaults.standard.string(forKey: Self.pendingRegionReminderIDKey),
+           let courseName = UserDefaults.standard.string(forKey: Self.pendingRegionReminderNameKey),
+           !id.isEmpty, !courseName.isEmpty,
+           !isRegionReminderDelivered(id) {
+            regionReminder = WatchRegionReminder(id: id, courseName: courseName)
+        }
         config = self.configStore.read()
         refreshQueuedEventCount()
         if WCSession.isSupported() {
@@ -828,6 +837,11 @@ extension WatchSyncClient: WCSessionDelegate {
               let courseName = value["courseName"] as? String,
               !id.isEmpty, !courseName.isEmpty else { return }
         guard !isRegionReminderDelivered(id) else { return }
+        regionReminderIDLock.lock()
+        UserDefaults.standard.set(id, forKey: Self.pendingRegionReminderIDKey)
+        UserDefaults.standard.set(courseName, forKey: Self.pendingRegionReminderNameKey)
+        UserDefaults.standard.set(0, forKey: Self.pendingRegionReminderRetryCountKey)
+        regionReminderIDLock.unlock()
         publishStateUpdate { client in
             client.regionReminder = WatchRegionReminder(id: id, courseName: courseName)
         }
@@ -848,6 +862,38 @@ extension WatchSyncClient: WCSessionDelegate {
         var delivered = Set(UserDefaults.standard.stringArray(forKey: Self.deliveredRegionReminderIDsKey) ?? [])
         delivered.insert(id)
         UserDefaults.standard.set(Array(delivered.sorted().suffix(64)), forKey: Self.deliveredRegionReminderIDsKey)
+        if UserDefaults.standard.string(forKey: Self.pendingRegionReminderIDKey) == id {
+            UserDefaults.standard.removeObject(forKey: Self.pendingRegionReminderIDKey)
+            UserDefaults.standard.removeObject(forKey: Self.pendingRegionReminderNameKey)
+            UserDefaults.standard.removeObject(forKey: Self.pendingRegionReminderRetryCountKey)
+        }
+    }
+
+    /// Re-publish an undelivered reminder so SwiftUI's notification observer receives a new value
+    /// even when the reminder payload itself is unchanged. The pending record survives a Watch
+    /// relaunch and is cleared only after `UNUserNotificationCenter.add` succeeds.
+    public func retryPendingRegionReminder(id: String? = nil) {
+        regionReminderIDLock.lock()
+        let pendingID = UserDefaults.standard.string(forKey: Self.pendingRegionReminderIDKey)
+        let courseName = UserDefaults.standard.string(forKey: Self.pendingRegionReminderNameKey)
+        let delivered = pendingID.map {
+            UserDefaults.standard.stringArray(forKey: Self.deliveredRegionReminderIDsKey)?.contains($0) == true
+        } ?? true
+        let retryCount = UserDefaults.standard.integer(forKey: Self.pendingRegionReminderRetryCountKey)
+        guard retryCount < 3 else {
+            regionReminderIDLock.unlock()
+            return
+        }
+        UserDefaults.standard.set(retryCount + 1, forKey: Self.pendingRegionReminderRetryCountKey)
+        regionReminderIDLock.unlock()
+        guard let pendingID, let courseName, !delivered,
+              id == nil || id == pendingID else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            self?.publishStateUpdate { client in
+                client.regionReminder = nil
+                client.regionReminder = WatchRegionReminder(id: pendingID, courseName: courseName)
+            }
+        }
     }
 
     public func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
