@@ -1,8 +1,7 @@
 diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
-index 5e7d2817..c830d285 100644
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -718,9 +718,7 @@ public final class LiveRoundAppModel: ObservableObject {
+@@ -923,9 +923,7 @@
          if let intentKey {
              intentPrefetchTasks[intentKey]?.cancel()
          }
@@ -13,7 +12,7 @@ index 5e7d2817..c830d285 100644
          else {
              isPreparingRound = false
              stopRoundProgress()
-@@ -5099,9 +5097,7 @@ public final class LiveRoundAppModel: ObservableObject {
+@@ -6023,9 +6021,7 @@
                  if let roundStartAfterFetchForTesting { await roundStartAfterFetchForTesting() }
  #endif
              }
@@ -23,4 +22,4 @@ index 5e7d2817..c830d285 100644
 +            guard generation == self.prepOpenGeneration else { return }
              guard self.liveRoundState == nil else { return }
              guard let opened else {
-                 self.roundStartFailure = self.roundStartFailure ?? .unavailable
+                 self.resetAutomaticRegionReminderAfterPrepFailure(for: course.globalId)
