@@ -7,11 +7,11 @@ let package = Package(
     platforms: [
         .iOS(.v17),
         .watchOS(.v10),
+        .macOS(.v14),
     ],
     products: [
         .library(name: "AICaddieDomain", targets: ["AICaddieDomain"]),
-        .library(name: "AICaddie", targets: ["AICaddie"]),
-        .library(name: "AICaddieWatch", targets: ["AICaddieWatch"]),
+        .library(name: "AICaddieCore", targets: ["AICaddieCore"]),
     ],
     targets: [
         .target(
@@ -25,17 +25,9 @@ let package = Package(
             exclude: ["ThirdParty/SwiftJCS"]
         ),
         .target(
-            name: "AICaddie",
+            name: "AICaddieCore",
             dependencies: ["AICaddieDomain"],
-            path: "mobile/ios/AICaddie",
-            exclude: ["AICaddieApp.swift"],
-            resources: [.process("Fixtures")]
-        ),
-        .target(
-            name: "AICaddieWatch",
-            dependencies: ["AICaddieDomain"],
-            path: "mobile/ios/AICaddieWatch",
-            exclude: ["AICaddieWatchApp.swift"]
+            path: "mobile/ios/AICaddieCore"
         ),
         .testTarget(
             name: "AICaddieDomainTests",
@@ -44,15 +36,9 @@ let package = Package(
             resources: [.copy("Fixtures")]
         ),
         .testTarget(
-            name: "AICaddieTests",
-            dependencies: ["AICaddie"],
-            path: "mobile/ios/AICaddieTests",
-            resources: [.copy("Fixtures")]
-        ),
-        .testTarget(
-            name: "AICaddieWatchTests",
-            dependencies: ["AICaddieWatch"],
-            path: "mobile/ios/AICaddieWatchTests"
+            name: "AICaddieCoreTests",
+            dependencies: ["AICaddieCore", "AICaddieDomain"],
+            path: "mobile/ios/AICaddieCoreTests"
         ),
     ]
 )
