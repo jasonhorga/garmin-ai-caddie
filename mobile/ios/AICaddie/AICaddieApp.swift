@@ -1679,6 +1679,12 @@ public final class LiveRoundAppModel: ObservableObject {
               let prep = prepPackage,
               prep.course.globalId == candidate.globalId else { return }
         pendingAutomaticRegionReminder = nil
+        // A previous process may have published this prep and persisted the notification marker
+        // before it was able to acknowledge Core Location's entry. Reopen the prep for that same
+        // entry, but keep the phone and Watch notifications single shot.
+        guard !LocationProvider.isPendingRegionEntryNotified(
+            "ai-caddie.course.\(candidate.globalId)"
+        ) else { return }
         LocationProvider.markPendingRegionEntryNotified(
             "ai-caddie.course.\(candidate.globalId)"
         )
