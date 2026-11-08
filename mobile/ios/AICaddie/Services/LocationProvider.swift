@@ -169,10 +169,22 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     }
 
     public func clearPendingRegionEntry() {
-        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryKey)
-        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryAtKey)
-        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryNotifiedKey)
-        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryNotifiedAtKey)
+        Self.clearPersistedPendingRegionEntry()
+    }
+
+    /// Create a durable entry for a foreground GPS arrival when Core Location did not deliver a
+    /// region callback. An existing entry always wins, so a newer Core Location arrival cannot be
+    /// overwritten by a delayed foreground fix.
+    @discardableResult
+    public static func ensurePendingRegionEntry(_ identifier: String) -> Bool {
+        guard !identifier.isEmpty else { return false }
+        if let current = freshPendingRegionEntryValue() {
+            return current == identifier
+        }
+        clearPersistedPendingRegionEntry()
+        UserDefaults.standard.set(identifier, forKey: pendingRegionEntryKey)
+        UserDefaults.standard.set(Date(), forKey: pendingRegionEntryAtKey)
+        return true
     }
 
     /// Mark the current persisted entry after its automatic prep notification has been delivered.
@@ -199,12 +211,30 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
         return capturedAt == notifiedAt
     }
 
+    public static func pendingRegionEntryToken(_ identifier: String) -> String? {
+        guard freshPendingRegionEntryValue() == identifier,
+              let capturedAt = UserDefaults.standard.object(forKey: pendingRegionEntryAtKey) as? Date else {
+            return nil
+        }
+        return "\(identifier):\(capturedAt.timeIntervalSince1970)"
+    }
+
+    public static func pendingRegionEntryIdentifier() -> String? {
+        freshPendingRegionEntryValue()
+    }
+
+    @discardableResult
+    public static func acknowledgePendingRegionEntry(_ identifier: String) -> Bool {
+        guard freshPendingRegionEntryValue() == identifier else { return false }
+        clearPersistedPendingRegionEntry()
+        return true
+    }
+
     public func acknowledgeRegionEntry(_ identifier: String) {
         // The persisted value is the cross-launch authority. A stale publisher callback must not
         // clear a newer region entry that another provider has already stored.
-        guard freshPendingRegionEntryValue() == identifier else { return }
+        guard Self.acknowledgePendingRegionEntry(identifier) else { return }
         enteredRegionIdentifier = nil
-        clearPendingRegionEntry()
     }
 
     private func freshPendingRegionEntry(now: Date = Date()) -> String? {
@@ -226,7 +256,7 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
 
     public func freshEnteredRegionIdentifier() -> String? {
         guard let identifier = enteredRegionIdentifier,
-              freshPendingRegionEntryValue() == identifier else { return nil }
+              Self.freshPendingRegionEntryValue() == identifier else { return nil }
         return identifier
     }
 
@@ -234,7 +264,7 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     /// property again. Combine may deliver the value before the property's backing storage is
     /// updated, so observers must validate the emitted identifier they already received.
     public func isFreshEnteredRegionIdentifier(_ identifier: String) -> Bool {
-        freshPendingRegionEntryValue() == identifier
+        Self.freshPendingRegionEntryValue() == identifier
     }
 
     /// Clear an expired or rejected emitted entry after the publisher callback has returned.
@@ -253,7 +283,7 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     /// Read the persisted region entry without changing either published property. Callers that
     /// observe `enteredRegionIdentifier` must keep this validation side-effect free; an expired
     /// value can be acknowledged/cleared afterwards on the normal event path.
-    private func freshPendingRegionEntryValue(now: Date = Date()) -> String? {
+    private static func freshPendingRegionEntryValue(now: Date = Date()) -> String? {
         guard let value = UserDefaults.standard.string(forKey: Self.pendingRegionEntryKey),
               let capturedAt = UserDefaults.standard.object(forKey: Self.pendingRegionEntryAtKey) as? Date,
               now.timeIntervalSince(capturedAt) >= 0,
@@ -261,6 +291,13 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
             return nil
         }
         return value
+    }
+
+    private static func clearPersistedPendingRegionEntry() {
+        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryKey)
+        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryAtKey)
+        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryNotifiedKey)
+        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryNotifiedAtKey)
     }
 
     public func setBackgroundUpdatesEnabled(_ enabled: Bool) {

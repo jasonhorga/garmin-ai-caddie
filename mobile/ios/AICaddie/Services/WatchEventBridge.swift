@@ -917,11 +917,11 @@ public final class WatchEventBridge: NSObject {
         onHoleDisplayed?(hole)
     }
 
-    public func sendRegionReminder(courseName: String) {
+    public func sendRegionReminder(courseName: String, id: String) {
         guard WCSession.isSupported() else { return }
         let reminder: [String: Any] = [
             "courseName": courseName,
-            "id": UUID().uuidString,
+            "id": id,
         ]
         let message: [String: Any] = ["regionReminder": reminder]
         if WCSession.default.isReachable {

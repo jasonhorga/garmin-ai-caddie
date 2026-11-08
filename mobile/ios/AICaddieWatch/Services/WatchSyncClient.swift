@@ -241,6 +241,7 @@ public struct WatchSyncAcknowledgement: Equatable {
 }
 
 public final class WatchSyncClient: NSObject, ObservableObject {
+    private static let handledRegionReminderIDsKey = "aicaddie.watch.handled-region-reminder-ids.v1"
     @Published public private(set) var currentState: WatchRoundState?
     @Published public private(set) var roundSeed: WatchRoundSeed?
     @Published public private(set) var phoneRoundClosure: WatchRoundClosure?
@@ -257,6 +258,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     private let roundStartURL: URL
     private let configStore: WatchConfigPersisting
     private let queueFileLock = NSLock()
+    private let regionReminderIDLock = NSLock()
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     /// watch P0.4: local cache of per-hole topo images the phone pushes via WatchConnectivity file
@@ -825,9 +827,23 @@ extension WatchSyncClient: WCSessionDelegate {
         guard let id = value["id"] as? String,
               let courseName = value["courseName"] as? String,
               !id.isEmpty, !courseName.isEmpty else { return }
+        guard claimRegionReminderID(id) else { return }
         publishStateUpdate { client in
             client.regionReminder = WatchRegionReminder(id: id, courseName: courseName)
         }
+    }
+
+    /// WatchConnectivity may deliver the same queued userInfo more than once. The phone uses the
+    /// persisted Core Location entry token as this id, so retain a bounded receipt set across Watch
+    /// launches before publishing the UI notification.
+    private func claimRegionReminderID(_ id: String) -> Bool {
+        regionReminderIDLock.lock()
+        defer { regionReminderIDLock.unlock() }
+        var handled = Set(UserDefaults.standard.stringArray(forKey: Self.handledRegionReminderIDsKey) ?? [])
+        guard handled.insert(id).inserted else { return false }
+        let ordered = Array(handled).sorted()
+        UserDefaults.standard.set(Array(ordered.suffix(64)), forKey: Self.handledRegionReminderIDsKey)
+        return true
     }
 
     public func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
