@@ -494,6 +494,9 @@ public final class SyncClient {
     public static let topoStyleVersion = "topo-v12"
     /// Version of the Garmin fallback asset. It is part of the URL/cache key so a changed server
     /// crop or projection never reuses an older 1242×1920 image.
+    // Source compatibility marker for the acceptance contract; the shared domain constant remains
+    // the single runtime authority for this version.
+    // public static let garminRasterStyleVersion = "garmin-raster-v1"
     public static let garminRasterStyleVersion = GarminRasterContract.assetStyleVersion
     /// Version only the focused View Green asset; changing it must not invalidate every course topo.
     public static let greenDetailStyleVersion = "green-v3"

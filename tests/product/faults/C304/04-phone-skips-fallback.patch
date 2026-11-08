@@ -1,13 +1,11 @@
-diff --git a/mobile/ios/AICaddie/Services/WatchTopoSender.swift b/mobile/ios/AICaddie/Services/WatchTopoSender.swift
-index 70dc0dbd..3f2354e6 100644
 --- a/mobile/ios/AICaddie/Services/WatchTopoSender.swift
 +++ b/mobile/ios/AICaddie/Services/WatchTopoSender.swift
-@@ -95,7 +95,7 @@ final class WatchTopoSender {
+@@ -111,7 +111,7 @@
          running = Task { [weak self] in
              for item in items {
                  guard let self, !Task.isCancelled, self.roundId == round else { return }
--                if let (data, version) = await self.loadGarmin(item), !Task.isCancelled, self.roundId == round {
-+                if false, let (data, version) = await self.loadGarmin(item), !Task.isCancelled, self.roundId == round {
+-                if self.hasRenderedHoleFrame,
++                if false, self.hasRenderedHoleFrame,
+                    let (data, version) = await self.loadGarmin(item), !Task.isCancelled, self.roundId == round {
                      let fallbackKey = "\(item.roundHole)|\(item.globalId)|garmin|\(version)"
                      if !self.sent.contains(fallbackKey), !self.exhausted.contains(fallbackKey),
-                        self.enqueueGarmin(item, data, version) {
