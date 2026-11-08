@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index bf0f5274..b5b10c45 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -868,7 +868,7 @@ def reconcile_mobile_round_events(
+     round_row = _round_row(round_id, data)
+     identity = load_mobile_round_identity(round_id, root=root, player_id=player_id)
+     hole_map = _reconciliation_hole_map(round_row, identity)
+-    scores = _hole_scores(round_row, data, root=root, annotations_root=annotations_root,
++    scores = _hole_scores(round_row, HistoryData(raw_rounds=[], rounds=[round_row], shots=[]), root=root, annotations_root=annotations_root,
+                           course_root=course_root, player_id=player_id)
+     shots = _shot_facts(round_id, data)
+     unmatched_shots = {shot["ref"]: shot for shot in shots}
