@@ -1,8 +1,9 @@
+diff --git a/mobile/ios/AICaddie/Services/LiveRoundEventBuilder.swift b/mobile/ios/AICaddie/Services/LiveRoundEventBuilder.swift
 --- a/mobile/ios/AICaddie/Services/LiveRoundEventBuilder.swift
 +++ b/mobile/ios/AICaddie/Services/LiveRoundEventBuilder.swift
-@@ -38,7 +38,7 @@
-             "longitude": .number(coordinate.longitude),
-             "source": .string("ios_gps"),
+@@ -41,7 +41,7 @@
+             // A later actual-club event (including the explicit "unknown" skip marker) confirms it.
+             "pendingClubPrompt": .bool(true),
          ]
 -        payload["horizontalAccuracyM"] = jsonNumberOrNull(horizontalAccuracyM)
 +        payload["horizontalAccuracyM"] = .number(0)
