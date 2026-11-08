@@ -173,7 +173,7 @@ public struct AICaddieWatchApp: App {
                         Task { await uploadFinishedSwingCandidates() }
                     }
                 }
-                .onChange(of: syncClient.regionReminder) { _, reminder in
+                .onChange(of: syncClient.regionReminder, initial: true) { _, reminder in
                     guard let reminder else { return }
                     postRegionReminderNotification(courseName: reminder.courseName, id: reminder.id)
                 }
@@ -736,14 +736,20 @@ public struct AICaddieWatchApp: App {
         content.body = "已打开 \(courseName) 的球局准备"
         content.sound = .default
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
-            guard granted else { return }
+            guard granted else {
+                syncClient.retryPendingRegionReminder(id: id)
+                return
+            }
             UNUserNotificationCenter.current().add(
                 UNNotificationRequest(
                     identifier: "ai-caddie.watch.region-reminder.\(id)",
                     content: content,
                     trigger: nil
                 ) { error in
-                    guard error == nil else { return }
+                    guard error == nil else {
+                        syncClient.retryPendingRegionReminder(id: id)
+                        return
+                    }
                     syncClient.markRegionReminderDelivered(id)
                 }
             )

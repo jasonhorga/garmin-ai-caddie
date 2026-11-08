@@ -925,7 +925,12 @@ public final class WatchEventBridge: NSObject {
         ]
         let message: [String: Any] = ["regionReminder": reminder]
         if WCSession.default.isReachable {
-            WCSession.default.sendMessage(message, replyHandler: nil)
+            WCSession.default.sendMessage(message, replyHandler: nil) { _ in
+                // Reachability may change between the branch above and delivery. The durable
+                // user-info path preserves the stable entry token; Watch-side receipt deduplication
+                // makes a successful send plus fallback harmless.
+                WCSession.default.transferUserInfo(message)
+            }
         } else {
             WCSession.default.transferUserInfo(message)
         }
