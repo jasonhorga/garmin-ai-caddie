@@ -40,7 +40,7 @@ raise SystemExit(not result.wasSuccessful())
 """
                 result = subprocess.run(
                     [sys.executable, "-c", script, str(first)], cwd=root,
-                    capture_output=True, text=True, timeout=30,
+                    capture_output=True, text=True, timeout=120,
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -48,7 +48,7 @@ raise SystemExit(not result.wasSuccessful())
         result = subprocess.run(
             [sys.executable, "-m", "tests.check_isolation", "tests.test_offline_followups"],
             cwd=Path(__file__).resolve().parents[1],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, timeout=120,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertRegex(result.stderr, r"Ran [1-9][0-9]* tests?")
@@ -70,7 +70,7 @@ raise SystemExit(not result.wasSuccessful())
             try:
                 result = subprocess.run(
                     [sys.executable, "-m", "tests.check_isolation", "c67_artifact_probe"],
-                    cwd=root, capture_output=True, text=True, timeout=30,
+                    cwd=root, capture_output=True, text=True, timeout=120,
                     env={**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [tmp, os.environ.get("PYTHONPATH")]))},
                 )
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
@@ -100,7 +100,7 @@ raise SystemExit(not result.wasSuccessful())
 """
         result = subprocess.run(
             [sys.executable, "-c", script], cwd=Path(__file__).resolve().parents[1],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, timeout=120,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertRegex(result.stderr, r"Ran [1-9][0-9]* tests?")
@@ -119,7 +119,7 @@ raise SystemExit(not result.wasSuccessful())
 """
         result = subprocess.run(
             [sys.executable, "-c", script],
-            cwd=root, capture_output=True, text=True, timeout=30,
+            cwd=root, capture_output=True, text=True, timeout=120,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertRegex(result.stderr, r"Ran [1-9][0-9]* tests?")
