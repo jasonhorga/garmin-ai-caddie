@@ -1,11 +1,11 @@
 diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
-index bc1ee661..81dc3708 100644
+index ffc9ce66..20f60437 100644
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -3828,6 +3828,7 @@ public final class LiveRoundAppModel: ObservableObject {
-         #endif
- 
-         do {
+@@ -4907,6 +4907,7 @@ public final class LiveRoundAppModel: ObservableObject {
+                 }
+             }
+             #endif
 +            cancelRoundBackgroundWork()
              if let blocked = try preferredQuarantineRecord(roundId: package.roundId) {
                  if package.holes.contains(where: { $0.number == blocked.event.hole }) {
