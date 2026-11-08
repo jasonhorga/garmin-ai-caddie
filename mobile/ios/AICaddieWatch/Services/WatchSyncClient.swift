@@ -869,6 +869,13 @@ extension WatchSyncClient: WCSessionDelegate {
         }
     }
 
+    public func isPendingRegionReminder(_ id: String) -> Bool {
+        regionReminderIDLock.lock()
+        defer { regionReminderIDLock.unlock() }
+        return UserDefaults.standard.string(forKey: Self.pendingRegionReminderIDKey) == id
+            && UserDefaults.standard.stringArray(forKey: Self.deliveredRegionReminderIDsKey)?.contains(id) != true
+    }
+
     /// Re-publish an undelivered reminder so SwiftUI's notification observer receives a new value
     /// even when the reminder payload itself is unchanged. The pending record survives a Watch
     /// relaunch and is cleared only after `UNUserNotificationCenter.add` succeeds.
@@ -879,6 +886,11 @@ extension WatchSyncClient: WCSessionDelegate {
         let delivered = pendingID.map {
             UserDefaults.standard.stringArray(forKey: Self.deliveredRegionReminderIDsKey)?.contains($0) == true
         } ?? true
+        guard let pendingID, let courseName, !delivered,
+              id == nil || id == pendingID else {
+            regionReminderIDLock.unlock()
+            return
+        }
         let retryCount = UserDefaults.standard.integer(forKey: Self.pendingRegionReminderRetryCountKey)
         guard retryCount < 3 else {
             regionReminderIDLock.unlock()
@@ -886,8 +898,6 @@ extension WatchSyncClient: WCSessionDelegate {
         }
         UserDefaults.standard.set(retryCount + 1, forKey: Self.pendingRegionReminderRetryCountKey)
         regionReminderIDLock.unlock()
-        guard let pendingID, let courseName, !delivered,
-              id == nil || id == pendingID else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             self?.publishStateUpdate { client in
                 client.regionReminder = nil
