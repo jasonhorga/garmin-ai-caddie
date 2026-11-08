@@ -902,6 +902,32 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.activeHole, 1)
     }
 
+    /// Design round-flow §4: leaving the course or idling after the last hole saves the round
+    /// directly once a stroke was recorded.
+    func testIdleAutoFinishSavesARoundWithARecordedStroke() async {
+        let model = seededModel(holes: [hole(1, par: 4), hole(2)])
+        model.beginManualShot(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 5, capturedAt: "2026-06-20T00:00:00Z")
+        model.completePendingManualShot(clubName: nil)
+
+        let saved = await model.autoFinishForIdle(expectedRoundId: "r1")
+
+        XCTAssertTrue(saved)
+        XCTAssertNil(model.round)
+        XCTAssertEqual(model.lastRoundClosure?.roundId, "r1")
+        XCTAssertEqual(model.lastRoundClosure?.disposition, .savedLocally)
+    }
+
+    /// Design round-flow §4: a round without a single recorded stroke is never saved or pushed.
+    func testIdleAutoFinishNeverSavesARoundWithoutAStroke() async {
+        let model = seededModel(holes: [hole(1, par: 4), hole(2)])
+
+        let saved = await model.autoFinishForIdle(expectedRoundId: "r1")
+
+        XCTAssertFalse(saved)
+        XCTAssertEqual(model.round?.roundId, "r1")
+        XCTAssertNil(model.lastRoundClosure)
+    }
+
     /// Owner request 2026-10-12: an app quit by accident mid-round comes straight back to it.
     func testAnAppQuitMidPlayComesStraightBackToTheRound() {
         let directory = FileManager.default.temporaryDirectory

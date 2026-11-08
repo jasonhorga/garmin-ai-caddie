@@ -754,6 +754,18 @@ public final class WatchRoundModel: ObservableObject {
         return round.holeStates.contains { $0.hole == draft.hole }
     }
 
+    private func hasRecordedStroke(in round: WatchRoundStore.PersistedRound) -> Bool {
+        // Older archives did not have the durable marker. Their pending event log is still a
+        // trustworthy migration source, so preserve a real recorded stroke across the upgrade.
+        !(round.recordedStrokeEventIds?.isEmpty ?? true)
+            || round.pendingEvents.contains { $0.kind == .location }
+    }
+
+    public var hasRecordedStrokeForIdle: Bool {
+        guard let round else { return false }
+        return hasRecordedStroke(in: round)
+    }
+
     public var courseName: String { round?.courseName ?? "" }
 
     /// The printed number of round hole `hole` (B4b-2 §2); the round number when unknown.
@@ -920,6 +932,7 @@ public final class WatchRoundModel: ObservableObject {
             activeHole: activeHole,
             holeStates: states,
             pendingEvents: existing?.pendingEvents ?? [],
+            recordedStrokeEventIds: existing?.recordedStrokeEventIds,
             courseName: seed.courseName,
             courseGlobalId: seed.globalId ?? existing?.courseGlobalId ?? states.first?.globalId,
             teeBox: seed.teeBox ?? existing?.teeBox,
@@ -928,7 +941,10 @@ public final class WatchRoundModel: ObservableObject {
             pendingAutoShotCandidate: existing?.pendingAutoShotCandidate,
             scoreDraft: retainedScoreDraft,
             greenPlacements: retainedGreenPlacements,
-            phoneShots: retainedPhoneShots
+            phoneShots: retainedPhoneShots,
+            idlePaused: existing?.idlePaused,
+            idlePauseLatitude: existing?.idlePauseLatitude,
+            idlePauseLongitude: existing?.idlePauseLongitude
         )
         // The phone's echo of the Watch's table (same loop key) keeps the second nine changeable and
         // ends the wait; a different table the phone chose itself makes the phone the owner.
@@ -1089,7 +1105,29 @@ public final class WatchRoundModel: ObservableObject {
 
     public func resumeRound() {
         guard screen == .resume, let round else { return }
-        restoreInteractionState(from: round)
+        var resumed = round
+        resumed.idlePaused = nil
+        resumed.idlePauseLatitude = nil
+        resumed.idlePauseLongitude = nil
+        guard (try? store.save(resumed)) != nil else { return }
+        self.round = resumed
+        restoreInteractionState(from: resumed)
+    }
+
+    public var isIdlePaused: Bool { round?.idlePaused == true }
+
+    /// A paused round remains on the wrist while a fresh fix proves the player has moved. This
+    /// keeps the ordinary Resume screen behavior for relaunches while allowing the in-session rule
+    /// to continue without a manual tap.
+    @discardableResult
+    public func resumeIdleRoundIfMoved(_ fix: WatchLocationFix) -> Bool {
+        guard isIdlePaused,
+              let latitude = round?.idlePauseLatitude,
+              let longitude = round?.idlePauseLongitude,
+              WatchGeoMath.metres(latitude, longitude, fix.coordinate.latitude, fix.coordinate.longitude)
+                    > WatchRoundIdleTracker.stationaryMetres else { return false }
+        resumeRound()
+        return true
     }
 
     /// Sets a round left open aside (owner battery report 2026-10-12): everything is kept, including
@@ -1098,9 +1136,19 @@ public final class WatchRoundModel: ObservableObject {
     /// Returns false (and the round stays in play, with workout and GPS) when the draft could not be
     /// written durably; the caller tries again on its next check.
     @discardableResult
-    public func pauseForIdle() -> Bool {
+    public func pauseForIdle(anchor: WatchLocationFix? = nil) -> Bool {
         guard round != nil, screen != .resume else { return false }
         guard persistInteractionState() else { return false }
+        guard var paused = round else { return false }
+        paused.idlePaused = true
+        paused.idlePauseLatitude = anchor?.coordinate.latitude
+        paused.idlePauseLongitude = anchor?.coordinate.longitude
+        do {
+            try store.save(paused)
+            round = paused
+        } catch {
+            return false
+        }
         inPlayMarker.clear()
         screen = .resume
         return true
@@ -2157,13 +2205,63 @@ public final class WatchRoundModel: ObservableObject {
 
     public func requestFinishConfirmation() {
         guard screen == .finishing else { return }
-        guard let round, hasMaterializableFacts(in: round) else {
+        guard let round else {
+            requestAbandon()
+            return
+        }
+        guard round.pendingManualShot == nil, round.pendingAutoShotCandidate == nil else {
+            uploadError = "请先确认或撤销未完成的一杆"
+            return
+        }
+        guard hasMaterializableFacts(in: round) else {
             requestAbandon()
             return
         }
         uploadError = nil
         screenBeforeFinishConfirmation = .finishing
         screen = .finishConfirmation
+    }
+
+    /// C32 idle rules are an explicit product decision, so the Watch may close a round without
+    /// showing the manual two-step sheet. It still uses the normal durable upload/deferred-finish
+    /// path and the same materializable-stroke gate as Save & End.
+    @discardableResult
+    public func autoFinishForIdle(expectedRoundId: String? = nil) async -> Bool {
+        guard let currentRound = round,
+              expectedRoundId == nil || currentRound.roundId == expectedRoundId,
+              screen != .resume,
+              screen != .finishing,
+              screen != .finishConfirmation,
+              screen != .abandonConfirmation,
+              !isUploading,
+              // An undoable shot or an unconfirmed auto-shot must stay recoverable. Set the
+              // round aside first so automatic finish cannot close over a staged fact that the
+              // player has not accepted or rejected yet.
+              currentRound.pendingManualShot == nil,
+              currentRound.pendingAutoShotCandidate == nil,
+              hasRecordedStroke(in: currentRound) else { return false }
+        let previous = screenBeforeFinishConfirmation
+        let operationRoundId = currentRound.roundId
+        let priorClosure = lastRoundClosure
+        screenBeforeFinishConfirmation = screen
+        screen = .finishConfirmation
+        await confirmFinish(
+            expectedRoundId: expectedRoundId ?? operationRoundId,
+            allowStrokeOnly: true
+        )
+        // `confirmFinish` publishes a closure and clears the round on success or deferred save.
+        // Restore only when the operation could not leave the finish screen, preserving a usable
+        // round after an unexpected local failure.
+        guard round == nil || round?.roundId == operationRoundId else { return false }
+        guard round == nil else {
+            guard screen == .finishConfirmation else { return false }
+            screen = previous
+            return false
+        }
+        guard let closure = lastRoundClosure,
+              closure.roundId == operationRoundId,
+              closure != priorClosure else { return false }
+        return true
     }
 
     public func cancelFinishConfirmation() {
@@ -2205,15 +2303,25 @@ public final class WatchRoundModel: ObservableObject {
     /// Finish remotely only after every queued event is explicitly acknowledged. Without backend
     /// config, on upload failure, or after a partial acknowledgement, the exact unresolved round is
     /// archived for retry while the player is still allowed to leave the playing UI.
-    public func confirmFinish() async {
+    public func confirmFinish(
+        expectedRoundId: String? = nil,
+        allowStrokeOnly: Bool = false
+    ) async {
         guard screen == .finishConfirmation else { return }
         guard var current = round else { return }
+        guard expectedRoundId == nil || current.roundId == expectedRoundId else { return }
+        guard current.pendingManualShot == nil, current.pendingAutoShotCandidate == nil else {
+            uploadError = "请先确认或撤销未完成的一杆"
+            return
+        }
         isUploading = true
         uploadError = nil
         defer { isUploading = false }
         do {
             current = try materializeScoreDraftForFinish(current)
-            guard hasMaterializableFacts(in: current) else {
+            guard expectedRoundId == nil || round?.roundId == expectedRoundId else { return }
+            guard hasMaterializableFacts(in: current)
+                    || (allowStrokeOnly && hasRecordedStroke(in: current)) else {
                 screenBeforeAbandon = screenBeforeFinishConfirmation
                 screen = .abandonConfirmation
                 return
@@ -2226,11 +2334,13 @@ public final class WatchRoundModel: ObservableObject {
                     return
                 }
                 let posted = try await upload(pending, roundId: current.roundId)
+                guard expectedRoundId == nil || round?.roundId == expectedRoundId else { return }
                 guard let updated = try store.markPosted(eventIds: posted) else {
                     try saveForLater(current)
                     return
                 }
                 round = updated
+                guard expectedRoundId == nil || round?.roundId == expectedRoundId else { return }
                 guard updated.pendingEvents.isEmpty else {
                     try saveForLater(updated)
                     return
@@ -2242,6 +2352,7 @@ public final class WatchRoundModel: ObservableObject {
                 return
             }
             try await finishRemotely(readyToFinish)
+            guard expectedRoundId == nil || round?.roundId == expectedRoundId else { return }
             let closure = try store.closeActiveRound(
                 roundId: readyToFinish.roundId,
                 disposition: .finished,
@@ -2249,6 +2360,7 @@ public final class WatchRoundModel: ObservableObject {
             )
             publishLocalClosure(closure)
         } catch {
+            guard expectedRoundId == nil || round?.roundId == expectedRoundId else { return }
             // Save & End must remain an exit even in Airplane Mode, with an expired phone token or
             // after a response is lost. The retry archive keeps the exact unresolved IDs and finish
             // metadata; backend event/finish endpoints are idempotent.
@@ -2382,7 +2494,7 @@ public final class WatchRoundModel: ObservableObject {
                 // waiting for an explicit upload acknowledgement, then retire the invalid archive
                 // without asking the backend to fabricate a scored round. A truly empty archive can
                 // still be removed immediately.
-                guard hasMaterializableFacts(in: ready) else {
+                guard hasMaterializableFacts(in: ready) || hasRecordedStroke(in: ready) else {
                     try store.removeDeferredFinish(roundId: ready.roundId)
                     continue
                 }

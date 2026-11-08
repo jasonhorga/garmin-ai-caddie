@@ -1,9 +1,8 @@
 diff --git a/mobile/ios/AICaddie/Models/LiveScoreConfirmation.swift b/mobile/ios/AICaddie/Models/LiveScoreConfirmation.swift
-index 6de031ca..506bbfbf 100644
 --- a/mobile/ios/AICaddie/Models/LiveScoreConfirmation.swift
 +++ b/mobile/ios/AICaddie/Models/LiveScoreConfirmation.swift
-@@ -257,7 +257,7 @@ enum LiveMarkedShots {
-                     case .string("ios_gps")? where event.eventId != pendingLocationEventId:
+@@ -260,7 +260,7 @@
+                         }
                          return event.eventId
                      default:
 -                        return nil

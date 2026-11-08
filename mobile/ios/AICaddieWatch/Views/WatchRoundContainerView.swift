@@ -261,6 +261,8 @@ public struct WatchRoundContainerView: View {
     private let watchHeading: WatchHeadingFix?
     private let autoShotSupported: Bool
     private let autoShotStatus: String
+    /// A non-destructive course mismatch prompt from the round idle policy.
+    private let idlePrompt: String?
     /// DEBUG runtime evidence may start Touch Target at a deterministic measured point. Production
     /// callers leave it nil, so live target state remains owned by WatchHoleMapView.
     private let measuredPxOverride: CGPoint?
@@ -284,6 +286,7 @@ public struct WatchRoundContainerView: View {
                 watchHeading: WatchHeadingFix? = nil,
                 autoShotSupported: Bool = false,
                 autoShotStatus: String = "本机不支持",
+                idlePrompt: String? = nil,
                 initialHoleMapCrownScale: Double = WatchHoleMapView.restingCrownScale,
                 initialSelectedHazardID: String? = nil,
                 measuredPxOverride: CGPoint? = nil,
@@ -314,6 +317,7 @@ public struct WatchRoundContainerView: View {
         self.watchHeading = watchHeading
         self.autoShotSupported = autoShotSupported
         self.autoShotStatus = autoShotStatus
+        self.idlePrompt = idlePrompt
         self.measuredPxOverride = measuredPxOverride
         self.initialGreenPinOverride = initialGreenPinOverride
         self.initialGreenZoomScaleOverride = initialGreenZoomScaleOverride
@@ -441,6 +445,18 @@ public struct WatchRoundContainerView: View {
             )
         } else {
             activeScreen
+                .overlay(alignment: .top) {
+                    if let idlePrompt {
+                        Text(idlePrompt)
+                            .font(.system(size: 12, weight: .black))
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(Capsule().fill(AICaddieDesignTokens.hudYellow))
+                            .accessibilityIdentifier("watch-round-idle-prompt")
+                    }
+                }
                 // 本洞成绩 uses the whole window down to 保存: the strip goes to the top there.
                 .overlay(alignment: model.screen == .scoring ? .top : .bottom) { undoableShotStrip }
                 .task(id: manualShotFeedback.gpsPromptID) {

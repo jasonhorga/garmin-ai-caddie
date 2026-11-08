@@ -99,6 +99,13 @@ private struct FirstRenderedFrameSignal: UIViewRepresentable {
 }
 #endif
 
+private func freshRoundLocationFix(_ fix: LocationFix, now: Date = Date()) -> LocationFix? {
+    guard let capturedAt = PrepHoleFollowingState.sampleDate(fix.capturedAt),
+          capturedAt <= now,
+          now.timeIntervalSince(capturedAt) <= 15 else { return nil }
+    return fix
+}
+
 private struct PendingPhoneShot: Identifiable {
     let locationEvent: LiveRoundEvent
     let shotOrder: Int
@@ -718,6 +725,7 @@ final class LiveHoleDecisionProbe {
 #endif
 
 public struct CurrentHoleView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
     // The pager's owner can navigate home directly; standalone destinations use dismiss.
     private let onBackToHome: (() -> Void)?
@@ -799,6 +807,11 @@ public struct CurrentHoleView: View {
     /// The turn: add the second loop and open its first hole (the model navigates).
     private let onContinueIntoSecondLoop: (RoundLoopEntry, String) -> Void
     private let onFinishRound: () async -> Bool
+    private let onRoundLocation: (LocationFix?) -> PhoneRoundIdleAction
+    private let onResumeRoundIdle: () -> Void
+    private let onRoundActivity: () -> Void
+    private let onScoreEvents: (([LiveRoundEvent]) -> Void)?
+    private let roundIdlePaused: Bool
     private let onDiscardRound: () -> Void
     private let onAdvanceHole: (Int) -> Void
     private let usesExternalHolePager: Bool
@@ -838,6 +851,8 @@ public struct CurrentHoleView: View {
     @State private var distanceToPinText: String = ""
     @State private var selectedLie: String = "fairway"
     @State private var currentCoordinate: CLLocationCoordinate2D?
+    @State private var idlePaused = false
+    @State private var idleWrongCourse = false
     /// A manually chosen Touch Target point.  This is intentionally separate from the movable
     /// green flag below: S70's Touch Target and View Green are two different instruments.
     @State private var targetCoordinate: CLLocationCoordinate2D?
@@ -1012,6 +1027,10 @@ public struct CurrentHoleView: View {
         onSetSecondLoop: @escaping (RoundLoopEntry?, String) -> Void = { _, _ in },
         onContinueIntoSecondLoop: @escaping (RoundLoopEntry, String) -> Void = { _, _ in },
         onFinishRound: @escaping () async -> Bool = { false },
+        onRoundLocation: @escaping (LocationFix?) -> PhoneRoundIdleAction = { _ in .none },
+        onResumeRoundIdle: @escaping () -> Void = {},
+        onRoundActivity: @escaping () -> Void = {},
+        onScoreEvents: (([LiveRoundEvent]) -> Void)? = nil,
         onDiscardRound: @escaping () -> Void = {},
         sessionCache: LiveHoleSessionCache? = nil,
         usesExternalHolePager: Bool = false,
@@ -1022,6 +1041,7 @@ public struct CurrentHoleView: View {
         onLiveHoleInitialLoadDidFinish: @escaping () -> Void = {},
         onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
         isPrepMode: Bool = false,
+        roundIdlePaused: Bool = false,
         prepTeeOptions: [String] = [],
         onStartRoundFromFirstStroke: @escaping (Int) -> Bool = { _ in false },
         onFirstStrokeClubPromptDismissed: @escaping () -> Void = {},
@@ -1070,6 +1090,11 @@ public struct CurrentHoleView: View {
         self.onSetSecondLoop = onSetSecondLoop
         self.onContinueIntoSecondLoop = onContinueIntoSecondLoop
         self.onFinishRound = onFinishRound
+        self.onRoundLocation = onRoundLocation
+        self.onResumeRoundIdle = onResumeRoundIdle
+        self.onRoundActivity = onRoundActivity
+        self.onScoreEvents = onScoreEvents
+        self.roundIdlePaused = roundIdlePaused
         self.onDiscardRound = onDiscardRound
         let sharedSessionCache = sessionCache ?? LiveHoleSessionCache()
         self.sessionCache = sharedSessionCache
@@ -1081,6 +1106,7 @@ public struct CurrentHoleView: View {
         self.onLiveHoleInitialLoadDidFinish = onLiveHoleInitialLoadDidFinish
         self.onRetainReadyHolePrep = onRetainReadyHolePrep
         self.isPrepMode = isPrepMode
+        self._idlePaused = State(initialValue: roundIdlePaused)
         self.prepTeeOptions = prepTeeOptions
         self.onStartRoundFromFirstStroke = onStartRoundFromFirstStroke
         self.onFirstStrokeClubPromptDismissed = onFirstStrokeClubPromptDismissed
@@ -1203,6 +1229,55 @@ public struct CurrentHoleView: View {
 
     private var currentCoordinateForLogic: CLLocationCoordinate2D? {
         currentCoordinate ?? activeLocationProvider.latestFix?.coordinate
+    }
+
+    private func handleRoundLocation(_ fix: LocationFix?) {
+        if let fix {
+            currentCoordinate = fix.coordinate
+            currentHorizontalAccuracyM = fix.horizontalAccuracyM
+        }
+        if !isPrepMode {
+            let action = onRoundLocation(fix)
+            switch action {
+            case .pauseStationary:
+                idlePaused = true
+            case .resumed:
+                idlePaused = false
+                idleWrongCourse = false
+            case .wrongCourse:
+                idleWrongCourse = true
+            case .none:
+                idleWrongCourse = false
+            case .finishLeftCourse, .finishAfterCompletedRound:
+                break
+            }
+        }
+        // The idle callback above must continue while the app is backgrounded. The remaining
+        // hole navigation, map and Watch presentation work is foreground-only.
+        guard scenePhase == .active else { return }
+        if let fix {
+            gpsHoleCandidate = LiveHoleGPSResolver.candidate(
+                holes: package.holes,
+                coordinate: fix.coordinate,
+                horizontalAccuracyM: fix.horizontalAccuracyM
+            )
+        }
+        if isPrepMode, let fix {
+            let locatedHole = CurrentHoleLocator.locate(
+                fix: fix,
+                package: package,
+                preferredHole: hole.number
+            ).hole
+            if let target = onPrepLocationChanged(locatedHole, hole.number, fix),
+               package.holes.contains(where: { $0.number == target }) {
+                onAdvanceHole(target)
+            }
+        }
+        // watch P1c: push the live position to the watch so its hole-map 「你」 pans as you walk. Only
+        // when the hole map is up (holePrep loaded) — avoids chatter before the round view is ready.
+        if fix != nil, holePrep != nil {
+            sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
+        }
     }
 
     /// Deterministic starting state for design snapshots: one selected obstacle, pre-resolved
@@ -1443,10 +1518,22 @@ public struct CurrentHoleView: View {
                     sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
                 }
             } else {
-                activeLocationProvider.stopUpdatingLocation()
+                if injectedLocationProvider == nil {
+                    activeLocationProvider.stopUpdatingLocation()
+                }
                 heroTargetDragGrabbed = false
                 heroTargetDragLocation = nil
                 historyPlayerDragging = false
+            }
+        }
+        .onChange(of: roundIdlePaused) { _, paused in
+            idlePaused = paused
+            if paused {
+                activeLocationProvider.requestAuthorization()
+                activeLocationProvider.startUpdatingLocation()
+            } else if isSelected, !isPrepMode {
+                activeLocationProvider.requestAuthorization()
+                activeLocationProvider.startUpdatingLocation()
             }
         }
         .onDisappear {
@@ -1454,7 +1541,9 @@ public struct CurrentHoleView: View {
             UITestPagerTrace.shared.metric(.currentHoleDisappear)
             UITestPagerTrace.shared.record("page disappear hole=\(hole.number) sheet=\(pagerPresentationIsActive)")
             #endif
-            activeLocationProvider.stopUpdatingLocation()
+            if injectedLocationProvider == nil {
+                activeLocationProvider.stopUpdatingLocation()
+            }
             heroTargetDragGrabbed = false
             heroTargetDragLocation = nil
             historyPlayerDragging = false
@@ -1480,31 +1569,14 @@ public struct CurrentHoleView: View {
         }
         .onReceive(activeLocationProvider.$latestFix) { latestFix in
             guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
-            guard let latestFix else {
-                return
-            }
-            currentCoordinate = latestFix.coordinate
-            currentHorizontalAccuracyM = latestFix.horizontalAccuracyM
-            gpsHoleCandidate = LiveHoleGPSResolver.candidate(
-                holes: package.holes,
-                coordinate: latestFix.coordinate,
-                horizontalAccuracyM: latestFix.horizontalAccuracyM
-            )
-            if isPrepMode {
-                let locatedHole = CurrentHoleLocator.locate(
-                    fix: latestFix,
-                    package: package,
-                    preferredHole: hole.number
-                ).hole
-                if let target = onPrepLocationChanged(locatedHole, hole.number, latestFix),
-                   package.holes.contains(where: { $0.number == target }) {
-                    onAdvanceHole(target)
-                }
-            }
-            // watch P1c: push the live position to the watch so its hole-map 「你」 pans as you walk. Only
-            // when the hole map is up (holePrep loaded) — avoids chatter before the round view is ready.
-            if holePrep != nil {
-                sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
+            handleRoundLocation(latestFix.flatMap { freshRoundLocationFix($0) })
+        }
+        .task(id: "round-idle:\(package.roundId):\(hole.number):\(isSelected):\(idlePaused):\(scenePhase)") {
+            guard isSelected, !isPrepMode, scenePhase == .active else { return }
+            while !Task.isCancelled {
+                let latestFix = activeLocationProvider.latestFix.flatMap { freshRoundLocationFix($0) }
+                handleRoundLocation(latestFix)
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: ClubBagStore.didChange)) { _ in
@@ -1671,6 +1743,39 @@ public struct CurrentHoleView: View {
         let _ = UITestPagerTrace.shared.pageBody(hole: hole.number, selected: isSelected)
         #endif
         liveHoleLifecycleContent
+        // An idle pause is a durable set-aside state. Keep the resume affordance above
+        // interactive, but prevent shots, scores, map gestures, and finish actions from
+        // being accepted until the player explicitly continues.
+        .allowsHitTesting(!idlePaused)
+        .overlay(alignment: .top) {
+            if idlePaused {
+                Button {
+                    idlePaused = false
+                    idleWrongCourse = false
+                    onResumeRoundIdle()
+                    activeLocationProvider.requestAuthorization()
+                    activeLocationProvider.startUpdatingLocation()
+                } label: {
+                    Text("已暂停 · 点此继续本场")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(.black.opacity(0.78), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("round-idle-paused")
+            } else if idleWrongCourse {
+                Text("当前位置不在所选球场附近，请确认球场")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(.black.opacity(0.78), in: Capsule())
+                    .accessibilityIdentifier("round-idle-wrong-course")
+            }
+        }
         .onChange(of: liveRoundState) { _, newState in
             applyRestoredStateIfNeeded(newState)
         }
@@ -2249,6 +2354,7 @@ public struct CurrentHoleView: View {
                 get: { scoreDraft ?? presentedDraft },
                 set: { next in
                     scoreDraft = next
+                    onRoundActivity()
                     if let offlineStore {
                         try? offlineStore.saveLiveScoreDraft(roundId: package.roundId, draft: next)
                     }
@@ -2266,7 +2372,7 @@ public struct CurrentHoleView: View {
             shotNumber: pendingShot.shotOrder,
             choices: actualClubChoices,
             onSelect: { club in recordActualClub(club, for: pendingShot) },
-            onSkip: { pendingPhoneShot = nil }
+            onSkip: { recordActualClub("unknown", for: pendingShot) }
         )
     }
 
@@ -6773,6 +6879,7 @@ public struct CurrentHoleView: View {
                 phoneShotCount: recordedNonPuttShotCount,
                 teeResult: liveTeeResultPreselection
             )
+            onRoundActivity()
         }
         if let scoreDraft {
             if let offlineStore {
@@ -6788,9 +6895,21 @@ public struct CurrentHoleView: View {
             note: note,
             timestamp: ISO8601DateFormatter().string(from: Date())
         )
-        events.forEach(onEvent)
+        if let onScoreEvents {
+            onScoreEvents(events)
+        } else {
+            events.forEach(onEvent)
+        }
         eventSnapshot.invalidate()
         if let offlineStore {
+            let persistedIDs = Set((try? offlineStore.loadEvents())?.map(\.eventId) ?? [])
+            guard events.allSatisfy({ persistedIDs.contains($0.eventId) }) else {
+                // Keep the accepted tuple in the durable draft when any event write failed. The
+                // next automatic or explicit finish retries it through the atomic materializer.
+                scoreDraft = accepted
+                try? offlineStore.saveLiveScoreDraft(roundId: package.roundId, draft: accepted)
+                return
+            }
             try? offlineStore.clearLiveScoreDraft(roundId: package.roundId)
         }
         var dismissalAction: LiveScoreDismissalAction?

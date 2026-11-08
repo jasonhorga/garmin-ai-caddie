@@ -9,7 +9,28 @@ public struct LocationFix {
     public let capturedAt: String
 }
 
+public struct MonitoredCourseRegion: Equatable, Sendable {
+    public let identifier: String
+    public let latitude: Double
+    public let longitude: Double
+    public let radiusM: Double
+
+    public init(identifier: String, latitude: Double, longitude: Double, radiusM: Double) {
+        self.identifier = identifier
+        self.latitude = latitude
+        self.longitude = longitude
+        self.radiusM = radiusM
+    }
+}
+
 public final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDelegate {
+    private static let monitoredRegionsKey = "aicaddie.course-regions.v1"
+    private static let pendingRegionEntryKey = "aicaddie.pending-region-entry.v1"
+    private static let pendingRegionEntryAtKey = "aicaddie.pending-region-entry-at.v1"
+    private static let pendingRegionEntryNotifiedKey = "aicaddie.pending-region-entry-notified.v1"
+    private static let pendingRegionEntryNotifiedAtKey = "aicaddie.pending-region-entry-notified-at.v1"
+    private static let handledRegionEntryTokenKey = "aicaddie.handled-region-entry-token.v1"
+    private static let pendingRegionEntryMaxAge: TimeInterval = 10 * 60
     private let manager: CLLocationManager
     private let formatter = LocationProvider.makeCaptureFormatter()
 
@@ -21,7 +42,9 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     private var wantsLocationUpdates = false
 
     @Published public private(set) var latestFix: LocationFix?
+    @Published public private(set) var enteredRegionIdentifier: String?
     @Published public private(set) var authorizationStatus: CLAuthorizationStatus
+    public var onRegionEntered: ((String) -> Void)?
 
     /// UI-test GPS injection: when UITEST_GPS_LAT/LON are set in the process environment, the provider
     /// emits a fixed on-course fix instead of touching CoreLocation — so the simulator-driven XCUITest
@@ -76,9 +99,11 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
         self.manager.delegate = self
         self.manager.desiredAccuracy = kCLLocationAccuracyBest
         self.manager.distanceFilter = 3
+        self.manager.pausesLocationUpdatesAutomatically = true
         if let simulatedFix {
             self.latestFix = simulatedFix
         }
+        restorePersistedCourseRegions()
     }
 
     public func requestAuthorization() {
@@ -91,6 +116,218 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
             return
         }
         manager.requestWhenInUseAuthorization()
+    }
+
+    /// Region entry is the low-power background wake-up used by automatic round preparation.
+    /// Always authorization is requested only once a caller has installed course regions.
+    public func requestAlwaysAuthorizationForRegions() {
+        guard simulatedAuthorizationStatus == nil, simulatedFix == nil else { return }
+        manager.requestAlwaysAuthorization()
+    }
+
+    public func monitorCourseRegions(_ regions: [MonitoredCourseRegion]) {
+        if regions.isEmpty {
+            UserDefaults.standard.removeObject(forKey: Self.monitoredRegionsKey)
+        } else {
+            UserDefaults.standard.set(regions.map { [
+                "identifier": $0.identifier,
+                "latitude": $0.latitude,
+                "longitude": $0.longitude,
+                "radiusM": $0.radiusM,
+            ] }, forKey: Self.monitoredRegionsKey)
+        }
+        let wanted = Set(regions.map(\.identifier))
+        for monitored in manager.monitoredRegions where !wanted.contains(monitored.identifier) {
+            manager.stopMonitoring(for: monitored)
+        }
+        for region in regions {
+            guard CLLocationCoordinate2DIsValid(CLLocationCoordinate2D(
+                latitude: region.latitude, longitude: region.longitude
+            )) else { continue }
+            let circular = CLCircularRegion(
+                center: CLLocationCoordinate2D(latitude: region.latitude, longitude: region.longitude),
+                radius: min(max(region.radiusM, 100), 1_500),
+                identifier: region.identifier
+            )
+            circular.notifyOnEntry = true
+            circular.notifyOnExit = false
+            manager.startMonitoring(for: circular)
+        }
+        if !regions.isEmpty {
+            requestAlwaysAuthorizationForRegions()
+        }
+    }
+
+    /// A terminated app may receive a region callback before SwiftUI has rebuilt its scene. Keep
+    /// the identifier until the model has restored the account and can act on the matching course.
+    public func consumePendingRegionEntry() -> String? {
+        defer { clearPendingRegionEntry() }
+        return freshPendingRegionEntry()
+    }
+
+    public func peekPendingRegionEntry() -> String? {
+        freshPendingRegionEntry()
+    }
+
+    public func clearPendingRegionEntry() {
+        Self.clearPersistedPendingRegionEntry()
+    }
+
+    /// Create a durable entry for a foreground GPS arrival when Core Location did not deliver a
+    /// region callback. An existing entry always wins, so a newer Core Location arrival cannot be
+    /// overwritten by a delayed foreground fix.
+    @discardableResult
+    public static func ensurePendingRegionEntry(_ identifier: String) -> Bool {
+        guard !identifier.isEmpty else { return false }
+        if let current = freshPendingRegionEntryValue() {
+            return current == identifier
+        }
+        clearPersistedPendingRegionEntry()
+        UserDefaults.standard.set(identifier, forKey: pendingRegionEntryKey)
+        UserDefaults.standard.set(Date(), forKey: pendingRegionEntryAtKey)
+        return true
+    }
+
+    /// Mark the current persisted entry after its automatic prep notification has been delivered.
+    /// The marker is tied to the entry timestamp, so a later arrival at the same course is a new
+    /// notification even when the old identifier is reused.
+    @discardableResult
+    public static func markPendingRegionEntryNotified(_ identifier: String, token: String? = nil) -> Bool {
+        guard UserDefaults.standard.string(forKey: pendingRegionEntryKey) == identifier,
+              let capturedAt = UserDefaults.standard.object(forKey: pendingRegionEntryAtKey) as? Date else {
+            return false
+        }
+        if let token, token != "\(identifier):\(capturedAt.timeIntervalSince1970)" {
+            return false
+        }
+        UserDefaults.standard.set(identifier, forKey: pendingRegionEntryNotifiedKey)
+        UserDefaults.standard.set(capturedAt, forKey: pendingRegionEntryNotifiedAtKey)
+        return true
+    }
+
+    public static func isPendingRegionEntryNotified(_ identifier: String) -> Bool {
+        guard UserDefaults.standard.string(forKey: pendingRegionEntryKey) == identifier,
+              UserDefaults.standard.string(forKey: pendingRegionEntryNotifiedKey) == identifier,
+              let capturedAt = UserDefaults.standard.object(forKey: pendingRegionEntryAtKey) as? Date,
+              let notifiedAt = UserDefaults.standard.object(forKey: pendingRegionEntryNotifiedAtKey) as? Date else {
+            return false
+        }
+        return capturedAt == notifiedAt
+    }
+
+    public static func pendingRegionEntryToken(_ identifier: String) -> String? {
+        guard freshPendingRegionEntryValue() == identifier,
+              let capturedAt = UserDefaults.standard.object(forKey: pendingRegionEntryAtKey) as? Date else {
+            return nil
+        }
+        return "\(identifier):\(capturedAt.timeIntervalSince1970)"
+    }
+
+    public static func pendingRegionEntryIdentifier() -> String? {
+        freshPendingRegionEntryValue()
+    }
+
+    public static func handledRegionEntryToken() -> String? {
+        UserDefaults.standard.string(forKey: handledRegionEntryTokenKey)
+    }
+
+    public static func setHandledRegionEntryToken(_ token: String) {
+        UserDefaults.standard.set(token, forKey: handledRegionEntryTokenKey)
+    }
+
+    public static func clearHandledRegionEntryToken() {
+        UserDefaults.standard.removeObject(forKey: handledRegionEntryTokenKey)
+    }
+
+    @discardableResult
+    public static func acknowledgePendingRegionEntry(_ identifier: String, token: String? = nil) -> Bool {
+        guard UserDefaults.standard.string(forKey: pendingRegionEntryKey) == identifier,
+              let capturedAt = UserDefaults.standard.object(forKey: pendingRegionEntryAtKey) as? Date,
+              Date().timeIntervalSince(capturedAt) >= 0,
+              Date().timeIntervalSince(capturedAt) <= pendingRegionEntryMaxAge else { return false }
+        if let token, token != "\(identifier):\(capturedAt.timeIntervalSince1970)" {
+            return false
+        }
+        clearPersistedPendingRegionEntry()
+        return true
+    }
+
+    public func acknowledgeRegionEntry(_ identifier: String, token: String? = nil) {
+        // The persisted value is the cross-launch authority. A stale publisher callback must not
+        // clear a newer region entry that another provider has already stored.
+        guard Self.acknowledgePendingRegionEntry(identifier, token: token) else { return }
+        enteredRegionIdentifier = nil
+    }
+
+    private func freshPendingRegionEntry(now: Date = Date()) -> String? {
+        guard let value = UserDefaults.standard.string(forKey: Self.pendingRegionEntryKey),
+              let capturedAt = UserDefaults.standard.object(forKey: Self.pendingRegionEntryAtKey) as? Date,
+              now.timeIntervalSince(capturedAt) >= 0,
+              now.timeIntervalSince(capturedAt) <= Self.pendingRegionEntryMaxAge else {
+            if let value = UserDefaults.standard.string(forKey: Self.pendingRegionEntryKey),
+               enteredRegionIdentifier == value {
+                enteredRegionIdentifier = nil
+            }
+            if UserDefaults.standard.object(forKey: Self.pendingRegionEntryKey) != nil {
+                clearPendingRegionEntry()
+            }
+            return nil
+        }
+        return value
+    }
+
+    public func freshEnteredRegionIdentifier() -> String? {
+        guard let identifier = enteredRegionIdentifier,
+              Self.freshPendingRegionEntryValue() == identifier else { return nil }
+        return identifier
+    }
+
+    /// Validate the value emitted by `enteredRegionIdentifier` without reading the published
+    /// property again. Combine may deliver the value before the property's backing storage is
+    /// updated, so observers must validate the emitted identifier they already received.
+    public func isFreshEnteredRegionIdentifier(_ identifier: String) -> Bool {
+        Self.freshPendingRegionEntryValue() == identifier
+    }
+
+    /// Clear an expired or rejected emitted entry after the publisher callback has returned.
+    public func clearRegionEntry(_ identifier: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.enteredRegionIdentifier == identifier else { return }
+            if let pending = UserDefaults.standard.string(forKey: Self.pendingRegionEntryKey),
+               pending != identifier {
+                return
+            }
+            self.enteredRegionIdentifier = nil
+            self.clearPendingRegionEntry()
+        }
+    }
+
+    /// Read the persisted region entry without changing either published property. Callers that
+    /// observe `enteredRegionIdentifier` must keep this validation side-effect free; an expired
+    /// value can be acknowledged/cleared afterwards on the normal event path.
+    private static func freshPendingRegionEntryValue(now: Date = Date()) -> String? {
+        guard let value = UserDefaults.standard.string(forKey: Self.pendingRegionEntryKey),
+              let capturedAt = UserDefaults.standard.object(forKey: Self.pendingRegionEntryAtKey) as? Date,
+              now.timeIntervalSince(capturedAt) >= 0,
+              now.timeIntervalSince(capturedAt) <= Self.pendingRegionEntryMaxAge else {
+            return nil
+        }
+        return value
+    }
+
+    private static func clearPersistedPendingRegionEntry() {
+        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryKey)
+        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryAtKey)
+        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryNotifiedKey)
+        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryNotifiedAtKey)
+    }
+
+    public func setBackgroundUpdatesEnabled(_ enabled: Bool) {
+        manager.allowsBackgroundLocationUpdates = enabled
+        manager.pausesLocationUpdatesAutomatically = !enabled
+        if enabled && wantsLocationUpdates {
+            manager.startUpdatingLocation()
+        }
     }
 
     public func startUpdatingLocation() {
@@ -108,6 +345,42 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     public func stopUpdatingLocation() {
         wantsLocationUpdates = false
         manager.stopUpdatingLocation()
+    }
+
+    public func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
+        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryNotifiedKey)
+        UserDefaults.standard.removeObject(forKey: Self.pendingRegionEntryNotifiedAtKey)
+        UserDefaults.standard.set(region.identifier, forKey: Self.pendingRegionEntryKey)
+        UserDefaults.standard.set(Date(), forKey: Self.pendingRegionEntryAtKey)
+        // Persist first: Combine can deliver the @Published value before the property's backing
+        // storage is visible to observers, and those observers must still find a fresh timestamp.
+        enteredRegionIdentifier = region.identifier
+        onRegionEntered?(region.identifier)
+    }
+
+    private func restorePersistedCourseRegions() {
+        guard let rows = UserDefaults.standard.array(forKey: Self.monitoredRegionsKey) as? [[String: Any]] else {
+            return
+        }
+        let regions = rows.compactMap { row -> MonitoredCourseRegion? in
+            guard let identifier = row["identifier"] as? String,
+                  let latitude = row["latitude"] as? Double,
+                  let longitude = row["longitude"] as? Double,
+                  let radiusM = row["radiusM"] as? Double else { return nil }
+            return MonitoredCourseRegion(
+                identifier: identifier, latitude: latitude, longitude: longitude, radiusM: radiusM
+            )
+        }
+        for region in regions {
+            let circular = CLCircularRegion(
+                center: CLLocationCoordinate2D(latitude: region.latitude, longitude: region.longitude),
+                radius: min(max(region.radiusM, 100), 1_500),
+                identifier: region.identifier
+            )
+            circular.notifyOnEntry = true
+            circular.notifyOnExit = false
+            manager.startMonitoring(for: circular)
+        }
     }
 
     #if DEBUG

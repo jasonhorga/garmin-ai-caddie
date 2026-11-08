@@ -180,6 +180,36 @@ private struct LiveRoundProgress: Codable, Equatable {
     var scoreDraft: LiveScoreDraft?
     /// Absent in progress files written before the hole-screen start.
     var startHole: Int? = nil
+    /// C32: an idle pause is a durable in-progress state, so relaunching the app keeps the
+    /// round on its explicit Resume surface instead of silently re-arming location tracking.
+    var idlePaused: Bool = false
+
+    private enum CodingKeys: String, CodingKey {
+        case roundId, activeHole, scoreDraft, startHole, idlePaused
+    }
+
+    init(
+        roundId: String,
+        activeHole: Int,
+        scoreDraft: LiveScoreDraft?,
+        startHole: Int? = nil,
+        idlePaused: Bool = false
+    ) {
+        self.roundId = roundId
+        self.activeHole = activeHole
+        self.scoreDraft = scoreDraft
+        self.startHole = startHole
+        self.idlePaused = idlePaused
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        roundId = try container.decode(String.self, forKey: .roundId)
+        activeHole = try container.decode(Int.self, forKey: .activeHole)
+        scoreDraft = try container.decodeIfPresent(LiveScoreDraft.self, forKey: .scoreDraft)
+        startHole = try container.decodeIfPresent(Int.self, forKey: .startHole)
+        idlePaused = try container.decodeIfPresent(Bool.self, forKey: .idlePaused) ?? false
+    }
 }
 
 private struct ReplayEventIdentity: Hashable {
@@ -1686,7 +1716,8 @@ public final class OfflineStore {
             roundId: roundId,
             activeHole: hole,
             scoreDraft: current?.roundId == roundId ? current?.scoreDraft : nil,
-            startHole: current?.roundId == roundId ? current?.startHole : nil
+            startHole: current?.roundId == roundId ? current?.startHole : nil,
+            idlePaused: current?.roundId == roundId ? current?.idlePaused ?? false : false
         )
         try saveLiveRoundProgress(progress)
     }
@@ -1698,7 +1729,8 @@ public final class OfflineStore {
             roundId: roundId,
             activeHole: startHole,
             scoreDraft: nil,
-            startHole: startHole
+            startHole: startHole,
+            idlePaused: false
         ))
     }
 
@@ -1709,7 +1741,8 @@ public final class OfflineStore {
             roundId: roundId,
             activeHole: activeHole,
             scoreDraft: draft,
-            startHole: current?.roundId == roundId ? current?.startHole : nil
+            startHole: current?.roundId == roundId ? current?.startHole : nil,
+            idlePaused: current?.roundId == roundId ? current?.idlePaused ?? false : false
         )
         try saveLiveRoundProgress(progress)
     }
@@ -1727,6 +1760,30 @@ public final class OfflineStore {
         }
         progress.scoreDraft = nil
         try saveLiveRoundProgress(progress)
+    }
+
+    public func setIdlePaused(roundId: String, activeHole: Int) throws {
+        let current = try loadLiveRoundProgress()
+        let progress = LiveRoundProgress(
+            roundId: roundId,
+            activeHole: current?.roundId == roundId ? current?.activeHole ?? activeHole : activeHole,
+            scoreDraft: current?.roundId == roundId ? current?.scoreDraft : nil,
+            startHole: current?.roundId == roundId ? current?.startHole : nil,
+            idlePaused: true
+        )
+        try saveLiveRoundProgress(progress)
+    }
+
+    public func clearIdlePaused(roundId: String) throws {
+        guard var progress = try loadLiveRoundProgress(), progress.roundId == roundId else { return }
+        guard progress.idlePaused else { return }
+        progress.idlePaused = false
+        try saveLiveRoundProgress(progress)
+    }
+
+    public func isIdlePaused(roundId: String) throws -> Bool {
+        guard let progress = try loadLiveRoundProgress(), progress.roundId == roundId else { return false }
+        return progress.idlePaused
     }
 
     private func loadLiveRoundProgress() throws -> LiveRoundProgress? {
@@ -1959,6 +2016,45 @@ public final class OfflineStore {
             let writeAuthority = try requireEventLogDirectoryAuthority(&authority)
             _ = try appendEventUnlocked(
                 authoredEvent,
+                authority: writeAuthority,
+                expectedState: loaded.state
+            )
+            eventLogCache = nil
+        }
+    }
+
+    /// Append a score tuple while holding one event-log lock. Callers keep their draft until the
+    /// complete tuple has replayed successfully, so an interrupted write is retried without a
+    /// second writer observing a half-materialized score.
+    public func appendEvents(_ events: [LiveRoundEvent]) throws {
+        guard !events.isEmpty else { return }
+        try withEventLogLock {
+            eventLogCache = nil
+            var authority = try openEventLogDirectoryAuthority(createIfMissing: false)
+            if let authority {
+                try repairTornEventLogEOFIfNeededUnlocked(authority: authority)
+            }
+            let loaded = try loadEventsUnlocked(strict: true, authority: authority)
+            let writeAuthority = try requireEventLogDirectoryAuthority(&authority)
+            var authoredEvents: [LiveRoundEvent] = []
+            for event in events {
+                var authoredEvent = event
+                if event.clientId == "ios-phone", event.kind != .syncMarker, event.startHole == nil,
+                   let progress = try loadLiveRoundProgress(), progress.roundId == event.roundId,
+                   let startHole = progress.startHole, startHole > 0 {
+                    authoredEvent = LiveRoundEvent(
+                        schema: event.schema, eventId: event.eventId, roundId: event.roundId,
+                        clientId: event.clientId, timestamp: event.timestamp, hole: event.hole,
+                        kind: event.kind, payload: event.payload, startHole: startHole
+                    )
+                }
+                authoredEvents.append(authoredEvent)
+            }
+            // Rebuild through the existing atomic replacement path. A power loss therefore leaves
+            // either the old log or the complete old-plus-tuple log, never a valid score line with
+            // missing putt/penalty members.
+            _ = try rewriteEventsUnlocked(
+                loaded.events + authoredEvents,
                 authority: writeAuthority,
                 expectedState: loaded.state
             )

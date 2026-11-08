@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -5276,7 +5276,7 @@
+         let hasExplicitScore = restored.scoredHoles.contains(draft.hole)
+         // A sheet reopened on a scored hole preselects from shot evidence, not from the confirmed
+         // score; left untouched it is not a new score and must never overwrite the confirmed one.
+-        if hasExplicitScore, !draft.edited {
++        if false, hasExplicitScore, !draft.edited {
+             // The untouched sheet is only a preselection snapshot. Its values can differ from
+             // the confirmed hole because the sheet was rebuilt from partial shot evidence; never
+             // turn that snapshot into a new score event during automatic recovery.

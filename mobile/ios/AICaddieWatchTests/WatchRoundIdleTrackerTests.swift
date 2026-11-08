@@ -125,4 +125,16 @@ final class WatchRoundIdleTrackerTests: XCTestCase {
                                         holePoints: course, lastActivityAt: start, allHolesScored: true),
                        .finished)
     }
+
+    func testGPSGapResetsTheOffCourseClock() {
+        var tracker = WatchRoundIdleTracker()
+        _ = tracker.evaluate(latitude: 40.001, longitude: 116.0, at: start,
+                             holePoints: course, lastActivityAt: start, allHolesScored: false)
+        _ = tracker.evaluate(latitude: 40.024, longitude: 116.0, at: minutes(1),
+                             holePoints: course, lastActivityAt: start, allHolesScored: false)
+        _ = tracker.evaluate(latitude: nil, longitude: nil, at: minutes(5),
+                             holePoints: course, lastActivityAt: start, allHolesScored: false)
+        XCTAssertNil(tracker.evaluate(latitude: 40.024, longitude: 116.0, at: minutes(11),
+                                      holePoints: course, lastActivityAt: start, allHolesScored: false))
+    }
 }

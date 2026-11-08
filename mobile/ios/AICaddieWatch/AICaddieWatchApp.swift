@@ -2,6 +2,23 @@ import AICaddieDomain
 import CoreMotion
 import SwiftUI
 import WatchKit
+#if canImport(UserNotifications)
+import UserNotifications
+#endif
+
+#if canImport(UserNotifications)
+private final class WatchNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = WatchNotificationDelegate()
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound, .list])
+    }
+}
+#endif
 
 @main
 public struct AICaddieWatchApp: App {
@@ -37,6 +54,11 @@ public struct AICaddieWatchApp: App {
     /// Sets a round left open aside so its workout session and GPS stop (battery report 2026-10-12).
     /// Checked once a minute with the newest wrist fix.
     @State private var roundIdleTracker = WatchRoundIdleTracker()
+    @State private var automaticIdleFinishTask: Task<Void, Never>?
+    @State private var wrongCoursePrompted = false
+    @State private var idleFinishedPrompt: String?
+    @State private var idleFinishedPromptRoundId: String?
+    @State private var idleFinishedPromptTask: Task<Void, Never>?
     /// Restarts a paused precise-map upgrade (`ActiveCourseUpgradeKey.retryEpoch`).
     @State private var courseUpgradeRetryEpoch = 0
     @State private var lastCourseUpgradeRestart = Date.distantPast
@@ -75,11 +97,26 @@ public struct AICaddieWatchApp: App {
         )
     }
 
-    public init() {}
+    public init() {
+        #if canImport(UserNotifications)
+        UNUserNotificationCenter.current().delegate = WatchNotificationDelegate.shared
+        #endif
+    }
 
     public var body: some Scene {
         WindowGroup {
             content
+                .overlay(alignment: .top) {
+                    if let idleFinishedPrompt {
+                        Text(idleFinishedPrompt)
+                            .font(.system(size: 13, weight: .black))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Capsule().fill(AICaddieDesignTokens.hudYellow))
+                            .accessibilityIdentifier("watch-round-idle-finished")
+                    }
+                }
                 // Keep the standalone round able to sync: adopt the backend config the phone delivers.
                 .onChange(of: syncClient.config, initial: true) { _, newConfig in
                     roundModel.config = newConfig
@@ -136,7 +173,19 @@ public struct AICaddieWatchApp: App {
                         Task { await uploadFinishedSwingCandidates() }
                     }
                 }
+                .onChange(of: syncClient.regionReminder, initial: true) { _, reminder in
+                    guard let reminder else { return }
+                    postRegionReminderNotification(courseName: reminder.courseName, id: reminder.id)
+                }
                 .onChange(of: roundModel.round?.roundId, initial: true) { _, _ in
+                    if let promptRoundId = idleFinishedPromptRoundId,
+                       let currentRoundId = roundModel.round?.roundId,
+                       promptRoundId != currentRoundId {
+                        idleFinishedPromptTask?.cancel()
+                        idleFinishedPromptTask = nil
+                        idleFinishedPrompt = nil
+                        idleFinishedPromptRoundId = nil
+                    }
                     reconcileAutoShot()
                     reconcileLocationServices()
                 }
@@ -173,6 +222,7 @@ public struct AICaddieWatchApp: App {
                     }
                 }
                 .onChange(of: roundModel.round?.roundId, initial: true) { _, roundId in
+                    wrongCoursePrompted = false
                     rollSwingGate(to: roundId)
                     // A round that ended (or was replaced) uploads its candidates.
                     let closed = swingRouter.roundChanged(to: roundId, at: Date())
@@ -186,15 +236,33 @@ public struct AICaddieWatchApp: App {
                 }
                 .onChange(of: watchLocation.latestFix) { _, fix in
                     autoShotProvider.updateSpeed(fix)
+                    guard let fix,
+                          roundModel.isIdlePaused,
+                          WatchLocationProvider.isLiveRangefinderFix(fix) else { return }
+                    if roundModel.resumeIdleRoundIfMoved(fix) {
+                        roundIdleTracker.reset()
+                        reconcileAutoShot()
+                        reconcileLocationServices()
+                    }
                 }
                 .task(id: RoundInPlayKey(roundId: roundModel.round?.roundId, setAside: roundModel.screen == .resume)) {
                     // A plain task, not onChange: it keeps running in the background while the
                     // workout keeps the app alive. Each round in play (and each resume) starts fresh.
                     roundIdleTracker.reset()
-                    guard roundModel.round != nil, roundModel.screen != .resume else { return }
+                    guard roundModel.round != nil,
+                          roundModel.screen != .resume || roundModel.isIdlePaused else { return }
                     while !Task.isCancelled {
                         roundModel.noteInPlay()
-                        pauseRoundIfIdle(watchLocation.latestFix)
+                        let freshFix = watchLocation.latestFix.flatMap {
+                            WatchLocationProvider.isLiveRangefinderFix($0) ? $0 : nil
+                        }
+                        if let freshFix, roundModel.resumeIdleRoundIfMoved(freshFix) {
+                            roundIdleTracker.reset()
+                            reconcileAutoShot()
+                            reconcileLocationServices()
+                            continue
+                        }
+                        pauseRoundIfIdle(freshFix)
                         try? await Task.sleep(nanoseconds: 60_000_000_000)
                     }
                 }
@@ -264,6 +332,7 @@ public struct AICaddieWatchApp: App {
                     Task { await roundModel.retryDeferredFinishes() }
                 }
                 .onChange(of: scenePhase) { _, phase in
+                    reconcileAutoShot()
                     reconcileLocationServices()
                     guard phase == .active else { return }
                     // A map upgrade that ran out of retries (a cold course still being drawn on the
@@ -313,7 +382,8 @@ public struct AICaddieWatchApp: App {
                     latestWatchFix: watchLocation.latestFix,
                     watchHeading: watchLocation.latestHeading,
                     autoShotSupported: autoShotProvider.isSupported,
-                    autoShotStatus: autoShotProvider.state.menuDetail
+                    autoShotStatus: autoShotProvider.state.menuDetail,
+                    idlePrompt: wrongCoursePrompted ? "当前位置不在所选球场附近，请确认球场" : nil
                 )
             } else {
                 WatchStartView(
@@ -537,8 +607,11 @@ public struct AICaddieWatchApp: App {
     }
 
     private func reconcileAutoShot() {
+        let appIsActive = WKApplication.shared().applicationState == .active
         let keepWorkoutActive = WatchLocationLaunchPolicy.shouldKeepRoundWorkoutSession(
-            hasActiveRound: roundModel.round != nil && roundModel.screen != .resume
+            hasActiveRound: roundModel.round != nil
+                && (roundModel.screen != .resume
+                    || (roundModel.isIdlePaused && appIsActive))
         )
         Task {
             await autoShotProvider.reconcile(
@@ -550,8 +623,15 @@ public struct AICaddieWatchApp: App {
     }
 
     private func pauseRoundIfIdle(_ fix: WatchLocationFix?) {
-        guard roundModel.round != nil, roundModel.screen != .resume else { return }
-        if roundIdleTracker.evaluate(
+        let appIsActive = WKApplication.shared().applicationState == .active
+        guard appIsActive || autoShotProvider.keepsRoundAlive else { return }
+        guard roundModel.round != nil,
+              (roundModel.screen != .resume || roundModel.isIdlePaused),
+              roundModel.screen != .finishing,
+              roundModel.screen != .finishConfirmation,
+              roundModel.screen != .abandonConfirmation else { return }
+        guard let roundId = roundModel.round?.roundId,
+              let reason = roundIdleTracker.evaluate(
             latitude: fix?.coordinate.latitude,
             longitude: fix?.coordinate.longitude,
             horizontalAccuracyM: fix?.horizontalAccuracyM ?? .infinity,
@@ -561,19 +641,140 @@ public struct AICaddieWatchApp: App {
             scoredHoles: roundModel.scoredHoles,
             // A nine can go on to the next nine (the turn, often over lunch); only a full round
             // is finished. A nine left open is still set aside by the other two rules.
-            allHolesScored: roundModel.allPlannedHolesScored && roundModel.holeCount > 9
-        ) != nil, roundModel.pauseForIdle() {
+            allHolesScored: roundModel.allPlannedHolesScored && roundModel.holeCount > 9,
+            hasRecordedStroke: roundModel.hasRecordedStrokeForIdle
+        ) else {
+            if fix != nil, roundIdleTracker.hasBeenOnCourse {
+                wrongCoursePrompted = false
+            }
+            return
+        }
+
+        if roundIdleTracker.hasBeenOnCourse {
+            wrongCoursePrompted = false
+        }
+
+        switch reason {
+        case .stationary:
+            guard roundModel.pauseForIdle(anchor: fix) else { return }
             roundIdleTracker.reset()
+            wrongCoursePrompted = false
             // Directly, not via onChange: this can run while the app is in the background.
             reconcileAutoShot()
             reconcileLocationServices()
+        case .leftCourse where !roundIdleTracker.hasBeenOnCourse:
+            // The selected course does not match the player's location. Keep the round open and
+            // make the mismatch visible; a wrong-course session must never be auto-saved.
+            guard !wrongCoursePrompted else { return }
+            wrongCoursePrompted = true
+            WKInterfaceDevice.current().play(.notification)
+        case .leftCourse, .finished:
+            guard automaticIdleFinishTask == nil else { return }
+            automaticIdleFinishTask = Task { @MainActor in
+                defer { automaticIdleFinishTask = nil }
+                guard roundModel.round?.roundId == roundId else { return }
+                let finished = await roundModel.autoFinishForIdle(expectedRoundId: roundId)
+                if finished {
+                    WKInterfaceDevice.current().play(.notification)
+                    postAutomaticIdleNotification()
+                    showIdleFinishedPrompt(for: roundId)
+                    roundIdleTracker.reset()
+                    wrongCoursePrompted = false
+                    reconcileAutoShot()
+                    reconcileLocationServices()
+                } else if roundModel.round?.roundId == roundId,
+                          roundModel.pauseForIdle() {
+                    // Keep the no-stroke/materialization gate: a rejected automatic finish must
+                    // never save or push. It still needs a durable resume state so a rejected
+                    // left-course check cannot keep the workout and GPS alive forever.
+                    roundIdleTracker.reset()
+                    wrongCoursePrompted = false
+                    reconcileAutoShot()
+                    reconcileLocationServices()
+                }
+            }
         }
+    }
+
+    private func showIdleFinishedPrompt(for roundId: String) {
+        idleFinishedPromptTask?.cancel()
+        idleFinishedPromptTask = nil
+        idleFinishedPromptRoundId = roundId
+        idleFinishedPrompt = "本场已自动保存"
+        idleFinishedPromptTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            guard idleFinishedPromptRoundId == roundId else { return }
+            idleFinishedPrompt = nil
+            idleFinishedPromptRoundId = nil
+            idleFinishedPromptTask = nil
+        }
+    }
+
+    private func postAutomaticIdleNotification() {
+        #if canImport(UserNotifications)
+        let content = UNMutableNotificationContent()
+        content.title = "球局已自动保存"
+        content.body = "本场记录已保存并开始同步"
+        content.sound = .default
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            let request = UNNotificationRequest(
+                identifier: "ai-caddie.watch.round-auto-finished.\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+            UNUserNotificationCenter.current().add(request)
+        }
+        #endif
+    }
+
+    private func postRegionReminderNotification(courseName: String, id: String) {
+        #if canImport(UserNotifications)
+        let content = UNMutableNotificationContent()
+        content.title = "已到达最近球场"
+        content.body = "已打开 \(courseName) 的球局准备"
+        content.sound = .default
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else {
+                guard syncClient.isPendingRegionReminder(id) else { return }
+                syncClient.retryPendingRegionReminder(id: id)
+                return
+            }
+            guard syncClient.isPendingRegionReminder(id) else { return }
+            UNUserNotificationCenter.current().add(
+                UNNotificationRequest(
+                    identifier: "ai-caddie.watch.region-reminder.\(id)",
+                    content: content,
+                    trigger: nil
+                ) { error in
+                    guard error == nil else {
+                        guard syncClient.isPendingRegionReminder(id) else { return }
+                        syncClient.retryPendingRegionReminder(id: id)
+                        return
+                    }
+                    guard syncClient.isPendingRegionReminder(id) else { return }
+                    syncClient.markRegionReminderDelivered(id)
+                }
+            )
+        }
+        #else
+        syncClient.markRegionReminderDelivered(id)
+        #endif
     }
 
     /// `GPS 预热` keeps a fix warm while choosing a course. Once a round begins, location is always
     /// on because the rangefinder and shot positions must not be silently disabled by a setup preference.
     private func reconcileLocationServices() {
-        let setAside = roundModel.round != nil && roundModel.screen == .resume
+        let setAside = roundModel.round != nil
+            && roundModel.screen == .resume
+            && !roundModel.isIdlePaused
+        let idlePauseNeedsForegroundFixes = roundModel.isIdlePaused
+            && WKApplication.shared().applicationState == .active
+        guard !roundModel.isIdlePaused || idlePauseNeedsForegroundFixes else {
+            watchLocation.stopUpdatingLocation()
+            return
+        }
         if WatchLocationLaunchPolicy.shouldStartLocationServices(
             // A set-aside round (resume screen) is not playing. The setup preheat warms GPS there
             // only while the player is looking, not for a round set aside in a pocket.
