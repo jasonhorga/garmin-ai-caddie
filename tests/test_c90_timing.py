@@ -298,6 +298,9 @@ class C90TimingEndpointTests(unittest.TestCase):
     def test_admin_timing_requires_configured_token(self) -> None:
         with tempfile.TemporaryDirectory() as raw, patch.object(request_timing, "TIMING_ROOT", Path(raw)), patch.dict(
             "os.environ", {"AI_CADDIE_ADMIN_TOKEN": "secret-c90"}, clear=False
+        ), patch.object(
+            # Recording the requests below prunes files older than 14 days, so pin "today" to the file's date.
+            request_timing, "TIMING_CLOCK", lambda: datetime(2026, 10, 27, 16, 0, tzinfo=request_timing._BEIJING)
         ):
             path = Path(raw) / "timing/2026-10-27.jsonl"
             path.parent.mkdir(parents=True)
