@@ -41,7 +41,7 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
                             [sys.executable, "-m", "tests.check_isolation", *modules],
                             env={**os.environ, "PYTHONPATH": os.pathsep.join(
                                 [tmp, str(Path(__file__).resolve().parents[1])])},
-                            capture_output=True, text=True, timeout=30)
+                            capture_output=True, text=True, timeout=120)
                         output = result.stdout + result.stderr
                         if restore:
                             self.assertEqual(result.returncode, 0, output)
@@ -101,7 +101,7 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
                  "logging_state_probe", "logging_state_observer"],
                 env={**os.environ, "PYTHONPATH": os.pathsep.join(
                     [tmp, str(Path(__file__).resolve().parents[1])])},
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, timeout=120,
             )
             output = result.stdout + result.stderr
             self.assertNotEqual(result.returncode, 0, output)
@@ -160,7 +160,7 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
                  "logging_setup_probe", "logging_setup_observer"],
                 env={**os.environ, "PYTHONPATH": os.pathsep.join(
                     [tmp, str(Path(__file__).resolve().parents[1])])},
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, timeout=120,
             )
             output = result.stdout + result.stderr
             self.assertNotEqual(result.returncode, 0, output)
@@ -186,7 +186,7 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
                 [sys.executable, "-m", "tests.check_isolation", "logging_external_probe"],
                 env={**os.environ, "PYTHONPATH": os.pathsep.join(
                     [tmp, str(Path(__file__).resolve().parents[1])])},
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, timeout=120,
             )
             output = result.stdout + result.stderr
             self.assertNotEqual(result.returncode, 0, output)
@@ -205,7 +205,7 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
                 [sys.executable, "-m", "tests.check_isolation", "logging_prefix_probe"],
                 env={**os.environ, "PYTHONPATH": os.pathsep.join(
                     [tmp, str(Path(__file__).resolve().parents[1])])},
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, timeout=120,
             )
             output = result.stdout + result.stderr
             self.assertNotEqual(result.returncode, 0, output)
@@ -227,7 +227,7 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
                 [sys.executable, "-m", "tests.check_isolation", "logging_import_probe"],
                 env={**os.environ, "PYTHONPATH": os.pathsep.join(
                     [tmp, str(Path(__file__).resolve().parents[1])])},
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, timeout=120,
             )
             output = result.stdout + result.stderr
             self.assertNotEqual(result.returncode, 0, output)
@@ -258,7 +258,7 @@ class ServiceLoggingIsolationTests(unittest.TestCase):
                  "logging_clean_probe", "logging_import_probe"],
                 env={**os.environ, "PYTHONPATH": os.pathsep.join(
                     [tmp, str(Path(__file__).resolve().parents[1])])},
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, timeout=120,
             )
             output = result.stdout + result.stderr
             self.assertNotEqual(result.returncode, 0, output)

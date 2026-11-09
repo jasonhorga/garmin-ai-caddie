@@ -44,6 +44,22 @@ def _correction_record_key(record: dict[str, Any] | None) -> str | None:
     return None
 
 
+def _mobile_baseline_invalidated(records: list[dict[str, Any]], source_value: int | None) -> bool:
+    """Whether the latest unresolved retained-mobile choice saw a different Garmin source."""
+    for record in reversed(records):
+        payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+        resolution = payload.get("resolution")
+        if resolution == "garmin":
+            # Choosing Garmin establishes a new source baseline and retires every older
+            # retained-mobile baseline in this correction chain.
+            return False
+        if resolution != "mobile":
+            continue
+        baseline = _safe_int(payload.get("from"))
+        return source_value is not None and baseline is not None and source_value != baseline
+    return False
+
+
 def _event_rows(round_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
     # The mobile event log is per-player partitioned (mobile_live.mobile_event_log): the owner keeps
     # the flat shared log; a member's live events live under their own partition. Read the ACTING
@@ -106,13 +122,15 @@ def _round_row(round_id: str, data: HistoryData) -> dict[str, Any]:
 
 
 def _hole_scores(
-    round_row: dict[str, Any], *, root: Path | str | None = None,
+    round_row: dict[str, Any], data: HistoryData, *, root: Path | str | None = None,
     annotations_root: Path | str | None = None, course_root: Path | str | None = None,
     player_id: str = OWNER_ID,
 ) -> dict[int, dict[str, Any]]:
     from ai_caddie.history.corrected_history import hole_sides
     from ai_caddie.reports.annotations import list_annotation_records
-    from ai_caddie.rounds.correction_audit import _round_correction_events, effective_hole
+    from ai_caddie.rounds.correction_audit import (
+        _round_correction_events, effective_hole, is_penalty_correction, order_key,
+    )
 
     # Keep the source Garmin values alongside the effective values.  A normal correction is
     # conditional on the ``from`` value the player saw; if a later Garmin sync changed that
@@ -129,13 +147,13 @@ def _hole_scores(
     # synthetic scorecard row before the next reconciliation pass.
     from ai_caddie.history.corrected_history import corrected_history_data
     projected = corrected_history_data(
-        HistoryData(raw_rounds=[], rounds=[round_row], shots=[]),
+        data,
         player_id=player_id,
         annotations_root=annotations_root if annotations_root is not None else root,
         corrections_root=root,
         course_root=course_root if course_root is not None else root,
     )
-    round_row = projected.rounds[0] if projected.rounds else round_row
+    round_row = _round_row(str(source_round_row.get("id") or ""), projected) or source_round_row
     # Restore annotations have already been materialized by the corrected projection.  Do
     # not feed them into effective_hole a second time: when a later Garmin card supplies
     # real strokes, the projection intentionally keeps those strokes so reconciliation can
@@ -152,7 +170,10 @@ def _hole_scores(
                 ))
     ]
     correction_events = _round_correction_events(player_id, round_row, root=root)
-    scores: dict[int, dict[str, Any]] = {}
+    scores: dict[int, dict[str, Any]] = {
+        number: {"restoreSuperseded": True}
+        for number in round_row.get("_restoreSupersededHoles", [])
+    }
     for _hole, number, _physical, _side in hole_sides(round_row):
         (total, total_winner), (putts, _), (penalty, _) = effective_hole(
             round_row, number, annotation_records, correction_events,
@@ -174,6 +195,25 @@ def _hole_scores(
             record for record in annotation_records
             if record.get("targetType") == "hole" and str(record.get("targetId")) in target_ids
         ]
+        for index, event in enumerate(correction_events):
+            if _safe_int(event.get("hole")) != number or not is_penalty_correction(correction_events, index):
+                continue
+            entries = (event.get("audit") or {}).get("entries") or []
+            before = next((entry.get("before") for entry in entries if entry.get("op") == "penalty"), None)
+            value = event.get("value") if event.get("op") == "setHolePenalty" else event.get("manualPenalty")
+            if before is None:
+                # A no-op setHolePenalty intentionally records no diff entry. Its value is
+                # still the baseline the player saw, so use it to keep a later Garmin change
+                # from silently matching an annotation written after that edit.
+                before = value
+            hole_annotations.append({
+                **event, "kind": "penalty_correction",
+                "payload": {"from": before, "strokes": value},
+                "_correctionStore": True,
+            })
+            hole_annotations.sort(key=lambda record: order_key(
+                record, 0 if record.get("_correctionStore") else 1, 0,
+            ))
 
         def correction_chain(kind: str, source_value: int | None, effective_value: int | None) -> tuple[bool, dict[str, Any] | None]:
             records = [record for record in hole_annotations if record.get("kind") == kind]
@@ -201,14 +241,21 @@ def _hole_scores(
                     conflict = True
                     prior = to_value
                 else:
-                    if from_value is not None and source_value is not None and from_value == source_value:
+                    if (not _mobile_baseline_invalidated(records, source_value)
+                            and from_value is not None
+                            and source_value is not None and from_value == source_value):
                         conflict = False
                     prior = to_value
                 winner = record
+            baseline_changed = _mobile_baseline_invalidated(records, source_value)
+            if baseline_changed:
+                conflict = True
             # A source that has converged to the effective corrected value is not a conflict,
             # even when an earlier link in the chain was superseded by that convergence.
             if source_value is not None and effective_value is not None and source_value == effective_value:
                 conflict = False
+                if baseline_changed:
+                    conflict = True
             return conflict, winner
 
         score_correction_conflict, score_winner = correction_chain(
@@ -840,7 +887,7 @@ def reconcile_mobile_round_events(
     round_row = _round_row(round_id, data)
     identity = load_mobile_round_identity(round_id, root=root, player_id=player_id)
     hole_map = _reconciliation_hole_map(round_row, identity)
-    scores = _hole_scores(round_row, root=root, annotations_root=annotations_root,
+    scores = _hole_scores(round_row, data, root=root, annotations_root=annotations_root,
                           course_root=course_root, player_id=player_id)
     shots = _shot_facts(round_id, data)
     unmatched_shots = {shot["ref"]: shot for shot in shots}
@@ -863,6 +910,14 @@ def reconcile_mobile_round_events(
         event_id = str(event.get("eventId") or "")
         if event_id:
             phone_holes[event_id] = phone_hole
+        if event.get("superseded") is True:
+            evidence.append({
+                "eventId": event.get("eventId"), "roundId": event.get("roundId"),
+                "kind": kind, "hole": (hole_map or {}).get(hole, hole), "phoneHole": phone_hole,
+                "localValue": _payload_value(payload, "strokes", "putts", "penalties", "count", "score"),
+                "superseded": True,
+            })
+            continue
         # Capture decision feedback before the unmapped branch.  If the event is mapped below,
         # update the audit's hole to the Garmin display axis while preserving the pre-map behavior
         # for an unmapped phone hole.
@@ -887,14 +942,11 @@ def reconcile_mobile_round_events(
             local_only.append(_unmapped_local_only_row(event, payload, kind=kind, hole=hole))
             continue
 
-        if event.get("superseded") is True:
-            evidence.append({
-                "eventId": event.get("eventId"),
-                "roundId": event.get("roundId"),
-                "kind": kind,
-                "hole": hole,
+        if kind in {"score", "putt", "penalty"} and scores.get(hole, {}).get("restoreSuperseded"):
+            local_only.append({
+                "eventId": event_id, "roundId": event.get("roundId"), "kind": kind, "hole": hole,
                 "localValue": _payload_value(payload, "strokes", "putts", "penalties", "count", "score"),
-                "superseded": True,
+                "restoreSuperseded": True,
             })
             continue
 
@@ -1101,9 +1153,10 @@ def reconcile_mobile_round_events(
         if identity_hole is not None and not row.get("unmapped"):
             row["sourceGlobalId"] = identity_hole.get("sourceGlobalId")
             row["sourceLocalHole"] = identity_hole.get("sourceLocalHole")
+    suggestion_local_only = [row for row in local_only if not row.get("restoreSuperseded")]
     annotation_suggestions = _annotation_suggestions(
         conflicts=conflicts,
-        local_only=local_only,
+        local_only=suggestion_local_only,
         garmin_only=garmin_only,
         candidate_audits=candidate_audits,
         round_row=round_row,

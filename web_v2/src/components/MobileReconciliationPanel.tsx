@@ -289,6 +289,9 @@ function EvidenceRows({ title, rows }: { title: string; rows: Array<Record<strin
           <div className="report-row" key={`${title}-${rowLabel(row, String(index))}-${index}`}>
             <strong>{rowLabel(row, String(index))}</strong>
             <span>{rowValue(row)}</span>
+            {row.restoreSuperseded === true ? (
+              <span>手机第 {compactValue(row.phoneHole) ?? compactValue(row.hole)} 洞：补分已被后到 Garmin 球局替代</span>
+            ) : null}
           </div>
         ))
       ) : (

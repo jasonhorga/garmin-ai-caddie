@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_reconciliation.py b/ai_caddie/caddie/mobile_reconciliation.py
+index ebbd8957..f6ae52ca 100644
+--- a/ai_caddie/caddie/mobile_reconciliation.py
++++ b/ai_caddie/caddie/mobile_reconciliation.py
+@@ -56,7 +56,7 @@ def _mobile_baseline_invalidated(records: list[dict[str, Any]], source_value: in
+         if resolution != "mobile":
+             continue
+         baseline = _safe_int(payload.get("from"))
+-        return source_value is not None and baseline is not None and source_value != baseline
++        return False
+     return False
+ 
+ 
