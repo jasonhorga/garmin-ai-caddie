@@ -305,9 +305,9 @@ acked 的事件再次被服务端 replay --> 去重，不重复入库
 | 球局身份用例 | `mobile/contracts/fixtures/round_identity_cases.json` | Python + iOS + 手表 |
 | 规范对象/事件种类/原因码 | `contracts/canonical/*.json`（`authority.json`、`event_kind_registry.json`、`reason_codes.json`、`canonical_fixture_v1.schema.json`），生成器 `tools/contracts/generate_contracts.py` → `AICaddieDomain/GeneratedContracts.swift` | Python + Swift |
 | 脱敏金样 | `contracts/canonical/fixtures/mobile_event_sanitizer_golden.json` | Python `mobile_event_store.sanitize_mobile_event` + iOS `OfflineStore` |
-| 跨语言产品向量 | `tests/product/fixtures/shared/`（`caddie_golden.json`、`loop_map.json`、`tee_result.json`、`c120_avoid_zones.json`），被 `mobile/ios/project.yml` 和 Swift `ProductSharedVectors.swift` 引用 | Python + Swift |
+| 跨语言产品向量 | `contracts/fixtures/shared/`（`caddie_golden.json`、`loop_map.json`、`tee_result.json`、`c120_avoid_zones.json`），被 `mobile/ios/project.yml` 和 Swift `ProductSharedVectors.swift` 引用 | Python + Swift |
 
-**注意**：`tests/product/fixtures/shared/` 在删旧测试时**不能直接删**，要先搬到 `contracts/fixtures/shared/`（并改 `project.yml`、`native-mobile.yml` 的路径过滤），见第 12 节。
+**注意**：跨语言产品向量已由 K7 从 `tests/product/fixtures/shared/` 搬到 `contracts/fixtures/shared/`（`project.yml`、`native-mobile.yml` 路径过滤同步改好），删旧测试时不再牵动原生构建。手机包/事件 fixture 的源文件在 `mobile/contracts/fixtures/`，`AICaddie/Fixtures/*.fixture.json` 是它们的字节副本。
 
 ### 6.2 做法：同一份 fixture，两端各测一次
 
