@@ -52,7 +52,7 @@ targets:
           - Fixtures
       - path: mobile/ios/AICaddieDomainTests/Fixtures
         buildPhase: resources
-      - path: tests/product/fixtures/shared/tee_result.json
+      - path: contracts/fixtures/shared/tee_result.json
         buildPhase: resources
     dependencies:
       - target: AICaddieDomain
@@ -131,11 +131,11 @@ targets:
           - Fixtures
       - path: mobile/ios/AICaddieTests/Fixtures
         buildPhase: resources
-      - path: tests/product/fixtures/shared/loop_map.json
+      - path: contracts/fixtures/shared/loop_map.json
         buildPhase: resources
-      - path: tests/product/fixtures/shared/caddie_golden.json
+      - path: contracts/fixtures/shared/caddie_golden.json
         buildPhase: resources
-      - path: tests/product/fixtures/shared/c120_avoid_zones.json
+      - path: contracts/fixtures/shared/c120_avoid_zones.json
         buildPhase: resources
     dependencies:
       - target: AICaddie

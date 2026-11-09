@@ -8,7 +8,7 @@ enum ProductSharedVectors {
         #if SWIFT_PACKAGE
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { root.deleteLastPathComponent() }
-        let url = root.appendingPathComponent("tests/product/fixtures/shared/\(name).json")
+        let url = root.appendingPathComponent("contracts/fixtures/shared/\(name).json")
         #else
         let url = try XCTUnwrap(Bundle(for: ProductLoopMapTests.self).url(forResource: name, withExtension: "json"))
         #endif
