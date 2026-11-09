@@ -138,22 +138,35 @@ def _contract_event_kinds() -> list[str]:
     return [str(value) for value in values if str(value).strip()]
 
 
-def _mobile_package_runtime_ready(package: Any) -> bool:
-    """Return whether the package can support the runtime path.
+def _mobile_package_runtime_gate(package: Any) -> tuple[bool, str]:
+    """Return whether the package can support the runtime path, and why.
 
     Weather is useful evidence for a prepared round, but a historical round can
     legitimately have no cached observation. Runtime readiness therefore only
     gates the contract, source round and course geometry required to draw and
     use a round; the complete offline package state remains visible in evidence.
+    Holes without fine geometry fall back to the Garmin base map (J4.5), so
+    partial geometry is an admitted degradation; a round with no drawable hole
+    is not.
     """
 
+    if getattr(package, "schema_", None) != "ai-caddie-live-round-package-v2":
+        return False, f"package schema {getattr(package, 'schema_', None)!r} is not ai-caddie-live-round-package-v2"
     source_coverage = getattr(package, "sourceCoverage", {}) or {}
+    if source_coverage.get("state") != "ready":
+        return False, f"source round {getattr(package, 'roundId', None)} is {source_coverage.get('state') or 'missing'}"
     geometry_coverage = getattr(package, "geometryCoverage", {}) or {}
-    return bool(
-        getattr(package, "schema_", None) == "ai-caddie-live-round-package-v2"
-        and source_coverage.get("state") == "ready"
-        and geometry_coverage.get("state") == "ready"
-    )
+    geometry_state = geometry_coverage.get("state")
+    ready_holes = int(geometry_coverage.get("readyHoles") or 0)
+    total_holes = int(geometry_coverage.get("totalHoles") or 0)
+    if geometry_state == "ready":
+        return True, f"geometry {ready_holes}/{total_holes} holes ready"
+    if geometry_state == "partial" and ready_holes > 0:
+        return True, (
+            f"geometry {ready_holes}/{total_holes} holes ready; "
+            "the other holes use the Garmin base map"
+        )
+    return False, f"geometry {ready_holes}/{total_holes} holes ready; no hole can be drawn"
 
 
 def _smoke_covers() -> list[str]:
@@ -978,9 +991,22 @@ def _offline_seed_quality(package: Any) -> dict[str, Any]:
     }
 
 
+def _mobile_package_detail(state: str, evidence: dict[str, Any]) -> str:
+    if state == "warming":
+        return "Live round package statistics and seeds are warming in the background."
+    gate = evidence.get("runtimeGate") if isinstance(evidence, dict) else None
+    reason = gate.get("reason") if isinstance(gate, dict) else None
+    if state == "ready":
+        detail = "Live round package generation is contract-backed for runtime map and caddie use."
+        return f"{detail} {reason}." if reason else detail
+    if reason:
+        return f"Live round package is degraded: {reason}."
+    return "Live round package generation is missing a runtime contract, source round, or course geometry."
+
+
 def _mobile_readiness_evidence(package: Any) -> tuple[str, dict[str, Any]]:
     """Summarise a background package warm for the cheap readiness response."""
-    package_ready = _mobile_package_runtime_ready(package)
+    package_ready, gate_reason = _mobile_package_runtime_gate(package)
     seed_quality = _offline_seed_quality(package)
     readiness_checks = list(getattr(package, "readinessChecks", []) or [])
     weather_evidence = next(
@@ -999,6 +1025,7 @@ def _mobile_readiness_evidence(package: Any) -> tuple[str, dict[str, Any]]:
         "runtimeGate": {
             "state": "ready" if package_ready else "degraded",
             "required": ["schema", "sourceCoverage", "geometryCoverage"],
+            "reason": gate_reason,
         },
         "weatherEvidence": weather_evidence,
         "caddieSeedCount": len(package.caddieContextSeeds),
@@ -1277,13 +1304,7 @@ def build_readiness_response() -> dict[str, Any]:
             _check(
                 "mobile_package",
                 mobile_state,
-                "Live round package statistics and seeds are warming in the background."
-                if mobile_state == "warming"
-                else (
-                    "Live round package generation is contract-backed for runtime map and caddie use."
-                    if mobile_state == "ready"
-                    else "Live round package generation is missing a runtime contract, source round, or course geometry."
-                ),
+                _mobile_package_detail(mobile_state, mobile_status.get("evidence") or {}),
                 mobile_status.get("evidence") or {"stale": True, "revision": None, "source": None},
             )
         )
