@@ -1,5 +1,6 @@
 import CoreLocation
 import XCTest
+import AICaddieCore
 @testable import AICaddieWatch
 
 /// C16f 5.12: D02's root may show one current-shot recommendation only when every

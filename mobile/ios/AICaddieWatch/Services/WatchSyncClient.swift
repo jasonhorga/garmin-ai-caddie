@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import AICaddieCore
 import AICaddieDomain
 import os
 #if canImport(Security)
@@ -93,153 +94,6 @@ private struct WatchKeychainConfigStore: WatchConfigPersisting {
     }
 }
 
-public enum WatchInputKind: String, Codable, Equatable {
-    case score
-    case putt
-    case penalty
-    case club
-    case distance
-    case location
-}
-
-/// Compact value carried by the existing Watch input adapter for a manually captured shot origin.
-/// The domain/backend event remains the existing `location` live-round event; this is only the
-/// WatchConnectivity/offline-queue representation and adds no second shot protocol.
-public struct WatchShotLocationValue: Codable, Equatable {
-    public let latitude: Double
-    public let longitude: Double
-    public let horizontalAccuracyM: Double
-
-    public init?(latitude: Double, longitude: Double, horizontalAccuracyM: Double) {
-        guard latitude.isFinite, (-90...90).contains(latitude),
-              longitude.isFinite, (-180...180).contains(longitude),
-              horizontalAccuracyM.isFinite, horizontalAccuracyM >= 0 else {
-            return nil
-        }
-        self.latitude = latitude
-        self.longitude = longitude
-        self.horizontalAccuracyM = horizontalAccuracyM
-    }
-
-    public init?(encodedValue: String) {
-        let parts = encodedValue.split(separator: ",", omittingEmptySubsequences: false)
-        guard parts.count == 3,
-              let latitude = Double(parts[0]),
-              let longitude = Double(parts[1]),
-              let horizontalAccuracyM = Double(parts[2]) else {
-            return nil
-        }
-        self.init(
-            latitude: latitude,
-            longitude: longitude,
-            horizontalAccuracyM: horizontalAccuracyM
-        )
-    }
-
-    public var encodedValue: String {
-        "\(latitude),\(longitude),\(horizontalAccuracyM)"
-    }
-}
-
-public struct WatchInputEvent: Codable, Equatable, Identifiable {
-    public var id: String { eventId }
-
-    public let schema: String = "ai-caddie-watch-input-event-v1"
-    public let eventId: String
-    public let roundId: String
-    public let hole: Int
-    public let kind: WatchInputKind
-    public let value: String
-    public let createdAt: String
-    public let contextClub: String?
-    public let shotType: String?
-    public let strategyMode: String?
-    public let lie: String?
-    public let distanceToPinM: Double?
-    public let offlineOptionId: String?
-    public let decisionId: String?
-    /// Optional Fairway result captured with a score on Par 4/5: HIT, LEFT, or RIGHT.
-    public let fairwayResult: String?
-
-    public init(
-        eventId: String,
-        roundId: String,
-        hole: Int,
-        kind: WatchInputKind,
-        value: String,
-        createdAt: String,
-        contextClub: String? = nil,
-        shotType: String? = nil,
-        strategyMode: String? = nil,
-        lie: String? = nil,
-        distanceToPinM: Double? = nil,
-        offlineOptionId: String? = nil,
-        decisionId: String? = nil,
-        fairwayResult: String? = nil
-    ) {
-        self.eventId = eventId
-        self.roundId = roundId
-        self.hole = hole
-        self.kind = kind
-        self.value = value
-        self.createdAt = createdAt
-        self.contextClub = contextClub
-        self.shotType = shotType
-        self.strategyMode = strategyMode
-        self.lie = lie
-        self.distanceToPinM = distanceToPinM
-        self.offlineOptionId = offlineOptionId
-        self.decisionId = decisionId
-        self.fairwayResult = fairwayResult
-    }
-}
-
-public struct WatchSyncAcknowledgement: Equatable {
-    public let acceptedEventIds: [String]
-    public let duplicateEventIds: [String]
-    public let rejectedEventIds: [String]
-    public let phoneSequence: Int
-
-    public var acknowledgedEventIds: [String] {
-        acceptedEventIds + duplicateEventIds
-    }
-
-    public var resolvedEventIds: [String] {
-        acceptedEventIds + duplicateEventIds + rejectedEventIds
-    }
-
-    public static func decode(_ reply: [String: Any], fallbackEventId: String) -> WatchSyncAcknowledgement {
-        let accepted = reply["accepted"] as? Bool ?? false
-        let eventId = reply["eventId"] as? String ?? fallbackEventId
-        let explicitAcceptedEventIds = stringArray(reply["acceptedEventIds"])
-        let acceptedEventIds = explicitAcceptedEventIds ?? (accepted ? [eventId] : [])
-        let duplicateEventIds = stringArray(reply["duplicateEventIds"]) ?? []
-        let rejectedEventIds = stringArray(reply["rejectedEventIds"]) ?? []
-        let phoneSequence = intValue(reply["phoneSequence"]) ?? intValue(reply["watchAckSequence"]) ?? 0
-
-        return WatchSyncAcknowledgement(
-            acceptedEventIds: acceptedEventIds,
-            duplicateEventIds: duplicateEventIds,
-            rejectedEventIds: rejectedEventIds,
-            phoneSequence: phoneSequence
-        )
-    }
-
-    private static func stringArray(_ value: Any?) -> [String]? {
-        value as? [String]
-    }
-
-    private static func intValue(_ value: Any?) -> Int? {
-        if let raw = value as? Int {
-            return raw
-        }
-        if let raw = value as? Double, raw.isFinite {
-            return Int(raw)
-        }
-        return nil
-    }
-}
-
 public final class WatchSyncClient: NSObject, ObservableObject {
     private static let deliveredRegionReminderIDsKey = "aicaddie.watch.delivered-region-reminder-ids.v1"
     private static let pendingRegionReminderIDKey = "aicaddie.watch.pending-region-reminder-id.v1"
@@ -260,6 +114,8 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     private let stateURL: URL
     private let roundStartURL: URL
     private let configStore: WatchConfigPersisting
+    /// The phone link. `WCSession.default` in the app; nil where WatchConnectivity is unsupported.
+    private let session: WatchSessioning?
     private let queueFileLock = NSLock()
     private let regionReminderIDLock = NSLock()
     private let encoder = JSONEncoder()
@@ -280,7 +136,8 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         queueURL: URL,
         stateURL: URL? = nil,
         holeImageStore: WatchHoleImageStore = WatchHoleImageStore(),
-        courseStore: WatchCourseStore? = nil
+        courseStore: WatchCourseStore? = nil,
+        session: WatchSessioning? = WatchSyncClient.defaultSession
     ) {
         self.init(
             queueURL: queueURL,
@@ -289,7 +146,8 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             courseStore: courseStore,
             configStore: WatchFileConfigStore(
                 url: queueURL.deletingLastPathComponent().appendingPathComponent("backend_config.json")
-            )
+            ),
+            session: session
         )
     }
 
@@ -298,12 +156,14 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         stateURL: URL?,
         holeImageStore: WatchHoleImageStore,
         courseStore: WatchCourseStore?,
-        configStore: WatchConfigPersisting
+        configStore: WatchConfigPersisting,
+        session: WatchSessioning?
     ) {
         self.queueURL = queueURL
         self.stateURL = stateURL ?? queueURL.deletingLastPathComponent().appendingPathComponent("current_state.json")
         self.roundStartURL = queueURL.deletingLastPathComponent().appendingPathComponent("pending_round_start.json")
         self.configStore = configStore
+        self.session = session
         self.holeImageStore = holeImageStore
         self.courseStore = courseStore ?? WatchCourseStore()
         super.init()
@@ -316,12 +176,16 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         }
         config = self.configStore.read()
         refreshQueuedEventCount()
-        if WCSession.isSupported() {
-            WCSession.default.delegate = self
-            WCSession.default.activate()
-            phoneReachable = WCSession.default.isReachable
-            applyApplicationContext(WCSession.default.receivedApplicationContext)  // config sent before launch
+        if let session {
+            (session as? WCSession)?.delegate = self
+            session.activateSession()
+            phoneReachable = session.isCounterpartReachable
+            applyApplicationContext(session.receivedContext)  // config sent before launch
         }
+    }
+
+    public static var defaultSession: WatchSessioning? {
+        WCSession.isSupported() ? WCSession.default : nil
     }
 
     public override convenience init() {
@@ -332,7 +196,8 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             stateURL: directory.appendingPathComponent("current_state.json"),
             holeImageStore: WatchHoleImageStore(),
             courseStore: nil,
-            configStore: WatchKeychainConfigStore()
+            configStore: WatchKeychainConfigStore(),
+            session: Self.defaultSession
         )
     }
 
@@ -340,15 +205,15 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     /// happened while this process was not running. Called on activation, foreground and every
     /// reachability recovery; the persisted config remains usable when the phone is absent.
     public func requestConfigurationFromPhone() {
-        guard WCSession.isSupported(),
-              WCSession.default.activationState == .activated,
-              WCSession.default.isReachable else { return }
-        WCSession.default.sendMessage(
+        guard let session,
+              session.isSessionActivated,
+              session.isCounterpartReachable else { return }
+        session.send(
             ["requestConfiguration": true],
-            replyHandler: { [weak self] reply in
+            onReply: { [weak self] reply in
                 self?.applyApplicationContext(reply)
             },
-            errorHandler: { error in
+            onError: { error in
                 WatchLog.connectivity.error(
                     "Watch configuration request failed: \(String(describing: error), privacy: .public)"
                 )
@@ -402,8 +267,9 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         }
         if discardQueuedEvents {
             try withQueueFileLock {
-                let remaining = try loadQueuedEventsUnlocked().filter { $0.roundId != roundId }
-                try writeQueuedEventsUnlocked(remaining)
+                var queue = WatchInputQueue(events: try loadQueuedEventsUnlocked())
+                queue.discardRound(roundId)
+                try writeQueuedEventsUnlocked(queue.events)
             }
             refreshQueuedEventCount()
         }
@@ -413,13 +279,13 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     /// The local tombstone remains the safety authority if WatchConnectivity is unavailable.
     public func sendRoundClosureToPhone(_ closure: WatchRoundClosure) {
         clearPendingRoundStart(roundId: closure.roundId)
-        guard WCSession.isSupported(),
-              WCSession.default.activationState == .activated,
+        guard let session,
+              session.isSessionActivated,
               let data = try? encoder.encode(closure),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return
         }
-        WCSession.default.transferUserInfo(["roundClosure": object])
+        session.queueUserInfo(["roundClosure": object])
     }
 
     /// Relay round creation independently of GPS and scoring. `sendMessage` makes the iPhone UI
@@ -447,21 +313,21 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     }
 
     private func relayRoundStart(_ start: WatchRoundStart) {
-        guard WCSession.isSupported(),
-              WCSession.default.activationState == .activated,
+        guard let session,
+              session.isSessionActivated,
               let data = try? encoder.encode(start),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return
         }
         let message: [String: Any] = ["roundStart": object]
-        if WCSession.default.isReachable {
-            WCSession.default.sendMessage(message, replyHandler: nil) { error in
+        if session.isCounterpartReachable {
+            session.send(message, onReply: nil) { error in
                 WatchLog.connectivity.error(
                     "Watch round-start immediate relay failed: \(String(describing: error), privacy: .public)"
                 )
             }
         }
-        WCSession.default.transferUserInfo(message)
+        session.queueUserInfo(message)
     }
 
     private func flushPendingRoundStart() {
@@ -486,12 +352,11 @@ public final class WatchSyncClient: NSObject, ObservableObject {
 
     public func queueInputEvent(_ event: WatchInputEvent) throws {
         let appended = try withQueueFileLock {
-            var events = try loadQueuedEventsUnlocked()
-            guard !events.contains(where: { $0.eventId == event.eventId }) else {
+            var queue = WatchInputQueue(events: try loadQueuedEventsUnlocked())
+            guard queue.enqueue(event) else {
                 return false
             }
-            events.append(event)
-            try writeQueuedEventsUnlocked(events)
+            try writeQueuedEventsUnlocked(queue.events)
             return true
         }
         guard appended else { return }
@@ -548,10 +413,9 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             return
         }
         try withQueueFileLock {
-            let remaining = try loadQueuedEventsUnlocked().filter { event in
-                !eventIds.contains(event.eventId)
-            }
-            try writeQueuedEventsUnlocked(remaining)
+            var queue = WatchInputQueue(events: try loadQueuedEventsUnlocked())
+            queue.removeResolved(eventIds)
+            try writeQueuedEventsUnlocked(queue.events)
         }
         refreshQueuedEventCount()
     }
@@ -592,9 +456,15 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw URLError(.cannotParseResponse)
         }
-        WCSession.default.sendMessage(
+        guard let session else {
+            if queueOnFailure {
+                try queueInputEvent(event)
+            }
+            return
+        }
+        session.send(
             ["event": object],
-            replyHandler: { [weak self] reply in
+            onReply: { [weak self] reply in
                 let acknowledgement = WatchSyncAcknowledgement.decode(reply, fallbackEventId: event.eventId)
                 if !acknowledgement.resolvedEventIds.isEmpty {
                     self?.publishPhoneAccepted()
@@ -613,7 +483,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
                     }
                 }
             },
-            errorHandler: { [weak self] error in
+            onError: { [weak self] error in
                 WatchLog.connectivity.error("Watch→phone sendMessage failed: \(String(describing: error), privacy: .public)")
                 self?.publishPhoneReachable(false)
                 if queueOnFailure {

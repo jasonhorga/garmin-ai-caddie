@@ -1,4 +1,5 @@
 import Foundation
+import AICaddieCore
 import AICaddieDomain
 
 /// round-12 P3.3 (Watch standalone): the brain that ties the three presentational watch screens
@@ -516,60 +517,23 @@ public final class WatchRoundModel: ObservableObject {
     /// one fresh, accurate Watch fix that has not moved beyond the recommendation's origin window.
     public func rootCaddieLayerAvailable(at fix: WatchLocationFix?) -> Bool {
         guard let fix,
-              fix.coordinate.latitude.isFinite,
-              (-90...90).contains(fix.coordinate.latitude),
-              fix.coordinate.longitude.isFinite,
-              (-180...180).contains(fix.coordinate.longitude),
-              fix.horizontalAccuracyM.isFinite,
-              (0...15).contains(fix.horizontalAccuracyM),
               let state = activeHoleState,
               let recommendation = state.rootCaddieRecommendation,
               state.decisionId == recommendation.decisionId,
               state.suggestedClub?.trimmingCharacters(in: .whitespacesAndNewlines)
                 == recommendation.clubName.trimmingCharacters(in: .whitespacesAndNewlines),
-              (state.holeMap?.route?.count ?? 0) >= 2,
-              recommendation.source == "live",
-              ["automatic", "manual"].contains(recommendation.mode),
-              ["high", "medium"].contains(recommendation.confidence),
-              recommendation.sampleSize >= 10,
-              recommendation.evidenceCount > 0,
-              recommendation.aimCarryM.isFinite, recommendation.aimCarryM > 0,
-              recommendation.carryP10M.isFinite, recommendation.carryP10M > 0,
-              recommendation.carryP90M.isFinite,
-              recommendation.carryP90M >= recommendation.carryP10M,
-              recommendation.carryP10M <= recommendation.aimCarryM,
-              recommendation.aimCarryM <= recommendation.carryP90M,
-              recommendation.originLatitude.isFinite,
-              (-90...90).contains(recommendation.originLatitude),
-              recommendation.originLongitude.isFinite,
-              (-180...180).contains(recommendation.originLongitude),
-              recommendation.originAccuracyM.isFinite,
-              (0...15).contains(recommendation.originAccuracyM),
-              recommendation.maximumMovementM.isFinite,
-              recommendation.maximumMovementM > 0
+              (state.holeMap?.route?.count ?? 0) >= 2
         else {
             return false
         }
-
-        let formatter = ISO8601DateFormatter()
-        guard let generatedAt = formatter.date(from: recommendation.generatedAt),
-              let validUntil = formatter.date(from: recommendation.validUntil),
-              let fixCapturedAt = formatter.date(from: fix.capturedAt),
-              let current = formatter.date(from: now()),
-              generatedAt < validUntil,
-              generatedAt <= current,
-              current < validUntil,
-              fixCapturedAt <= current,
-              current.timeIntervalSince(fixCapturedAt) <= 15,
-              WatchGeoMath.metres(
-                recommendation.originLatitude,
-                recommendation.originLongitude,
-                fix.coordinate.latitude,
-                fix.coordinate.longitude
-              ) <= recommendation.maximumMovementM else {
-            return false
-        }
-        return true
+        return RootCaddieAdviceTrust.isTrusted(
+            recommendation,
+            fixLatitude: fix.coordinate.latitude,
+            fixLongitude: fix.coordinate.longitude,
+            fixAccuracyM: fix.horizontalAccuracyM,
+            fixCapturedAt: fix.capturedAt,
+            now: now()
+        )
     }
 
     /// Driver Distance is a Tee fact, not an AI recommendation. Keep its location gate independent so

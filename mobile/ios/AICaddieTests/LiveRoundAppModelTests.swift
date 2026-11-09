@@ -7,6 +7,7 @@ import Combine
 import CoreLocation
 import Network
 import XCTest
+import AICaddieCore
 @testable import AICaddie
 
 private enum LiveRoundAppModelTestFailure: Error {

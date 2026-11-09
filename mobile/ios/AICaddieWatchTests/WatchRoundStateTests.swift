@@ -1,4 +1,5 @@
 import XCTest
+import AICaddieCore
 @testable import AICaddieWatch
 
 final class WatchRoundStateTests: XCTestCase {

@@ -110,11 +110,18 @@ jobs:
           set -euo pipefail
           git diff --name-only "origin/$PR_BASE_REF"...HEAD > "$RUNNER_TEMP/native-quick-changed-paths.txt"
           # Watch targets, their shared domain/fixtures and the iPhone handoff bridge.
-          if grep -Eq '^(mobile/ios/(AICaddieWatch[^/]*|AICaddieDomain|AICaddieDomainTests)/|mobile/ios/AICaddie/Services/Watch[^/]*\.swift$|mobile/ios/AICaddieTests/(Watch[^/]*\.swift|Product/ProductWatchHandoffTests\.swift)$|mobile/ios/project\.yml$|Package\.swift$|tests/product/fixtures/shared/)' "$RUNNER_TEMP/native-quick-changed-paths.txt"; then
+          if grep -Eq '^(mobile/ios/(AICaddieWatch[^/]*|AICaddieDomain|AICaddieDomainTests|AICaddieCore|AICaddieCoreTests)/|mobile/ios/AICaddie/Services/Watch[^/]*\.swift$|mobile/ios/AICaddieTests/(Watch[^/]*\.swift|Product/ProductWatchHandoffTests\.swift)$|mobile/ios/project\.yml$|Package\.swift$|tests/product/fixtures/shared/)' "$RUNNER_TEMP/native-quick-changed-paths.txt"; then
             echo 'needed=true' >> "$GITHUB_OUTPUT"
           else
             echo 'needed=false' >> "$GITHUB_OUTPUT"
           fi
+      - name: Run pure Swift package tests
+        run: |
+          set -euo pipefail
+          mkdir -p native-quick-results
+          # AICaddieDomain and AICaddieCore carry no UIKit or WatchConnectivity, so they test on the
+          # host Mac without a simulator.
+          swift test 2>&1 | tee native-quick-results/swift-package-test.log
       - name: Install XcodeGen
         run: command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
       - name: Generate native project

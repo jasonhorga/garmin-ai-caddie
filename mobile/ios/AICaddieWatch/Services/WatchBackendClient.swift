@@ -1,4 +1,5 @@
 import Foundation
+import AICaddieCore
 import AICaddieDomain
 
 /// round-12 P3 (Watch standalone): the Apple Watch talking to the AI Caddie backend DIRECTLY over

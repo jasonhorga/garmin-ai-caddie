@@ -1,4 +1,5 @@
 import XCTest
+import AICaddieCore
 @testable import AICaddie
 
 final class WatchEventBridgeTests: XCTestCase {
