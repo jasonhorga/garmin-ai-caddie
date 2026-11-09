@@ -6,7 +6,7 @@ index 8e8d161..9a86646 100644
      paths:
        - 'mobile/ios/**'
        - 'Package.swift'
--      - 'tests/product/fixtures/shared/**'
+-      - 'contracts/fixtures/shared/**'
        - 'ops/write_native_build_evidence.py'
        - '.github/scripts/preflight_live_course_catalogue.py'
        - '.github/scripts/retry-transient-command.sh'

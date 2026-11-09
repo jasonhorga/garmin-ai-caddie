@@ -24,7 +24,7 @@ final class ProductTeeResultTests: XCTestCase {
         #if SWIFT_PACKAGE
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { root.deleteLastPathComponent() }
-        let url = root.appendingPathComponent("tests/product/fixtures/shared/tee_result.json")
+        let url = root.appendingPathComponent("contracts/fixtures/shared/tee_result.json")
         #else
         let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "tee_result", withExtension: "json"))
         #endif

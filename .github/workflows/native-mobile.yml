@@ -41,7 +41,7 @@ on:
     paths:
       - 'mobile/ios/**'
       - 'Package.swift'
-      - 'tests/product/fixtures/shared/**'
+      - 'contracts/fixtures/shared/**'
       - 'ops/write_native_build_evidence.py'
       - '.github/scripts/preflight_live_course_catalogue.py'
       - '.github/scripts/retry-transient-command.sh'
@@ -110,7 +110,7 @@ jobs:
           set -euo pipefail
           git diff --name-only "origin/$PR_BASE_REF"...HEAD > "$RUNNER_TEMP/native-quick-changed-paths.txt"
           # Watch targets, their shared domain/fixtures and the iPhone handoff bridge.
-          if grep -Eq '^(mobile/ios/(AICaddieWatch[^/]*|AICaddieDomain|AICaddieDomainTests|AICaddieCore|AICaddieCoreTests)/|mobile/ios/AICaddie/Services/Watch[^/]*\.swift$|mobile/ios/AICaddieTests/(Watch[^/]*\.swift|Product/ProductWatchHandoffTests\.swift)$|mobile/ios/project\.yml$|Package\.swift$|tests/product/fixtures/shared/)' "$RUNNER_TEMP/native-quick-changed-paths.txt"; then
+          if grep -Eq '^(mobile/ios/(AICaddieWatch[^/]*|AICaddieDomain|AICaddieDomainTests|AICaddieCore|AICaddieCoreTests)/|mobile/ios/AICaddie/Services/Watch[^/]*\.swift$|mobile/ios/AICaddieTests/(Watch[^/]*\.swift|Product/ProductWatchHandoffTests\.swift)$|mobile/ios/project\.yml$|Package\.swift$|contracts/fixtures/shared/)' "$RUNNER_TEMP/native-quick-changed-paths.txt"; then
             echo 'needed=true' >> "$GITHUB_OUTPUT"
           else
             echo 'needed=false' >> "$GITHUB_OUTPUT"

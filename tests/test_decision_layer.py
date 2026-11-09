@@ -175,7 +175,7 @@ def long_hole_fixture():
 
 class DecisionLayerTests(unittest.TestCase):
     def test_avoid_zones_match_native_shared_fixture(self) -> None:
-        fixture = json.loads((Path(__file__).parent / "product/fixtures/shared/c120_avoid_zones.json").read_text())
+        fixture = json.loads((Path(__file__).parent / "../contracts/fixtures/shared/c120_avoid_zones.json").read_text())
         for row in fixture["cases"]:
             with self.subTest(row=row["id"]):
                 target = _target_local_from_route_evidence({"routeEvidence": row["routeEvidence"]}, row["carryM"])
