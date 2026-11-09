@@ -313,7 +313,7 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
     def test_native_quick_uses_prebooted_device_and_shared_fixture_trigger(self) -> None:
         """J4: fixture JSON changes trigger quick, which tests the simulator it booted."""
         workflow = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text())
-        self.assertIn("tests/product/fixtures/shared/**", workflow[True]["pull_request"]["paths"])
+        self.assertIn("contracts/fixtures/shared/**", workflow[True]["pull_request"]["paths"])
         step = next(s for s in workflow["jobs"]["native-quick"]["steps"]
                     if s.get("name") == "Test iOS app target without rebuilding")
         with tempfile.TemporaryDirectory() as tmp:
