@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from ai_caddie.history import history
 from server_v2 import annotations, caddie, history_round_detail, main, mobile
 
-SHARED = Path(__file__).parent / "fixtures" / "shared"
+SHARED = Path(__file__).resolve().parents[2] / "contracts" / "fixtures" / "shared"
 STAMP = "2026-01-02T08:00:00Z"
 META = {"courseName": "Example Links", "courseGlobalId": 81001,
         "holePars": "444444444444444444", "teeTime": STAMP}
