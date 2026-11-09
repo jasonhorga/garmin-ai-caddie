@@ -1,0 +1,13 @@
+diff --git a/server_v2/readiness.py b/server_v2/readiness.py
+index 5f3ee11c..54a24e57 100644
+--- a/server_v2/readiness.py
++++ b/server_v2/readiness.py
+@@ -161,7 +161,7 @@ def _mobile_package_runtime_gate(package: Any) -> tuple[bool, str]:
+     total_holes = int(geometry_coverage.get("totalHoles") or 0)
+     if geometry_state == "ready":
+         return True, f"geometry {ready_holes}/{total_holes} holes ready"
+-    if geometry_state == "partial" and ready_holes > 0:
++    if geometry_state == "partial" and ready_holes > 0 and ready_holes == total_holes:
+         return True, (
+             f"geometry {ready_holes}/{total_holes} holes ready; "
+             "the other holes use the Garmin base map"
