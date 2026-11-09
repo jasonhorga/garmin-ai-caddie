@@ -23,7 +23,7 @@ on:
         required: false
         default: ''
       backend_revision:
-        description: Expected deployed backend Git revision (40 hex characters); falls back to protected AI_CADDIE_BACKEND_REVISION
+        description: Deployed backend Git revision (40 hex characters); required when live preflight is enabled
         type: string
         required: false
         default: ''
@@ -648,8 +648,11 @@ jobs:
           AI_CADDIE_PREFLIGHT_NEARBY_GID: '31793'
           AI_CADDIE_PREFLIGHT_SEARCH_GID: '31793'
           # These are captured Garmin OMT names, used only as a live regression
-          # assertion. They are never used as an app-side translation table.
-          AI_CADDIE_PREFLIGHT_LOCALIZED_NEARBY: '32842=北京黄港国际高尔夫俱乐部;31783=天安假日高尔夫俱乐部'
+          # assertion. The nearby probe follows the client's 5 km first pass:
+          # Garmin zh_CHS Boundaries capture (40.0454995,116.5461531, 2026-11-06)
+          # returned 31792 金色河畔 at 2.5 km; 32842/31783 were 5.1/6.0 km and
+          # belong to the client's 50 km empty-pass expansion instead.
+          AI_CADDIE_PREFLIGHT_LOCALIZED_NEARBY: '31792=金色河畔高尔夫俱乐部'
           AI_CADDIE_PREFLIGHT_LOCALIZED_SEARCH: '31793=北京丽宫体育公园高尔夫俱乐部'
           AI_CADDIE_PREFLIGHT_APP_REVISION: ${{ github.sha }}
           AI_CADDIE_PREFLIGHT_EXPECTED_REVISION: ${{ github.event.inputs.backend_revision || vars.AI_CADDIE_BACKEND_REVISION || '' }}
