@@ -14,13 +14,21 @@ from jsonschema import Draft202012Validator
 
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.llm import weather_context
-from server_v2 import mobile
+from server_v2 import course_install, mobile
+from server_v2 import main as server_main
 from server_v2.main import app
 from tests.round_loop_authority import fixture_course_authority
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_SCHEMA = "mobile/contracts/live_round_package.schema.json"
 ROUND_ID = "900001"
+# A package download leases its round as active for 30 minutes. Left in the process, that lease
+# keeps nearby_work_blocked() true and every later background backfill waits on it forever.
+ACTIVE_ROUND_STATE = (
+    (server_main, ("_ACTIVE_ROUNDS", "_ACTIVE_COURSES", "_ACTIVE_EVENT_TIMES", "_ACTIVE_START_TIMES",
+                   "_ROUND_START_CACHE", "_ACTIVE_EVENT_DEVICES", "_ACTIVE_SELECTIONS")),
+    (course_install, ("_CURRENT_COURSE_IDS",)),
+)
 
 
 class RoundPackageRouteContractTests(unittest.TestCase):
@@ -35,6 +43,8 @@ class RoundPackageRouteContractTests(unittest.TestCase):
             patch.dict(mobile._PACKAGE_SINGLEFLIGHT, {}, clear=True),
             # Offline: the package degrades to a missing weather snapshot instead of calling Open-Meteo.
             patch.object(weather_context, "_default_open_meteo_transport", side_effect=OSError("offline test")),
+            patch.object(server_main, "_ACTIVE_PACKAGED_ROUNDS", set()),
+            *(patch.dict(getattr(module, name), clear=True) for module, names in ACTIVE_ROUND_STATE for name in names),
         ):
             target.start()
             self.addCleanup(target.stop)
