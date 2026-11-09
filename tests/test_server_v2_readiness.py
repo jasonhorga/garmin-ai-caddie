@@ -1011,6 +1011,75 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(check["evidence"]["weatherEvidence"]["state"], "missing")
         self.assertEqual(check["evidence"]["runtimeGate"]["required"], ["schema", "sourceCoverage", "geometryCoverage"])
 
+    def _mobile_package_check(self, *, source_state: str, geometry: dict, revision: str) -> dict:
+        package = SimpleNamespace(
+            schema_="ai-caddie-live-round-package-v2",
+            roundId="17657344",
+            holes=[{"number": number} for number in range(1, 19)],
+            caddieDecisionEndpoint="/api/v2/caddie/decision",
+            sourceCoverage={"state": source_state, "roundFound": source_state == "ready"},
+            geometryCoverage=geometry,
+            readinessChecks=[{"label": "weather", "state": "missing", "ready": 0, "total": 18}],
+            offlinePackageStatus={"state": "degraded"},
+            caddieContextSeeds=[],
+            cachedCaddieRules={"offlineCapable": True},
+            missingData=[{"label": "weather", "reason": "0/18 holes have cached weather snapshots"}],
+        )
+        snapshot = {
+            "value": {"summary": {"totalRounds": 1}, "drillDown": {"roundIds": ["17657344"]}},
+            "revision": revision,
+            "stale": False,
+            "dataMode": "fixture",
+            "source": "memory",
+        }
+        with patch("server_v2.readiness.load_history_stats_snapshot", return_value=snapshot), \
+             patch("server_v2.readiness.build_mobile_round_package_response", return_value=package):
+            thread = readiness.warm_mobile_readiness_in_background(snapshot)
+            if thread is not None:
+                thread.join()
+            payload = build_readiness_response()
+        return next(row for row in payload["checks"] if row["label"] == "mobile_package")
+
+    def test_G7_mobile_package_partial_geometry_does_not_block_testflight(self) -> None:
+        """G7 + J4.5: holes without fine geometry fall back to the Garmin base map, so a sampled
+        round with geometry on 16 of 18 holes (and no cached weather) is an admitted degradation:
+        the runtime gate stays open and says how many holes are covered."""
+        check = self._mobile_package_check(
+            source_state="ready",
+            geometry={"state": "partial", "readyHoles": 16, "totalHoles": 18},
+            revision="c406-partial",
+        )
+
+        self.assertEqual(check["state"], "ready")
+        # 16 ready of 18 holes, copied from the package's geometryCoverage above.
+        self.assertIn("16/18", check["detail"])
+        self.assertIn("16/18", check["evidence"]["runtimeGate"]["reason"])
+
+    def test_G7_mobile_package_without_any_geometry_blocks_with_readable_reason(self) -> None:
+        """G7: a sampled round that cannot draw a single hole is runtime degraded, and the check
+        names the missing geometry (0 of 18 holes) instead of a generic list of possibilities."""
+        check = self._mobile_package_check(
+            source_state="ready",
+            geometry={"state": "missing", "readyHoles": 0, "totalHoles": 18},
+            revision="c406-missing",
+        )
+
+        self.assertEqual(check["state"], "degraded")
+        self.assertIn("0/18", check["detail"])
+        self.assertIn("geometry", check["detail"])
+
+    def test_G7_mobile_package_without_source_round_blocks_with_readable_reason(self) -> None:
+        """G7: a sampled round whose source is missing is runtime degraded and the check says so."""
+        check = self._mobile_package_check(
+            source_state="missing",
+            geometry={"state": "ready", "readyHoles": 18, "totalHoles": 18},
+            revision="c406-source",
+        )
+
+        self.assertEqual(check["state"], "degraded")
+        self.assertIn("source round", check["detail"])
+        self.assertNotIn("geometry", check["detail"])
+
     def test_readiness_sync_evidence_includes_freshness_and_coverage(self) -> None:
         class Snapshot:
             scorecardCount = 12
