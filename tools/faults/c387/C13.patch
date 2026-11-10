@@ -1,0 +1,32 @@
+diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
+index eb5255f..37e2b17 100755
+--- a/ops/agenthub_deploy.py
++++ b/ops/agenthub_deploy.py
+@@ -811,7 +811,7 @@ def run_api_container(cfg: Config, private: Path, name: str, sha: str,
+     env_file = write_env_file(private, values)
+     try:
+         docker("run", "-d", "--init", "--pull", "never", "--name", name,
+-               "--restart", "no",
++               "--restart", LIVE_RESTART_POLICY,
+                "--cpus", str(cpus), "--memory", str(memory),
+                "--network", cfg.network,
+                "--log-driver", "json-file", "--log-opt", "max-size=10m", "--log-opt", "max-file=3",
+@@ -1221,7 +1221,7 @@ def normalize_restart_policy(cfg: Config, containers: list[Container], live: Con
+     recovery) a refused update only warns; `live` is then held at `no` as well, because the
+     release that kept its policy may still be on-failure.  Returns the releases that kept it."""
+     kept = []
+-    for container in containers:
++    for container in []:
+         if container.name.startswith(cfg.prefix) and (live is None or container.id != live.id):
+             update_check = check and not (container.dead or container.status in {"dead", "removing"})
+             if set_restart_policy(container.name, "no", check=update_check).returncode != 0:
+@@ -1378,6 +1378,9 @@ def assert_up_release(cfg: Config, container: Container) -> None:
+ 
+ 
+ def select_up_api(cfg: Config, containers: list[Container]) -> Container | None:
++    current = find_current(cfg, containers)
++    if current is not None:
++        return current
+     recorded = read_release_state(cfg)
+     if recorded is not None:
+         recorded_candidates = [
