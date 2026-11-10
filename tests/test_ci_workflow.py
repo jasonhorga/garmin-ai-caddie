@@ -1398,10 +1398,12 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
         self.assertIn("AI_CADDIE_ADMIN_TOKEN", native_preflight["env"]["AI_CADDIE_PREFLIGHT_TOKEN"])
         self.assertIn("AI_CADDIE_CI_PLAYER_TOKEN", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_TOKEN"])
         self.assertIn("AI_CADDIE_PREFLIGHT_LOCALIZED_NEARBY", native_preflight["env"])
-        self.assertIn("32842=北京黄港国际高尔夫俱乐部", native_preflight["env"]["AI_CADDIE_PREFLIGHT_LOCALIZED_NEARBY"])
+        self.assertIn("31792=金色河畔高尔夫俱乐部", native_preflight["env"]["AI_CADDIE_PREFLIGHT_LOCALIZED_NEARBY"])
+        self.assertNotIn("32842=北京黄港国际高尔夫俱乐部", native_preflight["env"]["AI_CADDIE_PREFLIGHT_LOCALIZED_NEARBY"])
         self.assertIn("AI_CADDIE_PREFLIGHT_LOCALIZED_SEARCH", native_preflight["env"])
         self.assertIn("AI_CADDIE_PREFLIGHT_LOCALIZED_NEARBY", watch_preflight["env"])
-        self.assertIn("32842=北京黄港国际高尔夫俱乐部", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_LOCALIZED_NEARBY"])
+        self.assertIn("31792=金色河畔高尔夫俱乐部", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_LOCALIZED_NEARBY"])
+        self.assertNotIn("32842=北京黄港国际高尔夫俱乐部", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_LOCALIZED_NEARBY"])
         self.assertIn("AI_CADDIE_PREFLIGHT_LOCALIZED_SEARCH", watch_preflight["env"])
         self.assertIn("31793=北京丽宫体育公园高尔夫俱乐部", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_LOCALIZED_SEARCH"])
         self.assertIn("github.event.inputs.backend_revision", native_preflight["env"]["AI_CADDIE_PREFLIGHT_EXPECTED_REVISION"])
@@ -1517,6 +1519,8 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
     def test_watch_runtime_accepts_one_api_override_for_watch_and_web_evidence(self) -> None:
         workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
         dispatch_inputs = workflow[True]["workflow_dispatch"]["inputs"]
+        self.assertTrue(dispatch_inputs["backend_revision"]["required"])
+        self.assertNotIn("default", dispatch_inputs["backend_revision"])
         watch_steps = {
             step.get("name"): step for step in workflow["jobs"]["watch-runtime"]["steps"]
         }
