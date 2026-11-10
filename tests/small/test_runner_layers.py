@@ -43,7 +43,7 @@ class LayerClassificationTests(SmallTestCase):
 
 class BudgetTrackerTests(SmallTestCase):
     def test_single_test_past_the_hard_limit_is_reported(self):
-        """A small test running past 1 s is a BudgetExceeded failure; exactly 1 s is allowed."""
+        """A small test running past 1 s is listed in the budget report; exactly 1 s is not."""
         clock = FakeClock()
         tracker = small_tracker(clock)
         tracker.begin()
@@ -57,6 +57,10 @@ class BudgetTrackerTests(SmallTestCase):
         self.assertIn(self.id(), message)
         self.assertIn("1.50 s", message)
         self.assertIn("1 s", message)
+        tracker.end()
+        report = tracker.report()
+        self.assertEqual(report.count(self.id()), 1, report)
+        self.assertRegex(report, r"1\.50 s > 1 s small limit")
 
     def test_layer_total_past_its_budget_is_over(self):
         """Small tests together may take 45 s; one more second puts the small layer over budget."""
