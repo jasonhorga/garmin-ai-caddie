@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Services/LiveRoundEventBuilder.swift b/mobile/ios/AICaddie/Services/LiveRoundEventBuilder.swift
+index f4b4a032..bbda38d7 100644
+--- a/mobile/ios/AICaddie/Services/LiveRoundEventBuilder.swift
++++ b/mobile/ios/AICaddie/Services/LiveRoundEventBuilder.swift
+@@ -95,7 +95,7 @@ public final class LiveRoundEventBuilder {
+     }
+ 
+     public func makeScoreEvent(hole: Int, strokes: Int) -> LiveRoundEvent {
+-        event(hole: hole, kind: .score, payload: ["strokes": .number(Double(strokes))])
++        event(hole: hole, kind: .score, payload: ["strokeCount": .number(Double(strokes))])
+     }
+ 
+     public func makeClubEvent(
