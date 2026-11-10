@@ -425,9 +425,9 @@ goals = ["*contract*"]   # 所有契约测试
 - Swift：方法前一行注释 `// goals: I-10 W-08`。
 - 一条测试可列多个 ID；主测试额外标 `[main]`，如 `"""S-11 [main]: ..."""`。
 
-### 9.2 校验脚本（本身是一个 small 测试）
+### 9.2 校验脚本
 
-`tests/small/test_traceability.py`（目标 ID：`META`）：
+规则本身由 small 测试 `tests/small/test_traceability.py` 用内存里的计划和测试片段自测；对真实仓库跑一遍要读计划和全部分层测试文件（读磁盘，按 3.1 不属 small），放在 medium 测试 `tests/medium/test_traceability_repository.py`（目标 ID 均为 `META`）：
 
 1. 解析本文第 2 节三张表，得到目标集合 G 与每个目标的深度；
 2. 用 `ast` 扫 `tests/small|medium|large/**/*.py` 的 docstring、用正则扫 `mobile/ios/**Tests*/**/*.swift` 的 `// goals:` 注释，得到「ID → 测试」映射 T；
