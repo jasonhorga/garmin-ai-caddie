@@ -100,7 +100,7 @@ class _IdentityHarness(unittest.TestCase):
         cls.addClassCleanup(portal.__exit__, None, None, None)
 
     def setUp(self):
-        tmp = TemporaryDirectory(dir=os.environ["TMPDIR"])
+        tmp = TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         (self.root / "data").mkdir()

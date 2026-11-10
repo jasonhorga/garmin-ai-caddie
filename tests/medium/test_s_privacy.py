@@ -139,7 +139,7 @@ def _preserve_logging(case):
 
 class Secrets(unittest.TestCase):
     def setUp(self):
-        tmp = TemporaryDirectory(dir=os.environ["TMPDIR"])
+        tmp = TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         env = patch.dict(os.environ, {
