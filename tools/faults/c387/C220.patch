@@ -1,0 +1,17 @@
+diff --git a/server_v2/readiness.py b/server_v2/readiness.py
+index 5f3ee11..560afe2 100644
+--- a/server_v2/readiness.py
++++ b/server_v2/readiness.py
+@@ -1152,6 +1152,12 @@ def build_readiness_response() -> dict[str, Any]:
+     stats_last20_snapshot = None
+     try:
+         snapshot = load_history_stats_snapshot()
++        if snapshot is None:
++            # Cold cache: build the history statistics inline so readiness reports real numbers.
++            from . import history_stats as _history_stats
++
++            _history_stats.load_history_stats_response()
++            snapshot = load_history_stats_snapshot()
+         stats_snapshot = snapshot
+         if snapshot is None:
+             warm_failure = history_warm_failure_details()
