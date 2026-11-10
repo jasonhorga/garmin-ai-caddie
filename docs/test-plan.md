@@ -22,7 +22,7 @@
 | P2 | 测试只走真实入口：HTTP 路由（`TestClient`）、CLI `main(argv)`、Swift 的 ViewModel/Store 公开方法、WatchConnectivity 消息处理入口。不 `import` 私有函数（`_xxx`）、不读源码文本、不 grep 仓库文件 | small 测试扫描 `tests/` 禁止 `read_text()` 读 `server_v2/`/`ai_caddie/`/`mobile/` 下的 `.py/.swift` |
 | P3 | 修 bug 时**先看现有目标测试为什么没抓到**：等价类/边界值缺了就补到该目标的参数表里，不新开「test_cNNN_xxx」文件 | 文件名禁止 `test_c\d+`（追溯校验里查） |
 | P4 | 一个目标有且只有一个「主测试」（走最外层真实入口），可以有若干「深度测试」（同入口的参数化用例），深度由风险决定（第 2 节） | 追溯矩阵 |
-| P5 | 尺寸（small/medium/large）由测试所在目录决定，预算写死、超时即红（第 3 节） | 运行器统计 |
+| P5 | 尺寸（small/medium/large）由测试所在目录决定，预算写死、超了列进汇总，挂死由总超时拦（第 3 节） | 运行器统计 |
 | P6 | 测试封闭：不依赖机器忙闲、真实时钟、外网、执行顺序（第 5 节） | `tests/offline.py` 守卫 + 运行器检查 |
 
 ---
@@ -144,13 +144,20 @@
 
 | 尺寸 | 允许 | 禁止 | 单条上限 | Python 例子 | Swift 例子 |
 |---|---|---|---|---|---|
-| **small** | 纯内存计算；注入的假时钟、假网络、内存存储；单进程单线程 | 网络（含 localhost）、磁盘（含临时目录）、子进程、`sleep`、真实时钟、环境变量依赖 | 100 ms（超 1 s 直接红） | 记分不变式、对账合并、码数计算、状态机迁移、契约 fixture 校验 | AICaddieDomain 纯逻辑；`OfflineCaddieDecisionEvaluator`；`WatchRoundModel` 用内存 store |
-| **medium** | 本机：in-process `TestClient`、临时目录 SQLite、`$TMPDIR` 下文件、本机子进程（alembic、CLI `main(argv)`）、多线程 | 外网、其它机器、真实 Garmin/Apple/LLM、真实时钟判定 | 5 s（超 30 s 直接红） | 走 HTTP 路由的 S-xx 主测试；`agenthub_deploy.main` 配假 docker | iOS/watchOS 模拟器上的 XCTest，用假 `URLProtocol`、假 `WCSession` |
+| **small** | 纯内存计算；注入的假时钟、假网络、内存存储；单进程单线程 | 网络（含 localhost）、磁盘（含临时目录）、子进程、`sleep`、真实时钟、环境变量依赖 | 100 ms（超 1 s 列进超预算清单） | 记分不变式、对账合并、码数计算、状态机迁移、契约 fixture 校验 | AICaddieDomain 纯逻辑；`OfflineCaddieDecisionEvaluator`；`WatchRoundModel` 用内存 store |
+| **medium** | 本机：in-process `TestClient`、临时目录 SQLite、`$TMPDIR` 下文件、本机子进程（alembic、CLI `main(argv)`）、多线程 | 外网、其它机器、真实 Garmin/Apple/LLM、真实时钟判定 | 5 s（超 30 s 列进超预算清单） | 走 HTTP 路由的 S-xx 主测试；`agenthub_deploy.main` 配假 docker | iOS/watchOS 模拟器上的 XCTest，用假 `URLProtocol`、假 `WCSession` |
 | **large** | 跨进程真端口、Docker、跨机、真机/模拟器 UI、TestFlight 构建 | 真实玩家账号；生产写操作 | 5 min | `uvicorn` 真进程 + `ops/smoke_private_trial.sh`；镜像构建冒烟 | XCUITest（`AICaddieUITests`、`AICaddieWatchUITests`）；`fastlane ios beta` 只构建不上传 |
 
 ### 3.2 分层与时间预算（写死）
 
-预算是**测试步骤本身**的墙钟时间（不含 `uv sync`、checkout、xcodegen、冷编译）。超预算即该层失败，不是警告。
+预算是健康检查，不是门禁，量的是**测试步骤本身**（不含 `uv sync`、checkout、xcodegen、冷编译）：
+
+- **CPU 时间计成本**：预算数字回答「这层测试要花多少算力」。机器忙时墙钟会被拉长（C392、C394 在负载约 20 时 1 s 的 small 测试跑了 2.5–3.4 s，断言全过），这不是测试变贵了。
+- **墙钟只防挂死**：卡死由各入口的总超时拦（宿主 CD、CI job 的 timeout），超时照旧失败。
+- **数字来源**：在固定环境（同一台指定机器、单进程、空闲；服务端快层是 GitHub `ubuntu-latest` 2 核）测基线，再留约 30% 余量，即预算 ≈ 基线 × 1.3；基线变了按同一办法重定，不为某次慢跑临时调大。
+- **超了怎么办**：单条超过 3.1 的上限、或某层合计超过下表预算，运行器把测试名和耗时列进汇总，退出码不变；有人看到就开卡查原因（测试是否该换层、拆分或修慢代码）。断言失败和 small 层守卫拦下的违规（网络、写磁盘、`sleep`、仓库代码读真实时钟）仍然让运行失败。
+
+下表「门禁」列指这层测试必须通过，不含耗时。
 
 | 层 | 内容 | 预算 | 在哪跑 | 门禁 |
 |---|---|---|---|---|
@@ -192,8 +199,9 @@ tests/
 结论：**用目录**。另加一个可选薄入口 `python -m tests.run --layer fast|slow|all [--changed BASE] [--shard i/n]`（实现于 `tests/run.py`，内部仍调 `check_isolation`），给 CI 和人用；宿主 CD 即使不改命令也只跑快层（见第 12 节方案 A）。
 
 预算强制：在 `tests/check_isolation.py` 的结果对象上记每条测试耗时（`startTest/stopTest`，用 `time.monotonic` —— 这是**运行器**量时间，测试本身不得读真实时钟），结束时：
-- 单条超过所在尺寸硬上限 → 记 FAIL（`BudgetExceeded`）；
-- small 目录合计 > 45 s、medium 合计 > 135 s → 进程退出码非 0；
+- 单条超过所在尺寸上限 → 列进汇总的「Tests over their limit」清单（测试名、耗时、上限），不记失败；
+- small 目录合计 > 45 s、medium 合计 > 135 s → 该层在「Layer budget report」里标 `OVER BUDGET`，退出码不变（3.2）；
+- 运行器量的是墙钟（`time.monotonic`），机器忙时会偏大，所以只作提示；
 - 把每个文件耗时写到 `$TMPDIR/test-durations.json`，供 `tools/tests/update_durations.py` 刷新 `tests/durations.json`。
 
 ### 3.4 Swift 怎么分尺寸
@@ -618,7 +626,7 @@ goals = ["*contract*"]   # 所有契约测试
 | 卡 | 标题 | 目的 | 验收（≤4） | 依赖 |
 |---|---|---|---|---|
 | K0 | test-plan 定稿 | Jason/土土复审本文，定目标清单与预算 | ①目标清单与风险定级经 Jason 认可 ②预算数字认可 ③方案 A/B（12.3）选定 | — |
-| K1 | 新测试骨架与运行器 | 建 `tests/small|medium|large|quarantine|support`、`tests/run.py`、预算统计、small 封闭守卫 | ①`discover -s tests -t .` 只跑 small+medium，large/quarantine 为空套件 ②超单条/总预算即非 0 退出（各有一条自测）③small 中读时钟/sleep/写磁盘/联网即报错 ④旧测试原样仍在、CI 照常绿 | K0 |
+| K1 | 新测试骨架与运行器 | 建 `tests/small|medium|large|quarantine|support`、`tests/run.py`、预算统计、small 封闭守卫 | ①`discover -s tests -t .` 只跑 small+medium，large/quarantine 为空套件 ②超单条/总预算列进汇总、退出码不变（C407 起，原「即非 0 退出」作废；各有一条自测）③small 中读时钟/sleep/写磁盘/联网即报错 ④旧测试原样仍在、CI 照常绿 | K0 |
 | K2 | 追溯校验 | `tests/small/test_traceability.py` 解析本文第 2 节并对回 docstring/Swift 注释 | ①缺目标、未知 ID、无 `[main]` 均报错且列出 ID ②禁止 `test_c\d+` 文件名与读源码文本 ③暂以「允许缺失清单」放行未完成目标，清单只减不增 | K1 |
 | K3 | 服务端快层：账号·隐私·健康·部署 | S-01–S-03、S-22–S-26、S-28、S-29 | ①每目标有 `[main]` ②D3 目标的等价类/边界表齐 ③本组 medium ≤ 40 s ④C13、C220、C368 补丁在本地注回时变红 | K2 |
 | K4 | 服务端快层：球场·开局·响应性 | S-04–S-08、S-31 | ①同上 ②S-31 用 Event 占满线程池、无计时断言 ③本组 ≤ 40 s ④C34、C36、C136、C162、C189、C373 注回变红 | K2 |
