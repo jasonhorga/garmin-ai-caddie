@@ -1,0 +1,13 @@
+diff --git a/server_v2/course_install.py b/server_v2/course_install.py
+index de0c909e..db91ad0d 100644
+--- a/server_v2/course_install.py
++++ b/server_v2/course_install.py
+@@ -317,7 +317,7 @@ def _derivatives_waiting(row: dict[str, Any]) -> bool:
+ def _all_assets_ready(state: dict[str, Any]) -> bool:
+     rows = [row for row in (state.get("holes") or {}).values() if isinstance(row, dict)]
+     return bool(rows) and all(
+-        _geometry_ready(row) and _topo_ready(row) and not _derivatives_waiting(row)
++        _geometry_ready(row) and _topo_ready(row)
+         for row in rows
+     )
+ 
