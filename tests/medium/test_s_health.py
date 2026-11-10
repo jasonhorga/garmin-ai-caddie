@@ -328,7 +328,7 @@ class Weather(unittest.TestCase):
 
     def setUp(self) -> None:
         _pop_env(self, "AI_CADDIE_ADMIN_TOKEN", "AI_CADDIE_SECURITY_PROFILE")
-        tmp = tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"])
+        tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.transport_calls = 0

@@ -70,7 +70,7 @@ def alembic(url: str, *steps: tuple[str, ...]) -> list[str]:
 
 class Migrations(unittest.TestCase):
     def setUp(self):
-        tmp = TemporaryDirectory(dir=os.environ["TMPDIR"])
+        tmp = TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.db_path = self.root / "identity.db"
