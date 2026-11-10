@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C393-install-ready-while-exports-retry",
+      "patch": "tests/product/faults/C393/install-ready-while-exports-retry.patch",
+      "kind": "python",
+      "target": "tests.medium.test_s_courses.Install.test_hole_waiting_on_exports_is_not_ready",
+      "promise": "S-07: a hole whose exports are still retrying keeps its install job out of ready."
+    },
+    {
+      "id": "tests-product-faults-C393-cold-release-not-fetched",
+      "patch": "tests/product/faults/C393/cold-release-not-fetched.patch",
+      "kind": "python",
+      "target": "tests.medium.test_s_round_start.Packages.test_never_installed_loops_start_without_visiting_tees",
+      "promise": "S-06: never-installed loops start a full round on the first package call."
+    },
+    {
+      "id": "tests-product-faults-C393-course-prep-drops-tee",
+      "patch": "tests/product/faults/C136/13-course-prep-drops-tee.patch",
+      "kind": "python",
+      "target": "tests.medium.test_s_courses.Prep.test_hole_distances",
+      "promise": "S-08: hole distances come from the selected tee on every path."
+    },
+    {
+      "id": "tests-product-faults-C393-prep-drops-selected-tee",
+      "patch": "tests/product/faults/C136/08-prep-drops-selected-tee.patch",
+      "kind": "python",
+      "target": "tests.medium.test_s_courses.Prep.test_hole_distances",
+      "promise": "S-08: hole distances come from the selected tee on every path."
+    },
+    {
+      "id": "tests-product-faults-C393-catalogue-gid-cutoff",
+      "patch": "tests/product/faults/C162/gid-cutoff.patch",
+      "kind": "python",
+      "target": "tests.medium.test_s_courses.CourseSearch.test_recent_catalogue_keeps_every_loop_of_a_venue",
+      "promise": "S-04: every loop of a venue stays selectable in the course list."
+    },
+    {
+      "id": "tests-product-faults-C393-bag-shared-worker-queue",
+      "patch": "tests/product/faults/C385/shared-worker-queue.patch",
+      "kind": "python",
+      "target": "tests.medium.test_s_responsiveness.LightRequests.test_light_routes_return_while_heavy_pool_held",
+      "promise": "S-31: saved bag reads return while heavy work holds the shared worker pool."
+    },
+    {
+      "id": "tests-product-faults-C393-raster-default-pool",
+      "patch": "tests/product/faults/C373/fast-default-pool.patch",
+      "kind": "python",
+      "target": "tests.medium.test_s_responsiveness.LightRequests.test_light_routes_return_while_heavy_pool_held",
+      "promise": "S-31: a cached hole image returns while heavy work holds the shared worker pool."
+    },
+    {
+      "id": "tests-product-faults-C393-disconnect-keeps-building",
+      "patch": "tests/product/faults/C393/disconnect-keeps-building.patch",
+      "kind": "python",
+      "target": "tests.medium.test_s_responsiveness.LightRequests.test_client_disconnect_cancels_heavy_work",
+      "promise": "S-31: a client that disconnects stops heavy work at the next hole."
+    }
+  ]
+}
