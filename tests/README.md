@@ -47,7 +47,8 @@ leaves library internals such as logging timestamps alone. Under discovery,
 Traceability (docs/test-plan.md section 9): a layered test names the goals it
 covers at the start of its docstring, `"""S-11 S-27 [main]: ..."""` (a class
 docstring applies to all its tests); a Swift test uses `// goals: I-10 [main]` on
-the line above it. `tests/small/test_traceability.py` fails, listing the IDs,
+the line above it. `tests/medium/test_traceability_repository.py` (rules
+self-checked in `tests/small/test_traceability.py`) fails, listing the IDs,
 when a section 2 goal has no test, no or several `[main]` tests, a D3 goal has
 fewer than four tests, or a tag names an unknown ID. It also rejects test files
 named `test_c<number>` and test code that reads `server_v2`/`ai_caddie`/`mobile`
