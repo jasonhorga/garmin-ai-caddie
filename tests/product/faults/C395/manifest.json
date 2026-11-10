@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C395-01-live-dogleg-ignores-route",
+      "patch": "tests/product/faults/C395/live-dogleg-ignores-route.patch",
+      "kind": "python",
+      "target": "tests.medium.test_s_caddie.Decision.test_dogleg_plan_follows_the_route",
+      "promise": "S-09"
+    },
+    {
+      "id": "tests-product-faults-C395-02-prep-wedge-first-layup",
+      "patch": "tests/product/faults/C395/prep-wedge-first-layup.patch",
+      "kind": "python",
+      "target": "tests.medium.test_s_caddie.Decision.test_prep_and_live_agree_on_club_order",
+      "promise": "S-09"
+    }
+  ]
+}

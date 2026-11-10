@@ -1,0 +1,13 @@
+diff --git a/ai_caddie/caddie/mobile_live.py b/ai_caddie/caddie/mobile_live.py
+index d1917538..63b93b7d 100644
+--- a/ai_caddie/caddie/mobile_live.py
++++ b/ai_caddie/caddie/mobile_live.py
+@@ -2696,6 +2696,8 @@ def _route_evidence_seed(
+                 meshes,
+                 course_prep.resolve_tee_set_for_hole(int(global_id), int(local_hole), tee_box),
+             )
++            if polyline:
++                polyline = [polyline[0], polyline[-1]]
+         except (OSError, KeyError, TypeError, ValueError):
+             polyline = None
+         if polyline:
