@@ -329,9 +329,9 @@ class EventBatchTests(_ServerCase):
                 results = [None] * len(keys)
 
                 def send(slot, key):
-                    client = TestClient(app)
-                    barrier.wait()
                     try:
+                        client = TestClient(app)
+                        barrier.wait(timeout=30)  # deadlock guard only; never reached when correct
                         results[slot] = self.post_events(batch, key, round_id=round_id, client=client)
                     except BaseException as exc:  # surface thread failures in the main thread
                         results[slot] = exc
@@ -340,7 +340,8 @@ class EventBatchTests(_ServerCase):
                 for thread in threads:
                     thread.start()
                 for thread in threads:
-                    thread.join()
+                    thread.join(timeout=60)
+                    self.assertFalse(thread.is_alive(), "concurrent post did not finish")
                 for result in results:
                     self.assertNotIsInstance(result, BaseException)
                     self.assertEqual(result.status_code, 200, result.text[:500])
