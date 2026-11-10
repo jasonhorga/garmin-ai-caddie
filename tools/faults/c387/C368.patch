@@ -1,0 +1,16 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 5a7f3e0..335195c 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -583,11 +583,6 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
+ @app.exception_handler(StarletteHTTPException)
+ async def http_exception_handler_with_disconnect(request: Request, exc: StarletteHTTPException) -> Response:
+     """Keep abandoned request bodies distinct from malformed client input."""
+-    if isinstance(exc.__cause__, ClientDisconnect):
+-        route = request.scope.get("route")
+-        route_path = getattr(route, "path", None) or "<unmatched>"
+-        logger.info("client_disconnected path=%s during=body", route_path)
+-        return Response(status_code=499)
+     return await http_exception_handler(request, exc)
+ 
+ 
