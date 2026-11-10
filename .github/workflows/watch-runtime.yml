@@ -20,10 +20,9 @@ on:
         required: false
         default: ''
       backend_revision:
-        description: Expected deployed backend Git revision (40 hex characters); falls back to protected AI_CADDIE_BACKEND_REVISION
+        description: Required deployed backend Git revision (40 hex characters); checked by the live preflight in full and real-course-visual, ignored by other scopes
         type: string
-        required: false
-        default: ''
+        required: true
       review_round_ref:
         description: Optional exact Garmin round reference for deterministic Web review evidence
         type: string
@@ -333,10 +332,13 @@ jobs:
           AI_CADDIE_PREFLIGHT_SEARCH_NAME: 北京丽宫
           AI_CADDIE_PREFLIGHT_NEARBY_GID: '31793'
           AI_CADDIE_PREFLIGHT_SEARCH_GID: '31793'
-          # The nearby probe is centered on Beijing by default. Keep one
-          # history-free localized row in the Watch gate so an English OMT
-          # response cannot be masked by a scorecard overlay.
-          AI_CADDIE_PREFLIGHT_LOCALIZED_NEARBY: '32842=北京黄港国际高尔夫俱乐部;31783=天安假日高尔夫俱乐部'
+          # The nearby probe is centered on Beijing and follows the client's 5 km first pass.
+          # Garmin zh_CHS Boundaries capture (40.0454995,116.5461531, 2026-11-06) places
+          # 31792 金色河畔 at 2.5 km; 32842 黄港 at 5.1 km and 31783 天安 at 6.0 km are
+          # outside this pass and are intentionally covered only by a client's empty-pass
+          # 50 km expansion. Keep one localized provider row inside the first pass so an English
+          # OMT response cannot be masked by a scorecard overlay.
+          AI_CADDIE_PREFLIGHT_LOCALIZED_NEARBY: '31792=金色河畔高尔夫俱乐部'
           AI_CADDIE_PREFLIGHT_LOCALIZED_SEARCH: '31793=北京丽宫体育公园高尔夫俱乐部'
           AI_CADDIE_PREFLIGHT_APP_REVISION: ${{ github.sha }}
           AI_CADDIE_PREFLIGHT_EXPECTED_REVISION: ${{ github.event.inputs.backend_revision || vars.AI_CADDIE_BACKEND_REVISION || '' }}
