@@ -400,6 +400,7 @@ class TopoRenderModuleTests(unittest.TestCase):
         with TemporaryDirectory() as tmp, \
                 patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}), \
                 patch.object(topo_render, "render_hole_topo", side_effect=slow_render) as render, \
+                patch.object(topo_render, "_release_cold_render_working_set"), \
                 ThreadPoolExecutor(max_workers=2) as pool:
             first = pool.submit(request)
             second = pool.submit(request)
@@ -441,6 +442,7 @@ class TopoRenderModuleTests(unittest.TestCase):
         with TemporaryDirectory() as tmp, \
                 patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}), \
                 patch.object(topo_render, "render_hole_topo", side_effect=memory_heavy_render) as render, \
+                patch.object(topo_render, "_release_cold_render_working_set"), \
                 ThreadPoolExecutor(max_workers=3) as pool:
             first = pool.submit(request, 1)
             second = pool.submit(request, 2)
