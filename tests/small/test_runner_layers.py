@@ -1,4 +1,4 @@
-"""The runner classifies layers by directory and enforces the test-plan budgets."""
+"""The runner classifies layers by directory and reports the test-plan budgets."""
 import unittest
 
 from tests import check_isolation
