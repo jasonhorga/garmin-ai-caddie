@@ -278,7 +278,7 @@ acked 的事件再次被服务端 replay --> 去重，不重复入库
 | 不读真实时钟 | 生产代码的「现在」经注入：Python 用 `tests/support/clock.py:FakeClock` patch 生产侧已有的时间获取点（无注入点的，子卡先给生产代码加 `now: Callable` 参数，默认 `datetime.now`）；Swift 用 `Clock`/`DateProvider` 协议注入 | small 守卫 patch `time.time`/`datetime.now` 为抛错（仅在 small 目录） |
 | 不 `sleep` | 重试退避、轮询都经注入的 `sleep` 函数，测试里换成推进假时钟；Swift 用 `Task.sleep` 包装器 | small 守卫 patch `time.sleep` 抛错；`grep -n "time.sleep(" tests/` 由追溯校验测试报错 |
 | 不碰外网 | 保留 `tests/offline.py`（拦 Garmin、Playwright）；扩展为拦所有非 127.0.0.1 socket 连接；LLM/Apple/Garmin 一律假 provider | 守卫抛 `NetworkBlocked` |
-| 不碰共享磁盘 | medium 只用 `tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"])`；保留现有「默认路径全部指向每进程 `.test-cache-*`」机制；small 禁止 `open()` 写 | small 守卫 patch `builtins.open` 写模式抛错 |
+| 不碰共享磁盘 | medium 只用 `tempfile.TemporaryDirectory()` 创建独立临时目录（标准库优先使用 `TMPDIR`，未设置时使用系统临时目录）；保留现有「默认路径全部指向每进程 `.test-cache-*`」机制；small 禁止 `open()` 写 | small 守卫 patch `builtins.open` 写模式抛错 |
 | 不依赖机器忙闲 | 不写「X 秒内完成」的断言（性能预算只由运行器统计，不在单条测试断言）；并发测试用 `threading.Barrier`/事件同步，不用时间窗口 | 复审拒绝 |
 | 不依赖顺序 | 每条测试自建数据；`unittest` 默认按名字排序，CI 每周一次用 `--shuffle`（`tests/run.py` 实现随机种子并打印） | 种子可复现 |
 | 不读环境变量默认 | 需要的配置在测试内用 `mock.patch.dict(os.environ, ..., clear=False)` 局部设置 | — |
