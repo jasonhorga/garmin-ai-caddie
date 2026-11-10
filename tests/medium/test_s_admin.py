@@ -37,7 +37,7 @@ def _bearer(token):
 
 class Admin(unittest.TestCase):
     def setUp(self):
-        tmp = TemporaryDirectory(dir=os.environ["TMPDIR"])
+        tmp = TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         engine = create_engine(f"sqlite:///{self.root / 'identity.db'}", future=True,

@@ -329,7 +329,7 @@ class FakeDocker:
 
 class Deploy(unittest.TestCase):
     def setUp(self):
-        tmp = TemporaryDirectory(dir=os.environ["TMPDIR"])
+        tmp = TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.tmp = Path(tmp.name)
         self.state_path = self.tmp / "state" / "current-release"
