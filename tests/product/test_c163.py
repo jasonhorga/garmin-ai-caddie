@@ -654,7 +654,8 @@ class SharedCpuPoolTests(unittest.TestCase):
         # Real admission and idle pool wrapper; threads stand in for the forkserver children.
         with patch.object(tr, "_render_process_count", return_value=2), \
              patch.object(tr, "_render_pool", None), patch.object(tr, "_cpu_slots", None, create=True), \
-             patch.object(tr, "ProcessPoolExecutor", lambda **kw: ThreadPoolExecutor(kw["max_workers"])):
+             patch.object(tr, "ProcessPoolExecutor", lambda **kw: ThreadPoolExecutor(kw["max_workers"])), \
+             patch.object(tr, "_release_cold_render_working_set"):
             workers = [threading.Thread(target=background, args=(name,), daemon=True) for name in ("bg1", "bg2")]
             try:
                 workers[0].start()
