@@ -13,13 +13,16 @@ concurrency:
 
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       AI_CADDIE_DATA_MODE: fixture
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: astral-sh/setup-uv@v5
         with:
           # The fixture API is launched via `uv run uvicorn ... &` below and the
@@ -114,7 +117,7 @@ jobs:
           pkill -f 'uvicorn server_v2.main:app' 2>/dev/null || true
 
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: web_v2
@@ -143,9 +146,12 @@ jobs:
     # image's pipeline — could silently drift from the code (exactly how the club-bag sync broke for
     # 10 days). Build BOTH images every PR and smoke-test the API container, so a Dockerfile /
     # start_api.sh / runtime-path regression fails here instead of in production.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       # Build the same named dependency layers used by ops/agenthub_deploy.py;
       # the application stages below only copy source on top of these images.
       - name: Build API dependency image
