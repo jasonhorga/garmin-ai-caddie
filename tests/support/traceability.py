@@ -110,6 +110,10 @@ def docstring_tags(docstring):
 
 def python_tests(label, source):
     """Tagged ``test*`` methods of the module's classes."""
+    return _python_tests(label, ast.parse(source))
+
+
+def _python_tests(label, tree):
     tests = []
 
     def visit(node, prefix, inherited_ids, inherited_main):
@@ -124,7 +128,7 @@ def python_tests(label, source):
                 if ids or own_ids:
                     tests.append(TaggedTest(f"{name}::{child.name}", ids | own_ids, main or own_main))
 
-    for node in ast.parse(source).body:
+    for node in tree.body:
         if isinstance(node, ast.ClassDef):
             visit(node, label, frozenset(), False)
     return tests
@@ -196,37 +200,50 @@ def added_allowances(base_text, current_text):
     return sorted(parse_allowed_missing(current_text) - parse_allowed_missing(base_text))
 
 
-class _SourceReads(ast.NodeVisitor):
+class _SourceReads:
     """Calls that read a file under a product source directory.
 
     A path expression points at source when it contains a string naming a
     source directory (``"server_v2"``, ``"mobile/ios"``) or a name assigned from
     such an expression, and no string naming a data file (``*.json``).
     ``inspect.getsource`` is always flagged.
+
+    Each expression is walked once; the taint fixpoint then only compares name
+    sets, so a large test file costs one pass over its tree.
     """
 
     def __init__(self, tree):
-        self.tainted, self.found = set(), []
-        assignments = [(target, value) for node in ast.walk(tree) for target, value in _bindings(node)]
+        self.tainted, self.found, self._facts = set(), [], {}
+        nodes = list(ast.walk(tree))
+        assignments = [(_names(target), value) for node in nodes for target, value in _bindings(node)]
         changed = True
         while changed:
             changed = False
-            for target, value in assignments:
-                if self.points_at_source(value):
-                    for name in _names(target):
-                        if name not in self.tainted:
-                            self.tainted.add(name)
-                            changed = True
+            for names, value in assignments:
+                if not self.tainted.issuperset(names) and self.points_at_source(value):
+                    self.tainted.update(names)
+                    changed = True
+        for node in nodes:
+            if isinstance(node, ast.Call):
+                self.check_call(node)
 
     def points_at_source(self, node):
-        constants = [child.value for child in ast.walk(node)
-                     if isinstance(child, ast.Constant) and isinstance(child.value, str)]
-        if any(value.lower().endswith(DATA_SUFFIXES) for value in constants):
-            return False
-        return (any(SOURCE_DIRS & set(value.replace("\\", "/").split("/")) for value in constants)
-                or any(isinstance(child, ast.Name) and child.id in self.tainted for child in ast.walk(node)))
+        facts = self._facts.get(id(node))
+        if facts is None:
+            constants, names = [], set()
+            for child in ast.walk(node):
+                if isinstance(child, ast.Constant) and isinstance(child.value, str):
+                    constants.append(child.value)
+                elif isinstance(child, ast.Name):
+                    names.add(child.id)
+            facts = self._facts[id(node)] = (
+                any(value.lower().endswith(DATA_SUFFIXES) for value in constants),
+                any(SOURCE_DIRS & set(value.replace("\\", "/").split("/")) for value in constants),
+                names)
+        data, source, names = facts
+        return not data and (source or not self.tainted.isdisjoint(names))
 
-    def visit_Call(self, node):
+    def check_call(self, node):
         function = node.func
         name = function.attr if isinstance(function, ast.Attribute) else getattr(function, "id", None)
         if name in SOURCE_INSPECTION:
@@ -236,7 +253,6 @@ class _SourceReads(ast.NodeVisitor):
             self.found.append((node.lineno, name))
         elif isinstance(function, ast.Name) and name == "open" and node.args and self.points_at_source(node.args[0]):
             self.found.append((node.lineno, name))
-        self.generic_visit(node)
 
 
 def _bindings(node):
@@ -257,9 +273,11 @@ def _names(target):
 
 def source_reads(label, source):
     """``"<label>:<line> <call>"`` for each read of product source text."""
-    tree = ast.parse(source)
+    return _source_reads(label, ast.parse(source))
+
+
+def _source_reads(label, tree):
     visitor = _SourceReads(tree)
-    visitor.visit(tree)
     return [f"{label}:{line} {call}" for line, call in sorted(visitor.found)]
 
 
@@ -303,9 +321,9 @@ def scan(root=ROOT):
     tests, quarantined, card_named, reads = [], [], [], []
     for layer in COUNTED_LAYERS + (QUARANTINE,):
         for path in _python_files(root, layer):
-            label, source = _relative(path, root), path.read_text(encoding="utf-8")
-            (quarantined if layer == QUARANTINE else tests).extend(python_tests(label, source))
-            reads.extend(source_reads(label, source))
+            label, tree = _relative(path, root), ast.parse(path.read_text(encoding="utf-8"))
+            (quarantined if layer == QUARANTINE else tests).extend(_python_tests(label, tree))
+            reads.extend(_source_reads(label, tree))
             if card_named_python(path.name):
                 card_named.append(label)
     for path in _swift_test_files(root):
