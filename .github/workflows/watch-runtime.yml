@@ -20,7 +20,7 @@ on:
         required: false
         default: ''
       backend_revision:
-        description: Required deployed backend Git revision (40 hex characters) for the live preflight
+        description: Required deployed backend Git revision (40 hex characters); checked by the live preflight in full and real-course-visual, ignored by other scopes
         type: string
         required: true
       review_round_ref:
