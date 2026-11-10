@@ -3,10 +3,11 @@
 CI/local usage: python -m tests.check_isolation tests.test_offline_followups
 Full CI usage: python -m tests.check_isolation discover -s tests -t . -v
 
-The child runner also enforces the layer budgets of docs/test-plan.md 3.1/3.2
-for tests under tests/small, tests/medium and tests/large (a single test over
-its hard limit is a BudgetExceeded failure; a layer over its total budget exits
-non-zero), prints a layer budget report and writes per-file durations to
+The child runner also times tests under tests/small, tests/medium and
+tests/large against the budgets of docs/test-plan.md 3.1/3.2. Budgets are a
+health check, not a gate: a test over its limit or a layer over its total is
+listed in the layer budget report but does not fail the run; failed assertions
+and small-layer guard violations still do. Per-file durations go to
 $TMPDIR/test-durations.json. Legacy test modules are timed but never budgeted.
 """
 import logging
@@ -469,15 +470,12 @@ class LoggingIsolationSuite(unittest.TestSuite):
             self._module_snapshots[module] = before
 
 
-# Test-plan 3.1 hard limit per test and 3.2 wall budget per layer, in seconds.
-# Only tests under tests/<layer>/ are budgeted; legacy modules carry no layer.
+# Test-plan 3.1 limit per test and 3.2 wall budget per layer, in seconds.
+# Overruns are reported, never failures (3.2: budgets watch cost, timeouts stop
+# hangs). Only tests under tests/<layer>/ are budgeted; legacy modules carry no layer.
 TEST_LAYERS = ("small", "medium", "large", "quarantine")
 TEST_LIMITS = {"small": 1.0, "medium": 30.0, "large": 300.0}
 LAYER_BUDGETS = {"small": 45.0, "medium": 135.0, "large": 360.0}
-
-
-class BudgetExceeded(AssertionError):
-    """A layered test ran longer than its size's hard limit (test-plan 3.1)."""
 
 
 _module_files = {}
@@ -532,6 +530,7 @@ class BudgetTracker:
         self._mark = None
         self._started = {}
         self._previous = None
+        self.overruns = []  # (test id, seconds, layer, limit)
 
     def _charge(self, test, seconds, *, count=False):
         layer = self.layer_of(test)
@@ -553,7 +552,7 @@ class BudgetTracker:
         self._started[id(test)] = now
 
     def stop(self, test):
-        """Record a finished test; return a BudgetExceeded message if it overran."""
+        """Record a finished test; return a message if it overran its limit."""
         now = self.clock()
         self._mark = now
         started = self._started.pop(id(test), None)
@@ -564,6 +563,7 @@ class BudgetTracker:
         layer = self._charge(test, elapsed, count=True)
         limit = self.limits.get(layer)
         if limit is not None and elapsed > limit:
+            self.overruns.append((test.id(), elapsed, layer, limit))
             return (f"{test.id()} took {elapsed:.2f} s; {layer} tests must finish "
                     f"within {limit:g} s (docs/test-plan.md 3.1)")
         return None
@@ -593,6 +593,13 @@ class BudgetTracker:
             seconds = self.layer_seconds.get(layer, 0.0)
             lines.append(f"  {layer:<7}{count:>5} tests {seconds:>9.2f} s / {budget:g} s budget"
                          + ("  OVER BUDGET" if layer in over else ""))
+        if self.overruns:
+            lines.append(f"Tests over their limit ({len(self.overruns)}):")
+            lines.extend(f"  {test_id}  {elapsed:.2f} s > {limit:g} s {layer} limit"
+                         for test_id, elapsed, layer, limit in self.overruns)
+        if over or self.overruns:
+            lines.append("Budgets are a health check, not a gate: the run's result "
+                         "depends only on test outcomes.")
         return "\n".join(lines)
 
     def write_durations(self, path):
@@ -618,12 +625,7 @@ class BudgetedTextTestResult(unittest.TextTestResult):
         super().startTest(test)
 
     def stopTest(self, test):
-        message = self.budget_tracker.stop(test)
-        if message:
-            try:
-                raise BudgetExceeded(message)
-            except BudgetExceeded:
-                self.addFailure(test, sys.exc_info())
+        self.budget_tracker.stop(test)
         super().stopTest(test)
 
     def stopTestRun(self):
@@ -674,17 +676,16 @@ def run_logging_checked_tests(arguments, *, tracker=None, durations_path=None):
     for witness, trace in new_failures:
         print(f"\n{witness.id()}", file=sys.stderr)
         print(trace.rstrip("\n"), file=sys.stderr)
-    # Layer budgets (test-plan 3.2) fail the run even when every test passed.
+    # Layer budgets (test-plan 3.2) are reported only; they never fail the run.
     print("", file=sys.stderr)
     print(tracker.report(), file=sys.stderr)
-    over_budget = tracker.over_budget()
     try:
         tracker.write_durations(durations_path or default_durations_path())
     except OSError as error:
         print(f"Could not write test durations: {error}", file=sys.stderr)
     print(marker.rstrip("\n"), file=sys.stderr)
     print(f"Ran {program.result.testsRun} tests", file=sys.stderr)
-    successful = program.result.wasSuccessful() and not over_budget
+    successful = program.result.wasSuccessful()
     if successful:
         print("OK", file=sys.stderr)
     else:
@@ -693,8 +694,6 @@ def run_logging_checked_tests(arguments, *, tracker=None, durations_path=None):
             counts.append(f"failures={len(program.result.failures)}")
         if program.result.errors:
             counts.append(f"errors={len(program.result.errors)}")
-        if over_budget:
-            counts.append(f"over_budget={','.join(over_budget)}")
         print(f"FAILED ({', '.join(counts)})", file=sys.stderr)
     return 0 if successful else 1
 

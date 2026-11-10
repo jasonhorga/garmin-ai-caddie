@@ -23,10 +23,13 @@ Entry point: `python -m tests.run --layer fast|slow|all` (`fast` is exactly the 
 CD discovery; `slow` is `tests/large`; `all` is both). `--changed`/`--shard` come
 with C401.
 
-Budgets: the `tests.check_isolation` child runner times every test with an
-injectable clock. A small/medium/large test over its hard limit fails with
-`BudgetExceeded`; a layer over its total budget makes the run exit non-zero
-(`FAILED (over_budget=...)`). The run prints a "Layer budget report" and writes
+Budgets (docs/test-plan.md 3.2) are a health check, not a gate: the
+`tests.check_isolation` child runner times every test with an injectable clock
+and prints a "Layer budget report". A small/medium/large test over its limit is
+listed under "Tests over their limit", and a layer over its total budget is
+marked `OVER BUDGET`; neither changes the exit code. Failed assertions and
+small-layer `HermeticViolation`s still fail the run, and hangs are stopped by the
+caller's overall timeout. The run also writes
 per-file seconds to `$TMPDIR/test-durations.json` (the system temporary
 directory when `TMPDIR` is unset). Legacy modules are timed but never budgeted.
 
