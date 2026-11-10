@@ -295,7 +295,8 @@ final class CorrectionGoalTests: XCTestCase {
 
         let post = try XCTUnwrap(recorder.requests.first)
         XCTAssertEqual(post.method, "POST")
-        XCTAssertEqual(post.path, "/api/v2/history/rounds/round 9/corrections")
+        // The round reference is percent-encoded on the wire.
+        XCTAssertEqual(post.path, "/api/v2/history/rounds/round%209/corrections")
         XCTAssertEqual(post.contentType, "application/json")
         let body = try XCTUnwrap(try JSONSerialization.jsonObject(with: post.body) as? [String: Any])
         XCTAssertEqual(body["op"] as? String, "replaceHoleShots")
