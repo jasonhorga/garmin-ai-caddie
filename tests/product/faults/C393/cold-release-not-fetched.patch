@@ -1,0 +1,14 @@
+diff --git a/server_v2/mobile.py b/server_v2/mobile.py
+index 3dd5e630..229d501d 100644
+--- a/server_v2/mobile.py
++++ b/server_v2/mobile.py
+@@ -455,8 +455,7 @@ def _build_course_package_with_cold_releases(
+         return build()
+     except RoundLoopFactsMissingError as exc:
+         cold = list(getattr(exc, "uncached_release_ids", ()))
+-        if not cold:
+-            raise
++        raise
+     pending = _ensure_cold_course_releases(cold)
+     mark_request_stage("cold_release")
+     try:
