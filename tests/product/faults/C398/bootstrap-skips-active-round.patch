@@ -1,0 +1,22 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index b0f45486..b693c055 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -1967,7 +1967,7 @@ public final class LiveRoundAppModel: ObservableObject {
+             if let active = try offlineStore.loadResumablePackage(),
+                active.dataMode != "fixture",
+                active.course.globalId != 0,
+-               try offlineStore.hasRecordedEvents(roundId: active.roundId) {
++               false {
+                 try activatePackage(active, status: "继续进行中的球局")
+                 isBootstrapping = false
+             } else if let cachedHome = try offlineStore.loadHomePackage() {
+@@ -1998,7 +1998,7 @@ public final class LiveRoundAppModel: ObservableObject {
+             if let active = try offlineStore.loadResumablePackage(),
+                active.dataMode != "fixture",
+                active.course.globalId != 0,
+-                try offlineStore.hasRecordedEvents(roundId: active.roundId) {
++                false {
+                 try activatePackage(active, status: "继续进行中的球局")
+                 if courseOptionsRefreshSucceeded {
+                     beginOfflineCourseDownload(revalidatePackage: true)

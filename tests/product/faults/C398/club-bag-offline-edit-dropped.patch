@@ -1,0 +1,16 @@
+diff --git a/mobile/ios/AICaddie/Services/ClubBagSyncCoordinator.swift b/mobile/ios/AICaddie/Services/ClubBagSyncCoordinator.swift
+index d8a574a1..e1e18ec9 100644
+--- a/mobile/ios/AICaddie/Services/ClubBagSyncCoordinator.swift
++++ b/mobile/ios/AICaddie/Services/ClubBagSyncCoordinator.swift
+@@ -277,9 +277,9 @@ public final class ClubBagSyncCoordinator: ObservableObject {
+                     }
+                     continue  // a newer edit replaced the rejected one: send it
+                 }
+-                failures += 1
++                defaults().removeObject(forKey: ClubBagStore.key(ClubBagStore.outboxBase, playerId: player))
+                 if ClubBagStore.playerId == player { status = .failed }
+-                await pauseForRetry(Self.retryDelay(afterFailures: failures))
++                return
+             }
+         }
+         if ClubBagStore.playerId == player { status = restingStatus() }

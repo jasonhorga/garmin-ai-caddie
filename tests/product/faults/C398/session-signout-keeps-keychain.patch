@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/Services/SessionStore.swift b/mobile/ios/AICaddie/Services/SessionStore.swift
+index 0bfb4462..c52468ff 100644
+--- a/mobile/ios/AICaddie/Services/SessionStore.swift
++++ b/mobile/ios/AICaddie/Services/SessionStore.swift
+@@ -113,7 +113,6 @@ public final class SessionStore: ObservableObject {
+         liveExpiry = nil
+         lock.unlock()
+         publish(nil)
+-        persisting.clear()
+     }
+ 
+     public func clear() { signOut() }

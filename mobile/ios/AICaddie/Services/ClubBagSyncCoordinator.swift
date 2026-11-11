@@ -66,6 +66,43 @@ public final class ClubBagSyncCoordinator: ObservableObject {
     private var backoffID = 0
     private var restoreTask: Task<Bool, Never>?
 
+    #if DEBUG
+    /// Test-only snapshot for suites that temporarily replace the process-wide shared coordinator.
+    /// Keeping the closures here avoids a later test sending through an earlier test's URLSession.
+    struct TestIsolationState {
+        let sender: Sender?
+        let fetcher: Fetcher?
+        let status: Status
+        let restoreState: RestoreState
+        let failedAttempts: Int
+    }
+
+    func snapshotForTesting() -> TestIsolationState {
+        TestIsolationState(
+            sender: sender,
+            fetcher: fetcher,
+            status: status,
+            restoreState: restoreState,
+            failedAttempts: failedAttempts
+        )
+    }
+
+    func restoreForTesting(_ state: TestIsolationState) {
+        worker?.cancel()
+        wakeBackoff()
+        worker = nil
+        fence?.cancel()
+        fence = nil
+        restoreTask?.cancel()
+        restoreTask = nil
+        sender = state.sender
+        fetcher = state.fetcher
+        status = state.status
+        restoreState = state.restoreState
+        failedAttempts = state.failedAttempts
+    }
+    #endif
+
     init(
         defaults: @escaping () -> UserDefaults = { ClubBagStore.defaults },
         sleep: @escaping (UInt64) async -> Void = { try? await Task.sleep(nanoseconds: $0) }
