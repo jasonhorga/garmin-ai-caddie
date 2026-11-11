@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Models/RoundEditModel.swift b/mobile/ios/AICaddie/Models/RoundEditModel.swift
+index 3348dce6..6f239a7a 100644
+--- a/mobile/ios/AICaddie/Models/RoundEditModel.swift
++++ b/mobile/ios/AICaddie/Models/RoundEditModel.swift
+@@ -519,7 +519,7 @@ public final class RoundEditModel: ObservableObject {
+                 lie: shot.lie,
+                 endLie: shot.endLie,
+                 shotType: shot.shotType,
+-                order: index + 1,
++                order: shot.order,
+                 clubSource: shot.clubSource,
+                 lieSource: shot.lieSource,
+                 synthetic: shot.synthetic,

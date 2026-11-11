@@ -1,0 +1,17 @@
+diff --git a/mobile/ios/AICaddie/Services/WatchEventBridge.swift b/mobile/ios/AICaddie/Services/WatchEventBridge.swift
+index 0483b5b9..d84fbff3 100644
+--- a/mobile/ios/AICaddie/Services/WatchEventBridge.swift
++++ b/mobile/ios/AICaddie/Services/WatchEventBridge.swift
+@@ -855,11 +855,7 @@ public final class WatchEventBridge: NSObject {
+         guard let session else {
+             return
+         }
+-        if session.isCounterpartReachable {
+-            session.send(["state": object], onReply: nil, onError: nil)
+-        } else {
+-            session.queueUserInfo(["state": object])
+-        }
++        session.send(["state": object], onReply: nil, onError: nil)
+     }
+ 
+     public func markHoleDisplayed(_ hole: Int) {

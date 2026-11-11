@@ -383,16 +383,26 @@ final class RoundStartTwoStageTests: XCTestCase {
     func testEntryDownloadsEveryGarminRasterInPlayOrderFromTheHoleBeingPlayed() async throws {
         let host = "c85-raster.example.test"
         let roundId = "c85-raster"
-        let roundPackage = try package(roundId: roundId, mapOnly: false, garminRasterVersion: "c85-r1")
+        let roundPackage = try package(roundId: roundId, mapOnly: true, garminRasterVersion: "c85-r1")
+        let fullPackage = try package(roundId: roundId, mapOnly: false, garminRasterVersion: "c85-r1")
         let data = try JSONEncoder().encode(roundPackage)
+        let fullData = try JSONEncoder().encode(fullPackage)
+        let held = C85HeldRequests()
+        let personalSent = expectation(description: "personal package is held")
+        let personalOnce = C33FirstMatch()
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host,
                   proto.request.url?.path == "/api/v2/mobile/courses/\(c85CourseId)/package" else {
                 proto.reply(404); return
             }
-            proto.reply(200, data)
-        })
-        let fixture = makeModel(host: host)
+            if c33Query(proto.request, "map_only") == "true" {
+                proto.reply(200, data)
+            } else {
+                held.hold(proto)
+                if personalOnce.claim() { personalSent.fulfill() }
+            }
+        }, onStop: { held.forget($0) })
+        let fixture = makeModel(host: host, held: held)
         let model = fixture.model
         let downloads = C85DownloadLog()
         let bitmap = try garminTestBitmap()
@@ -410,8 +420,14 @@ final class RoundStartTwoStageTests: XCTestCase {
         (1...9).map(raster).forEach { GarminRasterImageStore.removeDiskEntryForTesting($0) }
         await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: roundPackage.loopEntries)
         XCTAssertEqual(model.pendingLiveHole, 1)
+        model.liveHoleInitialLoadDidFinish()
+        await fulfillment(of: [personalSent], timeout: eventWait)
         await model.waitForGarminRasterDownloadForTesting()
-        XCTAssertEqual(downloads.urls, (1...9).map(raster), "every hole, in play order from the first tee")
+        // No personal response has been released: all nine local bitmaps must already exist.
+        XCTAssertEqual(model.package?.clubProfiles, [])
+        XCTAssertEqual(downloads.urls, (1...9).map(raster), "Garmin downloads precede the personal package response")
+        held.releaseAll(200, fullData)
+        await model.waitForRoundEnrichmentForTesting()
 
         // J4.5: the player moves to hole 6; the next pass must skip all nine durable images.
         downloads.urls.removeAll()

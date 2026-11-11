@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Services/WatchEventBridge.swift b/mobile/ios/AICaddie/Services/WatchEventBridge.swift
+index 0483b5b9..4eda68df 100644
+--- a/mobile/ios/AICaddie/Services/WatchEventBridge.swift
++++ b/mobile/ios/AICaddie/Services/WatchEventBridge.swift
+@@ -1176,7 +1176,7 @@ public final class WatchEventBridge: NSObject {
+             roundId: watchEvent.roundId,
+             clientId: "apple-watch",
+             timestamp: watchEvent.createdAt,
+-            hole: watchEvent.hole,
++            hole: 1,
+             kind: kind,
+             payload: enrichedPayload
+         )

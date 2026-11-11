@@ -1,0 +1,16 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index b0f45486..d3648ecf 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -7003,11 +7003,6 @@ public final class LiveRoundAppModel: ObservableObject {
+               quarantinedIDs.isSubset(of: expectedIDs.union(quarantinedBeforeIDs)) else {
+             throw LiveRoundFinishError.incompleteAcknowledgement
+         }
+-        try offlineStore.appendSyncMarker(
+-            roundId: roundId,
+-            timestamp: ISO8601DateFormatter().string(from: Date()),
+-            result: result
+-        )
+         return result
+     }
+ 

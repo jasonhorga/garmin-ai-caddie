@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Models/StartRoundPresentation.swift b/mobile/ios/AICaddie/Models/StartRoundPresentation.swift
+index 0343193b..9ef351ed 100644
+--- a/mobile/ios/AICaddie/Models/StartRoundPresentation.swift
++++ b/mobile/ios/AICaddie/Models/StartRoundPresentation.swift
+@@ -98,7 +98,7 @@ enum StartRoundPresentation {
+             let coordinate = row.course.latitude.flatMap { latitude in
+                 row.course.longitude.map { (latitude, $0) }
+             }
+-            let sameVenue = groups.indices.filter { groups[$0].venue == venue }
++            let sameVenue = groups.indices.filter { groups[$0].venue == venue && groups[$0].rows.first?.course.globalId == row.course.globalId }
+             let coordinateGroups = sameVenue.filter { !groups[$0].coordinates.isEmpty }
+             let match = sameVenue.first { index in
+                 let group = groups[index]
