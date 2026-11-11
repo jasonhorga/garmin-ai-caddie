@@ -1,0 +1,11 @@
+{
+  "schema": "ai-caddie-watch-input-event-v1",
+  "eventId": "watch-evt-location-1",
+  "roundId": "round-fixture-1",
+  "hole": 7,
+  "kind": "location",
+  "value": "39.9042,116.4074,6.5",
+  "createdAt": "2026-11-08T10:01:00Z",
+  "contextClub": "Driver",
+  "shotType": "tee"
+}

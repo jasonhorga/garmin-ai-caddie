@@ -22,6 +22,9 @@ IDENTITY_CASES = "mobile/contracts/fixtures/round_identity_cases.json"
 FIXTURE_SCHEMAS = {
     "mobile/contracts/fixtures/live_round_package.fixture.json": PACKAGE_SCHEMA,
     "mobile/contracts/fixtures/live_round_event.fixture.json": "mobile/contracts/live_round_event.schema.json",
+    "mobile/contracts/fixtures/watch/round_state.fixture.json": "mobile/contracts/watch_round_state.schema.json",
+    "mobile/contracts/fixtures/watch/input_score.fixture.json": "mobile/contracts/watch_input_event.schema.json",
+    "mobile/contracts/fixtures/watch/input_location.fixture.json": "mobile/contracts/watch_input_event.schema.json",
 }
 # Native bundle resource copy -> the contract file it was copied from.
 NATIVE_COPIES = {
