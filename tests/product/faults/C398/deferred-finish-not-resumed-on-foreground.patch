@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index b0f45486..d363e548 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -6482,7 +6482,6 @@ public final class LiveRoundAppModel: ObservableObject {
+         refreshResultsCacheIfNeeded()
+         resumePrepCourseDownloads(retryFailed: true, includeSpeculative: false)
+         scheduleSpeculativeBackgroundTask()
+-        retryDeferredRoundFinishes()
+         ClubBagSyncCoordinator.shared.configure(apiBaseURL: apiBaseURL, adminToken: adminToken)
+         Task { await ClubBagSyncCoordinator.shared.restoreFromServer() }
+         // Retry local course asset preparation on the next foreground, but never block the event

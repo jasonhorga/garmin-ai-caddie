@@ -1,0 +1,17 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index b0f45486..1e7565b9 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -6643,10 +6643,10 @@ public final class LiveRoundAppModel: ObservableObject {
+             }
+             if result.reauthRequired || result.state == "reauth_required" {
+                 clearStoredGarminSessionAfterAuthFailure()
+-                garminConnectionState = .reauthRequired
++                garminConnectionState = hadVerifiedGarminSession ? .syncFailed : .verificationFailed
+                 garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
+                 garminSyncPresentationWatermark = Date()
+-                return .reauthRequired
++                return .failed
+             }
+             if result.state == "cancelled" || result.terminalReason == "user_cancelled" {
+                 garminConnectionState = .cancelled

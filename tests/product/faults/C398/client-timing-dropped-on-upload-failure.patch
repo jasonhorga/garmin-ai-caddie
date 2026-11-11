@@ -1,0 +1,29 @@
+diff --git a/mobile/ios/AICaddie/Services/ClientTimingStore.swift b/mobile/ios/AICaddie/Services/ClientTimingStore.swift
+index 444a3847..4309effd 100644
+--- a/mobile/ios/AICaddie/Services/ClientTimingStore.swift
++++ b/mobile/ios/AICaddie/Services/ClientTimingStore.swift
+@@ -305,24 +305,6 @@ final class ClientTimingStore: @unchecked Sendable {
+         attempts: [Int]
+     ) {
+         lock.lock()
+-        if outcome == .unavailable {
+-            // A transient failure puts the batch back for the next throttle window. Each record
+-            // gets at most two retries, and the pending queue keeps the same newest-200 bound.
+-            let retry = zip(zip(records, ages), attempts).compactMap { pair -> (ClientTimingRecord, TimeInterval, Int)? in
+-                let ((record, age), attempt) = pair
+-                guard attempt < 2 else { return nil }
+-                return (record, age, attempt + 1)
+-            }
+-            pending = retry.map(\.0) + pending
+-            pendingAges = retry.map(\.1) + pendingAges
+-            pendingAttempts = retry.map(\.2) + pendingAttempts
+-            if pending.count > Self.maxRecords {
+-                let excess = pending.count - Self.maxRecords
+-                pending.removeFirst(excess)
+-                pendingAges.removeFirst(excess)
+-                pendingAttempts.removeFirst(excess)
+-            }
+-        }
+         uploadInFlight = false
+         lock.unlock()
+     }

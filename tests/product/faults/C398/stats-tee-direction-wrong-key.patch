@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Models/MobileStats.swift b/mobile/ios/AICaddie/Models/MobileStats.swift
+index 1876df84..c5c1db4e 100644
+--- a/mobile/ios/AICaddie/Models/MobileStats.swift
++++ b/mobile/ios/AICaddie/Models/MobileStats.swift
+@@ -138,7 +138,7 @@ public struct StatsScoring: Codable, Equatable {
+         byPar = (try? c.decodeIfPresent([StatsByPar].self, forKey: .byPar)) ?? []
+         putting = try? c.decodeIfPresent(StatsPutting.self, forKey: .putting)
+         phaseStats = (try? c.decodeIfPresent([StatsPhase].self, forKey: .phaseStats)) ?? []
+-        teeDirection = try? c.decodeIfPresent(StatsTeeDirection.self, forKey: .teeDirection)
++        teeDirection = try? c.decodeIfPresent(StatsTeeDirection.self, forKey: .approachMiss)
+         approachMiss = try? c.decodeIfPresent(StatsApproachMiss.self, forKey: .approachMiss)
+     }
+ 

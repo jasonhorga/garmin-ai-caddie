@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Models/NineLoopTurn.swift b/mobile/ios/AICaddie/Models/NineLoopTurn.swift
+index 20b5fade..c1a90942 100644
+--- a/mobile/ios/AICaddie/Models/NineLoopTurn.swift
++++ b/mobile/ios/AICaddie/Models/NineLoopTurn.swift
+@@ -145,7 +145,7 @@ enum NineLoopTurn {
+         remembered: [String: String],
+         history: [HistoryRoundCard]
+     ) -> NineLoopPlan? {
+-        guard package.roundLoops.count == 1, let first = package.roundLoops.first else { return nil }
++        guard package.roundLoops.count == 2, let first = package.roundLoops.first else { return nil }
+         if first.isCourseHalf {
+             let loops = halves(globalId: first.globalId)
+             let ids = Set(loops.map(\.id))

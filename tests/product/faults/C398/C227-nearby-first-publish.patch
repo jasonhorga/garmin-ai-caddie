@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/Views/StartRoundView.swift b/mobile/ios/AICaddie/Views/StartRoundView.swift
+index 7f116190..11e74ef4 100644
+--- a/mobile/ios/AICaddie/Views/StartRoundView.swift
++++ b/mobile/ios/AICaddie/Views/StartRoundView.swift
+@@ -2766,7 +2766,6 @@ public struct StartRoundView: View {
+                         providerOptions + StartRoundPresentation.sortedByDistance(resolved, latitude: latitude, longitude: longitude)
+                     )
+                     publishedProviderResult = !providerOptions.isEmpty || publishedProviderResult
+-                    if !providerOptions.isEmpty { publish(snapshot()) }
+                     if index == 0 {
+                         selectAutomatically(nearbyVenueCount(providerOptions) == 1 ? providerOptions.first : nil)
+                     }
