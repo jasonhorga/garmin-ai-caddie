@@ -1,0 +1,11 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index b0f45486..0710c8c4 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -467,5 +467,5 @@ public enum RoundStartFailure: Equatable {
+     public var presentationMessage: String {
+         switch self {
+-        case .timedOut: return "服务器较慢，没能开始，点重试"
++        case .timedOut: return "开始失败"
+         case .unavailable: return "网络不可用，没能开始，点重试"
+         case .reauthentication: return "需重新登录后才能开始"

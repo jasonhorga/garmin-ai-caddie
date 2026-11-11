@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index b0f45486..f9bfa068 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -2687,7 +2687,7 @@ public final class LiveRoundAppModel: ObservableObject {
+                     loops: loops,
+                     capturedAt: preparedAt,
+                     preparationToken: preparationToken,
+-                    mapOnly: isNewRound,
++                    mapOnly: false,
+                     foregroundTimeoutInterval: max(0.001, foregroundDeadline.timeIntervalSince(roundStartNow()))
+                 )
+             }

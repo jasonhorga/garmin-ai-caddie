@@ -1,0 +1,157 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C398-C85-map-only-entry",
+      "patch": "tests/product/faults/C398/C85-map-only-entry.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testStartEntersOnTheMapPackageAndMergesTheFullPackageIntoTheSameRound",
+      "promise": "I-03",
+      "kills": "A new round enters on the map-only package while the personal package is still held."
+    },
+    {
+      "id": "tests-product-faults-C398-C96-finish-second-nine-candidate",
+      "patch": "tests/product/faults/C398/C96-finish-second-nine-candidate.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartGoalTests/testRecordedNineContinuesIntoInstalledSecondLoopWithCorrectPhysicalHoles",
+      "promise": "I-04",
+      "kills": "A saved ninth-hole score can continue into an installed second-nine candidate on the same round."
+    },
+    {
+      "id": "tests-product-faults-C398-C114-start-failure-evidence",
+      "patch": "tests/product/faults/C398/C114-start-failure-evidence.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartGoalTests/testRoundStartEntrypointsKeepFailureEvidenceAndCancelCleanly",
+      "promise": "I-03",
+      "kills": "A timeout keeps an actionable reason and retry wording."
+    },
+    {
+      "id": "tests-product-faults-C398-C134-venue-deduplication",
+      "patch": "tests/product/faults/C398/C134-venue-deduplication.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testOfflineRowsCollapseLoopsByPhysicalVenue",
+      "promise": "I-02",
+      "kills": "Several downloaded loops from one physical venue render as one offline row."
+    },
+    {
+      "id": "tests-product-faults-C398-C227-nearby-first-publish",
+      "patch": "tests/product/faults/C398/C227-nearby-first-publish.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyFirstVenuePublishesAndSelectsWithoutExpansion",
+      "promise": "I-02",
+      "kills": "A first nearby result is published before the discovery loop completes."
+    },
+    {
+      "id": "tests-product-faults-C398-C369-map-fallback",
+      "patch": "tests/product/faults/C398/C369-map-fallback.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testEntryDownloadsEveryGarminRasterInPlayOrderFromTheHoleBeingPlayed",
+      "promise": "I-03",
+      "kills": "All Garmin rasters become local from the map-only package while the personal package response is held."
+    },
+    {
+      "id": "tests-product-faults-C398-bootstrap-skips-active-round",
+      "patch": "tests/product/faults/C398/bootstrap-skips-active-round.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/BootstrapGoalTests/testColdStartRestoresActiveRound",
+      "promise": "I-20",
+      "kills": "A cold start resumes a recorded local round instead of falling back to the home package."
+    },
+    {
+      "id": "tests-product-faults-C398-client-timing-dropped-on-upload-failure",
+      "patch": "tests/product/faults/C398/client-timing-dropped-on-upload-failure.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/TimingGoalTests/testFailedTimingUploadKeepsRecordsForRetransmission",
+      "promise": "I-21",
+      "kills": "A failed timing upload retains records for the next throttle window."
+    },
+    {
+      "id": "tests-product-faults-C398-club-bag-offline-edit-dropped",
+      "patch": "tests/product/faults/C398/club-bag-offline-edit-dropped.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ClubBagGoalTests/testOfflineBagEditIsQueuedAndSentOnReconnect",
+      "promise": "I-13",
+      "kills": "An offline club-bag edit remains queued through transient send failures."
+    },
+    {
+      "id": "tests-product-faults-C398-correction-renumber-skipped",
+      "patch": "tests/product/faults/C398/correction-renumber-skipped.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/CorrectionGoalTests/testReorderingStrokesRenumbersInTheNewOrder",
+      "promise": "I-15",
+      "kills": "Reordering correction strokes sends contiguous display order."
+    },
+    {
+      "id": "tests-product-faults-C398-deferred-finish-not-resumed-on-foreground",
+      "patch": "tests/product/faults/C398/deferred-finish-not-resumed-on-foreground.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/OfflineQueueGoalTests/testFailedFinishStaysSealedAndCompletesOnNextForeground",
+      "promise": "I-11",
+      "kills": "A sealed finish retries when the app returns to the foreground."
+    },
+    {
+      "id": "tests-product-faults-C398-event-builder-strokes-renamed",
+      "patch": "tests/product/faults/C398/event-builder-strokes-renamed.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ContractFixtureGoalTests/testPhoneScoreEventBuilderProducesTheSharedEventFixture",
+      "promise": "I-08",
+      "kills": "Phone score events keep the canonical strokes payload key."
+    },
+    {
+      "id": "tests-product-faults-C398-event-payload-secret-not-redacted",
+      "patch": "tests/product/faults/C398/event-payload-secret-not-redacted.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/PrivacyGoalTests/testLocalEventLogNeverStoresSecretsAndKeepsOrdinaryContent",
+      "promise": "I-19",
+      "kills": "Persisted event payloads redact session and identity secrets."
+    },
+    {
+      "id": "tests-product-faults-C398-event-queue-ack-not-recorded",
+      "patch": "tests/product/faults/C398/event-queue-ack-not-recorded.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/OfflineQueueGoalTests/testRoundFinishedOfflineIsSealedThenFinishesOnReconnect",
+      "promise": "I-11",
+      "kills": "A successful finish records the local sync acknowledgement marker."
+    },
+    {
+      "id": "tests-product-faults-C398-garmin-reauth-reported-as-failure",
+      "patch": "tests/product/faults/C398/garmin-reauth-reported-as-failure.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/GarminSyncGoalTests/testPostThatSaysReauthRequiredIsNotReportedAsAGenericFailure",
+      "promise": "I-16",
+      "kills": "An expired Garmin session is reported as reauthentication, not generic failure."
+    },
+    {
+      "id": "tests-product-faults-C398-session-signout-keeps-keychain",
+      "patch": "tests/product/faults/C398/session-signout-keeps-keychain.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/SessionGoalTests/testSignInPersistSignOut",
+      "promise": "I-01",
+      "kills": "Signing out clears the persisted Apple session."
+    },
+    {
+      "id": "tests-product-faults-C398-stats-tee-direction-wrong-key",
+      "patch": "tests/product/faults/C398/stats-tee-direction-wrong-key.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ResultsGoalTests/testResultsAndStatsPagesShowTheServerNumbers",
+      "promise": "I-14",
+      "kills": "The results page decodes tee direction from its canonical response field."
+    },
+    {
+      "id": "tests-product-faults-C398-watch-input-hole-dropped",
+      "patch": "tests/product/faults/C398/watch-input-hole-dropped.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/WatchBridgeGoalTests/testWatchScoreIsAcknowledgedAndStoredAsAPendingWatchEvent",
+      "promise": "I-18",
+      "kills": "Watch events preserve the hole on the phone queue."
+    },
+    {
+      "id": "tests-product-faults-C398-watch-state-unreachable-dropped",
+      "patch": "tests/product/faults/C398/watch-state-unreachable-dropped.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/WatchBridgeGoalTests/testDisconnectedWatchQueuesEveryHoleSnapshotAndTheLatestOneRetiresOlderAdvice",
+      "promise": "I-17",
+      "kills": "An unreachable Watch receives durable queued state snapshots."
+    }
+  ]
+}

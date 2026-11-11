@@ -1,0 +1,12 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index b0f45486..5175a5a2 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -3107,6 +3107,7 @@ public final class LiveRoundAppModel: ObservableObject {
+     /// Garmin is course cache work: Start and the fresh-entry gate do not pause this serial lane.
+     private func beginGarminRasterDownload() {
+         guard let snapshot = package,
++              !Self.defersPlayerEnrichment(snapshot),
+               liveRoundState?.roundId == snapshot.roundId else { return }
+         prefetchGarminRasters(snapshot, activeHole: liveRoundState?.activeHole)
+     }
