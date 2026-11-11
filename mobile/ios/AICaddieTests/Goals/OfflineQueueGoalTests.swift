@@ -461,8 +461,10 @@ final class OfflineQueueGoalTests: XCTestCase {
         XCTAssertEqual(server.storedIds, ids, "every record of the sealed round is uploaded")
         XCTAssertEqual(server.deliveries, ["seal-e1": 1, "seal-e2": 1, "seal-e3": 1])
         XCTAssertEqual(server.log, [.events(ids), .finish], "records are uploaded before the round is finished")
-        let markers = try store.loadEvents().filter { $0.roundId == roundId && $0.kind == .syncMarker }
-        XCTAssertEqual(markers.count, 1, "a completed upload records its acknowledgement locally")
+        XCTAssertTrue(
+            try store.loadEvents().allSatisfy { $0.roundId != roundId },
+            "a completed deferred finish discards the local round after acknowledgement"
+        )
         await app.shutDown()
     }
 
