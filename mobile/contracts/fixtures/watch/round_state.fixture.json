@@ -1,0 +1,34 @@
+{
+  "schema": "ai-caddie-watch-round-state-v1",
+  "roundId": "round-fixture-1",
+  "hole": 7,
+  "par": 4,
+  "distanceM": 352,
+  "teeLatitude": 39.9042,
+  "teeLongitude": 116.4074,
+  "suggestedClub": "7I",
+  "selectedClub": "Driver",
+  "availableClubs": [
+    {"clubName": "Driver", "sampleSize": 24, "medianM": 228, "source": "garmin"},
+    {"clubName": "7I", "sampleSize": 18, "medianM": 148, "source": "garmin"}
+  ],
+  "shotType": "tee",
+  "strategyMode": "stock",
+  "frontGreenM": 340,
+  "centerGreenM": 352,
+  "backGreenM": 364,
+  "globalId": 81001,
+  "geometryCoverage": "ready",
+  "caddieOptions": [
+    {"optionId": "opt-stock", "label": "稳妥", "clubName": "Driver", "carryM": 228, "carryP10M": 210, "carryP90M": 240, "sampleSize": 24, "confidence": "high"}
+  ],
+  "hazards": [
+    {"kind": "water", "label": "右侧水", "startM": 180, "endM": 230, "sideM": 18}
+  ],
+  "score": 5,
+  "putts": 2,
+  "penaltyCount": 1,
+  "caddieConfidence": "high",
+  "phoneShotEventIds": ["phone-shot-1"],
+  "snapshotRevision": 42
+}

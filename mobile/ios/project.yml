@@ -137,6 +137,12 @@ targets:
         buildPhase: resources
       - path: contracts/fixtures/shared/c120_avoid_zones.json
         buildPhase: resources
+      - path: mobile/contracts/fixtures/watch/round_state.fixture.json
+        buildPhase: resources
+      - path: mobile/contracts/fixtures/watch/input_score.fixture.json
+        buildPhase: resources
+      - path: mobile/contracts/fixtures/watch/input_location.fixture.json
+        buildPhase: resources
     dependencies:
       - target: AICaddie
     settings:
@@ -195,6 +201,12 @@ targets:
     platform: watchOS
     sources:
       - path: mobile/ios/AICaddieWatchTests
+      - path: mobile/contracts/fixtures/watch/round_state.fixture.json
+        buildPhase: resources
+      - path: mobile/contracts/fixtures/watch/input_score.fixture.json
+        buildPhase: resources
+      - path: mobile/contracts/fixtures/watch/input_location.fixture.json
+        buildPhase: resources
     dependencies:
       - target: AICaddieWatch
     settings:

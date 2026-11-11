@@ -1,0 +1,9 @@
+{
+  "schema": "ai-caddie-watch-input-event-v1",
+  "eventId": "watch-evt-score-1",
+  "roundId": "round-fixture-1",
+  "hole": 7,
+  "kind": "score",
+  "value": "5",
+  "createdAt": "2026-11-08T10:00:00Z"
+}
