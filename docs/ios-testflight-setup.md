@@ -1,6 +1,6 @@
 # iOS + Watch → TestFlight (no Mac needed)
 
-This uses GitHub `macos-15` runners + fastlane `match` (certs/profiles in a private git
+This uses the self-hosted `caddie-mba` Mac runner + fastlane `match` (certs/profiles in a private git
 repo) + an App Store Connect API key. No local Mac and no interactive Apple login are
 needed. Signing is isolated from other apps in `jasonhorga/garmin-ai-caddie-signing`.
 

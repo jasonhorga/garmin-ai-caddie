@@ -484,5 +484,5 @@ re-run rebuilds them.
 
 The default CI can be run manually from GitHub Actions because the workflow has
 `workflow_dispatch`. It runs fixture-backed backend/frontend checks on Ubuntu
-and native iOS/Watch simulator tests on `macos-15`; it must not receive real
+and native iOS/Watch simulator tests on the self-hosted Mac (`caddie-mba`); it must not receive real
 Garmin session material.

@@ -1,11 +1,10 @@
 diff --git a/.github/workflows/watch-runtime.yml b/.github/workflows/watch-runtime.yml
-index 723219a1..a58b8fd3 100644
 --- a/.github/workflows/watch-runtime.yml
 +++ b/.github/workflows/watch-runtime.yml
-@@ -72,7 +72,7 @@ jobs:
+@@ -74,7 +74,7 @@
            fi
            if [[ -z "$xcode_path" ]]; then
-             # vars.MAC_RUNNER routes here (ubuntu-latest) while the Mac is offline.
+             # Not reached on caddie-mba; kept so a mis-provisioned Mac fails loudly.
 -            echo "::error title=Xcode 27 unavailable::Xcode 27 installation not found. Only the self-hosted caddie-mba Mac has Xcode 27 (GitHub-hosted images stop at Xcode 26); this job stops instead of testing with another Xcode. Re-run once the Mac runner is online."
 +            echo >&2 "Xcode 27 installation not found. Only the self-hosted caddie-mba Mac has Xcode 27 (GitHub-hosted images stop at Xcode 26); this job stops instead of testing with another Xcode. Re-run once the Mac runner is online."
              exit 1

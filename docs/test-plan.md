@@ -154,14 +154,14 @@
 
 - **CPU 时间计成本**：预算数字回答「这层测试要花多少算力」。机器忙时墙钟会被拉长（C392、C394 在负载约 20 时 1 s 的 small 测试跑了 2.5–3.4 s，断言全过），这不是测试变贵了。
 - **墙钟只防挂死**：卡死由各入口的总超时拦（宿主 CD、CI job 的 timeout），超时照旧失败。
-- **数字来源**：在固定环境（同一台指定机器、单进程、空闲；服务端快层是 GitHub `ubuntu-latest` 2 核）测基线，再留约 30% 余量，即预算 ≈ 基线 × 1.3；基线变了按同一办法重定，不为某次慢跑临时调大。
+- **数字来源**：在固定环境（同一台指定机器、单进程、空闲；服务端快层是 自有 homeserver runner）测基线，再留约 30% 余量，即预算 ≈ 基线 × 1.3；基线变了按同一办法重定，不为某次慢跑临时调大。
 - **超了怎么办**：单条超过 3.1 的上限、或某层合计超过下表预算，运行器把测试名和耗时列进汇总，退出码不变；有人看到就开卡查原因（测试是否该换层、拆分或修慢代码）。断言失败和 small 层守卫拦下的违规（网络、写磁盘、`sleep`、仓库代码读真实时钟）仍然让运行失败。
 
 下表「门禁」列指这层测试必须通过，不含耗时。
 
 | 层 | 内容 | 预算 | 在哪跑 | 门禁 |
 |---|---|---|---|---|
-| **快层-服务端** | Python small + medium | small ≤ 45 s；medium ≤ 135 s；**合计 ≤ 180 s**（GitHub `ubuntu-latest` 2 核，单进程） | PR CI `ci.yml` backend；push main；宿主 CD 部署前 | 必过 |
+| **快层-服务端** | Python small + medium | small ≤ 45 s；medium ≤ 135 s；**合计 ≤ 180 s**（自有 homeserver runner，单进程） | PR CI `ci.yml` backend；push main；宿主 CD 部署前 | 必过 |
 | **快层-原生** | Swift small（`swift test`，macOS 无模拟器）+ 改动相关的 Swift medium | small ≤ 60 s；相关 medium ≤ 5 min（不含冷编译） | PR CI `native-mobile.yml` `native-quick`（自托管 `caddie-mba`），仅 `mobile/**`、`Package.swift`、契约路径改动时 | 必过 |
 | **慢层-服务端** | Python large（真端口冒烟、迁移往返、镜像冒烟） | ≤ 6 min | 合并前（PR 加 label `slow` 或 merge queue）+ 每日 1 次 | 合并前必过；每日红开卡 |
 | **慢层-原生** | 全部 Swift medium + XCUITest（手机 + 手表）+ TF Release 构建（不上传） | medium ≤ 8 min；UI ≤ 20 min；TF 构建 ≤ 25 min | 合并前（改了 `mobile/**`）+ 每日 1 次，Mac 自托管 | 同上 |

@@ -74,7 +74,7 @@ concurrency:
 
 jobs:
   readiness:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homeserver]
     timeout-minutes: 15
     env:
       AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}

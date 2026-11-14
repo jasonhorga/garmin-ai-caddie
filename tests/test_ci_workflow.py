@@ -440,7 +440,7 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
         for step_name in ("Test iOS app target", "Test Watch app target", "Test Product UI tests",
                           "Upload design snapshots", "Upload Watch design snapshots", "Upload watch real screenshots"):
             self.assertEqual(1, sum(step.get("name") == step_name for step in fixture_steps), step_name)
-        self.assertEqual("ubuntu-latest", jobs["native-mobile"]["runs-on"])
+        self.assertEqual(["self-hosted", "homeserver"], jobs["native-mobile"]["runs-on"])
         self.assertEqual(set(jobs) - {"native-mobile", "native-quick"}, set(jobs["native-mobile"]["needs"]))
         for name in ("native-unit-watch", "native-real-flow"):
             self.assertIn("capture_scope != 'edit'", jobs[name]["if"])
@@ -1631,7 +1631,7 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
         steps = {step.get("name"): step for step in web["steps"]}
 
         self.assertEqual("watch-runtime", web["needs"])
-        self.assertEqual("ubuntu-latest", web["runs-on"])
+        self.assertEqual(["self-hosted", "homeserver"], web["runs-on"])
         self.assertEqual(
             "${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}",
             web["env"]["AI_CADDIE_CI_PLAYER_TOKEN"],
@@ -1703,7 +1703,7 @@ run_case(warming.merge("schema" => "ai-caddie-readiness-v1", "authenticated" => 
         self.assertIn("update_github_variable", inputs)
         self.assertIn("run_smoke", inputs)
         self.assertIn("run_phase6_preflight", inputs)
-        self.assertEqual("ubuntu-latest", deploy["runs-on"])
+        self.assertEqual(["self-hosted", "homeserver"], deploy["runs-on"])
 
         env = deploy["env"]
         self.assertEqual("${{ secrets.FLY_API_TOKEN }}", env["FLY_API_TOKEN"])

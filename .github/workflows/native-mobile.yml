@@ -1380,7 +1380,7 @@ jobs:
   native-mobile:
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' }}
     needs: [native-live, native-unit-watch, native-real-flow, native-screenshots, native-product-ui]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homeserver]
     timeout-minutes: 15
     steps:
       - name: Verify native job conclusions
