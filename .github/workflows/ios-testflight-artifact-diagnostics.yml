@@ -33,7 +33,7 @@ concurrency:
 
 jobs:
   diagnose:
-    runs-on: macos-15
+    runs-on: [self-hosted, caddie-mba]
     timeout-minutes: 15
     steps:
       - name: Download the exact uploaded artifact

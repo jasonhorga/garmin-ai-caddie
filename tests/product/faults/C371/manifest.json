@@ -6,7 +6,7 @@
       "patch": "tests/product/faults/C371/01-cold-start-offline-hosted-fallback.patch",
       "kind": "python",
       "target": "tests.test_c307_mac_runner_jobs.MacRunnerJobsTests.test_runner_routing_obeys_online_trust_and_dispatch",
-      "promise": "C371 offline Mac routes to Linux, never a hosted Xcode"
+      "promise": "C408 Mac native jobs wait for the Mac, never a hosted runner"
     },
     {
       "id": "tests-product-faults-C371-02-mutant-missing-xcode-selection",
@@ -27,7 +27,7 @@
       "patch": "tests/product/faults/C371/04-runtime-offline-silent.patch",
       "kind": "python",
       "target": "tests.test_c307_mac_runner_jobs.Xcode27NativeWorkflowTests.test_selection_exports_only_an_xcode27_developer_dir",
-      "promise": "C371 offline watch-runtime run reports why it stopped"
+      "promise": "C371 a Mac without Xcode 27 reports why the job stopped"
     },
     {
       "id": "tests-product-faults-C371-05-mutant-version-before-export",
@@ -35,13 +35,6 @@
       "kind": "python",
       "target": "tests.test_c307_mac_runner_jobs.Xcode27NativeWorkflowTests.test_selection_exports_only_an_xcode27_developer_dir",
       "promise": "C371 selection verifies the Xcode it exports"
-    },
-    {
-      "id": "tests-product-faults-C371-06-cold-start-offline-scan-noise",
-      "patch": "tests/product/faults/C371/06-cold-start-offline-scan-noise.patch",
-      "kind": "python",
-      "target": "tests.test_c307_mac_runner_jobs.Xcode27NativeWorkflowTests.test_offline_linux_run_stops_at_xcode_selection",
-      "promise": "C371 offline cold-start run stops at Xcode selection"
     }
   ]
 }

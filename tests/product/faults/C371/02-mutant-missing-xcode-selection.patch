@@ -1,8 +1,7 @@
 diff --git a/.github/workflows/agenthub-native-mutant.yml b/.github/workflows/agenthub-native-mutant.yml
-index b9c644d3..3b49a0e6 100644
 --- a/.github/workflows/agenthub-native-mutant.yml
 +++ b/.github/workflows/agenthub-native-mutant.yml
-@@ -41,35 +41,6 @@ jobs:
+@@ -41,35 +41,6 @@
        run:
          shell: bash
      steps:
@@ -22,7 +21,7 @@ index b9c644d3..3b49a0e6 100644
 -            done
 -          fi
 -          if [[ -z "$xcode_path" ]]; then
--            # vars.MAC_RUNNER routes here (ubuntu-latest) while the Mac is offline.
+-            # Not reached on caddie-mba; kept so a mis-provisioned Mac fails loudly.
 -            echo "::error title=Xcode 27 unavailable::Xcode 27 installation not found. Only the self-hosted caddie-mba Mac has Xcode 27 (GitHub-hosted images stop at Xcode 26); this job stops instead of testing with another Xcode. Re-run once the Mac runner is online."
 -            exit 1
 -          fi

@@ -1,12 +1,11 @@
 diff --git a/.github/workflows/watch-runtime.yml b/.github/workflows/watch-runtime.yml
-index 9f298dc6..1caf55b2 100644
 --- a/.github/workflows/watch-runtime.yml
 +++ b/.github/workflows/watch-runtime.yml
-@@ -53,7 +53,7 @@ jobs:
+@@ -52,7 +52,7 @@
    watch-runtime:
      if: github.event_name != 'workflow_dispatch' || github.event.inputs.runtime_scope != 'web-only'
-     # Xcode 27 exists only on the self-hosted Mac; offline runs stop at Select Xcode 27.
--    runs-on: ${{ vars.MAC_RUNNER == 'online' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "caddie-mba"]') || 'ubuntu-latest' }}
+     # Xcode 27 exists only on the self-hosted Mac; the job waits for it (no hosted fallback, C408).
+-    runs-on: [self-hosted, caddie-mba]
 +    runs-on: macos-15
      # recovery-only took 12 min on the Mac (C371); cap a hung run before it holds the Mac for 6 h.
      timeout-minutes: 60

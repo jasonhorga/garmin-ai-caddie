@@ -13,20 +13,48 @@ concurrency:
 
 jobs:
   bootstrap:
-    runs-on: macos-15
+    runs-on: [self-hosted, caddie-mba]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
       - name: Select latest Xcode
+        shell: bash
         run: |
-          sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          set -euo pipefail
+          # Self-hosted Mac: no sudo; select through DEVELOPER_DIR for later steps.
+          if [[ -d /Applications/Xcode.app ]]; then
+            xcode_path="/Applications/Xcode.app"
+          else
+            xcode_path="$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          fi
+          export DEVELOPER_DIR="$xcode_path/Contents/Developer"
           xcodebuild -version
+          printf 'DEVELOPER_DIR=%s\n' "$DEVELOPER_DIR" >> "$GITHUB_ENV"
 
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.2'
-          bundler-cache: true
+      - name: Verify self-hosted build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The runner service PATH is /usr/bin:/bin:/usr/sbin:/sbin (system Ruby 2.6
+          # cannot install fastlane); put Homebrew first for this and later steps.
+          for dir in /opt/homebrew/bin /usr/local/bin; do
+            if [ -x "$dir/brew" ]; then
+              export PATH="$dir:$PATH"
+              printf '%s\n' "$dir" >> "$GITHUB_PATH"
+              break
+            fi
+          done
+          if command -v rbenv >/dev/null 2>&1; then
+            eval "$(rbenv init -)"
+          fi
+          command -v ruby
+          command -v bundle
+          ruby -e 'exit(RUBY_VERSION.split(".").first.to_i >= 3 ? 0 : 1)' || {
+            echo "Ruby 3+ is required for fastlane (found $(ruby -e 'print RUBY_VERSION'))" >&2
+            exit 1
+          }
+          bundle install --jobs 4 --retry 3
 
       - name: Validate signing secrets
         env:

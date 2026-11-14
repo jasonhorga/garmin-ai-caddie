@@ -39,9 +39,6 @@ def workflow(name):
 
 
 MAC = ['self-hosted', 'caddie-mba']
-ROUTE_ONLINE = {'vars.MAC_RUNNER': 'online', 'github.event_name': 'workflow_dispatch',
-                'github.repository': 'owner/repo'}
-ROUTE_OFFLINE = {**ROUTE_ONLINE, 'vars.MAC_RUNNER': 'offline'}
 FAKE_XCODEBUILD = r'''#!/bin/bash
 # Report the version of the Xcode that DEVELOPER_DIR selects, as xcodebuild does.
 [[ "$1" == -version ]] || exit 64
@@ -71,26 +68,14 @@ class Xcode27NativeWorkflowTests(unittest.TestCase):
             self.assertIn(required, jobs)
         for name, job_name, job, _ in self.xcode_jobs():
             with self.subTest(workflow=name, job=job_name):
-                self.assertEqual(evaluate(job.get('runs-on'), ROUTE_ONLINE), MAC)
+                self.assertEqual(job.get('runs-on'), MAC)
 
     def test_offline_mac_never_falls_back_to_a_hosted_xcode(self):
-        # C371: no GitHub-hosted image has Xcode 27, so an offline Mac either keeps
-        # the job queued for the Mac or routes it to Linux, where selection fails.
+        # C408: no GitHub-hosted image has Xcode 27, so there is no fallback route:
+        # runs-on is the plain Mac label list, never an expression, and the job queues for the Mac.
         for name, job_name, job, _ in self.xcode_jobs():
             with self.subTest(workflow=name, job=job_name):
-                self.assertIn(evaluate(job.get('runs-on'), ROUTE_OFFLINE), (MAC, 'ubuntu-latest'))
-
-    def test_offline_linux_run_stops_at_xcode_selection(self):
-        # C371: the Linux route has nothing to collect or scan, so the selection error stands alone.
-        for name, job_name, job, steps in self.xcode_jobs():
-            if evaluate(job.get('runs-on'), ROUTE_OFFLINE) == MAC:
-                continue
-            select = next(s for s in steps if s.get('name') == 'Select Xcode 27')
-            values = {'runner.environment': 'github-hosted', 'inputs.include_ui': True,
-                      f"steps.{select.get('id')}.outcome": 'failure'}
-            for step in steps[steps.index(select) + 1:]:
-                with self.subTest(workflow=name, job=job_name, step=step.get('name') or step.get('uses')):
-                    self.assertFalse(evaluate(step.get('if', 'success()'), values, failed=True, condition=True))
+                self.assertEqual(job.get('runs-on'), MAC)
 
     def run_selection(self, script, applications):
         holder = tempfile.TemporaryDirectory()
@@ -118,7 +103,6 @@ class Xcode27NativeWorkflowTests(unittest.TestCase):
         for name, job_name, job, steps in self.xcode_jobs():
             script = next((str(s['run']) for s in steps if s.get('name') == 'Select Xcode 27'), None)
             self.assertIsNotNone(script, f'{name} {job_name} must select Xcode 27')
-            hosted = evaluate(job.get('runs-on'), ROUTE_OFFLINE) != MAC
             with self.subTest(workflow=name, job=job_name, case='versioned Xcode 27'):
                 result, exported, apps = self.run_selection(script, {'Xcode_27.2.app': 'Xcode 27.2'})
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -128,12 +112,12 @@ class Xcode27NativeWorkflowTests(unittest.TestCase):
                                                                   'Xcode_27.2.app': 'Xcode 27.2'})
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 self.assertNotIn('DEVELOPER_DIR', exported)
-            with self.subTest(workflow=name, job=job_name, case='no Xcode (offline route)'):
+            with self.subTest(workflow=name, job=job_name, case='no Xcode on the Mac'):
                 result, exported, _ = self.run_selection(script, {})
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 self.assertNotIn('DEVELOPER_DIR', exported)
-                if hosted:
-                    # The offline Linux run must say why it stopped, as a job annotation.
+                if name in ('watch-runtime.yml', 'watch-cold-start.yml', 'agenthub-native-mutant.yml'):
+                    # A Mac without Xcode 27 must say why the job stopped, as a job annotation.
                     self.assertRegex(result.stdout, r'(?m)^::error .*Xcode 27.*caddie-mba')
 
     def test_every_native_xcode_job_selects_and_verifies_xcode27_before_tools(self):
@@ -502,34 +486,19 @@ while True:
                          [['simctl', 'erase', 'owned']])
 
     def test_runner_routing_obeys_online_trust_and_dispatch(self):
-        # C371: there is no hosted Xcode 27, so off-Mac routes go to Linux and stop there.
-        cases = [('online', 'pull_request', 'owner/repo', ['self-hosted', 'caddie-mba']),
-                 ('offline', 'pull_request', 'owner/repo', 'ubuntu-latest'),
-                 ('online', 'pull_request', 'fork/repo', 'ubuntu-latest'),
-                 ('online', 'workflow_dispatch', '', ['self-hosted', 'caddie-mba']),
-                 ('offline', 'workflow_dispatch', '', 'ubuntu-latest')]
+        # C408: simulator jobs always wait for the self-hosted Mac, whatever the
+        # MAC_RUNNER variable, event or fork status; there is no hosted route.
         for name, jobs in SIM_JOBS.items():
             for job in jobs:
-                for online, event, repo, expected in cases:
-                    with self.subTest(workflow=name, job=job, online=online, event=event, repo=repo):
-                        values = {'vars.MAC_RUNNER': online, 'github.event_name': event,
-                                  'github.repository': 'owner/repo',
-                                  'github.event.pull_request.head.repo.full_name': repo}
-                        if name == 'native-mobile.yml':
-                            expected = ['self-hosted', 'caddie-mba']
-                        self.assertEqual(evaluate(workflow(name)['jobs'][job]['runs-on'], values), expected)
+                with self.subTest(workflow=name, job=job):
+                    self.assertEqual(workflow(name)['jobs'][job]['runs-on'], MAC)
 
     def test_sdk_affected_jobs_stay_hosted_even_when_mac_is_online(self):
         # C333 (native-mobile) and C371 (watch-runtime) moved these jobs back to the
         # self-hosted Xcode 27 Mac after C332; the name is kept for fault targets.
         for name, job in [(n, j) for n, jobs in SDK_HOSTED.items() for j in jobs]:
-            for event, repo in [('workflow_dispatch', ''), ('pull_request', 'owner/repo')]:
-                with self.subTest(workflow=name, job=job, event=event, repo=repo):
-                    expected = ['self-hosted', 'caddie-mba']
-                    self.assertEqual(evaluate(workflow(name)['jobs'][job]['runs-on'], {
-                        'vars.MAC_RUNNER': 'online', 'github.event_name': event,
-                        'github.repository': 'owner/repo',
-                        'github.event.pull_request.head.repo.full_name': repo}), expected)
+            with self.subTest(workflow=name, job=job):
+                self.assertEqual(workflow(name)['jobs'][job]['runs-on'], MAC)
 
     def test_owned_selection_boots_in_english_after_each_job_erase(self):
         # The host supplies Chinese defaults again on every erase; both platforms
@@ -592,15 +561,14 @@ while True:
                 self.assertEqual(prefs['AppleLocale'], 'en_US')
 
     def test_signing_bootstrap_always_stays_hosted(self):
-        # TestFlight itself builds on the self-hosted Mac since C343 (Xcode 27
-        # only exists there); its runner contract lives in test_ci_workflow.
-        paths = [ROOT / '.github/workflows/ios-signing-bootstrap.yml']
-        for path in paths:
-            for job in workflow(path.name)['jobs'].values():
-                if 'uses' in job:
-                    continue  # Reusable workflows choose their runner in their own jobs.
-                self.assertEqual(evaluate(job['runs-on'], {'vars.MAC_RUNNER': 'online',
-                                 'github.event_name': 'workflow_dispatch'}), 'macos-15', path.name)
+        # C408: the signing bootstrap runs on the self-hosted Mac like TestFlight
+        # (there is no GitHub-hosted macOS runner any more); the name is kept for fault targets.
+        path = ROOT / '.github/workflows/ios-signing-bootstrap.yml'
+        for job_name, job in workflow(path.name)['jobs'].items():
+            if 'uses' in job:
+                continue  # Reusable workflows choose their runner in their own jobs.
+            with self.subTest(job=job_name):
+                self.assertEqual(job['runs-on'], MAC)
 
     def test_github_selects_exact_shared_names_on_newest_numeric_runtime(self):
         self.assertEqual(self.select('ios'), 'iOS27.2')
